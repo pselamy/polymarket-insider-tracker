@@ -1,5 +1,8 @@
 """Wallet profiler - Blockchain analysis for trader intelligence."""
 
+from polymarket_insider_tracker.profiler.analyzer import (
+    WalletAnalyzer,
+)
 from polymarket_insider_tracker.profiler.chain import (
     PolygonClient,
     PolygonClientError,
@@ -9,9 +12,12 @@ from polymarket_insider_tracker.profiler.chain import (
 from polymarket_insider_tracker.profiler.models import (
     Transaction,
     WalletInfo,
+    WalletProfile,
 )
 
 __all__ = [
+    # Analyzer
+    "WalletAnalyzer",
     # Polygon Client
     "PolygonClient",
     "PolygonClientError",
@@ -20,4 +26,5 @@ __all__ = [
     # Models
     "Transaction",
     "WalletInfo",
+    "WalletProfile",
 ]
