@@ -20,6 +20,12 @@ from polymarket_insider_tracker.ingestor.models import (
     TradeEvent,
     derive_category,
 )
+from polymarket_insider_tracker.ingestor.publisher import (
+    ConsumerGroupExistsError,
+    EventPublisher,
+    PublisherError,
+    StreamEntry,
+)
 from polymarket_insider_tracker.ingestor.websocket import (
     ConnectionState,
     StreamStats as WebSocketStreamStats,
@@ -45,6 +51,11 @@ __all__ = [
     "Token",
     "TradeEvent",
     "derive_category",
+    # Publisher
+    "ConsumerGroupExistsError",
+    "EventPublisher",
+    "PublisherError",
+    "StreamEntry",
     # WebSocket
     "ConnectionState",
     "WebSocketStreamStats",
