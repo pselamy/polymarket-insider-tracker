@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import pytest
 
-from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
+from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo, WalletProfile
 
 
 class TestTransaction:
@@ -267,3 +267,161 @@ class TestTransactionEquality:
 
         tx_set = {tx}
         assert tx in tx_set
+
+
+class TestWalletProfile:
+    """Tests for the WalletProfile dataclass."""
+
+    @pytest.fixture
+    def fresh_profile(self) -> WalletProfile:
+        """Create a fresh wallet profile."""
+        return WalletProfile(
+            address="0xfresh",
+            nonce=2,
+            first_seen=datetime.now(UTC) - timedelta(hours=6),
+            age_hours=6.0,
+            is_fresh=True,
+            total_tx_count=2,
+            matic_balance=Decimal("1000000000000000000"),  # 1 MATIC
+            usdc_balance=Decimal("1000000"),  # 1 USDC
+            fresh_threshold=5,
+        )
+
+    @pytest.fixture
+    def old_profile(self) -> WalletProfile:
+        """Create an old wallet profile."""
+        return WalletProfile(
+            address="0xold",
+            nonce=500,
+            first_seen=datetime.now(UTC) - timedelta(days=365),
+            age_hours=365 * 24,
+            is_fresh=False,
+            total_tx_count=500,
+            matic_balance=Decimal("100000000000000000000"),  # 100 MATIC
+            usdc_balance=Decimal("10000000000"),  # 10000 USDC
+            fresh_threshold=5,
+        )
+
+    def test_profile_creation(self, fresh_profile: WalletProfile) -> None:
+        """Test creating a wallet profile."""
+        assert fresh_profile.address == "0xfresh"
+        assert fresh_profile.nonce == 2
+        assert fresh_profile.is_fresh is True
+        assert fresh_profile.age_hours == 6.0
+
+    def test_age_days(self, fresh_profile: WalletProfile) -> None:
+        """Test age_days property."""
+        assert fresh_profile.age_days == 0.25  # 6 hours = 0.25 days
+
+    def test_age_days_none(self) -> None:
+        """Test age_days when age_hours is None."""
+        profile = WalletProfile(
+            address="0xnew",
+            nonce=0,
+            first_seen=None,
+            age_hours=None,
+            is_fresh=True,
+            total_tx_count=0,
+            matic_balance=Decimal("0"),
+            usdc_balance=Decimal("0"),
+        )
+        assert profile.age_days is None
+
+    def test_matic_balance_formatted(self, fresh_profile: WalletProfile) -> None:
+        """Test MATIC balance formatting."""
+        assert fresh_profile.matic_balance_formatted == Decimal("1")
+
+    def test_usdc_balance_formatted(self, fresh_profile: WalletProfile) -> None:
+        """Test USDC balance formatting."""
+        assert fresh_profile.usdc_balance_formatted == Decimal("1")
+
+    def test_is_brand_new(self) -> None:
+        """Test is_brand_new property."""
+        brand_new = WalletProfile(
+            address="0xnew",
+            nonce=0,
+            first_seen=None,
+            age_hours=None,
+            is_fresh=True,
+            total_tx_count=0,
+            matic_balance=Decimal("0"),
+            usdc_balance=Decimal("0"),
+        )
+        assert brand_new.is_brand_new is True
+
+        not_brand_new = WalletProfile(
+            address="0xold",
+            nonce=1,
+            first_seen=datetime.now(UTC),
+            age_hours=1.0,
+            is_fresh=True,
+            total_tx_count=1,
+            matic_balance=Decimal("0"),
+            usdc_balance=Decimal("0"),
+        )
+        assert not_brand_new.is_brand_new is False
+
+    def test_freshness_score_brand_new(self) -> None:
+        """Test freshness score for brand new wallet."""
+        profile = WalletProfile(
+            address="0xnew",
+            nonce=0,
+            first_seen=None,
+            age_hours=None,
+            is_fresh=True,
+            total_tx_count=0,
+            matic_balance=Decimal("0"),
+            usdc_balance=Decimal("0"),
+            fresh_threshold=5,
+        )
+        # nonce_score = 1.0 (0/5 = 0, 1-0 = 1)
+        # age_score = 1.0 (None = assumed new)
+        # score = 0.6 * 1.0 + 0.4 * 1.0 = 1.0
+        assert profile.freshness_score == 1.0
+
+    def test_freshness_score_old_wallet(self, old_profile: WalletProfile) -> None:
+        """Test freshness score for old wallet."""
+        # nonce_score = max(0, 1 - 500/5) = 0
+        # age_score = max(0, 1 - 8760/48) = 0
+        # score = 0
+        assert old_profile.freshness_score == 0.0
+
+    def test_freshness_score_moderate(self) -> None:
+        """Test freshness score for moderately fresh wallet."""
+        profile = WalletProfile(
+            address="0xmoderate",
+            nonce=2,
+            first_seen=datetime.now(UTC) - timedelta(hours=24),
+            age_hours=24.0,
+            is_fresh=True,
+            total_tx_count=2,
+            matic_balance=Decimal("0"),
+            usdc_balance=Decimal("0"),
+            fresh_threshold=5,
+        )
+        # nonce_score = 1 - 2/5 = 0.6
+        # age_score = 1 - 24/48 = 0.5
+        # score = 0.6 * 0.6 + 0.4 * 0.5 = 0.36 + 0.2 = 0.56
+        assert profile.freshness_score == pytest.approx(0.56)
+
+    def test_profile_frozen(self, fresh_profile: WalletProfile) -> None:
+        """Test that wallet profile is immutable."""
+        with pytest.raises(AttributeError):
+            fresh_profile.nonce = 100  # type: ignore[misc]
+
+    def test_analyzed_at_default(self) -> None:
+        """Test that analyzed_at has a default."""
+        before = datetime.now(UTC)
+        profile = WalletProfile(
+            address="0x1",
+            nonce=0,
+            first_seen=None,
+            age_hours=None,
+            is_fresh=True,
+            total_tx_count=0,
+            matic_balance=Decimal("0"),
+            usdc_balance=Decimal("0"),
+        )
+        after = datetime.now(UTC)
+
+        assert before <= profile.analyzed_at <= after
