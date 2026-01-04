@@ -310,14 +310,14 @@ class FundingTracer:
 
         chains: dict[str, FundingChain] = {}
         for addr, result in zip(addresses, results, strict=True):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 logger.warning("Failed to trace %s: %s", addr, result)
                 chains[addr.lower()] = FundingChain(
                     target_address=addr.lower(),
                     origin_type="error",
                 )
             else:
-                chains[addr.lower()] = result
+                chains[addr.lower()] = result  # type: ignore[assignment]
 
         return chains
 

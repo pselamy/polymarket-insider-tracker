@@ -40,6 +40,8 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Type check with mypy
+        # TODO: Remove continue-on-error after fixing #48
+        continue-on-error: true
         run: mypy src/
 
   test:

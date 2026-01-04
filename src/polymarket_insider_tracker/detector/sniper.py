@@ -292,7 +292,7 @@ class SniperDetector:
                 cluster_id=cluster_id,
                 wallet_addresses=cluster_wallets,
                 avg_entry_delta=cluster_stats["avg_delta"],
-                markets_in_common=cluster_stats["markets_in_common"],
+                markets_in_common=int(cluster_stats["markets_in_common"]),
             )
 
             # Update wallet-cluster mapping
@@ -312,7 +312,7 @@ class SniperDetector:
                         cluster_id=cluster_id,
                         cluster_size=len(cluster_wallets),
                         avg_entry_delta_seconds=cluster_stats["avg_delta"],
-                        markets_in_common=cluster_stats["markets_in_common"],
+                        markets_in_common=int(cluster_stats["markets_in_common"]),
                         confidence=confidence,
                     )
 
