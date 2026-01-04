@@ -1,7 +1,7 @@
 """Data models for the ingestor module."""
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -186,9 +186,9 @@ class TradeEvent:
         # Parse timestamp - it's a Unix timestamp in seconds
         raw_timestamp = data.get("timestamp", 0)
         if isinstance(raw_timestamp, int):
-            timestamp = datetime.fromtimestamp(raw_timestamp, tz=timezone.utc)
+            timestamp = datetime.fromtimestamp(raw_timestamp, tz=UTC)
         else:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
         # Parse side - normalize to uppercase
         side_raw = str(data.get("side", "BUY")).upper()
@@ -226,3 +226,268 @@ class TradeEvent:
     def notional_value(self) -> Decimal:
         """Return the notional value of the trade (price * size)."""
         return self.price * self.size
+
+
+# Category keywords for market classification
+_CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    "politics": [
+        "election",
+        "president",
+        "congress",
+        "senate",
+        "house",
+        "governor",
+        "mayor",
+        "vote",
+        "ballot",
+        "democrat",
+        "republican",
+        "trump",
+        "biden",
+        "political",
+        "party",
+        "campaign",
+        "poll",
+        "primary",
+        "caucus",
+    ],
+    "crypto": [
+        "bitcoin",
+        "ethereum",
+        "crypto",
+        "btc",
+        "eth",
+        "blockchain",
+        "token",
+        "defi",
+        "nft",
+        "altcoin",
+        "solana",
+        "cardano",
+        "dogecoin",
+    ],
+    "sports": [
+        "nfl",
+        "nba",
+        "mlb",
+        "nhl",
+        "soccer",
+        "football",
+        "basketball",
+        "baseball",
+        "hockey",
+        "tennis",
+        "golf",
+        "ufc",
+        "boxing",
+        "olympics",
+        "championship",
+        "super bowl",
+        "world cup",
+        "playoffs",
+        "finals",
+    ],
+    "entertainment": [
+        "movie",
+        "film",
+        "oscar",
+        "grammy",
+        "emmy",
+        "album",
+        "song",
+        "celebrity",
+        "netflix",
+        "disney",
+        "streaming",
+        "box office",
+        "tv show",
+        "series",
+        "actor",
+        "actress",
+        "music",
+    ],
+    "finance": [
+        "stock",
+        "market",
+        "fed",
+        "interest rate",
+        "inflation",
+        "gdp",
+        "unemployment",
+        "recession",
+        "economy",
+        "s&p",
+        "nasdaq",
+        "dow",
+        "treasury",
+        "bond",
+        "forex",
+        "gold",
+        "oil",
+        "commodity",
+    ],
+    "tech": [
+        "apple",
+        "google",
+        "microsoft",
+        "amazon",
+        "meta",
+        "tesla",
+        "ai",
+        "artificial intelligence",
+        "chatgpt",
+        "openai",
+        "semiconductor",
+        "iphone",
+        "android",
+        "software",
+        "hardware",
+        "startup",
+    ],
+    "science": [
+        "nasa",
+        "space",
+        "climate",
+        "weather",
+        "vaccine",
+        "covid",
+        "fda",
+        "drug",
+        "trial",
+        "research",
+        "study",
+        "discovery",
+    ],
+}
+
+
+def derive_category(title: str) -> str:
+    """Derive a market category from the market title.
+
+    Args:
+        title: The market question or title.
+
+    Returns:
+        Category string, or "other" if no match found.
+    """
+    title_lower = title.lower()
+
+    for category, keywords in _CATEGORY_KEYWORDS.items():
+        for keyword in keywords:
+            if keyword in title_lower:
+                return category
+
+    return "other"
+
+
+@dataclass(frozen=True)
+class MarketMetadata:
+    """Extended market metadata with derived fields and caching support.
+
+    This combines the core Market data with derived metadata like category
+    and is designed for efficient caching in Redis.
+    """
+
+    # Core market data
+    condition_id: str
+    question: str
+    description: str
+    tokens: tuple[Token, ...]
+    end_date: datetime | None = None
+    active: bool = True
+    closed: bool = False
+
+    # Derived metadata
+    category: str = "other"
+
+    # Cache metadata
+    last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @classmethod
+    def from_market(cls, market: Market) -> "MarketMetadata":
+        """Create MarketMetadata from a Market object.
+
+        Args:
+            market: The source Market object.
+
+        Returns:
+            MarketMetadata with derived fields populated.
+        """
+        return cls(
+            condition_id=market.condition_id,
+            question=market.question,
+            description=market.description,
+            tokens=market.tokens,
+            end_date=market.end_date,
+            active=market.active,
+            closed=market.closed,
+            category=derive_category(market.question),
+            last_updated=datetime.now(UTC),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a dictionary for Redis storage.
+
+        Returns:
+            Dictionary representation suitable for JSON serialization.
+        """
+        return {
+            "condition_id": self.condition_id,
+            "question": self.question,
+            "description": self.description,
+            "tokens": [
+                {
+                    "token_id": t.token_id,
+                    "outcome": t.outcome,
+                    "price": str(t.price) if t.price is not None else None,
+                }
+                for t in self.tokens
+            ],
+            "end_date": self.end_date.isoformat() if self.end_date else None,
+            "active": self.active,
+            "closed": self.closed,
+            "category": self.category,
+            "last_updated": self.last_updated.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MarketMetadata":
+        """Deserialize from a dictionary (from Redis storage).
+
+        Args:
+            data: Dictionary from Redis.
+
+        Returns:
+            MarketMetadata instance.
+        """
+        tokens_data = data.get("tokens", [])
+        tokens = tuple(Token.from_dict(t) for t in tokens_data)
+
+        end_date = None
+        end_date_str = data.get("end_date")
+        if end_date_str:
+            try:
+                end_date = datetime.fromisoformat(end_date_str)
+            except (ValueError, AttributeError):
+                pass
+
+        last_updated_str = data.get("last_updated")
+        if last_updated_str:
+            try:
+                last_updated = datetime.fromisoformat(last_updated_str)
+            except (ValueError, AttributeError):
+                last_updated = datetime.now(UTC)
+        else:
+            last_updated = datetime.now(UTC)
+
+        return cls(
+            condition_id=str(data["condition_id"]),
+            question=str(data.get("question", "")),
+            description=str(data.get("description", "")),
+            tokens=tokens,
+            end_date=end_date,
+            active=bool(data.get("active", True)),
+            closed=bool(data.get("closed", False)),
+            category=str(data.get("category", "other")),
+            last_updated=last_updated,
+        )

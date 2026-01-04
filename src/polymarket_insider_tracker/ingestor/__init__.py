@@ -5,16 +5,24 @@ from polymarket_insider_tracker.ingestor.clob_client import (
     ClobClientError,
     RetryError,
 )
+from polymarket_insider_tracker.ingestor.metadata_sync import (
+    MarketMetadataSync,
+    MetadataSyncError,
+    SyncState,
+    SyncStats,
+)
 from polymarket_insider_tracker.ingestor.models import (
     Market,
+    MarketMetadata,
     Orderbook,
     OrderbookLevel,
     Token,
     TradeEvent,
+    derive_category,
 )
 from polymarket_insider_tracker.ingestor.websocket import (
     ConnectionState,
-    StreamStats,
+    StreamStats as WebSocketStreamStats,
     TradeStreamError,
     TradeStreamHandler,
 )
@@ -24,15 +32,22 @@ __all__ = [
     "ClobClient",
     "ClobClientError",
     "RetryError",
+    # Metadata Sync
+    "MarketMetadataSync",
+    "MetadataSyncError",
+    "SyncState",
+    "SyncStats",
     # Models
     "Market",
+    "MarketMetadata",
     "Orderbook",
     "OrderbookLevel",
     "Token",
     "TradeEvent",
+    "derive_category",
     # WebSocket
     "ConnectionState",
-    "StreamStats",
+    "WebSocketStreamStats",
     "TradeStreamError",
     "TradeStreamHandler",
 ]
