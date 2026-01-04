@@ -149,6 +149,54 @@ class SizeAnomalySignal:
 
 
 @dataclass(frozen=True)
+class SniperClusterSignal:
+    """Signal emitted when a wallet is identified as part of a sniper cluster.
+
+    Sniper clusters are groups of wallets that consistently enter markets
+    within minutes of their creation, suggesting coordinated insider activity.
+
+    Attributes:
+        wallet_address: The wallet identified as a sniper.
+        cluster_id: Unique identifier for this cluster.
+        cluster_size: Number of wallets in the cluster.
+        avg_entry_delta_seconds: Average time (seconds) from market creation to entry.
+        markets_in_common: Number of markets where cluster members overlap.
+        confidence: Confidence score (0.0 to 1.0) based on clustering strength.
+        timestamp: When this signal was generated.
+    """
+
+    wallet_address: str
+    cluster_id: str
+    cluster_size: int
+    avg_entry_delta_seconds: float
+    markets_in_common: int
+    confidence: float
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def is_high_confidence(self) -> bool:
+        """Return True if confidence exceeds 0.7."""
+        return self.confidence >= 0.7
+
+    @property
+    def is_very_high_confidence(self) -> bool:
+        """Return True if confidence exceeds 0.85."""
+        return self.confidence >= 0.85
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to dictionary for Redis stream publishing."""
+        return {
+            "wallet_address": self.wallet_address,
+            "cluster_id": self.cluster_id,
+            "cluster_size": self.cluster_size,
+            "avg_entry_delta_seconds": self.avg_entry_delta_seconds,
+            "markets_in_common": self.markets_in_common,
+            "confidence": self.confidence,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
 class RiskAssessment:
     """Combined risk assessment aggregating all signal types.
 
