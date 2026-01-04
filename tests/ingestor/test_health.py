@@ -448,9 +448,7 @@ class TestHealthMonitorHTTPEndpoints:
             assert data["status"] == "unhealthy"
 
     @pytest.mark.asyncio
-    async def test_metrics_endpoint(
-        self, monitor: HealthMonitor, app: web.Application
-    ) -> None:
+    async def test_metrics_endpoint(self, monitor: HealthMonitor, app: web.Application) -> None:
         """Test /metrics endpoint returns Prometheus format."""
         from aiohttp.test_utils import TestClient, TestServer
 
@@ -468,9 +466,7 @@ class TestHealthMonitorHTTPEndpoints:
             assert "polymarket_health_status" in text
 
     @pytest.mark.asyncio
-    async def test_ready_endpoint_ready(
-        self, monitor: HealthMonitor, app: web.Application
-    ) -> None:
+    async def test_ready_endpoint_ready(self, monitor: HealthMonitor, app: web.Application) -> None:
         """Test /ready endpoint when ready."""
         from aiohttp.test_utils import TestClient, TestServer
 

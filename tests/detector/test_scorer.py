@@ -76,9 +76,7 @@ def sample_metadata() -> MarketMetadata:
         condition_id="market_abc123",
         question="Will it rain tomorrow?",
         description="Weather prediction market",
-        tokens=(
-            Token(token_id="token_123", outcome="Yes", price=Decimal("0.65")),
-        ),
+        tokens=(Token(token_id="token_123", outcome="Yes", price=Decimal("0.65")),),
         category="science",
     )
 
@@ -310,9 +308,7 @@ class TestRiskScorerInit:
 class TestWeightedScoreCalculation:
     """Tests for weighted score calculation."""
 
-    def test_no_signals_zero_score(
-        self, mock_redis: AsyncMock, sample_trade: TradeEvent
-    ) -> None:
+    def test_no_signals_zero_score(self, mock_redis: AsyncMock, sample_trade: TradeEvent) -> None:
         """Test score is zero when no signals present."""
         scorer = RiskScorer(mock_redis)
         bundle = SignalBundle(trade_event=sample_trade)
@@ -358,10 +354,7 @@ class TestWeightedScoreCalculation:
         score, count = scorer.calculate_weighted_score(bundle)
 
         # 0.7 confidence * 0.35 weight + 0.7 * 0.25 niche weight = 0.42
-        expected = (
-            0.7 * DEFAULT_WEIGHTS["size_anomaly"]
-            + 0.7 * DEFAULT_WEIGHTS["niche_market"]
-        )
+        expected = 0.7 * DEFAULT_WEIGHTS["size_anomaly"] + 0.7 * DEFAULT_WEIGHTS["niche_market"]
         assert score == pytest.approx(expected)
         assert count == 1
 
@@ -559,9 +552,7 @@ class TestDeduplication:
     """Tests for deduplication functionality."""
 
     @pytest.mark.asyncio
-    async def test_check_and_set_dedup_new_key(
-        self, mock_redis: AsyncMock
-    ) -> None:
+    async def test_check_and_set_dedup_new_key(self, mock_redis: AsyncMock) -> None:
         """Test dedup returns False for new key."""
         mock_redis.set.return_value = True
 
@@ -572,9 +563,7 @@ class TestDeduplication:
         mock_redis.set.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_check_and_set_dedup_existing_key(
-        self, mock_redis: AsyncMock
-    ) -> None:
+    async def test_check_and_set_dedup_existing_key(self, mock_redis: AsyncMock) -> None:
         """Test dedup returns True for existing key."""
         mock_redis.set.return_value = False  # Key exists, NX failed
 
@@ -632,9 +621,7 @@ class TestBatchAnalysis:
                 confidence=0.8,
                 factors={},
             )
-            bundles.append(
-                SignalBundle(trade_event=trade, fresh_wallet_signal=signal)
-            )
+            bundles.append(SignalBundle(trade_event=trade, fresh_wallet_signal=signal))
 
         assessments = await scorer.assess_batch(bundles)
 

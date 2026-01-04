@@ -284,17 +284,13 @@ class TestAlertFormatterInit:
 class TestAlertFormatterFormat:
     """Tests for AlertFormatter.format method."""
 
-    def test_format_returns_formatted_alert(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_format_returns_formatted_alert(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that format returns a FormattedAlert."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert isinstance(result, FormattedAlert)
 
-    def test_format_includes_all_fields(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_format_includes_all_fields(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that all fields are populated."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -306,26 +302,20 @@ class TestAlertFormatterFormat:
         assert result.plain_text != ""
         assert result.links != {}
 
-    def test_format_title_includes_risk_level(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_format_title_includes_risk_level(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that title includes risk level."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert "HIGH" in result.title
 
-    def test_format_includes_wallet_link(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_format_includes_wallet_link(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that wallet explorer link is included."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert "wallet" in result.links
         assert "polygonscan.com" in result.links["wallet"]
 
-    def test_format_includes_market_link(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_format_includes_market_link(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that market link is included when slug available."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -336,9 +326,7 @@ class TestAlertFormatterFormat:
 class TestDiscordEmbed:
     """Tests for Discord embed format."""
 
-    def test_embed_has_required_fields(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_embed_has_required_fields(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that embed has required Discord fields."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -349,17 +337,13 @@ class TestDiscordEmbed:
         assert "fields" in embed
         assert "footer" in embed
 
-    def test_embed_color_reflects_risk(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_embed_color_reflects_risk(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that embed color matches risk level."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert result.discord_embed["color"] == COLOR_HIGH_RISK
 
-    def test_embed_includes_wallet_field(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_embed_includes_wallet_field(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that embed includes wallet field."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -369,9 +353,7 @@ class TestDiscordEmbed:
         assert wallet_field is not None
         assert "0x1234" in wallet_field["value"]
 
-    def test_embed_includes_wallet_age(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_embed_includes_wallet_age(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that wallet age is shown when fresh wallet signal present."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -380,9 +362,7 @@ class TestDiscordEmbed:
         wallet_field = next((f for f in fields if f["name"] == "Wallet"), None)
         assert "Age:" in wallet_field["value"]
 
-    def test_embed_includes_trade_details(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_embed_includes_trade_details(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that trade details are in embed."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -393,9 +373,7 @@ class TestDiscordEmbed:
         assert "BUY" in trade_field["value"]
         assert "Yes" in trade_field["value"]
 
-    def test_embed_includes_signals_field(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_embed_includes_signals_field(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that signals are listed in embed."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -405,9 +383,7 @@ class TestDiscordEmbed:
         assert signals_field is not None
         assert "Fresh Wallet" in signals_field["value"]
 
-    def test_detailed_embed_includes_confidence(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_detailed_embed_includes_confidence(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that detailed mode includes confidence breakdown."""
         formatter = AlertFormatter(verbosity="detailed")
         result = formatter.format(high_risk_assessment)
@@ -420,34 +396,26 @@ class TestDiscordEmbed:
 class TestTelegramMarkdown:
     """Tests for Telegram markdown format."""
 
-    def test_telegram_includes_header(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_telegram_includes_header(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that Telegram message has header."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert "*Suspicious Activity Detected*" in result.telegram_markdown
 
-    def test_telegram_includes_wallet(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_telegram_includes_wallet(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that Telegram message includes wallet."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert "`0x1234...5678`" in result.telegram_markdown
 
-    def test_telegram_includes_risk_score(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_telegram_includes_risk_score(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that Telegram message includes risk score."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert "0.82" in result.telegram_markdown
         assert "HIGH" in result.telegram_markdown
 
-    def test_telegram_includes_links(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_telegram_includes_links(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that Telegram message includes links."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
@@ -489,9 +457,7 @@ class TestPlainText:
 class TestCompactVerbosity:
     """Tests for compact verbosity mode."""
 
-    def test_compact_body_is_shorter(
-        self, high_risk_assessment: RiskAssessment
-    ) -> None:
+    def test_compact_body_is_shorter(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that compact mode produces shorter body."""
         detailed_formatter = AlertFormatter(verbosity="detailed")
         compact_formatter = AlertFormatter(verbosity="compact")

@@ -160,9 +160,7 @@ class TestWalletInfo:
         """Test wallet age when no first transaction."""
         assert sample_wallet.wallet_age_days is None
 
-    def test_wallet_age_days_with_transaction(
-        self, wallet_with_transaction: WalletInfo
-    ) -> None:
+    def test_wallet_age_days_with_transaction(self, wallet_with_transaction: WalletInfo) -> None:
         """Test wallet age calculation."""
         age = wallet_with_transaction.wallet_age_days
 

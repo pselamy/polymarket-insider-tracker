@@ -35,9 +35,11 @@ from polymarket_insider_tracker.ingestor.publisher import (
 )
 from polymarket_insider_tracker.ingestor.websocket import (
     ConnectionState,
-    StreamStats as WebSocketStreamStats,
     TradeStreamError,
     TradeStreamHandler,
+)
+from polymarket_insider_tracker.ingestor.websocket import (
+    StreamStats as WebSocketStreamStats,
 )
 
 __all__ = [

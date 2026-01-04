@@ -101,8 +101,7 @@ class AlertDispatcher:
             ):
                 # Allow half-open attempt
                 logger.info(
-                    f"Circuit half-open for {channel_name}, "
-                    f"attempt {state.half_open_attempts + 1}"
+                    f"Circuit half-open for {channel_name}, attempt {state.half_open_attempts + 1}"
                 )
                 return True
 
@@ -130,8 +129,7 @@ class AlertDispatcher:
             # Open the circuit
             state.is_open = True
             logger.warning(
-                f"Circuit opened for {channel_name} after "
-                f"{state.failure_count} failures"
+                f"Circuit opened for {channel_name} after {state.failure_count} failures"
             )
 
     async def _send_to_channel(
@@ -184,15 +182,11 @@ class AlertDispatcher:
             channel_results=channel_results,
         )
 
-        logger.info(
-            f"Dispatch complete: {success_count}/{len(channel_results)} succeeded"
-        )
+        logger.info(f"Dispatch complete: {success_count}/{len(channel_results)} succeeded")
 
         return result
 
-    async def dispatch_batch(
-        self, alerts: list[FormattedAlert]
-    ) -> list[DispatchResult]:
+    async def dispatch_batch(self, alerts: list[FormattedAlert]) -> list[DispatchResult]:
         """Dispatch multiple alerts sequentially.
 
         Args:
@@ -215,9 +209,7 @@ class AlertDispatcher:
                 "failure_count": state.failure_count,
                 "half_open_attempts": state.half_open_attempts,
                 "last_failure": (
-                    state.last_failure_time.isoformat()
-                    if state.last_failure_time
-                    else None
+                    state.last_failure_time.isoformat() if state.last_failure_time else None
                 ),
             }
             for name, state in self._circuit_state.items()

@@ -28,6 +28,7 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.7.0",
     "pre-commit>=3.0.0",
+    "aiosqlite>=0.19.0",
 ]
 
 [build-system]
@@ -76,7 +77,7 @@ warn_unused_configs = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["py_clob_client.*", "web3.*", "redis.*"]
+module = ["py_clob_client.*", "web3.*", "redis.*", "sklearn.*", "prometheus_client.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

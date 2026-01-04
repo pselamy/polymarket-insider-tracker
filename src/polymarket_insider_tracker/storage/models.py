@@ -109,7 +109,9 @@ class WalletRelationshipModel(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("wallet_a", "wallet_b", "relationship_type", name="uq_wallet_relationship"),
+        UniqueConstraint(
+            "wallet_a", "wallet_b", "relationship_type", name="uq_wallet_relationship"
+        ),
         Index("idx_wallet_relationships_a", "wallet_a"),
         Index("idx_wallet_relationships_b", "wallet_b"),
     )

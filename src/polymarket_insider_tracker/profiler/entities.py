@@ -195,19 +195,16 @@ class EntityRegistry:
             True if the address is a known smart contract.
         """
         entity_type = self.classify(address)
-        contract_types = (
-            self.DEX_ENTITY_TYPES
-            | {
-                EntityType.TOKEN_USDC,
-                EntityType.TOKEN_USDT,
-                EntityType.TOKEN_WETH,
-                EntityType.TOKEN_WMATIC,
-                EntityType.DEFI_AAVE,
-                EntityType.DEFI_COMPOUND,
-                EntityType.DEFI_OTHER,
-                EntityType.CONTRACT,
-            }
-        )
+        contract_types = self.DEX_ENTITY_TYPES | {
+            EntityType.TOKEN_USDC,
+            EntityType.TOKEN_USDT,
+            EntityType.TOKEN_WETH,
+            EntityType.TOKEN_WMATIC,
+            EntityType.DEFI_AAVE,
+            EntityType.DEFI_COMPOUND,
+            EntityType.DEFI_OTHER,
+            EntityType.CONTRACT,
+        }
         return entity_type in contract_types
 
     def get_entity_category(self, address: str) -> str:

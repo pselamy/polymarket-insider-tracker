@@ -74,27 +74,19 @@ class TestFundingTracerInit:
         tracer = FundingTracer(mock_polygon_client, max_hops=5)
         assert tracer.max_hops == 5
 
-    def test_init_with_custom_usdc_addresses(
-        self, mock_polygon_client: MagicMock
-    ) -> None:
+    def test_init_with_custom_usdc_addresses(self, mock_polygon_client: MagicMock) -> None:
         """Test initialization with custom USDC addresses."""
         custom_addresses = ["0x1111111111111111111111111111111111111111"]
-        tracer = FundingTracer(
-            mock_polygon_client, usdc_addresses=custom_addresses
-        )
+        tracer = FundingTracer(mock_polygon_client, usdc_addresses=custom_addresses)
         assert tracer._usdc_addresses == [custom_addresses[0].lower()]
 
-    def test_init_with_custom_entity_registry(
-        self, mock_polygon_client: MagicMock
-    ) -> None:
+    def test_init_with_custom_entity_registry(self, mock_polygon_client: MagicMock) -> None:
         """Test initialization with custom entity registry."""
         registry = EntityRegistry()
         tracer = FundingTracer(mock_polygon_client, entity_registry=registry)
         assert tracer.entity_registry is registry
 
-    def test_init_creates_default_entity_registry(
-        self, mock_polygon_client: MagicMock
-    ) -> None:
+    def test_init_creates_default_entity_registry(self, mock_polygon_client: MagicMock) -> None:
         """Test initialization creates default EntityRegistry if None."""
         tracer = FundingTracer(mock_polygon_client, entity_registry=None)
         assert isinstance(tracer.entity_registry, EntityRegistry)
@@ -186,9 +178,7 @@ class TestFundingTracerTrace:
 
         call_count = 0
 
-        async def mock_get_logs(
-            *_args: Any, **_kwargs: Any
-        ) -> list[dict[str, Any]]:
+        async def mock_get_logs(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
             nonlocal call_count
             result = [mock_logs[call_count]] if call_count < len(mock_logs) else []
             call_count += 1
@@ -213,9 +203,7 @@ class TestFundingTracerTrace:
 
         call_count = 0
 
-        async def mock_get_logs(
-            *_args: Any, **_kwargs: Any
-        ) -> list[dict[str, Any]]:
+        async def mock_get_logs(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
             nonlocal call_count
             if call_count < len(wallets) - 1:
                 log = _create_mock_log(
@@ -286,9 +274,7 @@ class TestGetFirstUsdcTransfer:
         """Test fallback to native USDC contract."""
         call_count = 0
 
-        async def mock_get_logs(
-            *_args: Any, **_kwargs: Any
-        ) -> list[dict[str, Any]]:
+        async def mock_get_logs(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
             nonlocal call_count
             call_count += 1
             if call_count == 1:  # First call (bridged) returns nothing
@@ -410,9 +396,7 @@ class TestLogToFundingTransfer:
             block_number=50000000,
         )
 
-        result = await funding_tracer._log_to_funding_transfer(
-            mock_log, USDC_BRIDGED
-        )
+        result = await funding_tracer._log_to_funding_transfer(mock_log, USDC_BRIDGED)
 
         assert result.from_address == TEST_SOURCE.lower()
         assert result.to_address == TEST_WALLET.lower()
@@ -438,9 +422,7 @@ class TestLogToFundingTransfer:
             block_number=50000000,
         )
 
-        result = await funding_tracer._log_to_funding_transfer(
-            mock_log, USDC_BRIDGED
-        )
+        result = await funding_tracer._log_to_funding_transfer(mock_log, USDC_BRIDGED)
 
         # Should still return a valid transfer with current timestamp
         assert result.from_address == TEST_SOURCE.lower()
@@ -460,7 +442,9 @@ class TestGetFundingChainsBatch:
 
         # Mock trace to return simple chains
         async def mock_trace(
-            addr: str, *, max_hops: int | None = None  # noqa: ARG001
+            addr: str,
+            *,
+            max_hops: int | None = None,  # noqa: ARG001
         ) -> FundingChain:
             return FundingChain(
                 target_address=addr.lower(),
@@ -486,7 +470,9 @@ class TestGetFundingChainsBatch:
         call_count = 0
 
         async def mock_trace(
-            addr: str, *, max_hops: int | None = None  # noqa: ARG001
+            addr: str,
+            *,
+            max_hops: int | None = None,  # noqa: ARG001
         ) -> FundingChain:
             nonlocal call_count
             call_count += 1
@@ -525,9 +511,7 @@ class TestGetFundingChainsBatch:
         addresses = ["0x" + "11" * 20]
         captured_max_hops: list[int | None] = []
 
-        async def mock_trace(
-            addr: str, max_hops: int | None = None
-        ) -> FundingChain:
+        async def mock_trace(addr: str, max_hops: int | None = None) -> FundingChain:
             captured_max_hops.append(max_hops)
             return FundingChain(target_address=addr.lower())
 
@@ -565,9 +549,7 @@ class TestGetSuspiciousnessScore:
 
         assert score == 0.3
 
-    def test_unknown_no_transfers_high_score(
-        self, funding_tracer: FundingTracer
-    ) -> None:
+    def test_unknown_no_transfers_high_score(self, funding_tracer: FundingTracer) -> None:
         """Test unknown origin with no transfers is most suspicious."""
         chain = FundingChain(
             target_address=TEST_WALLET,
@@ -579,9 +561,7 @@ class TestGetSuspiciousnessScore:
 
         assert score == 1.0
 
-    def test_unknown_max_hops_high_score(
-        self, funding_tracer: FundingTracer
-    ) -> None:
+    def test_unknown_max_hops_high_score(self, funding_tracer: FundingTracer) -> None:
         """Test unknown origin at max hops is suspicious."""
         chain = FundingChain(
             target_address=TEST_WALLET,
@@ -593,9 +573,7 @@ class TestGetSuspiciousnessScore:
 
         assert score == 0.7
 
-    def test_unknown_partial_hops_medium_score(
-        self, funding_tracer: FundingTracer
-    ) -> None:
+    def test_unknown_partial_hops_medium_score(self, funding_tracer: FundingTracer) -> None:
         """Test unknown origin with partial hops is moderately suspicious."""
         chain = FundingChain(
             target_address=TEST_WALLET,

@@ -59,9 +59,7 @@ class TestEntityData:
         """Test that CEX addresses are populated."""
         assert len(CEX_ADDRESSES) > 0
         # Check Binance address is present
-        binance_found = any(
-            entity == EntityType.CEX_BINANCE for entity in CEX_ADDRESSES.values()
-        )
+        binance_found = any(entity == EntityType.CEX_BINANCE for entity in CEX_ADDRESSES.values())
         assert binance_found
 
     def test_bridge_addresses_populated(self) -> None:
@@ -72,9 +70,7 @@ class TestEntityData:
         """Test that DEX addresses are populated."""
         assert len(DEX_ADDRESSES) > 0
         # Check Uniswap is present
-        uniswap_found = any(
-            entity == EntityType.DEX_UNISWAP for entity in DEX_ADDRESSES.values()
-        )
+        uniswap_found = any(entity == EntityType.DEX_UNISWAP for entity in DEX_ADDRESSES.values())
         assert uniswap_found
 
     def test_token_addresses_include_usdc(self) -> None:

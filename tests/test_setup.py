@@ -10,11 +10,7 @@ def test_version() -> None:
 
 def test_import_modules() -> None:
     """Test that all submodules can be imported."""
-    from polymarket_insider_tracker import ingestor
-    from polymarket_insider_tracker import profiler
-    from polymarket_insider_tracker import detector
-    from polymarket_insider_tracker import alerter
-    from polymarket_insider_tracker import storage
+    from polymarket_insider_tracker import alerter, detector, ingestor, profiler, storage
 
     # Just verify imports work
     assert ingestor is not None

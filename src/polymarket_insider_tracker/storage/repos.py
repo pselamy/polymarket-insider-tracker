@@ -274,9 +274,7 @@ class FundingRepository:
         """
         self.session = session
 
-    async def get_transfers_to(
-        self, address: str, limit: int = 100
-    ) -> list[FundingTransferDTO]:
+    async def get_transfers_to(self, address: str, limit: int = 100) -> list[FundingTransferDTO]:
         """Get transfers to a wallet address.
 
         Args:
@@ -294,9 +292,7 @@ class FundingRepository:
         )
         return [FundingTransferDTO.from_model(m) for m in result.scalars().all()]
 
-    async def get_transfers_from(
-        self, address: str, limit: int = 100
-    ) -> list[FundingTransferDTO]:
+    async def get_transfers_from(self, address: str, limit: int = 100) -> list[FundingTransferDTO]:
         """Get transfers from a wallet address.
 
         Args:
@@ -492,9 +488,7 @@ class RelationshipRepository:
         await self.session.flush()
         return dto
 
-    async def delete(
-        self, wallet_a: str, wallet_b: str, relationship_type: str
-    ) -> bool:
+    async def delete(self, wallet_a: str, wallet_b: str, relationship_type: str) -> bool:
         """Delete a specific relationship.
 
         Args:

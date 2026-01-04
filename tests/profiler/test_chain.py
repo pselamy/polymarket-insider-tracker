@@ -166,9 +166,7 @@ class TestPolygonClient:
 
         await client._set_cached("test:key", "value")
 
-        mock_redis.set.assert_called_once_with(
-            "test:key", "value", ex=DEFAULT_CACHE_TTL_SECONDS
-        )
+        mock_redis.set.assert_called_once_with("test:key", "value", ex=DEFAULT_CACHE_TTL_SECONDS)
 
     @pytest.mark.asyncio
     async def test_set_cached_custom_ttl(self, mock_redis: AsyncMock) -> None:
@@ -274,9 +272,7 @@ class TestPolygonClient:
             assert info.first_transaction is None
 
     @pytest.mark.asyncio
-    async def test_get_first_transaction_no_transactions(
-        self, mock_redis: AsyncMock
-    ) -> None:
+    async def test_get_first_transaction_no_transactions(self, mock_redis: AsyncMock) -> None:
         """Test get_first_transaction when wallet has no transactions."""
         client = PolygonClient("https://polygon-rpc.com", redis=mock_redis)
 
@@ -451,9 +447,7 @@ class TestPolygonClientTokenBalance:
 
         # Mock the contract call
         mock_contract = MagicMock()
-        mock_contract.functions.balanceOf.return_value.call = AsyncMock(
-            return_value=5000000
-        )
+        mock_contract.functions.balanceOf.return_value.call = AsyncMock(return_value=5000000)
         client._w3.eth.contract = MagicMock(return_value=mock_contract)
 
         balance = await client.get_token_balance(VALID_ADDRESS, VALID_TOKEN)

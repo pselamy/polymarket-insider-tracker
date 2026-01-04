@@ -155,8 +155,7 @@ class RiskScorer:
         # Log assessment
         if should_alert:
             logger.info(
-                "Risk assessment triggered alert: wallet=%s, market=%s, "
-                "score=%.2f, signals=%d",
+                "Risk assessment triggered alert: wallet=%s, market=%s, score=%.2f, signals=%d",
                 bundle.wallet_address[:10] + "...",
                 bundle.market_id[:10] + "...",
                 weighted_score,
@@ -180,9 +179,7 @@ class RiskScorer:
             should_alert=should_alert,
         )
 
-    def calculate_weighted_score(
-        self, bundle: SignalBundle
-    ) -> tuple[float, int]:
+    def calculate_weighted_score(self, bundle: SignalBundle) -> tuple[float, int]:
         """Calculate weighted score from all signals.
 
         Applies per-signal weights and multi-signal bonuses.
@@ -273,9 +270,7 @@ class RiskScorer:
         deleted = await self._redis.delete(key)
         return deleted > 0
 
-    async def assess_batch(
-        self, bundles: list[SignalBundle]
-    ) -> list[RiskAssessment]:
+    async def assess_batch(self, bundles: list[SignalBundle]) -> list[RiskAssessment]:
         """Assess multiple trade bundles.
 
         Args:

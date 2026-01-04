@@ -355,9 +355,7 @@ class AlertHistory:
         end = datetime.now(UTC)
         start = end - timedelta(hours=hours)
 
-        index_key = (
-            f"{self.KEY_INDEX_WALLET}{wallet}" if wallet else self.KEY_INDEX_TIME
-        )
+        index_key = f"{self.KEY_INDEX_WALLET}{wallet}" if wallet else self.KEY_INDEX_TIME
 
         count = await self.redis.zcount(
             index_key,

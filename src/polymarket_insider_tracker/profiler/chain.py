@@ -503,9 +503,7 @@ class PolygonClient:
         balance_task = self.get_balance(address)
         first_tx_task = self.get_first_transaction(address)
 
-        nonce, balance, first_tx = await asyncio.gather(
-            nonce_task, balance_task, first_tx_task
-        )
+        nonce, balance, first_tx = await asyncio.gather(nonce_task, balance_task, first_tx_task)
 
         return WalletInfo(
             address=address.lower(),

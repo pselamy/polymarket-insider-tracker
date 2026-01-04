@@ -91,7 +91,9 @@ class WalletAnalyzer:
             return WalletProfile(
                 address=data["address"],
                 nonce=data["nonce"],
-                first_seen=datetime.fromisoformat(data["first_seen"]) if data["first_seen"] else None,
+                first_seen=datetime.fromisoformat(data["first_seen"])
+                if data["first_seen"]
+                else None,
                 age_hours=data["age_hours"],
                 is_fresh=data["is_fresh"],
                 total_tx_count=data["total_tx_count"],

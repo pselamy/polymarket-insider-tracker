@@ -144,9 +144,7 @@ class TestWalletAnalyzerAnalyze:
         assert profile.age_hours is None
 
     @pytest.mark.asyncio
-    async def test_analyze_uses_cache(
-        self, mock_client: AsyncMock, mock_redis: AsyncMock
-    ) -> None:
+    async def test_analyze_uses_cache(self, mock_client: AsyncMock, mock_redis: AsyncMock) -> None:
         """Test that analyze uses cached data."""
         cached_data = {
             "address": VALID_ADDRESS.lower(),
@@ -164,6 +162,7 @@ class TestWalletAnalyzerAnalyze:
 
         # Actually mock it properly with json
         import json
+
         mock_redis.get = AsyncMock(return_value=json.dumps(cached_data).encode())
 
         analyzer = WalletAnalyzer(mock_client, redis=mock_redis)

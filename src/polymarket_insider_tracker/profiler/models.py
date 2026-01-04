@@ -58,7 +58,10 @@ class WalletInfo:
         """Return wallet age in days based on first transaction."""
         if self.first_transaction is None:
             return None
-        delta = datetime.now(tz=self.first_transaction.timestamp.tzinfo) - self.first_transaction.timestamp
+        delta = (
+            datetime.now(tz=self.first_transaction.timestamp.tzinfo)
+            - self.first_transaction.timestamp
+        )
         return delta.total_seconds() / 86400
 
 

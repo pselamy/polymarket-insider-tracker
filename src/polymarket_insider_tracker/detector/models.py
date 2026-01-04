@@ -265,14 +265,10 @@ class RiskAssessment:
             "has_fresh_wallet_signal": self.fresh_wallet_signal is not None,
             "has_size_anomaly_signal": self.size_anomaly_signal is not None,
             "fresh_wallet_confidence": (
-                self.fresh_wallet_signal.confidence
-                if self.fresh_wallet_signal
-                else None
+                self.fresh_wallet_signal.confidence if self.fresh_wallet_signal else None
             ),
             "size_anomaly_confidence": (
-                self.size_anomaly_signal.confidence
-                if self.size_anomaly_signal
-                else None
+                self.size_anomaly_signal.confidence if self.size_anomaly_signal else None
             ),
             "timestamp": self.timestamp.isoformat(),
         }

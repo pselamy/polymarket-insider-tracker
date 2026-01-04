@@ -1,5 +1,6 @@
 """Data models for the ingestor module."""
 
+import contextlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -46,10 +47,8 @@ class Market:
         end_date = None
         end_date_iso = data.get("end_date_iso")
         if end_date_iso:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 end_date = datetime.fromisoformat(end_date_iso.replace("Z", "+00:00"))
-            except (ValueError, AttributeError):
-                pass
 
         return cls(
             condition_id=str(data["condition_id"]),
@@ -466,10 +465,8 @@ class MarketMetadata:
         end_date = None
         end_date_str = data.get("end_date")
         if end_date_str:
-            try:
+            with contextlib.suppress(ValueError, AttributeError):
                 end_date = datetime.fromisoformat(end_date_str)
-            except (ValueError, AttributeError):
-                pass
 
         last_updated_str = data.get("last_updated")
         if last_updated_str:

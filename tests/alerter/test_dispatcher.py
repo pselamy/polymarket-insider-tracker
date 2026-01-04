@@ -75,9 +75,7 @@ class TestDiscordChannel:
     @pytest.mark.asyncio
     async def test_send_success(self, sample_alert: FormattedAlert) -> None:
         """Test successful Discord message send."""
-        channel = DiscordChannel(
-            webhook_url="https://discord.com/api/webhooks/123/abc"
-        )
+        channel = DiscordChannel(webhook_url="https://discord.com/api/webhooks/123/abc")
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_response = MagicMock()
@@ -310,9 +308,7 @@ class TestAlertDispatcher:
         mock_telegram_channel: MagicMock,
     ) -> None:
         """Test dispatcher initialization."""
-        dispatcher = AlertDispatcher(
-            channels=[mock_discord_channel, mock_telegram_channel]
-        )
+        dispatcher = AlertDispatcher(channels=[mock_discord_channel, mock_telegram_channel])
         assert len(dispatcher.channels) == 2
         assert "discord" in dispatcher._circuit_state
         assert "telegram" in dispatcher._circuit_state
@@ -325,9 +321,7 @@ class TestAlertDispatcher:
         mock_telegram_channel: MagicMock,
     ) -> None:
         """Test successful dispatch to all channels."""
-        dispatcher = AlertDispatcher(
-            channels=[mock_discord_channel, mock_telegram_channel]
-        )
+        dispatcher = AlertDispatcher(channels=[mock_discord_channel, mock_telegram_channel])
 
         result = await dispatcher.dispatch(sample_alert)
 
@@ -345,9 +339,7 @@ class TestAlertDispatcher:
         """Test dispatch with one channel failing."""
         mock_telegram_channel.send.return_value = False
 
-        dispatcher = AlertDispatcher(
-            channels=[mock_discord_channel, mock_telegram_channel]
-        )
+        dispatcher = AlertDispatcher(channels=[mock_discord_channel, mock_telegram_channel])
 
         result = await dispatcher.dispatch(sample_alert)
 
@@ -357,9 +349,7 @@ class TestAlertDispatcher:
         assert result.channel_results["telegram"] is False
 
     @pytest.mark.asyncio
-    async def test_dispatch_no_channels(
-        self, sample_alert: FormattedAlert
-    ) -> None:
+    async def test_dispatch_no_channels(self, sample_alert: FormattedAlert) -> None:
         """Test dispatch with no channels configured."""
         dispatcher = AlertDispatcher(channels=[])
 
@@ -435,9 +425,7 @@ class TestAlertDispatcher:
         # Now succeed
         mock_discord_channel.send.return_value = True
         # Force half-open by resetting last_failure to past
-        dispatcher._circuit_state["discord"].last_failure_time = datetime(
-            2020, 1, 1, tzinfo=UTC
-        )
+        dispatcher._circuit_state["discord"].last_failure_time = datetime(2020, 1, 1, tzinfo=UTC)
 
         result = await dispatcher.dispatch(sample_alert)
 
@@ -465,9 +453,7 @@ class TestAlertDispatcher:
         mock_telegram_channel: MagicMock,
     ) -> None:
         """Test getting circuit status."""
-        dispatcher = AlertDispatcher(
-            channels=[mock_discord_channel, mock_telegram_channel]
-        )
+        dispatcher = AlertDispatcher(channels=[mock_discord_channel, mock_telegram_channel])
 
         status = dispatcher.get_circuit_status()
 

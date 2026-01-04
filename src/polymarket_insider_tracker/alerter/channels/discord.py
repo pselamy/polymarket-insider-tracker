@@ -100,9 +100,7 @@ class DiscordChannel:
                         await asyncio.sleep(retry_after)
                         continue
 
-                    logger.error(
-                        f"Discord webhook failed: {response.status_code} {response.text}"
-                    )
+                    logger.error(f"Discord webhook failed: {response.status_code} {response.text}")
 
             except httpx.TimeoutException:
                 logger.warning(f"Discord webhook timeout (attempt {attempt + 1})")

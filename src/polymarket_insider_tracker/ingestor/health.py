@@ -335,8 +335,10 @@ class HealthMonitor:
 
         overall_status = self._determine_overall_status()
         HEALTH_STATUS.set(
-            1.0 if overall_status == HealthStatus.HEALTHY
-            else 0.5 if overall_status == HealthStatus.DEGRADED
+            1.0
+            if overall_status == HealthStatus.HEALTHY
+            else 0.5
+            if overall_status == HealthStatus.DEGRADED
             else 0.0
         )
 
@@ -362,10 +364,7 @@ class HealthMonitor:
                 report = self.get_health_report()
 
                 # Notify on status change
-                if (
-                    self._on_health_change
-                    and report.status != self._last_health_status
-                ):
+                if self._on_health_change and report.status != self._last_health_status:
                     self._last_health_status = report.status
                     try:
                         await self._on_health_change(report)

@@ -228,10 +228,17 @@ class SniperDetector:
             for entry in entries:
                 # Normalize market ID to 0-1 range
                 market_hash = (
-                    int(hashlib.md5(  # noqa: S324
-                        entry.market_id.encode()
-                    ).hexdigest()[:8], 16) % 1000
-                ) / 1000.0
+                    (
+                        int(
+                            hashlib.md5(  # noqa: S324
+                                entry.market_id.encode()
+                            ).hexdigest()[:8],
+                            16,
+                        )
+                        % 1000
+                    )
+                    / 1000.0
+                )
 
                 # Normalize entry delta to hours (0-5 mins = 0-0.083 hours)
                 delta_hours = entry.entry_delta_seconds / 3600.0
@@ -285,7 +292,7 @@ class SniperDetector:
                 cluster_id=cluster_id,
                 wallet_addresses=cluster_wallets,
                 avg_entry_delta=cluster_stats["avg_delta"],
-                markets_in_common=cluster_stats["markets_in_common"],
+                markets_in_common=int(cluster_stats["markets_in_common"]),
             )
 
             # Update wallet-cluster mapping
@@ -305,7 +312,7 @@ class SniperDetector:
                         cluster_id=cluster_id,
                         cluster_size=len(cluster_wallets),
                         avg_entry_delta_seconds=cluster_stats["avg_delta"],
-                        markets_in_common=cluster_stats["markets_in_common"],
+                        markets_in_common=int(cluster_stats["markets_in_common"]),
                         confidence=confidence,
                     )
 
@@ -415,11 +422,7 @@ class SniperDetector:
         overlap_factor = min(1.0, markets_common / 5.0)
 
         # Weighted combination
-        confidence = (
-            0.3 * size_factor +
-            0.4 * speed_factor +
-            0.3 * overlap_factor
-        )
+        confidence = 0.3 * size_factor + 0.4 * speed_factor + 0.3 * overlap_factor
 
         return round(min(1.0, confidence), 3)
 

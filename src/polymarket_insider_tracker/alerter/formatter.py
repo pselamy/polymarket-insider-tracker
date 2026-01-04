@@ -30,7 +30,7 @@ def truncate_address(address: str, chars: int = 4) -> str:
     """Truncate an Ethereum address to 0x1234...5678 format."""
     if len(address) < chars * 2 + 4:
         return address
-    return f"{address[:chars+2]}...{address[-chars:]}"
+    return f"{address[: chars + 2]}...{address[-chars:]}"
 
 
 def format_usdc(amount: Decimal) -> str:
@@ -117,9 +117,7 @@ class AlertFormatter:
         telegram_md = self._build_telegram_markdown(
             assessment, wallet_short, risk_level, signals, links
         )
-        plain_text = self._build_plain_text(
-            assessment, wallet_short, risk_level, signals, links
-        )
+        plain_text = self._build_plain_text(assessment, wallet_short, risk_level, signals, links)
 
         return FormattedAlert(
             title=title,
@@ -226,11 +224,13 @@ class AlertFormatter:
 
         # Signals (if any)
         if signals:
-            fields.append({
-                "name": "Signals",
-                "value": ", ".join(signals),
-                "inline": False,
-            })
+            fields.append(
+                {
+                    "name": "Signals",
+                    "value": ", ".join(signals),
+                    "inline": False,
+                }
+            )
 
         # Add detailed info for detailed verbosity
         if self.verbosity == "detailed":
@@ -244,11 +244,13 @@ class AlertFormatter:
                 confidences.append(f"Size Anomaly: {conf:.0%}")
 
             if confidences:
-                fields.append({
-                    "name": "Confidence",
-                    "value": " | ".join(confidences),
-                    "inline": False,
-                })
+                fields.append(
+                    {
+                        "name": "Confidence",
+                        "value": " | ".join(confidences),
+                        "inline": False,
+                    }
+                )
 
         embed: dict[str, object] = {
             "title": "🚨 Suspicious Activity Detected",
@@ -319,7 +321,26 @@ class AlertFormatter:
 
     def _escape_telegram_markdown(self, text: str) -> str:
         """Escape special Telegram MarkdownV2 characters."""
-        special_chars = ["_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]
+        special_chars = [
+            "_",
+            "*",
+            "[",
+            "]",
+            "(",
+            ")",
+            "~",
+            "`",
+            ">",
+            "#",
+            "+",
+            "-",
+            "=",
+            "|",
+            "{",
+            "}",
+            ".",
+            "!",
+        ]
         for char in special_chars:
             text = text.replace(char, f"\\{char}")
         return text

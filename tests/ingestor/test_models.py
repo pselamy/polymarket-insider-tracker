@@ -1,6 +1,6 @@
 """Tests for ingestor data models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -75,7 +75,7 @@ class TestMarket:
         assert len(market.tokens) == 2
         assert market.tokens[0].outcome == "Yes"
         assert market.tokens[1].outcome == "No"
-        assert market.end_date == datetime(2024, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+        assert market.end_date == datetime(2024, 12, 31, 23, 59, 59, tzinfo=UTC)
         assert market.active is True
         assert market.closed is False
 
@@ -302,7 +302,7 @@ class TestTradeEvent:
         assert trade.outcome_index == 0
         assert trade.price == Decimal("0.65")
         assert trade.size == Decimal("100")
-        assert trade.timestamp == datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert trade.timestamp == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         assert trade.asset_id == "token123"
         assert trade.market_slug == "will-it-rain"
         assert trade.event_slug == "weather-markets"
@@ -364,7 +364,7 @@ class TestTradeEvent:
             outcome_index=0,
             price=Decimal("0.5"),
             size=Decimal("10"),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             asset_id="",
         )
         sell_trade = TradeEvent(
@@ -376,7 +376,7 @@ class TestTradeEvent:
             outcome_index=0,
             price=Decimal("0.5"),
             size=Decimal("10"),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             asset_id="",
         )
 
@@ -396,7 +396,7 @@ class TestTradeEvent:
             outcome_index=0,
             price=Decimal("0.65"),
             size=Decimal("100"),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             asset_id="",
         )
 
@@ -413,7 +413,7 @@ class TestTradeEvent:
             outcome_index=0,
             price=Decimal("0.5"),
             size=Decimal("10"),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             asset_id="token",
         )
         with pytest.raises(AttributeError):

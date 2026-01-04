@@ -290,9 +290,7 @@ class TestVolumeImpactCalculation:
         detector = SizeAnomalyDetector(mock_metadata_sync)
 
         # Trade size $1000, daily volume $50000 = 2% impact
-        impact = detector._calculate_volume_impact(
-            Decimal("1000"), Decimal("50000")
-        )
+        impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("50000"))
         assert impact == pytest.approx(0.02)
 
     def test_volume_impact_none_volume(self, mock_metadata_sync: AsyncMock) -> None:
@@ -309,9 +307,7 @@ class TestVolumeImpactCalculation:
         impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("0"))
         assert impact == 0.0
 
-    def test_volume_impact_negative_volume(
-        self, mock_metadata_sync: AsyncMock
-    ) -> None:
+    def test_volume_impact_negative_volume(self, mock_metadata_sync: AsyncMock) -> None:
         """Test volume impact returns 0 when volume is negative."""
         detector = SizeAnomalyDetector(mock_metadata_sync)
 
@@ -422,9 +418,7 @@ class TestNicheMarketDetection:
 class TestConfidenceScoring:
     """Tests for confidence score calculation."""
 
-    def test_confidence_volume_impact_only(
-        self, mock_metadata_sync: AsyncMock
-    ) -> None:
+    def test_confidence_volume_impact_only(self, mock_metadata_sync: AsyncMock) -> None:
         """Test confidence with only volume impact."""
         detector = SizeAnomalyDetector(mock_metadata_sync)
 
@@ -819,9 +813,7 @@ class TestBatchAnalysis:
         assert len(signals) == 2
 
     @pytest.mark.asyncio
-    async def test_analyze_batch_empty_list(
-        self, mock_metadata_sync: AsyncMock
-    ) -> None:
+    async def test_analyze_batch_empty_list(self, mock_metadata_sync: AsyncMock) -> None:
         """Test batch analysis with empty list."""
         detector = SizeAnomalyDetector(mock_metadata_sync)
         signals = await detector.analyze_batch([])
