@@ -9,12 +9,15 @@ from polymarket_insider_tracker.alerter.dispatcher import (
     DispatchResult,
 )
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
+from polymarket_insider_tracker.alerter.history import AlertHistory, AlertRecord
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 
 __all__ = [
     "AlertChannel",
     "AlertDispatcher",
     "AlertFormatter",
+    "AlertHistory",
+    "AlertRecord",
     "CircuitBreakerState",
     "DiscordChannel",
     "DispatchResult",
