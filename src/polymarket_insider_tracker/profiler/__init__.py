@@ -9,6 +9,12 @@ from polymarket_insider_tracker.profiler.chain import (
     RateLimitError,
     RPCError,
 )
+from polymarket_insider_tracker.profiler.entities import (
+    EntityRegistry,
+)
+from polymarket_insider_tracker.profiler.entity_data import (
+    EntityType,
+)
 from polymarket_insider_tracker.profiler.models import (
     Transaction,
     WalletInfo,
@@ -18,6 +24,9 @@ from polymarket_insider_tracker.profiler.models import (
 __all__ = [
     # Analyzer
     "WalletAnalyzer",
+    # Entity Registry
+    "EntityRegistry",
+    "EntityType",
     # Polygon Client
     "PolygonClient",
     "PolygonClientError",
