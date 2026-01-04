@@ -131,3 +131,87 @@ class WalletProfile:
 
         # Weighted average: nonce is slightly more important
         return 0.6 * nonce_score + 0.4 * age_score
+
+
+@dataclass(frozen=True)
+class FundingTransfer:
+    """Represents an ERC20 token transfer for funding chain analysis.
+
+    Attributes:
+        from_address: Source wallet address.
+        to_address: Destination wallet address.
+        amount: Transfer amount in token decimals.
+        token: Token symbol (e.g., "USDC", "MATIC").
+        tx_hash: Transaction hash.
+        block_number: Block number of the transaction.
+        timestamp: Timestamp of the transaction.
+    """
+
+    from_address: str
+    to_address: str
+    amount: Decimal
+    token: str
+    tx_hash: str
+    block_number: int
+    timestamp: datetime
+
+    @property
+    def amount_formatted(self) -> Decimal:
+        """Return amount in human-readable format.
+
+        Assumes 6 decimals for USDC/USDT, 18 for others.
+        """
+        if self.token in ("USDC", "USDT"):
+            return self.amount / Decimal("1000000")
+        return self.amount / Decimal("1000000000000000000")
+
+
+@dataclass
+class FundingChain:
+    """Result of funding chain analysis.
+
+    Represents the path of funds from origin to target wallet,
+    tracing back through intermediate wallets.
+
+    Attributes:
+        target_address: The wallet being analyzed.
+        chain: Ordered list of transfers from target back to origin.
+        origin_address: The ultimate source of funds.
+        origin_type: Classification of the origin (cex, bridge, unknown, contract).
+        hop_count: Number of hops from target to origin.
+        traced_at: When the trace was performed.
+    """
+
+    target_address: str
+    chain: list[FundingTransfer] = field(default_factory=list)
+    origin_address: str = ""
+    origin_type: str = "unknown"
+    hop_count: int = 0
+    traced_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def is_cex_origin(self) -> bool:
+        """Return True if funds originated from a CEX."""
+        return self.origin_type.startswith("cex")
+
+    @property
+    def is_bridge_origin(self) -> bool:
+        """Return True if funds came through a bridge."""
+        return self.origin_type.startswith("bridge")
+
+    @property
+    def is_unknown_origin(self) -> bool:
+        """Return True if origin could not be determined."""
+        return self.origin_type == "unknown"
+
+    @property
+    def total_amount(self) -> Decimal:
+        """Return total amount transferred in the chain."""
+        if not self.chain:
+            return Decimal("0")
+        return self.chain[0].amount
+
+    @property
+    def funding_depth(self) -> int:
+        """Return the funding depth (hops from known entity)."""
+        return self.hop_count

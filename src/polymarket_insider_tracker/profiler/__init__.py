@@ -15,7 +15,12 @@ from polymarket_insider_tracker.profiler.entities import (
 from polymarket_insider_tracker.profiler.entity_data import (
     EntityType,
 )
+from polymarket_insider_tracker.profiler.funding import (
+    FundingTracer,
+)
 from polymarket_insider_tracker.profiler.models import (
+    FundingChain,
+    FundingTransfer,
     Transaction,
     WalletInfo,
     WalletProfile,
@@ -27,6 +32,10 @@ __all__ = [
     # Entity Registry
     "EntityRegistry",
     "EntityType",
+    # Funding Tracer
+    "FundingChain",
+    "FundingTracer",
+    "FundingTransfer",
     # Polygon Client
     "PolygonClient",
     "PolygonClientError",
