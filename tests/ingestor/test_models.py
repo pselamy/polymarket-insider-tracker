@@ -11,6 +11,7 @@ from polymarket_insider_tracker.ingestor.models import (
     Orderbook,
     OrderbookLevel,
     Token,
+    TradeEvent,
 )
 
 
@@ -267,3 +268,153 @@ class TestOrderbook:
         )
 
         assert orderbook.midpoint is None
+
+
+class TestTradeEvent:
+    """Tests for TradeEvent model."""
+
+    def test_from_websocket_message_full(self) -> None:
+        """Test creating TradeEvent from a full WebSocket message."""
+        data = {
+            "conditionId": "0xmarket123",
+            "transactionHash": "0xtx456",
+            "proxyWallet": "0xwallet789",
+            "side": "BUY",
+            "outcome": "Yes",
+            "outcomeIndex": 0,
+            "price": 0.65,
+            "size": 100,
+            "timestamp": 1704067200,  # 2024-01-01 00:00:00 UTC
+            "asset": "token123",
+            "slug": "will-it-rain",
+            "eventSlug": "weather-markets",
+            "title": "Weather Predictions",
+            "name": "Alice",
+            "pseudonym": "AliceTrader",
+        }
+        trade = TradeEvent.from_websocket_message(data)
+
+        assert trade.market_id == "0xmarket123"
+        assert trade.trade_id == "0xtx456"
+        assert trade.wallet_address == "0xwallet789"
+        assert trade.side == "BUY"
+        assert trade.outcome == "Yes"
+        assert trade.outcome_index == 0
+        assert trade.price == Decimal("0.65")
+        assert trade.size == Decimal("100")
+        assert trade.timestamp == datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        assert trade.asset_id == "token123"
+        assert trade.market_slug == "will-it-rain"
+        assert trade.event_slug == "weather-markets"
+        assert trade.event_title == "Weather Predictions"
+        assert trade.trader_name == "Alice"
+        assert trade.trader_pseudonym == "AliceTrader"
+
+    def test_from_websocket_message_minimal(self) -> None:
+        """Test creating TradeEvent with minimal data."""
+        data = {
+            "conditionId": "0x123",
+            "transactionHash": "0xtx",
+            "proxyWallet": "0xwallet",
+            "side": "SELL",
+            "outcome": "No",
+            "price": 0.35,
+            "size": 50,
+        }
+        trade = TradeEvent.from_websocket_message(data)
+
+        assert trade.market_id == "0x123"
+        assert trade.side == "SELL"
+        assert trade.outcome == "No"
+        assert trade.price == Decimal("0.35")
+        assert trade.size == Decimal("50")
+        assert trade.market_slug == ""
+        assert trade.trader_name == ""
+
+    def test_from_websocket_message_lowercase_side(self) -> None:
+        """Test that lowercase side is normalized."""
+        data = {
+            "side": "buy",
+            "price": 0.5,
+            "size": 10,
+        }
+        trade = TradeEvent.from_websocket_message(data)
+
+        assert trade.side == "BUY"
+
+    def test_from_websocket_message_sell_side(self) -> None:
+        """Test SELL side handling."""
+        data = {
+            "side": "sell",
+            "price": 0.5,
+            "size": 10,
+        }
+        trade = TradeEvent.from_websocket_message(data)
+
+        assert trade.side == "SELL"
+
+    def test_is_buy(self) -> None:
+        """Test is_buy property."""
+        buy_trade = TradeEvent(
+            market_id="",
+            trade_id="",
+            wallet_address="",
+            side="BUY",
+            outcome="",
+            outcome_index=0,
+            price=Decimal("0.5"),
+            size=Decimal("10"),
+            timestamp=datetime.now(timezone.utc),
+            asset_id="",
+        )
+        sell_trade = TradeEvent(
+            market_id="",
+            trade_id="",
+            wallet_address="",
+            side="SELL",
+            outcome="",
+            outcome_index=0,
+            price=Decimal("0.5"),
+            size=Decimal("10"),
+            timestamp=datetime.now(timezone.utc),
+            asset_id="",
+        )
+
+        assert buy_trade.is_buy is True
+        assert buy_trade.is_sell is False
+        assert sell_trade.is_buy is False
+        assert sell_trade.is_sell is True
+
+    def test_notional_value(self) -> None:
+        """Test notional value calculation."""
+        trade = TradeEvent(
+            market_id="",
+            trade_id="",
+            wallet_address="",
+            side="BUY",
+            outcome="",
+            outcome_index=0,
+            price=Decimal("0.65"),
+            size=Decimal("100"),
+            timestamp=datetime.now(timezone.utc),
+            asset_id="",
+        )
+
+        assert trade.notional_value == Decimal("65")
+
+    def test_frozen(self) -> None:
+        """Test that TradeEvent is immutable."""
+        trade = TradeEvent(
+            market_id="0x123",
+            trade_id="0xtx",
+            wallet_address="0xwallet",
+            side="BUY",
+            outcome="Yes",
+            outcome_index=0,
+            price=Decimal("0.5"),
+            size=Decimal("10"),
+            timestamp=datetime.now(timezone.utc),
+            asset_id="token",
+        )
+        with pytest.raises(AttributeError):
+            trade.market_id = "0x456"  # type: ignore[misc]

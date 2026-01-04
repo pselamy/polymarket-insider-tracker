@@ -10,14 +10,29 @@ from polymarket_insider_tracker.ingestor.models import (
     Orderbook,
     OrderbookLevel,
     Token,
+    TradeEvent,
+)
+from polymarket_insider_tracker.ingestor.websocket import (
+    ConnectionState,
+    StreamStats,
+    TradeStreamError,
+    TradeStreamHandler,
 )
 
 __all__ = [
+    # CLOB Client
     "ClobClient",
     "ClobClientError",
     "RetryError",
+    # Models
     "Market",
     "Orderbook",
     "OrderbookLevel",
     "Token",
+    "TradeEvent",
+    # WebSocket
+    "ConnectionState",
+    "StreamStats",
+    "TradeStreamError",
+    "TradeStreamHandler",
 ]
