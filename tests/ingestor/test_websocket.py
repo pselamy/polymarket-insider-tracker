@@ -223,7 +223,9 @@ class TestTradeStreamHandler:
 
     @pytest.mark.asyncio
     async def test_connect_sends_subscription(
-        self, handler: TradeStreamHandler, _on_state_change_mock: AsyncMock
+        self,
+        handler: TradeStreamHandler,
+        on_state_change_mock: AsyncMock,  # noqa: ARG002
     ) -> None:
         """Test that connection sends subscription message."""
         mock_ws = AsyncMock()
