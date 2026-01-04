@@ -5,6 +5,13 @@ from polymarket_insider_tracker.ingestor.clob_client import (
     ClobClientError,
     RetryError,
 )
+from polymarket_insider_tracker.ingestor.health import (
+    HealthMonitor,
+    HealthReport,
+    HealthStatus,
+    StreamHealth,
+    StreamStatus,
+)
 from polymarket_insider_tracker.ingestor.metadata_sync import (
     MarketMetadataSync,
     MetadataSyncError,
@@ -38,6 +45,12 @@ __all__ = [
     "ClobClient",
     "ClobClientError",
     "RetryError",
+    # Health Monitor
+    "HealthMonitor",
+    "HealthReport",
+    "HealthStatus",
+    "StreamHealth",
+    "StreamStatus",
     # Metadata Sync
     "MarketMetadataSync",
     "MetadataSyncError",
