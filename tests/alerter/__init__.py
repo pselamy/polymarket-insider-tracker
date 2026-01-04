@@ -1,1 +1,1 @@
-"""Tests for alerter module."""
+"""Tests for the alerter module."""
