@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from polymarket_insider_tracker import __version__
 from polymarket_insider_tracker.config import Settings, clear_settings_cache, get_settings
 from polymarket_insider_tracker.pipeline import Pipeline
+from polymarket_insider_tracker.shutdown import GracefulShutdown
 
 # Application info
 APP_NAME = "Polymarket Insider Tracker"
@@ -216,23 +217,41 @@ def run_config_check(settings: Settings) -> int:
     return EXIT_SUCCESS
 
 
-async def run_pipeline(settings: Settings, dry_run: bool) -> int:
-    """Run the main pipeline.
+async def run_pipeline(
+    settings: Settings,
+    dry_run: bool,
+    shutdown_timeout: float = 30.0,
+) -> int:
+    """Run the main pipeline with graceful shutdown handling.
 
     Args:
         settings: Application settings.
         dry_run: Whether to skip sending alerts.
+        shutdown_timeout: Maximum time to wait for graceful shutdown.
 
     Returns:
         Exit code.
     """
     logger = logging.getLogger(__name__)
+    shutdown = GracefulShutdown(timeout=shutdown_timeout)
 
     try:
-        pipeline = Pipeline(settings, dry_run=dry_run)
+        async with shutdown:
+            pipeline = Pipeline(settings, dry_run=dry_run)
 
-        logger.info("Starting pipeline...")
-        await pipeline.run()
+            # Register pipeline cleanup
+            shutdown.register_cleanup(pipeline.stop)
+
+            logger.info("Starting pipeline...")
+            await pipeline.start()
+
+            logger.info("Pipeline running. Press Ctrl+C to stop.")
+
+            # Wait for shutdown signal
+            await shutdown.wait()
+
+            logger.info("Shutdown signal received, stopping pipeline...")
+            await pipeline.stop()
 
         return EXIT_SUCCESS
     except KeyboardInterrupt:
