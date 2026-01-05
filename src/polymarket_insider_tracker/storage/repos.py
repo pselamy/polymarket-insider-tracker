@@ -208,20 +208,20 @@ class WalletRepository:
             await self.session.execute(stmt)
         except Exception:
             # Fall back to SQLite upsert for testing
-            stmt = sqlite_insert(WalletProfileModel).values(**values, created_at=now)
-            stmt = stmt.on_conflict_do_update(
+            sqlite_stmt = sqlite_insert(WalletProfileModel).values(**values, created_at=now)
+            sqlite_stmt = sqlite_stmt.on_conflict_do_update(
                 index_elements=["address"],
                 set_={
-                    "nonce": stmt.excluded.nonce,
-                    "first_seen_at": stmt.excluded.first_seen_at,
-                    "is_fresh": stmt.excluded.is_fresh,
-                    "matic_balance": stmt.excluded.matic_balance,
-                    "usdc_balance": stmt.excluded.usdc_balance,
-                    "analyzed_at": stmt.excluded.analyzed_at,
-                    "updated_at": stmt.excluded.updated_at,
+                    "nonce": sqlite_stmt.excluded.nonce,
+                    "first_seen_at": sqlite_stmt.excluded.first_seen_at,
+                    "is_fresh": sqlite_stmt.excluded.is_fresh,
+                    "matic_balance": sqlite_stmt.excluded.matic_balance,
+                    "usdc_balance": sqlite_stmt.excluded.usdc_balance,
+                    "analyzed_at": sqlite_stmt.excluded.analyzed_at,
+                    "updated_at": sqlite_stmt.excluded.updated_at,
                 },
             )
-            await self.session.execute(stmt)
+            await self.session.execute(sqlite_stmt)
 
         await self.session.flush()
         return dto
@@ -238,7 +238,8 @@ class WalletRepository:
         result = await self.session.execute(
             delete(WalletProfileModel).where(WalletProfileModel.address == address.lower())
         )
-        return result.rowcount > 0
+        # SQLAlchemy Result does have rowcount but typing doesn't reflect it
+        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
 
     async def mark_stale(self, address: str) -> bool:
         """Mark a wallet profile as stale (soft delete).
@@ -257,7 +258,8 @@ class WalletRepository:
             .where(WalletProfileModel.address == address.lower())
             .values(analyzed_at=stale_time, updated_at=datetime.now(UTC))
         )
-        return result.rowcount > 0
+        # SQLAlchemy Result does have rowcount but typing doesn't reflect it
+        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
 
 
 class FundingRepository:
@@ -478,12 +480,12 @@ class RelationshipRepository:
             await self.session.execute(stmt)
         except Exception:
             # Fall back to SQLite upsert for testing
-            stmt = sqlite_insert(WalletRelationshipModel).values(**values)
-            stmt = stmt.on_conflict_do_update(
+            sqlite_stmt = sqlite_insert(WalletRelationshipModel).values(**values)
+            sqlite_stmt = sqlite_stmt.on_conflict_do_update(
                 index_elements=["wallet_a", "wallet_b", "relationship_type"],
-                set_={"confidence": stmt.excluded.confidence},
+                set_={"confidence": sqlite_stmt.excluded.confidence},
             )
-            await self.session.execute(stmt)
+            await self.session.execute(sqlite_stmt)
 
         await self.session.flush()
         return dto
@@ -506,4 +508,5 @@ class RelationshipRepository:
                 WalletRelationshipModel.relationship_type == relationship_type,
             )
         )
-        return result.rowcount > 0
+        # SQLAlchemy Result does have rowcount but typing doesn't reflect it
+        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]

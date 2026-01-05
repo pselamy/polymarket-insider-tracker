@@ -186,9 +186,10 @@ class EventPublisher:
             The entry ID assigned by Redis.
         """
         data = _serialize_trade_event(event)
+        # redis-py typing expects broader dict type than dict[str, str]
         entry_id = await self._redis.xadd(
             self._stream_name,
-            data,
+            data,  # type: ignore[arg-type]
             maxlen=self._max_len,
         )
         # entry_id may be bytes or str
@@ -213,7 +214,8 @@ class EventPublisher:
         pipe = self._redis.pipeline()
         for event in events:
             data = _serialize_trade_event(event)
-            pipe.xadd(self._stream_name, data, maxlen=self._max_len)
+            # redis-py typing expects broader dict type than dict[str, str]
+            pipe.xadd(self._stream_name, data, maxlen=self._max_len)  # type: ignore[arg-type]
 
         results = await pipe.execute()
 
@@ -384,7 +386,8 @@ class EventPublisher:
         """
         if not entry_ids:
             return 0
-        return await self._redis.xack(self._stream_name, group_name, *entry_ids)
+        result = await self._redis.xack(self._stream_name, group_name, *entry_ids)
+        return int(result)
 
     async def get_stream_info(self) -> dict[str, Any]:
         """Get information about the stream.
@@ -404,7 +407,8 @@ class EventPublisher:
         Returns:
             Number of entries in the stream.
         """
-        return await self._redis.xlen(self._stream_name)
+        result = await self._redis.xlen(self._stream_name)
+        return int(result)
 
     async def trim_stream(self, max_len: int | None = None) -> int:
         """Trim the stream to a maximum length.
@@ -416,4 +420,5 @@ class EventPublisher:
             Number of entries removed.
         """
         length = max_len or self._max_len
-        return await self._redis.xtrim(self._stream_name, maxlen=length)
+        result = await self._redis.xtrim(self._stream_name, maxlen=length)
+        return int(result)

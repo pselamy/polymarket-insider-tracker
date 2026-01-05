@@ -351,7 +351,7 @@ class MarketMetadataSync:
         """
         key = f"{self._key_prefix}{condition_id}"
         deleted = await self._redis.delete(key)
-        return deleted > 0
+        return int(deleted) > 0
 
     async def force_sync(self) -> None:
         """Force an immediate sync of all markets.

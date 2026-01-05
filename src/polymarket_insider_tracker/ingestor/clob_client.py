@@ -287,7 +287,8 @@ class ClobClient:
 
         try:
             response = self._client.get_midpoint(token_id)
-            return response.get("mid")
+            mid = response.get("mid")
+            return str(mid) if mid is not None else None
         except Exception as e:
             logger.warning("Failed to get midpoint for %s: %s", token_id, e)
             return None
@@ -307,7 +308,8 @@ class ClobClient:
 
         try:
             response = self._client.get_price(token_id, side=side)
-            return response.get("price")
+            price = response.get("price")
+            return str(price) if price is not None else None
         except Exception as e:
             logger.warning("Failed to get %s price for %s: %s", side, token_id, e)
             return None
@@ -321,7 +323,7 @@ class ClobClient:
         try:
             self._rate_limiter.acquire_sync()
             result = self._client.get_ok()
-            return result == "OK"
+            return str(result) == "OK"
         except Exception as e:
             logger.error("Health check failed: %s", e)
             return False
@@ -334,7 +336,8 @@ class ClobClient:
         """
         try:
             self._rate_limiter.acquire_sync()
-            return self._client.get_server_time()
+            result = self._client.get_server_time()
+            return int(result) if result is not None else None
         except Exception as e:
             logger.error("Failed to get server time: %s", e)
             return None

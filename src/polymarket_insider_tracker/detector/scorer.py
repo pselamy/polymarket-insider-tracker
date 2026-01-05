@@ -268,7 +268,7 @@ class RiskScorer:
         """
         key = f"{self._key_prefix}{wallet_address}:{market_id}"
         deleted = await self._redis.delete(key)
-        return deleted > 0
+        return int(deleted) > 0
 
     async def assess_batch(self, bundles: list[SignalBundle]) -> list[RiskAssessment]:
         """Assess multiple trade bundles.

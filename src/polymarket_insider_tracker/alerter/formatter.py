@@ -190,10 +190,11 @@ class AlertFormatter:
         wallet_age_str = ""
         if assessment.fresh_wallet_signal:
             age_hours = assessment.fresh_wallet_signal.wallet_profile.age_hours
-            if age_hours < 1:
-                wallet_age_str = f" (Age: {int(age_hours * 60)}m)"
-            else:
-                wallet_age_str = f" (Age: {age_hours:.0f}h)"
+            if age_hours is not None:
+                if age_hours < 1:
+                    wallet_age_str = f" (Age: {int(age_hours * 60)}m)"
+                else:
+                    wallet_age_str = f" (Age: {age_hours:.0f}h)"
 
         fields: list[dict[str, object]] = [
             {
@@ -282,10 +283,11 @@ class AlertFormatter:
         wallet_line = f"*Wallet:* `{wallet_short}`"
         if assessment.fresh_wallet_signal:
             age_hours = assessment.fresh_wallet_signal.wallet_profile.age_hours
-            if age_hours < 1:
-                wallet_line += f" \\(Age: {int(age_hours * 60)}m\\)"
-            else:
-                wallet_line += f" \\(Age: {age_hours:.0f}h\\)"
+            if age_hours is not None:
+                if age_hours < 1:
+                    wallet_line += f" \\(Age: {int(age_hours * 60)}m\\)"
+                else:
+                    wallet_line += f" \\(Age: {age_hours:.0f}h\\)"
         lines.append(wallet_line)
 
         # Risk score
@@ -366,10 +368,11 @@ class AlertFormatter:
         wallet_line = f"Wallet: {wallet_short}"
         if assessment.fresh_wallet_signal:
             age_hours = assessment.fresh_wallet_signal.wallet_profile.age_hours
-            if age_hours < 1:
-                wallet_line += f" (Age: {int(age_hours * 60)}m)"
-            else:
-                wallet_line += f" (Age: {age_hours:.0f}h)"
+            if age_hours is not None:
+                if age_hours < 1:
+                    wallet_line += f" (Age: {int(age_hours * 60)}m)"
+                else:
+                    wallet_line += f" (Age: {age_hours:.0f}h)"
         lines.append(wallet_line)
 
         # Risk

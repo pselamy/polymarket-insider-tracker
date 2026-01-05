@@ -362,7 +362,7 @@ class AlertHistory:
             start.timestamp(),
             end.timestamp(),
         )
-        return count
+        return int(count)
 
     async def cleanup_old_alerts(self) -> int:
         """Remove alerts older than retention period.
@@ -393,4 +393,4 @@ class AlertHistory:
         # Note: Individual alert records will expire via TTL
         # Wallet/market indexes will also expire via TTL
         logger.info(f"Cleaned up {removed} old alert references")
-        return removed
+        return int(removed)

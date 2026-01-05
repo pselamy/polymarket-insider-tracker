@@ -232,6 +232,7 @@ class FundingTracer:
         )
 
         # Get logs with Transfer event filtering by recipient
+        # Note: web3 typing is overly restrictive for block params
         logs = await w3.eth.get_logs(
             {
                 "address": AsyncWeb3.to_checksum_address(token_address),
@@ -240,8 +241,8 @@ class FundingTracer:
                     None,  # from (any)
                     padded_to,  # to (target address)
                 ],
-                "fromBlock": from_block,
-                "toBlock": to_block,
+                "fromBlock": from_block,  # type: ignore[typeddict-item]
+                "toBlock": to_block,  # type: ignore[typeddict-item]
             }
         )
 
@@ -317,7 +318,7 @@ class FundingTracer:
                     origin_type="error",
                 )
             else:
-                chains[addr.lower()] = result  # type: ignore[assignment]
+                chains[addr.lower()] = result
 
         return chains
 
