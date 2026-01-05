@@ -3,7 +3,7 @@
 import asyncio
 import json
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -275,7 +275,6 @@ class TestTradeStreamHandlerIntegration:
     """
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Async mock iterator signature issue - see #49")
     async def test_start_and_receive_trades(self) -> None:
         """Test starting handler and receiving trades."""
         received_trades: list[TradeEvent] = []
@@ -287,11 +286,6 @@ class TestTradeStreamHandlerIntegration:
             on_trade=on_trade,
             initial_reconnect_delay=0.01,
         )
-
-        # Create mock WebSocket that sends one trade then closes
-        mock_ws = MagicMock()
-        mock_ws.send = AsyncMock()
-        mock_ws.close = AsyncMock()
 
         trade_message = json.dumps(
             {
@@ -311,12 +305,33 @@ class TestTradeStreamHandlerIntegration:
             }
         )
 
-        # Mock async iteration
-        async def mock_iter() -> None:
-            yield trade_message
-            await handler.stop()  # Stop after first message
+        # Create a proper async iterable mock WebSocket
+        class MockWebSocket:
+            """Mock WebSocket that yields one message then stops."""
 
-        mock_ws.__aiter__ = mock_iter
+            def __init__(self, handler: TradeStreamHandler, message: str):
+                self.handler = handler
+                self.message = message
+                self.sent = False
+
+            async def send(self, _msg: str) -> None:
+                pass
+
+            async def close(self) -> None:
+                pass
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self) -> str:
+                if not self.sent:
+                    self.sent = True
+                    return self.message
+                # Stop the handler and raise StopAsyncIteration
+                await self.handler.stop()
+                raise StopAsyncIteration
+
+        mock_ws = MockWebSocket(handler, trade_message)
 
         with patch("websockets.connect", AsyncMock(return_value=mock_ws)):
             # Run with timeout to prevent hanging

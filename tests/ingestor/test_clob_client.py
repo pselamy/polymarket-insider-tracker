@@ -7,7 +7,6 @@ import pytest
 
 from polymarket_insider_tracker.ingestor.clob_client import (
     ClobClient,
-    ClobClientError,
     RateLimiter,
     RetryError,
     with_retry,
@@ -253,17 +252,23 @@ class TestClobClient:
         assert market.condition_id == "0xabc"
         assert len(market.tokens) == 2
 
-    @pytest.mark.xfail(reason="Retry logic wraps exception differently - see #49")
     def test_get_market_not_found(self, mock_base_client: MagicMock) -> None:
-        """Test error handling when market not found."""
+        """Test error handling when market not found.
+
+        When the underlying API call fails, the @with_retry decorator will
+        retry the operation. After all retries are exhausted, it raises
+        RetryError wrapping the original exception.
+        """
         mock_base_client.get_market.side_effect = Exception("Not found")
 
         client = ClobClient()
 
-        with pytest.raises(ClobClientError) as exc_info:
+        with pytest.raises(RetryError) as exc_info:
             client.get_market("0xnotfound")
 
-        assert "0xnotfound" in str(exc_info.value)
+        # The RetryError wraps the original exception
+        assert "get_market" in str(exc_info.value)
+        assert exc_info.value.last_exception is not None
 
     def test_get_orderbook(self, mock_base_client: MagicMock) -> None:
         """Test fetching an orderbook."""
