@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from redis.asyncio import Redis
 
@@ -27,7 +27,7 @@ DEFAULT_CACHE_TTL_SECONDS = 600  # 10 minutes
 DEFAULT_REDIS_KEY_PREFIX = "polymarket:market:"
 
 
-class SyncState(str, Enum):
+class SyncState(StrEnum):
     """State of the metadata synchronizer."""
 
     STOPPED = "stopped"
