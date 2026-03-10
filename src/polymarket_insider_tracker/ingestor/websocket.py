@@ -9,8 +9,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-import websockets
 from websockets.asyncio.client import ClientConnection
+from websockets.asyncio.client import connect as ws_connect
+from websockets.exceptions import ConnectionClosed
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 
@@ -156,7 +157,7 @@ class TradeStreamHandler:
         await self._set_state(ConnectionState.CONNECTING)
 
         try:
-            ws = await websockets.connect(
+            ws = await ws_connect(
                 self._host,
                 ping_interval=self._ping_interval,
                 ping_timeout=self._ping_interval * 2,
@@ -227,7 +228,7 @@ class TradeStreamHandler:
                 else:
                     logger.debug("Received binary message (%d bytes)", len(message))
 
-        except websockets.ConnectionClosed as e:
+        except ConnectionClosed as e:
             logger.warning("Connection closed: %s", e)
             raise
         except Exception as e:
@@ -284,7 +285,7 @@ class TradeStreamHandler:
             while self._running:
                 try:
                     await self._listen(self._ws)
-                except (websockets.ConnectionClosed, Exception) as e:
+                except (ConnectionClosed, Exception) as e:
                     if not self._running:
                         break
 

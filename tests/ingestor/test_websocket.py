@@ -231,7 +231,10 @@ class TestTradeStreamHandler:
         mock_ws = AsyncMock()
         mock_ws.send = AsyncMock()
 
-        with patch("websockets.connect", AsyncMock(return_value=mock_ws)):
+        with patch(
+            "polymarket_insider_tracker.ingestor.websocket.ws_connect",
+            AsyncMock(return_value=mock_ws),
+        ):
             ws = await handler._connect()
 
             assert ws is mock_ws
@@ -333,7 +336,10 @@ class TestTradeStreamHandlerIntegration:
 
         mock_ws = MockWebSocket(handler, trade_message)
 
-        with patch("websockets.connect", AsyncMock(return_value=mock_ws)):
+        with patch(
+            "polymarket_insider_tracker.ingestor.websocket.ws_connect",
+            AsyncMock(return_value=mock_ws),
+        ):
             # Run with timeout to prevent hanging
             try:
                 await asyncio.wait_for(handler.start(), timeout=1.0)

@@ -86,7 +86,7 @@ class Orderbook:
     bids: tuple[OrderbookLevel, ...]
     asks: tuple[OrderbookLevel, ...]
     tick_size: Decimal
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
     def from_clob_orderbook(cls, orderbook: Any) -> "Orderbook":
