@@ -126,13 +126,13 @@ docker compose up -d
 docker compose ps
 
 # Install Python dependencies
-pip install -e .
+uv sync --all-extras
 
 # Run database migrations
-alembic upgrade head
+uv run alembic upgrade head
 
 # Run the tracker
-python -m src.main
+uv run python -m polymarket_insider_tracker
 ```
 
 ### Docker Services
@@ -188,24 +188,16 @@ LIQUIDITY_IMPACT_THRESHOLD=0.02
 ```
 polymarket-insider-tracker/
 ├── src/
-│   ├── ingestor/           # Real-time market data ingestion
-│   │   ├── clob_client.py  # Polymarket CLOB API wrapper
-│   │   └── websocket.py    # WebSocket event handler
-│   ├── profiler/           # Wallet analysis
-│   │   ├── analyzer.py     # Core wallet profiling logic
-│   │   ├── chain.py        # Polygon blockchain client
-│   │   └── funding.py      # Funding chain tracer
-│   ├── detector/           # Anomaly detection engines
-│   │   ├── fresh_wallet.py
-│   │   ├── size_anomaly.py
-│   │   ├── sniper.py       # DBSCAN clustering
-│   │   └── scorer.py       # Composite risk scoring
-│   ├── alerter/            # Notification dispatch
-│   │   ├── formatter.py    # Alert message formatting
-│   │   └── dispatcher.py   # Multi-channel delivery
-│   └── storage/            # Persistence layer
-│       ├── models.py       # SQLAlchemy models
-│       └── repos.py        # Repository pattern
+│   └── polymarket_insider_tracker/
+│       ├── __main__.py     # CLI entry point
+│       ├── pipeline.py     # Core detection pipeline
+│       ├── ingestor/       # Real-time market data ingestion
+│       │   ├── clob_client.py  # Polymarket CLOB API wrapper
+│       │   └── websocket.py    # WebSocket event handler
+│       ├── profiler/       # Wallet analysis
+│       ├── detector/       # Anomaly detection engines
+│       ├── alerter/        # Notification dispatch
+│       └── storage/        # Persistence layer
 ├── tests/                  # Test suite
 ├── scripts/
 │   └── backtest.py         # Historical analysis
@@ -289,16 +281,16 @@ Contributions are welcome! Please read our Contributing Guide before submitting 
 
 ```bash
 # Install dev dependencies
-pip install -e ".[dev]"
+uv sync --all-extras
 
 # Run tests
-pytest
+uv run pytest
 
 # Run linting
-ruff check src/
+uv run ruff check src/
 
 # Run type checking
-mypy src/
+uv run mypy src/
 ```
 
 ---
