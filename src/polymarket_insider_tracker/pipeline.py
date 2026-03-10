@@ -11,7 +11,7 @@ import contextlib
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from redis.asyncio import Redis
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class PipelineState(str, Enum):
+class PipelineState(StrEnum):
     """Pipeline lifecycle states."""
 
     STOPPED = "stopped"
