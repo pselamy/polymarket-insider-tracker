@@ -29,7 +29,14 @@ from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.websocket import TradeStreamHandler
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.chain import PolygonClient
+from polymarket_insider_tracker.profiler.funding import FundingTracer
 from polymarket_insider_tracker.storage.database import DatabaseManager
+from polymarket_insider_tracker.storage.repos import (
+    FundingRepository,
+    FundingTransferDTO,
+    WalletProfileDTO,
+    WalletRepository,
+)
 
 if TYPE_CHECKING:
     from typing import Any
@@ -120,6 +127,7 @@ class Pipeline:
         self._alert_formatter: AlertFormatter | None = None
         self._alert_dispatcher: AlertDispatcher | None = None
         self._trade_stream: TradeStreamHandler | None = None
+        self._funding_tracer: FundingTracer | None = None
 
         # Synchronization
         self._stop_event: asyncio.Event | None = None
@@ -232,6 +240,10 @@ class Pipeline:
             self._polygon_client,
             redis=self._redis,
         )
+
+        # Initialize Funding Tracer
+        logger.debug("Initializing funding tracer...")
+        self._funding_tracer = FundingTracer(self._polygon_client)
 
         # Initialize Detectors
         logger.debug("Initializing detectors...")
@@ -365,6 +377,10 @@ class Pipeline:
                 self._detect_size_anomaly(trade),
             )
 
+            # Persist wallet profile and funding data when a fresh wallet is detected
+            if fresh_signal is not None:
+                await self._persist_wallet_and_funding(fresh_signal)
+
             # Bundle signals
             bundle = SignalBundle(
                 trade_event=trade,
@@ -381,6 +397,63 @@ class Pipeline:
             logger.error("Error processing trade %s: %s", trade.trade_id, e)
             self._stats.errors += 1
             self._stats.last_error = str(e)
+
+    async def _persist_wallet_and_funding(self, signal: FreshWalletSignal) -> None:
+        """Persist wallet profile and funding transfers to Postgres.
+
+        Called when a fresh wallet signal is detected. Upserts the wallet
+        profile and traces/inserts any funding transfers found on-chain.
+
+        Args:
+            signal: The fresh wallet signal containing the wallet profile.
+        """
+        if not self._db_manager:
+            return
+
+        profile = signal.wallet_profile
+        address = profile.address
+
+        try:
+            async with self._db_manager.get_async_session() as session:
+                # Persist wallet profile
+                wallet_repo = WalletRepository(session)
+                dto = WalletProfileDTO(
+                    address=address,
+                    nonce=profile.nonce,
+                    first_seen_at=profile.first_seen,
+                    is_fresh=profile.is_fresh,
+                    matic_balance=profile.matic_balance,
+                    usdc_balance=profile.usdc_balance,
+                    analyzed_at=profile.analyzed_at,
+                )
+                await wallet_repo.upsert(dto)
+
+                # Trace and persist funding transfers
+                if self._funding_tracer:
+                    chain = await self._funding_tracer.trace(address)
+                    if chain.chain:
+                        funding_repo = FundingRepository(session)
+                        funding_dtos = [
+                            FundingTransferDTO(
+                                from_address=t.from_address,
+                                to_address=t.to_address,
+                                amount=t.amount,
+                                token=t.token,
+                                tx_hash=t.tx_hash,
+                                block_number=t.block_number,
+                                timestamp=t.timestamp,
+                            )
+                            for t in chain.chain
+                        ]
+                        await funding_repo.insert_many(funding_dtos)
+
+                logger.debug(
+                    "Persisted wallet profile and %d funding transfers for %s",
+                    len(chain.chain) if self._funding_tracer and chain.chain else 0,
+                    address[:10] + "...",
+                )
+        except Exception as e:
+            logger.warning("Failed to persist wallet/funding data for %s: %s", address, e)
 
     async def _detect_fresh_wallet(self, trade: TradeEvent) -> FreshWalletSignal | None:
         """Run fresh wallet detection."""
