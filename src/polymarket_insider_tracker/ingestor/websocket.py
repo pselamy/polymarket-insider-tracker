@@ -150,7 +150,7 @@ class TradeStreamHandler:
         elif self._market_filter:
             subscription["filters"] = json.dumps({"market_slug": self._market_filter})
 
-        return {"subscriptions": [subscription]}
+        return {"action": "subscribe", "subscriptions": [subscription]}
 
     async def _connect(self) -> ClientConnection:
         """Establish WebSocket connection."""

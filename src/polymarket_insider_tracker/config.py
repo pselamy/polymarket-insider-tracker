@@ -87,7 +87,7 @@ class PolymarketSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="POLYMARKET_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     ws_url: str = Field(
-        default="wss://ws-subscriptions-clob.polymarket.com/ws/market",
+        default="wss://ws-live-data.polymarket.com",
         alias="POLYMARKET_WS_URL",
         description="Polymarket WebSocket URL for live data",
     )
