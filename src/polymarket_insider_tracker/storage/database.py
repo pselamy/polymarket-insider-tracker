@@ -37,17 +37,33 @@ def create_sync_engine(database_url: str, **kwargs: Any) -> Engine:
     return create_engine(database_url, **kwargs)
 
 
+def _ensure_async_driver(database_url: str) -> str:
+    """Coerce a generic postgresql:// URL to postgresql+asyncpg://.
+
+    SQLAlchemy's create_async_engine refuses URLs whose dialect resolves to a
+    sync driver. The same DATABASE_URL is consumed by both alembic (sync) and
+    the application (async), so a single canonical postgresql:// value must
+    work for both. Rewrite to the asyncpg driver here so callers can pass the
+    canonical URL unchanged.
+    """
+    if database_url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + database_url[len("postgresql://") :]
+    return database_url
+
+
 def create_async_db_engine(database_url: str, **kwargs: Any) -> AsyncEngine:
     """Create an asynchronous SQLAlchemy engine.
 
     Args:
-        database_url: Database connection URL (e.g., postgresql+asyncpg://...).
+        database_url: Database connection URL. Either ``postgresql://...`` or
+            ``postgresql+asyncpg://...`` is accepted; the former is rewritten
+            to use the asyncpg driver.
         **kwargs: Additional engine options.
 
     Returns:
         SQLAlchemy AsyncEngine instance.
     """
-    return create_async_engine(database_url, **kwargs)
+    return create_async_engine(_ensure_async_driver(database_url), **kwargs)
 
 
 def create_sync_session_factory(engine: Engine) -> sessionmaker[Session]:
