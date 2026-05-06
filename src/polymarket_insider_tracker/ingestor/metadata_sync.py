@@ -285,6 +285,13 @@ class MarketMetadataSync:
         Returns:
             MarketMetadata if found, None otherwise.
         """
+        # Some RTDS activity/trades events arrive without a conditionId
+        # (e.g. sport markets). Skip them rather than calling the CLOB
+        # /markets/ endpoint with an empty path segment, which 301-redirects
+        # to /markets and triggers retry storms.
+        if not condition_id:
+            return None
+
         # Try cache first
         key = f"{self._key_prefix}{condition_id}"
         cached = await self._redis.get(key)
