@@ -1,6 +1,7 @@
 """Wrapper around py-clob-client with rate limiting and retry logic."""
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -8,6 +9,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import ParamSpec, TypeVar
 
+import httpx
 from py_clob_client.client import ClobClient as BaseClobClient
 from py_clob_client.clob_types import BookParams
 
@@ -26,6 +28,37 @@ MIN_REQUEST_INTERVAL = 1.0 / MAX_REQUESTS_PER_SECOND  # 0.1 seconds
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BASE_DELAY = 1.0
 RETRY_STATUS_CODES = (429, 500, 502, 503, 504)
+
+
+def _gamma_to_clob_market(g: dict[str, object]) -> dict[str, object]:
+    """Adapt a Gamma API market dict to the CLOB simplified-markets schema
+    expected by Market.from_dict."""
+    outcomes_raw = g.get("outcomes", "[]")
+    token_ids_raw = g.get("clobTokenIds", "[]")
+    prices_raw = g.get("outcomePrices", "[]")
+
+    outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else (outcomes_raw or [])
+    token_ids = json.loads(token_ids_raw) if isinstance(token_ids_raw, str) else (token_ids_raw or [])
+    prices = json.loads(prices_raw) if isinstance(prices_raw, str) else (prices_raw or [])
+
+    tokens = []
+    for i, outcome in enumerate(outcomes):
+        if i >= len(token_ids):
+            break
+        token = {"token_id": str(token_ids[i]), "outcome": str(outcome)}
+        if i < len(prices):
+            token["price"] = str(prices[i])
+        tokens.append(token)
+
+    return {
+        "condition_id": str(g.get("conditionId", "")),
+        "question": g.get("question", ""),
+        "description": g.get("description", ""),
+        "tokens": tokens,
+        "end_date_iso": g.get("endDate"),
+        "active": g.get("active", True),
+        "closed": g.get("closed", False),
+    }
 
 
 class RateLimiter:
@@ -177,39 +210,45 @@ class ClobClient:
 
     @with_retry()
     def get_markets(self, active_only: bool = True) -> list[Market]:
-        """Fetch all markets from the CLOB.
+        """Fetch all markets from Polymarket Gamma API.
+
+        Uses Gamma API instead of CLOB simplified-markets because CLOB returns
+        every market ever created (~350K+) with no server-side filter, making
+        client-side `active_only` filtering O(N) over the entire history.
+        Gamma supports active/closed filters server-side.
 
         Args:
-            active_only: If True, only return active (non-closed) markets.
+            active_only: If True, only return active and non-closed markets.
 
         Returns:
             List of Market objects.
         """
-        self._rate_limiter.acquire_sync()
-
+        gamma_url = "https://gamma-api.polymarket.com/markets"
+        page_limit = 500
+        offset = 0
         all_markets: list[Market] = []
-        cursor: str | None = None
+
+        params_base: dict[str, str | int] = {"limit": page_limit}
+        if active_only:
+            params_base["active"] = "true"
+            params_base["closed"] = "false"
 
         while True:
-            if cursor:
-                response = self._client.get_simplified_markets(cursor)
-            else:
-                response = self._client.get_simplified_markets()
-
-            data = response.get("data", [])
-            for market_data in data:
-                market = Market.from_dict(market_data)
-                if active_only and market.closed:
-                    continue
-                all_markets.append(market)
-
-            next_cursor = response.get("next_cursor")
-            if not next_cursor or next_cursor == "LTE=":
-                break
-            cursor = next_cursor
-
-            # Rate limit between pagination requests
             self._rate_limiter.acquire_sync()
+            params = {**params_base, "offset": offset}
+            response = httpx.get(gamma_url, params=params, timeout=30.0)
+            response.raise_for_status()
+            page = response.json()
+            if not isinstance(page, list) or not page:
+                break
+            for market_data in page:
+                try:
+                    all_markets.append(Market.from_dict(_gamma_to_clob_market(market_data)))
+                except (KeyError, ValueError, TypeError) as e:
+                    logger.debug("skip market %s: %s", market_data.get("conditionId"), e)
+            if len(page) < page_limit:
+                break
+            offset += page_limit
 
         logger.debug("Fetched %d markets", len(all_markets))
         return all_markets
