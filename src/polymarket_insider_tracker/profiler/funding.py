@@ -26,8 +26,13 @@ logger = logging.getLogger(__name__)
 USDC_BRIDGED = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 
-# ERC20 Transfer event signature
+# ERC20 Transfer event signature. ``HexBytes.hex()`` returns a *bare* hex
+# string without the ``0x`` prefix; publicnode tolerates that, but stricter
+# providers (e.g. drpc — which we use as the fallback) reject it with
+# ``invalid argument 0: hex string without 0x prefix``. Always pass the
+# 0x-prefixed form to ``eth_getLogs``.
 TRANSFER_EVENT_SIGNATURE = AsyncWeb3.keccak(text="Transfer(address,address,uint256)")
+TRANSFER_EVENT_TOPIC = "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
 
 # eth_getLogs block-range chunking. Most public Polygon RPCs (publicnode, ankr,
 # llamarpc) cap the range at 10_000 blocks per call; pick a window slightly
@@ -278,7 +283,7 @@ class FundingTracer:
         # Pad address to 32 bytes for topic filter
         padded_to = "0x" + to_address.lower().replace("0x", "").zfill(64)
         topics = [
-            TRANSFER_EVENT_SIGNATURE.hex(),  # Transfer event
+            TRANSFER_EVENT_TOPIC,  # Transfer event (must be 0x-prefixed for drpc)
             None,  # from (any)
             padded_to,  # to (target address)
         ]

@@ -338,7 +338,9 @@ class TestGetTransferLogs:
 
         # Verify topics structure
         assert len(call_args["topics"]) == 3
-        assert call_args["topics"][0] == TRANSFER_EVENT_SIGNATURE.hex()
+        # The Transfer event topic must be 0x-prefixed; drpc rejects bare hex.
+        assert call_args["topics"][0] == "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
+        assert call_args["topics"][0].startswith("0x")
         assert call_args["topics"][1] is None  # from (any)
         # to address should be padded to 32 bytes
         assert call_args["topics"][2].endswith(TEST_WALLET.lower().replace("0x", ""))
@@ -586,6 +588,40 @@ class TestGetTransferLogs:
         )
 
         assert DEFAULT_MAX_LOOKBACK_BLOCKS <= 100_000
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_topic_is_0x_prefixed(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """The Transfer event topic passed to ``eth_getLogs`` must begin with ``0x``.
+
+        ``HexBytes.hex()`` returns a bare hex string. publicnode tolerates
+        that, but stricter providers like drpc (our fallback) reject it with
+        ``invalid argument 0: hex string without 0x prefix`` and every chunk
+        in the trace fails. This guards against regressing back to the
+        bare-hex form.
+        """
+        mock_w3 = MagicMock()
+        mock_w3.eth.get_logs = AsyncMock(return_value=[])
+        mock_polygon_client._w3 = mock_w3
+
+        await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+            from_block=1,
+            to_block=8_000,
+        )
+
+        topics = mock_w3.eth.get_logs.call_args[0][0]["topics"]
+        assert topics[0].startswith("0x")
+        # And the topic also has to be 32 bytes (64 hex chars) as required by
+        # the JSON-RPC spec.
+        assert len(topics[0]) == 2 + 64
+        # The padded `to` topic was already 0x-prefixed; double-check that
+        # didn't regress either.
+        assert topics[2].startswith("0x")
 
 
 class TestLogToFundingTransfer:
