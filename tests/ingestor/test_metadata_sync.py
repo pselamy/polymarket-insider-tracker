@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
+from polymarket_insider_tracker.ingestor.gamma_client import GammaClient
 from polymarket_insider_tracker.ingestor.metadata_sync import (
     DEFAULT_CACHE_TTL_SECONDS,
     DEFAULT_REDIS_KEY_PREFIX,
@@ -70,6 +71,18 @@ def mock_clob(sample_market: Market) -> MagicMock:
     clob.get_markets = MagicMock(return_value=[sample_market])
     clob.get_market = MagicMock(return_value=sample_market)
     return clob
+
+
+@pytest.fixture
+def mock_gamma() -> MagicMock:
+    """Create a mock GammaClient that returns empty volume stats.
+
+    Without this, MarketMetadataSync would instantiate a default
+    GammaClient and hit the real gamma-api over HTTP during unit tests.
+    """
+    gamma = MagicMock(spec=GammaClient)
+    gamma.get_active_market_stats = AsyncMock(return_value={})
+    return gamma
 
 
 class TestDeriveCategory:
@@ -195,9 +208,9 @@ class TestSyncStats:
 class TestMarketMetadataSync:
     """Tests for the MarketMetadataSync class."""
 
-    def test_init(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    def test_init(self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock) -> None:
         """Test initialization."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
 
         assert sync.state == SyncState.STOPPED
         assert sync.stats.total_syncs == 0
@@ -205,11 +218,14 @@ class TestMarketMetadataSync:
         assert sync._cache_ttl == DEFAULT_CACHE_TTL_SECONDS
         assert sync._key_prefix == DEFAULT_REDIS_KEY_PREFIX
 
-    def test_init_custom_config(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    def test_init_custom_config(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test initialization with custom config."""
         sync = MarketMetadataSync(
             redis=mock_redis,
             clob_client=mock_clob,
+            gamma_client=mock_gamma,
             sync_interval_seconds=60,
             cache_ttl_seconds=120,
             key_prefix="custom:",
@@ -220,9 +236,11 @@ class TestMarketMetadataSync:
         assert sync._key_prefix == "custom:"
 
     @pytest.mark.asyncio
-    async def test_start_stop(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_start_stop(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test starting and stopping the sync service."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
 
         # Start
         await sync.start()
@@ -236,10 +254,10 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_start_performs_initial_sync(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
     ) -> None:
         """Test that start performs an initial sync."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
 
         await sync.start()
 
@@ -252,10 +270,12 @@ class TestMarketMetadataSync:
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_start_failure(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_start_failure(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test start failure handling."""
         mock_clob.get_markets.side_effect = Exception("API error")
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
 
         with pytest.raises(MetadataSyncError, match="initial sync failed"):
             await sync.start()
@@ -268,6 +288,7 @@ class TestMarketMetadataSync:
         self,
         mock_redis: AsyncMock,
         mock_clob: MagicMock,
+        mock_gamma: MagicMock,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test get_market with cache hit."""
@@ -275,7 +296,7 @@ class TestMarketMetadataSync:
         cached_data = json.dumps(sample_metadata.to_dict())
         mock_redis.get = AsyncMock(return_value=cached_data)
 
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
         await sync.start()
 
         result = await sync.get_market("cond123")
@@ -288,12 +309,14 @@ class TestMarketMetadataSync:
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_get_market_cache_miss(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_get_market_cache_miss(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test get_market with cache miss."""
         # Setup cache miss
         mock_redis.get = AsyncMock(return_value=None)
 
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
         await sync.start()
 
         result = await sync.get_market("cond123")
@@ -308,12 +331,14 @@ class TestMarketMetadataSync:
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_get_market_not_found(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_get_market_not_found(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test get_market when market doesn't exist."""
         mock_redis.get = AsyncMock(return_value=None)
         mock_clob.get_market.return_value = None
 
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
         await sync.start()
 
         result = await sync.get_market("nonexistent")
@@ -323,9 +348,11 @@ class TestMarketMetadataSync:
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_invalidate_market(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_invalidate_market(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test cache invalidation."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
         await sync.start()
 
         result = await sync.invalidate_market("cond123")
@@ -336,9 +363,11 @@ class TestMarketMetadataSync:
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_force_sync(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_force_sync(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test forced sync."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
         await sync.start()
 
         # Initial sync
@@ -353,7 +382,9 @@ class TestMarketMetadataSync:
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_state_change_callback(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_state_change_callback(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test state change callback."""
         states: list[SyncState] = []
 
@@ -363,6 +394,7 @@ class TestMarketMetadataSync:
         sync = MarketMetadataSync(
             redis=mock_redis,
             clob_client=mock_clob,
+            gamma_client=mock_gamma,
             on_state_change=on_state_change,
         )
 
@@ -377,7 +409,7 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_sync_complete_callback(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
     ) -> None:
         """Test sync complete callback."""
         sync_stats: list[SyncStats] = []
@@ -388,6 +420,7 @@ class TestMarketMetadataSync:
         sync = MarketMetadataSync(
             redis=mock_redis,
             clob_client=mock_clob,
+            gamma_client=mock_gamma,
             on_sync_complete=on_sync_complete,
         )
 
@@ -401,7 +434,11 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_get_markets_by_category(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, sample_metadata: MarketMetadata
+        self,
+        mock_redis: AsyncMock,
+        mock_clob: MagicMock,
+        mock_gamma: MagicMock,
+        sample_metadata: MarketMetadata,
     ) -> None:
         """Test getting markets by category."""
         # Setup scan to return keys
@@ -412,7 +449,7 @@ class TestMarketMetadataSync:
         cached_data = json.dumps(sample_metadata.to_dict())
         mock_redis.get = AsyncMock(return_value=cached_data)
 
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
         # Don't start to avoid initial sync complexity
         sync._state = SyncState.IDLE
 
@@ -422,9 +459,11 @@ class TestMarketMetadataSync:
         assert results[0].category == "crypto"
 
     @pytest.mark.asyncio
-    async def test_cannot_start_twice(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_cannot_start_twice(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test that starting twice doesn't double-start."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
 
         await sync.start()
         await sync.start()  # Should be a no-op
@@ -434,9 +473,11 @@ class TestMarketMetadataSync:
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_stop_when_stopped(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
+    async def test_stop_when_stopped(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+    ) -> None:
         """Test stopping when already stopped."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
 
         await sync.stop()  # Should be a no-op
 

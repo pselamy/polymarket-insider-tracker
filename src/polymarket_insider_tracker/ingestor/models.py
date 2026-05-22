@@ -399,6 +399,12 @@ class MarketMetadata:
     # Derived metadata
     category: str = "other"
 
+    # Liquidity/volume snapshot (from gamma-api). All optional — older
+    # cache entries and CLOB-only sync results may not have these.
+    daily_volume: Decimal | None = None
+    weekly_volume: Decimal | None = None
+    liquidity: Decimal | None = None
+
     # Cache metadata
     last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -446,6 +452,9 @@ class MarketMetadata:
             "active": self.active,
             "closed": self.closed,
             "category": self.category,
+            "daily_volume": str(self.daily_volume) if self.daily_volume is not None else None,
+            "weekly_volume": str(self.weekly_volume) if self.weekly_volume is not None else None,
+            "liquidity": str(self.liquidity) if self.liquidity is not None else None,
             "last_updated": self.last_updated.isoformat(),
         }
 
@@ -477,6 +486,15 @@ class MarketMetadata:
         else:
             last_updated = datetime.now(UTC)
 
+        def _opt_dec(key: str) -> Decimal | None:
+            raw = data.get(key)
+            if raw is None or raw == "":
+                return None
+            try:
+                return Decimal(str(raw))
+            except (ValueError, ArithmeticError):
+                return None
+
         return cls(
             condition_id=str(data["condition_id"]),
             question=str(data.get("question", "")),
@@ -486,5 +504,8 @@ class MarketMetadata:
             active=bool(data.get("active", True)),
             closed=bool(data.get("closed", False)),
             category=str(data.get("category", "other")),
+            daily_volume=_opt_dec("daily_volume"),
+            weekly_volume=_opt_dec("weekly_volume"),
+            liquidity=_opt_dec("liquidity"),
             last_updated=last_updated,
         )
