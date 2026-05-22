@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_VOLUME_THRESHOLD = 0.02  # 2% of daily volume
 DEFAULT_BOOK_THRESHOLD = 0.05  # 5% of order book depth
 DEFAULT_NICHE_VOLUME_THRESHOLD = Decimal("50000")  # $50k daily volume
+# Niche-only path requires real trade size; below this, suppress the base
+# 0.2 confidence so we don't flood alerts with low-value niche trades.
+DEFAULT_NICHE_MIN_TRADE_SIZE = Decimal("500")  # USDC notional
 
 # Niche market categories - markets in these categories with low specificity
 # are more likely to have insider information value
@@ -59,6 +62,7 @@ class SizeAnomalyDetector:
         volume_threshold: float = DEFAULT_VOLUME_THRESHOLD,
         book_threshold: float = DEFAULT_BOOK_THRESHOLD,
         niche_volume_threshold: Decimal = DEFAULT_NICHE_VOLUME_THRESHOLD,
+        niche_min_trade_size: Decimal = DEFAULT_NICHE_MIN_TRADE_SIZE,
     ) -> None:
         """Initialize the size anomaly detector.
 
@@ -67,11 +71,15 @@ class SizeAnomalyDetector:
             volume_threshold: Threshold for volume impact (default 0.02 = 2%).
             book_threshold: Threshold for book impact (default 0.05 = 5%).
             niche_volume_threshold: Volume below which market is niche ($50k).
+            niche_min_trade_size: Minimum trade notional ($) to allow a
+                niche-only signal. Below this, niche-only path is suppressed
+                to avoid flooding alerts with low-value trades.
         """
         self._metadata_sync = metadata_sync
         self._volume_threshold = volume_threshold
         self._book_threshold = book_threshold
         self._niche_volume_threshold = niche_volume_threshold
+        self._niche_min_trade_size = niche_min_trade_size
 
     async def analyze(
         self,
@@ -128,6 +136,18 @@ class SizeAnomalyDetector:
         # Check if any threshold exceeded
         exceeds_volume = volume_impact > self._volume_threshold
         exceeds_book = book_impact > self._book_threshold
+
+        # Niche-only signals require a minimum trade size; otherwise we'd
+        # flood alerts with every tiny trade in any niche-prone category.
+        niche_only = is_niche and not exceeds_volume and not exceeds_book
+        if niche_only and trade_size < self._niche_min_trade_size:
+            logger.debug(
+                "Trade %s niche-only but size %s < min %s, skipping",
+                trade.trade_id,
+                trade_size,
+                self._niche_min_trade_size,
+            )
+            return None
 
         if not exceeds_volume and not exceeds_book and not is_niche:
             logger.debug(

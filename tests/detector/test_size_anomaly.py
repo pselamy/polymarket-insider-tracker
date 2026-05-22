@@ -589,6 +589,93 @@ class TestAnalyzeMethod:
         assert signal.confidence == 0.2  # niche_base
 
     @pytest.mark.asyncio
+    async def test_analyze_niche_only_below_min_trade_size_skipped(
+        self,
+        mock_metadata_sync: AsyncMock,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        """Niche-only trades below the min trade size are suppressed."""
+        mock_metadata_sync.get_market.return_value = sample_metadata
+        detector = SizeAnomalyDetector(mock_metadata_sync)
+
+        tiny_trade = TradeEvent(
+            market_id="market_abc123",
+            trade_id="tx_tiny",
+            wallet_address="0xabc",
+            side="BUY",
+            outcome="Yes",
+            outcome_index=0,
+            price=Decimal("0.5"),
+            size=Decimal("100"),  # $50 notional, below default $500 floor
+            timestamp=datetime.now(UTC),
+            asset_id="token_123",
+            event_title="Niche tiny trade",
+        )
+
+        signal = await detector.analyze(tiny_trade)
+        assert signal is None
+
+    @pytest.mark.asyncio
+    async def test_analyze_niche_only_at_min_trade_size_emits(
+        self,
+        mock_metadata_sync: AsyncMock,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        """Niche-only trades at or above the min trade size still emit."""
+        mock_metadata_sync.get_market.return_value = sample_metadata
+        detector = SizeAnomalyDetector(mock_metadata_sync)
+
+        ok_trade = TradeEvent(
+            market_id="market_abc123",
+            trade_id="tx_ok",
+            wallet_address="0xabc",
+            side="BUY",
+            outcome="Yes",
+            outcome_index=0,
+            price=Decimal("0.5"),
+            size=Decimal("2000"),  # $1000 notional, above default $500 floor
+            timestamp=datetime.now(UTC),
+            asset_id="token_123",
+            event_title="Niche ok trade",
+        )
+
+        signal = await detector.analyze(ok_trade)
+        assert signal is not None
+        assert signal.is_niche_market is True
+        assert signal.confidence == 0.2
+
+    @pytest.mark.asyncio
+    async def test_niche_min_trade_size_does_not_block_real_anomalies(
+        self,
+        mock_metadata_sync: AsyncMock,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        """A trade that exceeds volume/book thresholds is never blocked by the niche guard."""
+        mock_metadata_sync.get_market.return_value = sample_metadata
+        detector = SizeAnomalyDetector(mock_metadata_sync)
+
+        small_but_high_impact_trade = TradeEvent(
+            market_id="market_abc123",
+            trade_id="tx_small_impact",
+            wallet_address="0xabc",
+            side="BUY",
+            outcome="Yes",
+            outcome_index=0,
+            price=Decimal("0.5"),
+            size=Decimal("200"),  # $100 notional, below niche floor
+            timestamp=datetime.now(UTC),
+            asset_id="token_123",
+            event_title="Small but high-impact",
+        )
+
+        # Provide small daily_volume so volume_impact exceeds 2% threshold
+        signal = await detector.analyze(
+            small_but_high_impact_trade, daily_volume=Decimal("1000")
+        )
+        assert signal is not None
+        assert signal.volume_impact > 0.02
+
+    @pytest.mark.asyncio
     async def test_analyze_no_anomaly(
         self,
         mock_metadata_sync: AsyncMock,
