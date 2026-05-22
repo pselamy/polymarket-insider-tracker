@@ -409,11 +409,26 @@ class TestTelegramMarkdown:
         assert "`0x1234...5678`" in result.telegram_markdown
 
     def test_telegram_includes_risk_score(self, high_risk_assessment: RiskAssessment) -> None:
-        """Test that Telegram message includes risk score."""
+        """Test that Telegram message includes risk score, MarkdownV2-escaped."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
-        assert "0.82" in result.telegram_markdown
+        # MarkdownV2 requires `.` to be escaped, so 0.82 becomes 0\.82.
+        assert "0\\.82" in result.telegram_markdown
         assert "HIGH" in result.telegram_markdown
+
+    def test_telegram_escapes_all_decimals(self, high_risk_assessment: RiskAssessment) -> None:
+        """Telegram MarkdownV2 rejects unescaped `.` in dynamic numeric
+        fields (risk score, price, USDC amount). All must be present in
+        their escaped form."""
+        formatter = AlertFormatter()
+        result = formatter.format(high_risk_assessment)
+        md = result.telegram_markdown
+        for unescaped in ("0.82", "0.075", "15,000.00"):
+            assert unescaped not in md, (
+                f"unescaped {unescaped!r} would be rejected by Telegram MarkdownV2: {md!r}"
+            )
+        for escaped in ("0\\.82", "0\\.075", "15,000\\.00"):
+            assert escaped in md, f"missing escaped {escaped!r} in {md!r}"
 
     def test_telegram_includes_links(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that Telegram message includes links."""
