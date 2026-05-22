@@ -290,12 +290,14 @@ class AlertFormatter:
                     wallet_line += f" \\(Age: {age_hours:.0f}h\\)"
         lines.append(wallet_line)
 
-        # Risk score
-        lines.append(f"*Risk Score:* {assessment.weighted_score:.2f} \\({risk_level}\\)")
+        # Risk score — every numeric literal here must be escaped because
+        # MarkdownV2 treats `.` as a special character and rejects unescaped
+        # ones with `Bad Request: can't parse entities`.
+        score_str = self._escape_telegram_markdown(f"{assessment.weighted_score:.2f}")
+        lines.append(f"*Risk Score:* {score_str} \\({risk_level}\\)")
 
         # Market
         market_title = trade.event_title or trade.market_slug or "Unknown Market"
-        # Escape special Telegram markdown characters
         market_title_escaped = self._escape_telegram_markdown(market_title)
         if "market" in links:
             lines.append(f"*Market:* [{market_title_escaped}]({links['market']})")
@@ -303,14 +305,19 @@ class AlertFormatter:
             lines.append(f"*Market:* {market_title_escaped}")
 
         # Trade details
-        usdc_value = format_usdc(trade.notional_value).replace("$", "\\$")
+        usdc_value = self._escape_telegram_markdown(format_usdc(trade.notional_value))
+        price_str = self._escape_telegram_markdown(f"{trade.price:.3f}")
+        side_escaped = self._escape_telegram_markdown(trade.side)
+        outcome_escaped = self._escape_telegram_markdown(trade.outcome)
         lines.append(
-            f"*Trade:* {trade.side} {trade.outcome} @ \\${trade.price:.3f} \\| {usdc_value}"
+            f"*Trade:* {side_escaped} {outcome_escaped} "
+            f"@ \\${price_str} \\| {usdc_value}"
         )
 
         # Signals
         if signals:
-            lines.append(f"*Signals:* {', '.join(signals)}")
+            signals_escaped = [self._escape_telegram_markdown(s) for s in signals]
+            lines.append(f"*Signals:* {', '.join(signals_escaped)}")
 
         # Links
         lines.append("")
