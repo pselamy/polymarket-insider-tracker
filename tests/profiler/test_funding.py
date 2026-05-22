@@ -519,6 +519,74 @@ class TestGetTransferLogs:
         assert call_args["fromBlock"] == 0
         assert call_args["toBlock"] == 5_000
 
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_breaks_on_pruned_history(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """A pruned-history error must short-circuit the whole walk.
+
+        Public Polygon RPCs prune log history. Once we walk past the cutoff,
+        every subsequent chunk will raise the same error — keep walking and
+        we just burn quota on guaranteed failures. The first such error must
+        end the walk and return whatever we already collected.
+        """
+        mock_w3 = MagicMock()
+        good_log = MagicMock()
+
+        responses: list[Any] = [
+            [good_log],
+            RuntimeError(
+                "{'code': -32701, 'message': 'History has been pruned for "
+                "this block. To remove restrictions, order a dedicated full "
+                "node here: https://www.allnodes.com/pol/host'}"
+            ),
+            # If the early-break logic is missing, this third chunk would
+            # also be requested. The test asserts it isn't.
+            [MagicMock()],
+        ]
+
+        async def fake_get_logs(_params: dict[str, Any]) -> list[Any]:
+            outcome = responses.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        mock_w3.eth.get_logs = AsyncMock(side_effect=fake_get_logs)
+        mock_polygon_client._w3 = mock_w3
+
+        # 3 chunks total. The pruned error fires on chunk #2; chunk #3 must
+        # never be issued.
+        result = await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+            from_block=1_000_000,
+            to_block=1_027_000,
+        )
+
+        assert result == [dict(good_log)]
+        assert mock_w3.eth.get_logs.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_default_lookback_fits_pruned_horizon(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """Default ``max_lookback_blocks`` must stay inside what public RPCs serve.
+
+        publicnode prunes after ~100k blocks. If we default to 1.3M, every
+        funding trace blows through the archive horizon and produces nothing
+        but pruned-history warnings. Pin the default at <= 100k as a
+        regression guard.
+        """
+        from polymarket_insider_tracker.profiler.funding import (
+            DEFAULT_MAX_LOOKBACK_BLOCKS,
+        )
+
+        assert DEFAULT_MAX_LOOKBACK_BLOCKS <= 100_000
+
 
 class TestLogToFundingTransfer:
     """Tests for _log_to_funding_transfer method."""

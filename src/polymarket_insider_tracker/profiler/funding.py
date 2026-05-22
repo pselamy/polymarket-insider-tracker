@@ -33,8 +33,34 @@ TRANSFER_EVENT_SIGNATURE = AsyncWeb3.keccak(text="Transfer(address,address,uint2
 # llamarpc) cap the range at 10_000 blocks per call; pick a window slightly
 # under the cap so off-by-one differences between providers don't trip us up.
 DEFAULT_CHUNK_SIZE_BLOCKS = 9_000
-# Polygon block time is ~2.0s, so 1.3M blocks covers roughly 30 days.
-DEFAULT_MAX_LOOKBACK_BLOCKS = 1_300_000
+# Polygon block time is ~2.0s. publicnode (the most common free RPC) prunes
+# log history aggressively — empirically only ~100k blocks (~55 hours) are
+# served before requests start returning "History has been pruned". We default
+# to 80k blocks (~44 hours), which is more than enough for fresh-wallet
+# funding traces (those wallets are by definition new) and fits comfortably
+# inside what most public providers retain.
+DEFAULT_MAX_LOOKBACK_BLOCKS = 80_000
+
+# Substrings that, when present in an RPC error, indicate the chunk we just
+# asked for is outside the provider's archive horizon. Walking further back
+# is futile, so we stop the trace early instead of hammering every chunk.
+_PRUNED_HISTORY_MARKERS: tuple[str, ...] = (
+    "history has been pruned",
+    "missing trie node",
+    "older than",
+)
+
+
+def _is_pruned_history_error(err: BaseException) -> bool:
+    """Return True if the RPC error indicates pruned history.
+
+    Public Polygon nodes only retain a recent slice of log history. When we
+    walk back through that slice in chunks and hit the cutoff, every further
+    chunk will fail with the same message — so we stop early instead of
+    burning quota on guaranteed failures.
+    """
+    text = str(err).lower()
+    return any(marker in text for marker in _PRUNED_HISTORY_MARKERS)
 
 
 class FundingTracer:
@@ -70,7 +96,8 @@ class FundingTracer:
             chunk_size_blocks: Block window size per eth_getLogs call. Public
                 Polygon RPCs cap at 10_000 blocks; default leaves a safety margin.
             max_lookback_blocks: How far back to scan when caller passes
-                ``from_block=0``. Default ~30 days at 2s block time.
+                ``from_block=0``. Default ~44 hours at 2s block time, which
+                fits inside the pruned-history horizon of most public RPCs.
         """
         self.polygon_client = polygon_client
         self.entity_registry = entity_registry or EntityRegistry()
@@ -232,6 +259,11 @@ class FundingTracer:
         once ``limit`` matches are collected. Walking oldest-first preserves
         the "first transfer" semantics expected by the funding chain tracer.
 
+        If a chunk comes back with a "history has been pruned" style error
+        the rest of the walk is short-circuited — every subsequent chunk
+        would hit the same archive cutoff and there's no point burning quota
+        on guaranteed failures.
+
         Args:
             to_address: Filter by recipient address.
             token_address: ERC20 token contract address.
@@ -270,6 +302,18 @@ class FundingTracer:
                     to_block=chunk_end,
                 )
             except Exception as e:
+                if _is_pruned_history_error(e):
+                    # The provider has dropped this slice of history. Walking
+                    # further back will hit the same wall on every chunk;
+                    # stop now and return what we already have.
+                    logger.info(
+                        "eth_getLogs chunk %d-%d outside archive horizon for %s; "
+                        "stopping trace",
+                        chunk_start,
+                        chunk_end,
+                        to_address,
+                    )
+                    break
                 logger.warning(
                     "eth_getLogs chunk %d-%d failed for %s: %s",
                     chunk_start,
