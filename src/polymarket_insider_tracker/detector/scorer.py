@@ -19,8 +19,12 @@ from polymarket_insider_tracker.ingestor.models import TradeEvent
 
 logger = logging.getLogger(__name__)
 
-# Default configuration
-DEFAULT_ALERT_THRESHOLD = 0.6
+# Default configuration. The threshold lifted from 0.6 to 0.80 after the
+# first cost-adjusted backtest showed everything below 0.85 was follower-PnL
+# negative under realistic taker fees + half-cent slippage. 0.80 keeps a small
+# margin below 0.85+ so we don't drop borderline-high signals on a hard cliff.
+# Override at runtime via DETECTOR_ALERT_THRESHOLD env var.
+DEFAULT_ALERT_THRESHOLD = 0.80
 DEFAULT_DEDUP_WINDOW_SECONDS = 3600  # 1 hour
 DEFAULT_REDIS_KEY_PREFIX = "polymarket:dedup:"
 
