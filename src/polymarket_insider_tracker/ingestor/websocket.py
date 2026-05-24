@@ -150,7 +150,7 @@ class TradeStreamHandler:
         elif self._market_filter:
             subscription["filters"] = json.dumps({"market_slug": self._market_filter})
 
-        return {"subscriptions": [subscription]}
+        return {"action": "subscribe", "subscriptions": [subscription]}
 
     async def _connect(self) -> ClientConnection:
         """Establish WebSocket connection."""
@@ -183,12 +183,9 @@ class TradeStreamHandler:
         try:
             data = json.loads(message)
 
-            # Check if this is a trade message
-            topic = data.get("topic")
-            msg_type = data.get("type")
-
-            if topic == "activity" and msg_type == "trades":
-                payload = data.get("payload", {})
+            # ws-live-data pushes {connection_id, payload:{...trade fields}}
+            payload = data.get("payload")
+            if isinstance(payload, dict) and "transactionHash" in payload and "proxyWallet" in payload:
                 trade = TradeEvent.from_websocket_message(payload)
 
                 self._stats.trades_received += 1
@@ -208,8 +205,7 @@ class TradeStreamHandler:
                     logger.error("Error in trade callback: %s", e)
 
             else:
-                # Log other message types for debugging
-                logger.debug("Received message: topic=%s type=%s", topic, msg_type)
+                logger.debug("Received non-trade message: %s", str(data)[:120])
 
         except json.JSONDecodeError as e:
             logger.warning("Invalid JSON message: %s", e)
@@ -229,7 +225,10 @@ class TradeStreamHandler:
                     logger.debug("Received binary message (%d bytes)", len(message))
 
         except ConnectionClosed as e:
-            logger.warning("Connection closed: %s", e)
+            # Server-side keepalive close (1011) happens routinely on
+            # ws-live-data.polymarket.com; the reconnect loop handles it.
+            # Log at INFO so the expected churn doesn't dominate alert noise.
+            logger.info("Connection closed: %s", e)
             raise
         except Exception as e:
             logger.error("Error in message loop: %s", e)
@@ -289,7 +288,13 @@ class TradeStreamHandler:
                     if not self._running:
                         break
 
-                    logger.warning("Connection lost: %s", e)
+                    # ConnectionClosed (server keepalive) is the routine
+                    # disconnect path; only the unexpected exceptions warrant
+                    # WARNING level.
+                    if isinstance(e, ConnectionClosed):
+                        logger.info("Connection lost: %s", e)
+                    else:
+                        logger.warning("Connection lost: %s", e)
                     await self._set_state(ConnectionState.DISCONNECTED)
 
                     # Attempt reconnection
