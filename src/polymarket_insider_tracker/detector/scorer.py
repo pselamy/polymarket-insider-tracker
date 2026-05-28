@@ -14,6 +14,7 @@ from polymarket_insider_tracker.detector.models import (
     FreshWalletSignal,
     RiskAssessment,
     SizeAnomalySignal,
+    TailBetSignal,
 )
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 
@@ -28,11 +29,15 @@ DEFAULT_ALERT_THRESHOLD = 0.80
 DEFAULT_DEDUP_WINDOW_SECONDS = 3600  # 1 hour
 DEFAULT_REDIS_KEY_PREFIX = "polymarket:dedup:"
 
-# Default weights for each signal type
+# Default weights for each signal type. `tail_bet` is weighted slightly above
+# `size_anomaly` because the structural shape (low-price BUY with large upside)
+# is a stronger insider tell than raw notional impact — settlement-arb trades
+# show up as size anomalies but never as tail bets.
 DEFAULT_WEIGHTS = {
-    "fresh_wallet": 0.40,
-    "size_anomaly": 0.35,
-    "niche_market": 0.25,
+    "fresh_wallet": 0.35,
+    "size_anomaly": 0.25,
+    "niche_market": 0.15,
+    "tail_bet": 0.40,
 }
 
 # Multi-signal bonuses
@@ -50,6 +55,7 @@ class SignalBundle:
     trade_event: TradeEvent
     fresh_wallet_signal: FreshWalletSignal | None = None
     size_anomaly_signal: SizeAnomalySignal | None = None
+    tail_bet_signal: TailBetSignal | None = None
 
     @property
     def wallet_address(self) -> str:
@@ -178,6 +184,7 @@ class RiskScorer:
             market_id=bundle.market_id,
             fresh_wallet_signal=bundle.fresh_wallet_signal,
             size_anomaly_signal=bundle.size_anomaly_signal,
+            tail_bet_signal=bundle.tail_bet_signal,
             signals_triggered=signals_triggered,
             weighted_score=weighted_score,
             should_alert=should_alert,
@@ -213,6 +220,18 @@ class RiskScorer:
             if bundle.size_anomaly_signal.is_niche_market:
                 niche_weight = self._weights.get("niche_market", 0.0)
                 score += bundle.size_anomaly_signal.confidence * niche_weight
+
+        # Tail-bet signal — asymmetric low-price BUY with large upside.
+        # Niche-market premium also applies here so a tail bet on a $10k-volume
+        # market scores above the same shape on a $1M-volume market.
+        if bundle.tail_bet_signal is not None:
+            weight = self._weights.get("tail_bet", 0.0)
+            score += bundle.tail_bet_signal.confidence * weight
+            signals_triggered += 1
+
+            if bundle.tail_bet_signal.is_niche_market:
+                niche_weight = self._weights.get("niche_market", 0.0)
+                score += bundle.tail_bet_signal.confidence * niche_weight
 
         # Apply multi-signal bonus
         if signals_triggered >= 3:

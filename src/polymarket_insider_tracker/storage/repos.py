@@ -538,10 +538,14 @@ class RiskAssessmentDTO:
     signals_triggered: int
     fresh_wallet_confidence: Decimal | None
     size_anomaly_confidence: Decimal | None
+    tail_bet_confidence: Decimal | None
     is_niche_market: bool | None
     volume_impact: Decimal | None
     book_impact: Decimal | None
     wallet_age_hours: Decimal | None
+    potential_payout_usdc: Decimal | None
+    payout_to_volume_ratio: Decimal | None
+    payout_to_notional_ratio: Decimal | None
     should_alert: bool
     threshold_at_eval: Decimal
     created_at: datetime | None = None
@@ -572,10 +576,14 @@ class RiskAssessmentRepository:
             signals_triggered=dto.signals_triggered,
             fresh_wallet_confidence=dto.fresh_wallet_confidence,
             size_anomaly_confidence=dto.size_anomaly_confidence,
+            tail_bet_confidence=dto.tail_bet_confidence,
             is_niche_market=dto.is_niche_market,
             volume_impact=dto.volume_impact,
             book_impact=dto.book_impact,
             wallet_age_hours=dto.wallet_age_hours,
+            potential_payout_usdc=dto.potential_payout_usdc,
+            payout_to_volume_ratio=dto.payout_to_volume_ratio,
+            payout_to_notional_ratio=dto.payout_to_notional_ratio,
             should_alert=dto.should_alert,
             threshold_at_eval=dto.threshold_at_eval,
         )
@@ -609,10 +617,14 @@ class RiskAssessmentRepository:
             signals_triggered=model.signals_triggered,
             fresh_wallet_confidence=model.fresh_wallet_confidence,
             size_anomaly_confidence=model.size_anomaly_confidence,
+            tail_bet_confidence=model.tail_bet_confidence,
             is_niche_market=model.is_niche_market,
             volume_impact=model.volume_impact,
             book_impact=model.book_impact,
             wallet_age_hours=model.wallet_age_hours,
+            potential_payout_usdc=model.potential_payout_usdc,
+            payout_to_volume_ratio=model.payout_to_volume_ratio,
+            payout_to_notional_ratio=model.payout_to_notional_ratio,
             should_alert=model.should_alert,
             threshold_at_eval=model.threshold_at_eval,
             created_at=model.created_at,

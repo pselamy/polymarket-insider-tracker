@@ -168,6 +168,24 @@ class DetectorSettings(BaseSettings):
         alias="DETECTOR_PERSIST_ASSESSMENTS",
         description="Write every signal-bearing risk assessment to the database",
     )
+    tail_bet_enabled: bool = Field(
+        default=True,
+        alias="DETECTOR_TAIL_BET_ENABLED",
+        description="Enable the tail-bet detector (low-price BUY with large upside)",
+    )
+    tail_bet_max_price: float = Field(
+        default=0.10,
+        alias="DETECTOR_TAIL_BET_MAX_PRICE",
+        description="Maximum BUY price for a trade to qualify as a tail bet",
+        gt=0.0,
+        lt=1.0,
+    )
+    tail_bet_min_payout_usdc: float = Field(
+        default=1000.0,
+        alias="DETECTOR_TAIL_BET_MIN_PAYOUT_USDC",
+        description="Minimum potential payout (size * (1 - price)) in USDC",
+        ge=0.0,
+    )
 
 
 class Settings(BaseSettings):

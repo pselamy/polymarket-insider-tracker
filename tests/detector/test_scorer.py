@@ -10,6 +10,7 @@ from polymarket_insider_tracker.detector.models import (
     FreshWalletSignal,
     RiskAssessment,
     SizeAnomalySignal,
+    TailBetSignal,
 )
 from polymarket_insider_tracker.detector.scorer import (
     DEFAULT_ALERT_THRESHOLD,
@@ -110,6 +111,38 @@ def size_anomaly_signal(
     )
 
 
+@pytest.fixture
+def tail_bet_signal(sample_trade: TradeEvent) -> TailBetSignal:
+    """Create a sample tail-bet signal (non-niche)."""
+    return TailBetSignal(
+        trade_event=sample_trade,
+        potential_payout_usdc=Decimal("28500"),
+        payout_to_volume_ratio=0.05,
+        payout_to_notional_ratio=19.0,
+        is_niche_market=False,
+        confidence=0.9,
+        factors={"price_extremity": 1.0, "payout_to_volume": 1.0},
+    )
+
+
+@pytest.fixture
+def tail_bet_signal_niche(sample_trade: TradeEvent) -> TailBetSignal:
+    """Create a sample tail-bet signal that fired on a niche market."""
+    return TailBetSignal(
+        trade_event=sample_trade,
+        potential_payout_usdc=Decimal("28500"),
+        payout_to_volume_ratio=0.5,
+        payout_to_notional_ratio=19.0,
+        is_niche_market=True,
+        confidence=0.9,
+        factors={
+            "price_extremity": 1.0,
+            "payout_to_volume": 1.0,
+            "niche_multiplier": 1.5,
+        },
+    )
+
+
 # ============================================================================
 # SignalBundle Tests
 # ============================================================================
@@ -147,16 +180,19 @@ class TestSignalBundle:
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
+        tail_bet_signal: TailBetSignal,
     ) -> None:
         """Test bundle with all signal types."""
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
             size_anomaly_signal=size_anomaly_signal,
+            tail_bet_signal=tail_bet_signal,
         )
 
         assert bundle.fresh_wallet_signal == fresh_wallet_signal
         assert bundle.size_anomaly_signal == size_anomaly_signal
+        assert bundle.tail_bet_signal == tail_bet_signal
 
 
 # ============================================================================
@@ -175,6 +211,7 @@ class TestRiskAssessment:
             market_id=sample_trade.market_id,
             fresh_wallet_signal=None,
             size_anomaly_signal=None,
+            tail_bet_signal=None,
             signals_triggered=0,
             weighted_score=0.0,
             should_alert=False,
@@ -195,6 +232,7 @@ class TestRiskAssessment:
             market_id=sample_trade.market_id,
             fresh_wallet_signal=None,
             size_anomaly_signal=None,
+            tail_bet_signal=None,
             signals_triggered=1,
             weighted_score=0.70,
             should_alert=True,
@@ -205,6 +243,7 @@ class TestRiskAssessment:
             market_id=sample_trade.market_id,
             fresh_wallet_signal=None,
             size_anomaly_signal=None,
+            tail_bet_signal=None,
             signals_triggered=1,
             weighted_score=0.69,
             should_alert=True,
@@ -221,6 +260,7 @@ class TestRiskAssessment:
             market_id=sample_trade.market_id,
             fresh_wallet_signal=None,
             size_anomaly_signal=None,
+            tail_bet_signal=None,
             signals_triggered=2,
             weighted_score=0.85,
             should_alert=True,
@@ -231,6 +271,7 @@ class TestRiskAssessment:
             market_id=sample_trade.market_id,
             fresh_wallet_signal=None,
             size_anomaly_signal=None,
+            tail_bet_signal=None,
             signals_triggered=2,
             weighted_score=0.84,
             should_alert=True,
@@ -251,6 +292,7 @@ class TestRiskAssessment:
             market_id=sample_trade.market_id,
             fresh_wallet_signal=fresh_wallet_signal,
             size_anomaly_signal=None,
+            tail_bet_signal=None,
             signals_triggered=1,
             weighted_score=0.65,
             should_alert=True,
@@ -437,18 +479,119 @@ class TestWeightedScoreCalculation:
             confidence=1.0,
             factors={},
         )
+        tail_signal = TailBetSignal(
+            trade_event=sample_trade,
+            potential_payout_usdc=Decimal("100000"),
+            payout_to_volume_ratio=0.5,
+            payout_to_notional_ratio=19.0,
+            is_niche_market=True,
+            confidence=1.0,
+            factors={},
+        )
 
         scorer = RiskScorer(mock_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_signal,
             size_anomaly_signal=size_signal,
+            tail_bet_signal=tail_signal,
         )
 
         score, count = scorer.calculate_weighted_score(bundle)
 
         assert score == 1.0  # Capped
+        assert count == 3
+
+    def test_tail_bet_only_non_niche(
+        self,
+        mock_redis: AsyncMock,
+        sample_trade: TradeEvent,
+        tail_bet_signal: TailBetSignal,
+    ) -> None:
+        """Tail bet alone, non-niche: confidence * tail_bet weight."""
+        scorer = RiskScorer(mock_redis)
+        bundle = SignalBundle(trade_event=sample_trade, tail_bet_signal=tail_bet_signal)
+
+        score, count = scorer.calculate_weighted_score(bundle)
+
+        expected = 0.9 * DEFAULT_WEIGHTS["tail_bet"]
+        assert score == pytest.approx(expected)
+        assert count == 1
+
+    def test_tail_bet_only_niche_premium(
+        self,
+        mock_redis: AsyncMock,
+        sample_trade: TradeEvent,
+        tail_bet_signal_niche: TailBetSignal,
+    ) -> None:
+        """Tail bet on a niche market gets the same niche bonus as size anomalies."""
+        scorer = RiskScorer(mock_redis)
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            tail_bet_signal=tail_bet_signal_niche,
+        )
+
+        score, count = scorer.calculate_weighted_score(bundle)
+
+        expected = 0.9 * DEFAULT_WEIGHTS["tail_bet"] + 0.9 * DEFAULT_WEIGHTS["niche_market"]
+        assert score == pytest.approx(expected)
+        assert count == 1
+
+    def test_tail_bet_plus_fresh_wallet_multi_signal_bonus(
+        self,
+        mock_redis: AsyncMock,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        tail_bet_signal: TailBetSignal,
+    ) -> None:
+        """Tail bet + fresh wallet gets the 2-signal multiplier."""
+        scorer = RiskScorer(mock_redis)
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=fresh_wallet_signal,
+            tail_bet_signal=tail_bet_signal,
+        )
+
+        score, count = scorer.calculate_weighted_score(bundle)
+
+        base = (
+            0.8 * DEFAULT_WEIGHTS["fresh_wallet"]
+            + 0.9 * DEFAULT_WEIGHTS["tail_bet"]
+        )
+        expected = min(base * MULTI_SIGNAL_BONUS_2, 1.0)
+        assert score == pytest.approx(expected)
         assert count == 2
+
+    def test_all_three_signals_get_3x_bonus(
+        self,
+        mock_redis: AsyncMock,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+        tail_bet_signal: TailBetSignal,
+    ) -> None:
+        """All three signals trigger -> 30% bonus, capped at 1.0."""
+        from polymarket_insider_tracker.detector.scorer import MULTI_SIGNAL_BONUS_3
+
+        scorer = RiskScorer(mock_redis)
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=fresh_wallet_signal,
+            size_anomaly_signal=size_anomaly_signal,
+            tail_bet_signal=tail_bet_signal,
+        )
+
+        score, count = scorer.calculate_weighted_score(bundle)
+
+        base = (
+            0.8 * DEFAULT_WEIGHTS["fresh_wallet"]
+            + 0.7 * DEFAULT_WEIGHTS["size_anomaly"]
+            + 0.7 * DEFAULT_WEIGHTS["niche_market"]  # size_anomaly is niche
+            + 0.9 * DEFAULT_WEIGHTS["tail_bet"]
+        )
+        expected = min(base * MULTI_SIGNAL_BONUS_3, 1.0)
+        assert score == pytest.approx(expected)
+        assert count == 3
 
 
 # ============================================================================
@@ -466,6 +609,7 @@ class TestAssessMethod:
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
+        tail_bet_signal: TailBetSignal,
     ) -> None:
         """Test assess triggers alert for high-risk trades."""
         scorer = RiskScorer(mock_redis)
@@ -473,12 +617,13 @@ class TestAssessMethod:
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
             size_anomaly_signal=size_anomaly_signal,
+            tail_bet_signal=tail_bet_signal,
         )
 
         assessment = await scorer.assess(bundle)
 
         assert assessment.should_alert is True
-        assert assessment.signals_triggered == 2
+        assert assessment.signals_triggered == 3
         assert assessment.weighted_score >= DEFAULT_ALERT_THRESHOLD
 
     @pytest.mark.asyncio
@@ -502,6 +647,7 @@ class TestAssessMethod:
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
+        tail_bet_signal: TailBetSignal,
     ) -> None:
         """Test assess deduplicates repeated alerts."""
         # First call: key doesn't exist (returns True)
@@ -513,6 +659,7 @@ class TestAssessMethod:
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
             size_anomaly_signal=size_anomaly_signal,
+            tail_bet_signal=tail_bet_signal,
         )
 
         # First assessment should alert

@@ -94,6 +94,7 @@ def _make_assessment(trade: TradeEvent, *, should_alert: bool, score: float) -> 
         market_id=trade.market_id,
         fresh_wallet_signal=None,
         size_anomaly_signal=None,
+        tail_bet_signal=None,
         signals_triggered=1,
         weighted_score=score,
         should_alert=should_alert,
@@ -182,5 +183,48 @@ class TestPersistAssessment:
         broken_db.get_async_session.assert_called_once()
 
         # Dispatcher still ran and the stats counter incremented
+        pipeline._alert_dispatcher.dispatch.assert_awaited_once()
+        assert pipeline.stats.alerts_sent == 1
+
+    @pytest.mark.asyncio
+    async def test_above_threshold_assessment_is_persisted(
+        self, mock_settings, db_manager, sample_trade, async_engine
+    ):
+        """Main path: should_alert=True must persist AND dispatch."""
+        assessment = _make_assessment(sample_trade, should_alert=True, score=0.92)
+        pipeline = _build_pipeline(
+            mock_settings, db_manager=db_manager, assessment=assessment
+        )
+
+        await pipeline._score_and_alert(SignalBundle(trade_event=sample_trade))
+
+        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
+            rows = (await session.execute(select(RiskAssessmentModel))).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].assessment_id == assessment.assessment_id
+            assert rows[0].should_alert is True
+            assert float(rows[0].weighted_score) == pytest.approx(0.92, abs=1e-3)
+
+        pipeline._alert_dispatcher.dispatch.assert_awaited_once()
+        assert pipeline.stats.alerts_sent == 1
+
+    @pytest.mark.asyncio
+    async def test_persist_assessments_flag_disables_db_write(
+        self, mock_settings, db_manager, sample_trade, async_engine
+    ):
+        """When DETECTOR_PERSIST_ASSESSMENTS=False, no row is written."""
+        mock_settings.detector.persist_assessments = False
+        assessment = _make_assessment(sample_trade, should_alert=True, score=0.92)
+        pipeline = _build_pipeline(
+            mock_settings, db_manager=db_manager, assessment=assessment
+        )
+
+        await pipeline._score_and_alert(SignalBundle(trade_event=sample_trade))
+
+        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
+            rows = (await session.execute(select(RiskAssessmentModel))).scalars().all()
+            assert rows == []
+
+        # Alert path unaffected by the flag
         pipeline._alert_dispatcher.dispatch.assert_awaited_once()
         assert pipeline.stats.alerts_sent == 1

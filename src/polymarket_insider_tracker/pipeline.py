@@ -24,6 +24,7 @@ from polymarket_insider_tracker.config import Settings, get_settings
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
+from polymarket_insider_tracker.detector.tail_bet import TailBetDetector
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.websocket import TradeStreamHandler
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
         FreshWalletSignal,
         RiskAssessment,
         SizeAnomalySignal,
+        TailBetSignal,
     )
     from polymarket_insider_tracker.ingestor.models import TradeEvent
 
@@ -126,6 +128,7 @@ class Pipeline:
         self._wallet_analyzer: WalletAnalyzer | None = None
         self._fresh_wallet_detector: FreshWalletDetector | None = None
         self._size_anomaly_detector: SizeAnomalyDetector | None = None
+        self._tail_bet_detector: TailBetDetector | None = None
         self._risk_scorer: RiskScorer | None = None
         self._alert_formatter: AlertFormatter | None = None
         self._alert_dispatcher: AlertDispatcher | None = None
@@ -252,6 +255,21 @@ class Pipeline:
         logger.debug("Initializing detectors...")
         self._fresh_wallet_detector = FreshWalletDetector(self._wallet_analyzer)
         self._size_anomaly_detector = SizeAnomalyDetector(self._metadata_sync)
+        if settings.detector.tail_bet_enabled:
+            from decimal import Decimal as _D
+
+            self._tail_bet_detector = TailBetDetector(
+                self._metadata_sync,
+                max_price=_D(str(settings.detector.tail_bet_max_price)),
+                min_payout_usdc=_D(str(settings.detector.tail_bet_min_payout_usdc)),
+            )
+            logger.info(
+                "TailBetDetector enabled: max_price=%.4f, min_payout=%.0f",
+                settings.detector.tail_bet_max_price,
+                settings.detector.tail_bet_min_payout_usdc,
+            )
+        else:
+            logger.info("TailBetDetector disabled by config")
 
         # Initialize Risk Scorer
         logger.debug("Initializing risk scorer...")
@@ -385,9 +403,10 @@ class Pipeline:
 
         try:
             # Run detectors in parallel
-            fresh_signal, size_signal = await asyncio.gather(
+            fresh_signal, size_signal, tail_signal = await asyncio.gather(
                 self._detect_fresh_wallet(trade),
                 self._detect_size_anomaly(trade),
+                self._detect_tail_bet(trade),
             )
 
             # Persist wallet profile and funding data when a fresh wallet is detected
@@ -399,10 +418,11 @@ class Pipeline:
                 trade_event=trade,
                 fresh_wallet_signal=fresh_signal,
                 size_anomaly_signal=size_signal,
+                tail_bet_signal=tail_signal,
             )
 
             # Score and potentially alert
-            if fresh_signal or size_signal:
+            if fresh_signal or size_signal or tail_signal:
                 self._stats.signals_generated += 1
                 await self._score_and_alert(bundle)
 
@@ -488,6 +508,16 @@ class Pipeline:
             logger.warning("Size anomaly detection failed for %s: %s", trade.trade_id, e)
             return None
 
+    async def _detect_tail_bet(self, trade: TradeEvent) -> TailBetSignal | None:
+        """Run tail-bet detection."""
+        if not self._tail_bet_detector:
+            return None
+        try:
+            return await self._tail_bet_detector.analyze(trade)
+        except Exception as e:
+            logger.warning("Tail-bet detection failed for %s: %s", trade.trade_id, e)
+            return None
+
     async def _score_and_alert(self, bundle: SignalBundle) -> None:
         """Score signals, persist the assessment, and send alert if above threshold."""
         if not self._risk_scorer or not self._alert_formatter or not self._alert_dispatcher:
@@ -499,7 +529,10 @@ class Pipeline:
         # Persist every signal-bearing assessment (not just delivered alerts).
         # This is the ground-truth log future backtests will read instead of
         # grepping systemd. Failure here must never block alerting.
-        if self._settings.detector.persist_assessments:
+        # Defensive guard: caller already filters on (fresh_signal or size_signal),
+        # but we double-check so a future refactor can't quietly fill the table
+        # with zero-signal noise.
+        if self._settings.detector.persist_assessments and assessment.signals_triggered > 0:
             await self._persist_assessment(assessment)
 
         if not assessment.should_alert:
@@ -546,9 +579,22 @@ class Pipeline:
         trade = assessment.trade_event
         fresh = assessment.fresh_wallet_signal
         size_sig = assessment.size_anomaly_signal
+        tail_sig = assessment.tail_bet_signal
         wallet_age: _D | None = None
         if fresh is not None and fresh.wallet_profile.age_hours is not None:
             wallet_age = _D(str(round(float(fresh.wallet_profile.age_hours), 2)))
+
+        # Niche flag survives if either size_anomaly or tail_bet flagged the
+        # market as niche — they share the same threshold so this is just an
+        # OR over the two views, not a per-detector field.
+        is_niche: bool | None = None
+        if size_sig is not None and tail_sig is not None:
+            is_niche = bool(size_sig.is_niche_market or tail_sig.is_niche_market)
+        elif size_sig is not None:
+            is_niche = size_sig.is_niche_market
+        elif tail_sig is not None:
+            is_niche = tail_sig.is_niche_market
+
         dto = RiskAssessmentDTO(
             assessment_id=assessment.assessment_id,
             trade_id=trade.trade_id,
@@ -570,7 +616,10 @@ class Pipeline:
             size_anomaly_confidence=(
                 _D(str(round(size_sig.confidence, 3))) if size_sig is not None else None
             ),
-            is_niche_market=size_sig.is_niche_market if size_sig is not None else None,
+            tail_bet_confidence=(
+                _D(str(round(tail_sig.confidence, 3))) if tail_sig is not None else None
+            ),
+            is_niche_market=is_niche,
             volume_impact=(
                 _D(str(round(size_sig.volume_impact, 4))) if size_sig is not None else None
             ),
@@ -578,6 +627,19 @@ class Pipeline:
                 _D(str(round(size_sig.book_impact, 4))) if size_sig is not None else None
             ),
             wallet_age_hours=wallet_age,
+            potential_payout_usdc=(
+                tail_sig.potential_payout_usdc if tail_sig is not None else None
+            ),
+            payout_to_volume_ratio=(
+                _D(str(round(tail_sig.payout_to_volume_ratio, 6)))
+                if tail_sig is not None
+                else None
+            ),
+            payout_to_notional_ratio=(
+                _D(str(round(tail_sig.payout_to_notional_ratio, 4)))
+                if tail_sig is not None
+                else None
+            ),
             should_alert=assessment.should_alert,
             threshold_at_eval=_D(str(round(self._settings.detector.alert_threshold, 3))),
         )

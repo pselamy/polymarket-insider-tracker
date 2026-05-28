@@ -149,6 +149,78 @@ class SizeAnomalySignal:
 
 
 @dataclass(frozen=True)
+class TailBetSignal:
+    """Signal emitted when a wallet places an asymmetric tail bet.
+
+    A "tail bet" is a low-price BUY (or, equivalently, near-1.0 SELL of the
+    opposite side) that controls a large potential payout for a small notional.
+    The structural feature is `size >> notional`: if the bet wins, the trader
+    captures `size * (1 - price)` USDC, which dwarfs the actual capital risked.
+
+    Settlement-arbitrage trades (price ~= 0.999 BUY for $20 of upside on
+    $20,000 notional) are the *opposite* shape and are explicitly excluded by
+    the `max_price` ceiling in the detector — those are not informational.
+
+    Attributes:
+        trade_event: The original trade event that triggered this signal.
+        potential_payout_usdc: size * (1 - price) — the upside if the bet wins.
+        payout_to_volume_ratio: potential_payout / market_24h_volume, the share
+            of the market that gets paid if this leg hits.
+        payout_to_notional_ratio: potential_payout / notional, i.e. the multiple
+            on capital risked. Effectively (1 / price - 1).
+        is_niche_market: Whether the market is low-volume.
+        confidence: Overall confidence score (0.0 to 1.0).
+        factors: Individual factor scores contributing to confidence.
+        timestamp: When this signal was generated.
+    """
+
+    trade_event: TradeEvent
+    potential_payout_usdc: Decimal
+    payout_to_volume_ratio: float
+    payout_to_notional_ratio: float
+    is_niche_market: bool
+    confidence: float
+    factors: dict[str, float]
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def wallet_address(self) -> str:
+        """Return the wallet address from the trade event."""
+        return self.trade_event.wallet_address
+
+    @property
+    def market_id(self) -> str:
+        """Return the market ID from the trade event."""
+        return self.trade_event.market_id
+
+    @property
+    def is_high_confidence(self) -> bool:
+        return self.confidence >= 0.7
+
+    @property
+    def is_very_high_confidence(self) -> bool:
+        return self.confidence >= 0.85
+
+    def to_dict(self) -> dict[str, object]:
+        """Serialize to dictionary for Redis stream publishing."""
+        return {
+            "wallet_address": self.wallet_address,
+            "market_id": self.market_id,
+            "trade_id": self.trade_event.trade_id,
+            "trade_size": str(self.trade_event.size),
+            "trade_side": self.trade_event.side,
+            "trade_price": str(self.trade_event.price),
+            "potential_payout_usdc": str(self.potential_payout_usdc),
+            "payout_to_volume_ratio": self.payout_to_volume_ratio,
+            "payout_to_notional_ratio": self.payout_to_notional_ratio,
+            "is_niche_market": self.is_niche_market,
+            "confidence": self.confidence,
+            "factors": self.factors,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
 class SniperClusterSignal:
     """Signal emitted when a wallet is identified as part of a sniper cluster.
 
@@ -224,6 +296,7 @@ class RiskAssessment:
     # Individual signals (None if not triggered)
     fresh_wallet_signal: FreshWalletSignal | None
     size_anomaly_signal: SizeAnomalySignal | None
+    tail_bet_signal: TailBetSignal | None
 
     # Combined scoring
     signals_triggered: int
@@ -264,11 +337,15 @@ class RiskAssessment:
             "should_alert": self.should_alert,
             "has_fresh_wallet_signal": self.fresh_wallet_signal is not None,
             "has_size_anomaly_signal": self.size_anomaly_signal is not None,
+            "has_tail_bet_signal": self.tail_bet_signal is not None,
             "fresh_wallet_confidence": (
                 self.fresh_wallet_signal.confidence if self.fresh_wallet_signal else None
             ),
             "size_anomaly_confidence": (
                 self.size_anomaly_signal.confidence if self.size_anomaly_signal else None
+            ),
+            "tail_bet_confidence": (
+                self.tail_bet_signal.confidence if self.tail_bet_signal else None
             ),
             "timestamp": self.timestamp.isoformat(),
         }

@@ -63,8 +63,16 @@ def get_triggered_signals(assessment: RiskAssessment) -> list[str]:
         signals.append("Fresh Wallet")
     if assessment.size_anomaly_signal:
         signals.append("Large Position")
-        if assessment.size_anomaly_signal.is_niche_market:
-            signals.append("Niche Market")
+    if assessment.tail_bet_signal:
+        signals.append("Tail Bet")
+    # Niche flag is shared across detectors — surface once if either flagged it.
+    niche = False
+    if assessment.size_anomaly_signal and assessment.size_anomaly_signal.is_niche_market:
+        niche = True
+    if assessment.tail_bet_signal and assessment.tail_bet_signal.is_niche_market:
+        niche = True
+    if niche:
+        signals.append("Niche Market")
     return signals
 
 
@@ -243,12 +251,33 @@ class AlertFormatter:
             if assessment.size_anomaly_signal:
                 conf = assessment.size_anomaly_signal.confidence
                 confidences.append(f"Size Anomaly: {conf:.0%}")
+            if assessment.tail_bet_signal:
+                conf = assessment.tail_bet_signal.confidence
+                confidences.append(f"Tail Bet: {conf:.0%}")
 
             if confidences:
                 fields.append(
                     {
                         "name": "Confidence",
                         "value": " | ".join(confidences),
+                        "inline": False,
+                    }
+                )
+
+            # Tail-bet upside breakdown — payout & leverage are the headline
+            # numbers for this signal type, so make them prominent rather than
+            # buried in factor dicts.
+            tail = assessment.tail_bet_signal
+            if tail is not None:
+                payout_str = format_usdc(tail.potential_payout_usdc)
+                leverage = tail.payout_to_notional_ratio
+                fields.append(
+                    {
+                        "name": "Tail Bet Upside",
+                        "value": (
+                            f"Potential payout: {payout_str} "
+                            f"(~{leverage:.1f}x notional)"
+                        ),
                         "inline": False,
                     }
                 )
@@ -311,6 +340,15 @@ class AlertFormatter:
         # Signals
         if signals:
             lines.append(f"*Signals:* {', '.join(signals)}")
+
+        # Tail-bet upside row (Telegram). Escape \$ and \. for MarkdownV2.
+        tail = assessment.tail_bet_signal
+        if tail is not None:
+            payout_str = format_usdc(tail.potential_payout_usdc).replace("$", "\\$")
+            leverage_str = f"{tail.payout_to_notional_ratio:.1f}".replace(".", "\\.")
+            lines.append(
+                f"*Tail Bet:* payout {payout_str} \\(~{leverage_str}x notional\\)"
+            )
 
         # Links
         lines.append("")
@@ -391,6 +429,14 @@ class AlertFormatter:
         # Signals
         if signals:
             lines.append(f"Signals: {', '.join(signals)}")
+
+        # Tail-bet upside row (plain text)
+        tail = assessment.tail_bet_signal
+        if tail is not None:
+            lines.append(
+                f"Tail Bet: payout {format_usdc(tail.potential_payout_usdc)} "
+                f"(~{tail.payout_to_notional_ratio:.1f}x notional)"
+            )
 
         # Links
         lines.append("")

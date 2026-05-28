@@ -150,10 +150,14 @@ class RiskAssessmentModel(Base):
     signals_triggered: Mapped[int] = mapped_column(Integer, nullable=False)
     fresh_wallet_confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
     size_anomaly_confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    tail_bet_confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
     is_niche_market: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     volume_impact: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     book_impact: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     wallet_age_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    potential_payout_usdc: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
+    payout_to_volume_ratio: Mapped[Decimal | None] = mapped_column(Numeric(10, 6), nullable=True)
+    payout_to_notional_ratio: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
 
     # Decision
     should_alert: Mapped[bool] = mapped_column(Boolean, nullable=False)
