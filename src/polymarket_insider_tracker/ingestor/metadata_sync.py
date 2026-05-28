@@ -125,6 +125,7 @@ class MarketMetadataSync:
         self._stats = SyncStats()
         self._sync_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
+        self._initial_sync_done = asyncio.Event()
 
     @property
     def state(self) -> SyncState:
@@ -146,12 +147,20 @@ class MarketMetadataSync:
             except Exception as e:
                 logger.warning(f"State change callback failed: {e}")
 
-    async def start(self) -> None:
+    async def start(self, initial_sync_timeout: float | None = 30.0) -> None:
         """Start the background sync service.
 
-        This will:
-        1. Perform an initial sync of all markets
-        2. Start a background task to periodically refresh
+        The initial sync runs in a background task. ``start()`` waits up to
+        ``initial_sync_timeout`` seconds for the first sync to populate
+        Redis before returning, so callers that need at least *some* market
+        metadata (size-anomaly / tail-bet detectors) don't immediately face
+        a cold cache. After the timeout the sync keeps running in the
+        background and the rest of the pipeline can boot.
+
+        Args:
+            initial_sync_timeout: Max seconds to wait for the first sync.
+                ``None`` = wait indefinitely (legacy behavior). Use ``0`` to
+                skip the wait entirely.
         """
         if self._state != SyncState.STOPPED:
             logger.warning(f"Cannot start sync: already in state {self._state}")
@@ -160,18 +169,26 @@ class MarketMetadataSync:
         self._set_state(SyncState.STARTING)
         self._stop_event.clear()
 
-        # Perform initial sync
-        try:
-            await self._sync_all_markets()
-        except Exception as e:
-            logger.error(f"Initial sync failed: {e}")
-            self._set_state(SyncState.ERROR)
-            self._stats.last_error = str(e)
-            raise MetadataSyncError(f"Failed to start: initial sync failed: {e}") from e
+        # Sync loop runs initial sync as its first iteration, then loops.
+        self._sync_task = asyncio.create_task(self._sync_loop(initial_sync=True))
 
-        # Start background sync loop
-        self._sync_task = asyncio.create_task(self._sync_loop())
-        self._set_state(SyncState.IDLE)
+        if initial_sync_timeout is None:
+            await self._initial_sync_done.wait()
+        elif initial_sync_timeout > 0:
+            try:
+                await asyncio.wait_for(
+                    self._initial_sync_done.wait(),
+                    timeout=initial_sync_timeout,
+                )
+            except TimeoutError:
+                logger.info(
+                    "Initial market sync still running after %.0fs; "
+                    "continuing pipeline startup, sync will populate cache shortly",
+                    initial_sync_timeout,
+                )
+
+        if self._state == SyncState.STARTING:
+            self._set_state(SyncState.IDLE)
         logger.info("Market metadata sync started")
 
     async def stop(self) -> None:
@@ -189,10 +206,24 @@ class MarketMetadataSync:
             self._sync_task = None
 
         self._set_state(SyncState.STOPPED)
+        self._initial_sync_done.clear()
         logger.info("Market metadata sync stopped")
 
-    async def _sync_loop(self) -> None:
+    async def _sync_loop(self, initial_sync: bool = False) -> None:
         """Background loop that periodically syncs markets."""
+        if initial_sync:
+            try:
+                await self._sync_all_markets()
+            except asyncio.CancelledError:
+                self._initial_sync_done.set()
+                raise
+            except Exception as e:
+                # _sync_all_markets already updates stats / state on failure;
+                # we just log here so we don't double-count failed_syncs.
+                logger.error(f"Initial sync failed: {e}")
+            finally:
+                self._initial_sync_done.set()
+
         while not self._stop_event.is_set():
             try:
                 # Wait for next sync interval or stop event

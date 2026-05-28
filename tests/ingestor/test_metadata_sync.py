@@ -1,5 +1,6 @@
 """Tests for the market metadata synchronizer."""
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -70,6 +71,21 @@ def mock_clob(sample_market: Market) -> MagicMock:
     clob.get_markets = MagicMock(return_value=[sample_market])
     clob.get_market = MagicMock(return_value=sample_market)
     return clob
+
+
+@pytest.fixture(autouse=True)
+def _stub_gamma_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub GammaClient.get_active_market_stats so tests don't hit the network.
+
+    metadata_sync now runs the initial sync in a background task and the
+    real GammaClient would issue an outbound HTTPS request. Replace it with
+    an empty-dict coroutine for every test in this module."""
+    from polymarket_insider_tracker.ingestor import gamma_client as gc_module
+
+    async def _empty_stats(self: object) -> dict[str, object]:
+        return {}
+
+    monkeypatch.setattr(gc_module.GammaClient, "get_active_market_stats", _empty_stats)
 
 
 class TestDeriveCategory:
@@ -279,15 +295,42 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_start_failure(self, mock_redis: AsyncMock, mock_clob: MagicMock) -> None:
-        """Test start failure handling."""
+        """Initial-sync failure must be recorded but must not raise — the
+        sync loop keeps running so the next interval can recover. Pipeline
+        startup should not abort just because the first CLOB fetch failed."""
         mock_clob.get_markets.side_effect = Exception("API error")
         sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
 
-        with pytest.raises(MetadataSyncError, match="initial sync failed"):
-            await sync.start()
+        await sync.start(initial_sync_timeout=1.0)
 
-        assert sync.state == SyncState.ERROR
         assert sync.stats.last_error == "API error"
+        assert sync.stats.failed_syncs == 1
+
+        await sync.stop()
+        assert sync.state == SyncState.STOPPED
+
+    @pytest.mark.asyncio
+    async def test_start_returns_after_timeout_when_initial_sync_slow(
+        self, mock_redis: AsyncMock, mock_clob: MagicMock
+    ) -> None:
+        """If the initial sync is slower than the timeout, start() must
+        return so the rest of the pipeline (websocket, health) can boot.
+        The sync continues in the background."""
+        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob)
+
+        async def _slow_sync() -> None:
+            await asyncio.sleep(5.0)  # longer than the timeout
+
+        sync._sync_all_markets = _slow_sync  # type: ignore[method-assign]
+
+        start_t = asyncio.get_event_loop().time()
+        await sync.start(initial_sync_timeout=0.2)
+        elapsed = asyncio.get_event_loop().time() - start_t
+
+        assert elapsed < 1.0
+        assert not sync._initial_sync_done.is_set()
+
+        await sync.stop()
 
     @pytest.mark.asyncio
     async def test_get_market_cache_hit(
