@@ -268,7 +268,15 @@ class Pipeline:
 
         # Initialize Funding Tracer
         logger.debug("Initializing funding tracer...")
-        self._funding_tracer = FundingTracer(self._polygon_client)
+        # Ankr's polygon RPC caps eth_getLogs at 100 blocks per call (free
+        # tier returns "Block range is too large" for anything >=200). The
+        # FundingTracer default of 1000 was sized for publicnode/llamarpc;
+        # cap to 100 so the tracer works against the Ankr endpoint we now
+        # use as POLYGON_RPC_URL primary.
+        self._funding_tracer = FundingTracer(
+            self._polygon_client,
+            chunk_size_blocks=100,
+        )
 
         # Initialize Detectors
         logger.debug("Initializing detectors...")
