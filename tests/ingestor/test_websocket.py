@@ -84,7 +84,10 @@ class TestTradeStreamHandler:
         """Test building subscription message without filters."""
         msg = handler._build_subscription_message()
 
-        assert msg == {"subscriptions": [{"topic": "activity", "type": "trades"}]}
+        assert msg == {
+            "action": "subscribe",
+            "subscriptions": [{"topic": "activity", "type": "trades"}],
+        }
 
     def test_build_subscription_message_with_event_filter(self, on_trade_mock: AsyncMock) -> None:
         """Test building subscription message with event filter."""
