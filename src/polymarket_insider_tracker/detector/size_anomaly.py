@@ -118,6 +118,13 @@ class SizeAnomalyDetector:
 
         trade_size = trade.notional_value
 
+        # Fall back to gamma-enriched volume on the metadata when the caller
+        # didn't supply one — pipeline.py invokes analyze(trade) with no
+        # explicit volume, so without this the volume_impact branch is dead
+        # and every niche trade scores the flat 0.20 niche_base.
+        if daily_volume is None:
+            daily_volume = metadata.daily_volume
+
         # Calculate impacts
         volume_impact = self._calculate_volume_impact(trade_size, daily_volume)
         book_impact = self._calculate_book_impact(trade_size, book_depth)

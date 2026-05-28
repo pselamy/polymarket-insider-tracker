@@ -589,6 +589,62 @@ class TestAnalyzeMethod:
         assert signal.confidence == 0.2  # niche_base
 
     @pytest.mark.asyncio
+    async def test_analyze_uses_metadata_daily_volume_fallback(
+        self,
+        mock_metadata_sync: AsyncMock,
+        sample_trade: TradeEvent,
+        sample_token: Token,
+    ) -> None:
+        """When the caller passes no daily_volume, fall back to the
+        gamma-enriched ``metadata.daily_volume``. Without this fallback the
+        live pipeline (which calls ``analyze(trade)`` with no kwargs) leaves
+        volume_impact at 0 forever, regardless of how rich the metadata is."""
+        enriched_metadata = MarketMetadata(
+            condition_id="market_abc123",
+            question="Niche science market",
+            description="",
+            tokens=(sample_token,),
+            category="science",
+            daily_volume=Decimal("65000"),  # 6500 trade / 65000 = 10% impact
+        )
+        mock_metadata_sync.get_market.return_value = enriched_metadata
+        detector = SizeAnomalyDetector(mock_metadata_sync)
+
+        signal = await detector.analyze(sample_trade)
+
+        assert signal is not None
+        assert signal.volume_impact == pytest.approx(0.10)
+        # Multi-component score (volume + niche multiplier) must clear the
+        # flat 0.20 niche_base — that's the production symptom we're fixing.
+        assert signal.confidence > 0.20
+
+    @pytest.mark.asyncio
+    async def test_analyze_explicit_daily_volume_overrides_metadata(
+        self,
+        mock_metadata_sync: AsyncMock,
+        sample_trade: TradeEvent,
+        sample_token: Token,
+    ) -> None:
+        """Caller-supplied daily_volume must win — backtest paths and tests
+        rely on being able to pin the volume regardless of what the cache
+        says."""
+        enriched_metadata = MarketMetadata(
+            condition_id="market_abc123",
+            question="Niche science market",
+            description="",
+            tokens=(sample_token,),
+            category="science",
+            daily_volume=Decimal("1"),  # would yield impact = 6500
+        )
+        mock_metadata_sync.get_market.return_value = enriched_metadata
+        detector = SizeAnomalyDetector(mock_metadata_sync)
+
+        signal = await detector.analyze(sample_trade, daily_volume=Decimal("65000"))
+
+        assert signal is not None
+        assert signal.volume_impact == pytest.approx(0.10)
+
+    @pytest.mark.asyncio
     async def test_analyze_no_anomaly(
         self,
         mock_metadata_sync: AsyncMock,
