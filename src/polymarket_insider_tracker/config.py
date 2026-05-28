@@ -81,6 +81,38 @@ class PolygonSettings(BaseSettings):
         return v
 
 
+class AnkrSettings(BaseSettings):
+    """Ankr Advanced API settings (used for indexed wallet history queries).
+
+    Only ``ankr_getTransactionsByAddress`` is consumed today, to populate
+    ``WalletProfile.age_hours``. When ``api_key`` is unset the feature is
+    silently disabled and the freshness heuristic falls back to nonce only.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="ANKR_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    api_key: SecretStr | None = Field(
+        default=None,
+        alias="ANKR_API_KEY",
+        description="Ankr Advanced API key. Path-encoded into rpc.ankr.com/multichain/<key>.",
+    )
+    endpoint: str = Field(
+        default="https://rpc.ankr.com/multichain",
+        alias="ANKR_ENDPOINT",
+        description="Override only when proxying or testing against a private deployment.",
+    )
+    blockchain: str = Field(
+        default="polygon",
+        alias="ANKR_BLOCKCHAIN",
+        description="Ankr blockchain identifier (e.g. polygon, eth, base).",
+    )
+
+    @property
+    def enabled(self) -> bool:
+        """``True`` when an API key has been provided."""
+        return self.api_key is not None and bool(self.api_key.get_secret_value().strip())
+
+
 class PolymarketSettings(BaseSettings):
     """Polymarket API settings."""
 
@@ -214,6 +246,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     polygon: PolygonSettings = Field(default_factory=PolygonSettings)
+    ankr: AnkrSettings = Field(default_factory=AnkrSettings)
     polymarket: PolymarketSettings = Field(default_factory=PolymarketSettings)
     discord: DiscordSettings = Field(default_factory=DiscordSettings)
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
@@ -255,6 +288,10 @@ class Settings(BaseSettings):
             "polygon": {
                 "rpc_url": self.polygon.rpc_url,
                 "fallback_rpc_url": self.polygon.fallback_rpc_url or "(not set)",
+            },
+            "ankr": {
+                "api_key": "(set)" if self.ankr.enabled else "(not set)",
+                "blockchain": self.ankr.blockchain,
             },
             "polymarket": {
                 "ws_url": self.polymarket.ws_url,

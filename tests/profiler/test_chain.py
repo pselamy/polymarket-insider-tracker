@@ -284,6 +284,77 @@ class TestPolygonClient:
             assert tx is None
 
     @pytest.mark.asyncio
+    async def test_get_first_transaction_no_indexer_returns_none(
+        self, mock_redis: AsyncMock
+    ) -> None:
+        """Without an Ankr client, lookup degrades to None for non-empty wallets."""
+        client = PolygonClient("https://polygon-rpc.com", redis=mock_redis)
+
+        with patch.object(client, "get_transaction_count", new_callable=AsyncMock) as mock_nonce:
+            mock_nonce.return_value = 5
+
+            tx = await client.get_first_transaction(VALID_ADDRESS)
+
+            assert tx is None
+
+    @pytest.mark.asyncio
+    async def test_get_first_transaction_uses_ankr(self, mock_redis: AsyncMock) -> None:
+        """When Ankr is configured, the indexer result is returned and cached."""
+        from datetime import UTC, datetime
+
+        from polymarket_insider_tracker.profiler.models import Transaction
+
+        ankr_tx = Transaction(
+            hash="0xfeed",
+            block_number=42,
+            timestamp=datetime(2024, 1, 1, tzinfo=UTC),
+            from_address="0xaaa",
+            to_address="0xbbb",
+            value=Decimal("0"),
+            gas_used=21000,
+            gas_price=Decimal("1"),
+        )
+        ankr = MagicMock()
+        ankr.get_first_transaction = AsyncMock(return_value=ankr_tx)
+
+        client = PolygonClient(
+            "https://polygon-rpc.com", redis=mock_redis, ankr_client=ankr
+        )
+
+        with patch.object(client, "get_transaction_count", new_callable=AsyncMock) as mock_nonce:
+            mock_nonce.return_value = 5
+
+            tx = await client.get_first_transaction(VALID_ADDRESS)
+
+            assert tx is not None
+            assert tx.hash == "0xfeed"
+            ankr.get_first_transaction.assert_awaited_once_with(VALID_ADDRESS)
+            # Positive result is cached with a long TTL (immutable)
+            mock_redis.set.assert_called()
+            assert mock_redis.set.call_args.kwargs["ex"] == 86400
+
+    @pytest.mark.asyncio
+    async def test_get_first_transaction_ankr_miss_caches_briefly(
+        self, mock_redis: AsyncMock
+    ) -> None:
+        """Ankr miss caches a 'null' marker with a short TTL, not 24h."""
+        ankr = MagicMock()
+        ankr.get_first_transaction = AsyncMock(return_value=None)
+
+        client = PolygonClient(
+            "https://polygon-rpc.com", redis=mock_redis, ankr_client=ankr
+        )
+
+        with patch.object(client, "get_transaction_count", new_callable=AsyncMock) as mock_nonce:
+            mock_nonce.return_value = 5
+
+            tx = await client.get_first_transaction(VALID_ADDRESS)
+
+            assert tx is None
+            mock_redis.set.assert_called()
+            assert mock_redis.set.call_args.kwargs["ex"] == 60
+
+    @pytest.mark.asyncio
     async def test_health_check_success(self, mock_redis: AsyncMock) -> None:
         """Test successful health check."""
         client = PolygonClient("https://polygon-rpc.com", redis=mock_redis)

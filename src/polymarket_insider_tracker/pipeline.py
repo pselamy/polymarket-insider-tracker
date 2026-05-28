@@ -29,6 +29,7 @@ from polymarket_insider_tracker.ingestor.clob_client import ClobClient
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.websocket import TradeStreamHandler
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
+from polymarket_insider_tracker.profiler.ankr_client import AnkrClient
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import FundingTracer
 from polymarket_insider_tracker.storage.database import DatabaseManager
@@ -123,6 +124,7 @@ class Pipeline:
         self._redis: Redis | None = None
         self._db_manager: DatabaseManager | None = None
         self._polygon_client: PolygonClient | None = None
+        self._ankr_client: AnkrClient | None = None
         self._clob_client: ClobClient | None = None
         self._metadata_sync: MarketMetadataSync | None = None
         self._wallet_analyzer: WalletAnalyzer | None = None
@@ -220,10 +222,27 @@ class Pipeline:
 
         # Initialize Polygon client
         logger.debug("Initializing Polygon client...")
+        # Optional Ankr Advanced API client for first-transaction lookups
+        # (used to populate WalletProfile.age_hours). Silently disabled when
+        # ANKR_API_KEY is not set.
+        if settings.ankr.enabled and settings.ankr.api_key is not None:
+            self._ankr_client = AnkrClient(
+                api_key=settings.ankr.api_key.get_secret_value(),
+                endpoint=settings.ankr.endpoint,
+                blockchain=settings.ankr.blockchain,
+            )
+            logger.info(
+                "Ankr Advanced API enabled for first-tx lookups (chain=%s)",
+                settings.ankr.blockchain,
+            )
+        else:
+            logger.info("Ankr Advanced API not configured; wallet_age_hours will be None")
+
         self._polygon_client = PolygonClient(
             settings.polygon.rpc_url,
             fallback_rpc_url=settings.polygon.fallback_rpc_url,
             redis=self._redis,
+            ankr_client=self._ankr_client,
         )
 
         # Initialize CLOB client
@@ -374,6 +393,11 @@ class Pipeline:
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
+        # Close Ankr HTTP client
+        if self._ankr_client:
+            await self._ankr_client.aclose()
+            self._ankr_client = None
+
         # Close database connections
         if self._db_manager:
             await self._db_manager.dispose_async()

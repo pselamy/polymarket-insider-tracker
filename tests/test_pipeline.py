@@ -31,6 +31,12 @@ def mock_settings():
     polygon.rpc_url = "https://polygon-rpc.com"
     polygon.fallback_rpc_url = None
 
+    ankr = MagicMock()
+    ankr.enabled = False
+    ankr.api_key = None
+    ankr.endpoint = "https://rpc.ankr.com/multichain"
+    ankr.blockchain = "polygon"
+
     polymarket = MagicMock()
     polymarket.ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
     polymarket.api_key = None
@@ -53,6 +59,7 @@ def mock_settings():
     settings.redis = redis
     settings.database = database
     settings.polygon = polygon
+    settings.ankr = ankr
     settings.polymarket = polymarket
     settings.discord = discord
     settings.telegram = telegram

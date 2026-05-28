@@ -23,6 +23,7 @@ from web3 import AsyncWeb3
 from web3.exceptions import Web3Exception
 from web3.providers import AsyncHTTPProvider
 
+from polymarket_insider_tracker.profiler.ankr_client import AnkrClient
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
 
 logger = logging.getLogger(__name__)
@@ -123,6 +124,7 @@ class PolygonClient:
         max_requests_per_second: float = DEFAULT_MAX_REQUESTS_PER_SECOND,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+        ankr_client: AnkrClient | None = None,
     ) -> None:
         """Initialize the Polygon client.
 
@@ -134,6 +136,10 @@ class PolygonClient:
             max_requests_per_second: Rate limit for RPC calls.
             max_retries: Maximum retry attempts on failure.
             retry_delay_seconds: Initial delay between retries.
+            ankr_client: Optional Ankr Advanced API client used to resolve
+                ``get_first_transaction`` (which standard JSON-RPC cannot
+                answer cheaply). When ``None``, ``get_first_transaction``
+                falls back to its legacy "indexer required" no-op.
         """
         self._rpc_url = rpc_url
         self._fallback_rpc_url = fallback_rpc_url
@@ -141,6 +147,7 @@ class PolygonClient:
         self._cache_ttl = cache_ttl_seconds
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
+        self._ankr = ankr_client
 
         # Create web3 instances
         self._w3 = AsyncWeb3(AsyncHTTPProvider(rpc_url))
@@ -445,14 +452,17 @@ class PolygonClient:
     async def get_first_transaction(self, address: str) -> Transaction | None:
         """Get the first transaction for a wallet.
 
-        This is useful for determining wallet age. Note: This is an expensive
-        operation as it may require scanning transaction history.
+        Uses the Ankr Advanced API when an ``ankr_client`` was provided
+        (cheap, single indexed call). Without Ankr configured, this
+        degrades to a no-op since walking blocks one-by-one over a
+        standard JSON-RPC node is not practical at runtime — callers will
+        see ``WalletProfile.age_hours = None`` in that mode.
 
         Args:
             address: Wallet address.
 
         Returns:
-            First transaction or None if no transactions.
+            First transaction or None if no transactions / lookup unavailable.
         """
         cache_key = self._cache_key("first_tx", address)
 
@@ -473,21 +483,45 @@ class PolygonClient:
                 gas_price=Decimal(data["gas_price"]),
             )
 
-        # Check if wallet has any transactions
+        # Check if wallet has any transactions before paying for an Ankr call
         nonce = await self.get_transaction_count(address)
         if nonce == 0:
             await self._set_cached(cache_key, "null", ttl=60)  # Short TTL for empty
             return None
 
-        # Note: Getting the actual first transaction requires using an indexer
-        # or scanning blocks, which is expensive. For now, we'll return None
-        # and recommend using an indexer service for production.
-        logger.warning(
-            "get_first_transaction requires an indexer service for %s (nonce=%d)",
-            address,
-            nonce,
+        if self._ankr is None:
+            # No indexer configured — preserve the historical no-op behaviour.
+            logger.warning(
+                "get_first_transaction requires an indexer service for %s (nonce=%d)",
+                address,
+                nonce,
+            )
+            return None
+
+        tx = await self._ankr.get_first_transaction(address)
+        if tx is None:
+            # Cache the negative briefly; do not poison long-term cache for a
+            # transient indexer hiccup.
+            await self._set_cached(cache_key, "null", ttl=60)
+            return None
+
+        await self._set_cached(
+            cache_key,
+            json.dumps(
+                {
+                    "hash": tx.hash,
+                    "block_number": tx.block_number,
+                    "timestamp": tx.timestamp.isoformat(),
+                    "from_address": tx.from_address,
+                    "to_address": tx.to_address,
+                    "value": str(tx.value),
+                    "gas_used": tx.gas_used,
+                    "gas_price": str(tx.gas_price),
+                }
+            ),
+            ttl=86400,  # First-tx is immutable once known.
         )
-        return None
+        return tx
 
     async def get_wallet_info(self, address: str) -> WalletInfo:
         """Get aggregated wallet information.
