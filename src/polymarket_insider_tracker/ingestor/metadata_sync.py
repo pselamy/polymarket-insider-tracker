@@ -24,7 +24,13 @@ logger = logging.getLogger(__name__)
 
 # Default configuration
 DEFAULT_SYNC_INTERVAL_SECONDS = 300  # 5 minutes
-DEFAULT_CACHE_TTL_SECONDS = 600  # 10 minutes
+# A full CLOB sync over 89k markets takes 600-900s on the live deployment.
+# A 600s TTL means rows written early in one sync cycle expire before the
+# next cycle even starts, leaving a large window where get_market() falls
+# back to single-market CLOB fetches that don't carry gamma volume — every
+# size_anomaly evaluated in that window scores volume_impact=0. 1800s
+# safely covers worst-case sync_duration + sync_interval + jitter.
+DEFAULT_CACHE_TTL_SECONDS = 1800  # 30 minutes
 DEFAULT_REDIS_KEY_PREFIX = "polymarket:market:"
 
 
