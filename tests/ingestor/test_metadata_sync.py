@@ -176,6 +176,32 @@ class TestMarketMetadata:
         assert restored.condition_id == sample_metadata.condition_id
         assert restored.question == sample_metadata.question
 
+    def test_volume_fields_roundtrip(self, sample_metadata: MarketMetadata) -> None:
+        """Volume / liquidity fields must survive a JSON roundtrip — the
+        gamma enrichment path in metadata_sync depends on these existing
+        on the dataclass."""
+        from dataclasses import replace
+
+        enriched = replace(
+            sample_metadata,
+            daily_volume=Decimal("12345.6789"),
+            weekly_volume=Decimal("98765.4321"),
+            liquidity=Decimal("5000"),
+        )
+
+        restored = MarketMetadata.from_dict(json.loads(json.dumps(enriched.to_dict())))
+
+        assert restored.daily_volume == Decimal("12345.6789")
+        assert restored.weekly_volume == Decimal("98765.4321")
+        assert restored.liquidity == Decimal("5000")
+
+    def test_volume_fields_default_none(self, sample_metadata: MarketMetadata) -> None:
+        """Markets without gamma enrichment should serialize with None and
+        deserialize cleanly."""
+        restored = MarketMetadata.from_dict(json.loads(json.dumps(sample_metadata.to_dict())))
+        assert restored.daily_volume is None
+        assert restored.weekly_volume is None
+        assert restored.liquidity is None
 
 class TestSyncStats:
     """Tests for the SyncStats dataclass."""
