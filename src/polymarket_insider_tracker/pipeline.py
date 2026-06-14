@@ -537,7 +537,7 @@ class Pipeline:
                 result.success_count + result.failure_count,
             )
 
-    async def _persist_assessment(self, assessment: "RiskAssessment") -> None:
+    async def _persist_assessment(self, assessment: RiskAssessment) -> None:
         """Write the assessment row. Best-effort; never raises."""
         if not self._db_manager:
             return
@@ -574,9 +574,7 @@ class Pipeline:
             volume_impact=(
                 _D(str(round(size_sig.volume_impact, 4))) if size_sig is not None else None
             ),
-            book_impact=(
-                _D(str(round(size_sig.book_impact, 4))) if size_sig is not None else None
-            ),
+            book_impact=(_D(str(round(size_sig.book_impact, 4))) if size_sig is not None else None),
             wallet_age_hours=wallet_age,
             should_alert=assessment.should_alert,
             threshold_at_eval=_D(str(round(self._settings.detector.alert_threshold, 3))),
@@ -586,9 +584,7 @@ class Pipeline:
                 repo = RiskAssessmentRepository(session)
                 await repo.insert(dto)
         except Exception as e:
-            logger.warning(
-                "Failed to persist risk assessment %s: %s", assessment.assessment_id, e
-            )
+            logger.warning("Failed to persist risk assessment %s: %s", assessment.assessment_id, e)
 
     async def run(self) -> None:
         """Start the pipeline and run until interrupted.

@@ -24,7 +24,6 @@ from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import Base, RiskAssessmentModel
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -63,9 +62,7 @@ async def db_manager(async_engine):
     manager._sync_engine = None
     manager._async_engine = async_engine
     manager._sync_session_factory = None
-    manager._async_session_factory = async_sessionmaker(
-        bind=async_engine, expire_on_commit=False
-    )
+    manager._async_session_factory = async_sessionmaker(bind=async_engine, expire_on_commit=False)
     return manager
 
 
@@ -139,9 +136,7 @@ class TestPersistAssessment:
     ):
         """Assessments with should_alert=False must still hit the DB; no dispatch."""
         assessment = _make_assessment(sample_trade, should_alert=False, score=0.45)
-        pipeline = _build_pipeline(
-            mock_settings, db_manager=db_manager, assessment=assessment
-        )
+        pipeline = _build_pipeline(mock_settings, db_manager=db_manager, assessment=assessment)
 
         await pipeline._score_and_alert(SignalBundle(trade_event=sample_trade))
 
@@ -160,21 +155,15 @@ class TestPersistAssessment:
         assert pipeline.stats.alerts_sent == 0
 
     @pytest.mark.asyncio
-    async def test_persistence_failure_does_not_block_dispatch(
-        self, mock_settings, sample_trade
-    ):
+    async def test_persistence_failure_does_not_block_dispatch(self, mock_settings, sample_trade):
         """If repo.insert blows up, the alert pipeline still ships the alert."""
         assessment = _make_assessment(sample_trade, should_alert=True, score=0.92)
 
         # db_manager whose get_async_session raises -> _persist_assessment swallows it
         broken_db = MagicMock()
-        broken_db.get_async_session = MagicMock(
-            side_effect=RuntimeError("DB connection failed")
-        )
+        broken_db.get_async_session = MagicMock(side_effect=RuntimeError("DB connection failed"))
 
-        pipeline = _build_pipeline(
-            mock_settings, db_manager=broken_db, assessment=assessment
-        )
+        pipeline = _build_pipeline(mock_settings, db_manager=broken_db, assessment=assessment)
 
         await pipeline._score_and_alert(SignalBundle(trade_event=sample_trade))
 

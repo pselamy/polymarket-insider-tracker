@@ -165,7 +165,9 @@ class TelegramSettings(BaseSettings):
 class DetectorSettings(BaseSettings):
     """Risk-scorer / detector tuning."""
 
-    model_config = SettingsConfigDict(env_prefix="DETECTOR_", env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="DETECTOR_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     alert_threshold: float = Field(
         default=0.80,

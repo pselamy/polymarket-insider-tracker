@@ -585,9 +585,7 @@ class RiskAssessmentRepository:
 
     async def get_by_assessment_id(self, assessment_id: str) -> RiskAssessmentDTO | None:
         result = await self.session.execute(
-            select(RiskAssessmentModel).where(
-                RiskAssessmentModel.assessment_id == assessment_id
-            )
+            select(RiskAssessmentModel).where(RiskAssessmentModel.assessment_id == assessment_id)
         )
         model = result.scalar_one_or_none()
         if model is None:
