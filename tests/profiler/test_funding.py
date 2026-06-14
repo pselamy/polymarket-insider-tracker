@@ -327,6 +327,10 @@ class TestGetTransferLogs:
         await funding_tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
+            # Explicit numeric range so we stay inside one chunk and skip
+            # the "latest" → block_number resolution path.
+            from_block=1,
+            to_block=8_000,
         )
 
         mock_w3.eth.get_logs.assert_called_once()
@@ -334,10 +338,15 @@ class TestGetTransferLogs:
 
         # Verify topics structure
         assert len(call_args["topics"]) == 3
-        assert call_args["topics"][0] == TRANSFER_EVENT_SIGNATURE.hex()
+        # The Transfer event topic must be 0x-prefixed; drpc rejects bare hex.
+        assert call_args["topics"][0] == "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
+        assert call_args["topics"][0].startswith("0x")
         assert call_args["topics"][1] is None  # from (any)
         # to address should be padded to 32 bytes
         assert call_args["topics"][2].endswith(TEST_WALLET.lower().replace("0x", ""))
+        # And the chunk bounds match what we asked for.
+        assert call_args["fromBlock"] == 1
+        assert call_args["toBlock"] == 8_000
 
     @pytest.mark.asyncio
     async def test_get_transfer_logs_respects_limit(
@@ -355,6 +364,8 @@ class TestGetTransferLogs:
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             limit=3,
+            from_block=1,
+            to_block=8_000,
         )
 
         assert len(result) == 3
@@ -374,9 +385,241 @@ class TestGetTransferLogs:
         await funding_tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
+            from_block=1,
+            to_block=8_000,
         )
 
         mock_fallback.eth.get_logs.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_chunks_large_ranges(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """Ranges wider than chunk_size are split into multiple eth_getLogs calls.
+
+        This is the regression guard for the publicnode 10_000-block cap that
+        was rejecting every funding trace before chunking landed.
+        """
+        mock_w3 = MagicMock()
+        mock_w3.eth.get_logs = AsyncMock(return_value=[])
+        mock_polygon_client._w3 = mock_w3
+
+        # 25_000 blocks at 9_000-per-chunk → 3 calls (9000 + 9000 + 7001).
+        await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+            from_block=1_000_000,
+            to_block=1_025_000,
+        )
+
+        assert mock_w3.eth.get_logs.call_count == 3
+        windows = [call[0][0] for call in mock_w3.eth.get_logs.call_args_list]
+        assert windows[0]["fromBlock"] == 1_000_000
+        assert windows[0]["toBlock"] == 1_008_999
+        assert windows[1]["fromBlock"] == 1_009_000
+        assert windows[1]["toBlock"] == 1_017_999
+        assert windows[2]["fromBlock"] == 1_018_000
+        assert windows[2]["toBlock"] == 1_025_000
+        # No window exceeds the chunk size — that's what RPC providers reject.
+        for win in windows:
+            assert win["toBlock"] - win["fromBlock"] + 1 <= 9_000
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_stops_when_limit_hit_mid_walk(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """Walking should stop as soon as ``limit`` matches are gathered."""
+        mock_w3 = MagicMock()
+        # First chunk yields 5 logs, more than the limit, so subsequent chunks
+        # must not be queried.
+        mock_w3.eth.get_logs = AsyncMock(return_value=[MagicMock() for _ in range(5)])
+        mock_polygon_client._w3 = mock_w3
+
+        result = await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+            limit=2,
+            from_block=1_000_000,
+            to_block=1_025_000,
+        )
+
+        assert len(result) == 2
+        mock_w3.eth.get_logs.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_skips_failing_chunk(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """A flaky chunk must not abort the whole trace — we move on."""
+        mock_w3 = MagicMock()
+        good_log = MagicMock()
+        responses: list[Any] = [
+            RuntimeError("RPC hiccup"),
+            [good_log],
+        ]
+
+        async def fake_get_logs(_params: dict[str, Any]) -> list[Any]:
+            outcome = responses.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        mock_w3.eth.get_logs = AsyncMock(side_effect=fake_get_logs)
+        mock_polygon_client._w3 = mock_w3
+
+        result = await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+            from_block=1_000_000,
+            to_block=1_018_000,  # forces 3 chunks; we exercise chunks 1+2
+        )
+
+        # The error chunk is skipped; the second chunk contributes one log.
+        assert result == [dict(good_log)]
+        assert mock_w3.eth.get_logs.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_resolves_latest_via_block_number(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """``to_block='latest'`` should resolve via ``eth.block_number``.
+
+        And ``from_block=0`` should not become a full-history scan — it must
+        be clamped to ``latest - max_lookback_blocks``.
+        """
+
+        async def _block_number_coro() -> int:
+            return 5_000
+
+        mock_eth = MagicMock()
+        mock_eth.get_logs = AsyncMock(return_value=[])
+        # Property-style awaitable: web3.py exposes block_number as a property
+        # returning a coroutine, so each access must yield a fresh awaitable.
+        type(mock_eth).block_number = property(  # type: ignore[misc]
+            lambda _self: _block_number_coro()
+        )
+        mock_w3 = MagicMock()
+        mock_w3.eth = mock_eth
+        mock_polygon_client._w3 = mock_w3
+
+        await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+        )
+
+        # block_number=5000 < chunk_size, so it's one chunk that bottoms at 0.
+        mock_eth.get_logs.assert_called_once()
+        call_args = mock_eth.get_logs.call_args[0][0]
+        assert call_args["fromBlock"] == 0
+        assert call_args["toBlock"] == 5_000
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_breaks_on_pruned_history(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """A pruned-history error must short-circuit the whole walk.
+
+        Public Polygon RPCs prune log history. Once we walk past the cutoff,
+        every subsequent chunk will raise the same error — keep walking and
+        we just burn quota on guaranteed failures. The first such error must
+        end the walk and return whatever we already collected.
+        """
+        mock_w3 = MagicMock()
+        good_log = MagicMock()
+
+        responses: list[Any] = [
+            [good_log],
+            RuntimeError(
+                "{'code': -32701, 'message': 'History has been pruned for "
+                "this block. To remove restrictions, order a dedicated full "
+                "node here: https://www.allnodes.com/pol/host'}"
+            ),
+            # If the early-break logic is missing, this third chunk would
+            # also be requested. The test asserts it isn't.
+            [MagicMock()],
+        ]
+
+        async def fake_get_logs(_params: dict[str, Any]) -> list[Any]:
+            outcome = responses.pop(0)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        mock_w3.eth.get_logs = AsyncMock(side_effect=fake_get_logs)
+        mock_polygon_client._w3 = mock_w3
+
+        # 3 chunks total. The pruned error fires on chunk #2; chunk #3 must
+        # never be issued.
+        result = await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+            from_block=1_000_000,
+            to_block=1_027_000,
+        )
+
+        assert result == [dict(good_log)]
+        assert mock_w3.eth.get_logs.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_default_lookback_fits_pruned_horizon(
+        self,
+    ) -> None:
+        """Default ``max_lookback_blocks`` must stay inside what public RPCs serve.
+
+        publicnode prunes after ~100k blocks. If we default to 1.3M, every
+        funding trace blows through the archive horizon and produces nothing
+        but pruned-history warnings. Pin the default at <= 100k as a
+        regression guard.
+        """
+        from polymarket_insider_tracker.profiler.funding import (
+            DEFAULT_MAX_LOOKBACK_BLOCKS,
+        )
+
+        assert DEFAULT_MAX_LOOKBACK_BLOCKS <= 100_000
+
+    @pytest.mark.asyncio
+    async def test_get_transfer_logs_topic_is_0x_prefixed(
+        self,
+        funding_tracer: FundingTracer,
+        mock_polygon_client: MagicMock,
+    ) -> None:
+        """The Transfer event topic passed to ``eth_getLogs`` must begin with ``0x``.
+
+        ``HexBytes.hex()`` returns a bare hex string. publicnode tolerates
+        that, but stricter providers like drpc (our fallback) reject it with
+        ``invalid argument 0: hex string without 0x prefix`` and every chunk
+        in the trace fails. This guards against regressing back to the
+        bare-hex form.
+        """
+        mock_w3 = MagicMock()
+        mock_w3.eth.get_logs = AsyncMock(return_value=[])
+        mock_polygon_client._w3 = mock_w3
+
+        await funding_tracer._get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=USDC_BRIDGED,
+            from_block=1,
+            to_block=8_000,
+        )
+
+        topics = mock_w3.eth.get_logs.call_args[0][0]["topics"]
+        assert topics[0].startswith("0x")
+        # And the topic also has to be 32 bytes (64 hex chars) as required by
+        # the JSON-RPC spec.
+        assert len(topics[0]) == 2 + 64
+        # The padded `to` topic was already 0x-prefixed; double-check that
+        # didn't regress either.
+        assert topics[2].startswith("0x")
 
 
 class TestLogToFundingTransfer:

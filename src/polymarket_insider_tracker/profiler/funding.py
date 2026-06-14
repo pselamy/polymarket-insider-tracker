@@ -26,8 +26,46 @@ logger = logging.getLogger(__name__)
 USDC_BRIDGED = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 
-# ERC20 Transfer event signature
+# ERC20 Transfer event signature. ``HexBytes.hex()`` returns a *bare* hex
+# string without the ``0x`` prefix; publicnode tolerates that, but stricter
+# providers (e.g. drpc — which we use as the fallback) reject it with
+# ``invalid argument 0: hex string without 0x prefix``. Always pass the
+# 0x-prefixed form to ``eth_getLogs``.
 TRANSFER_EVENT_SIGNATURE = AsyncWeb3.keccak(text="Transfer(address,address,uint256)")
+TRANSFER_EVENT_TOPIC = "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
+
+# eth_getLogs block-range chunking. Most public Polygon RPCs (publicnode, ankr,
+# llamarpc) cap the range at 10_000 blocks per call; pick a window slightly
+# under the cap so off-by-one differences between providers don't trip us up.
+DEFAULT_CHUNK_SIZE_BLOCKS = 9_000
+# Polygon block time is ~2.0s. publicnode (the most common free RPC) prunes
+# log history aggressively — empirically only ~100k blocks (~55 hours) are
+# served before requests start returning "History has been pruned". We default
+# to 80k blocks (~44 hours), which is more than enough for fresh-wallet
+# funding traces (those wallets are by definition new) and fits comfortably
+# inside what most public providers retain.
+DEFAULT_MAX_LOOKBACK_BLOCKS = 80_000
+
+# Substrings that, when present in an RPC error, indicate the chunk we just
+# asked for is outside the provider's archive horizon. Walking further back
+# is futile, so we stop the trace early instead of hammering every chunk.
+_PRUNED_HISTORY_MARKERS: tuple[str, ...] = (
+    "history has been pruned",
+    "missing trie node",
+    "older than",
+)
+
+
+def _is_pruned_history_error(err: BaseException) -> bool:
+    """Return True if the RPC error indicates pruned history.
+
+    Public Polygon nodes only retain a recent slice of log history. When we
+    walk back through that slice in chunks and hit the cutoff, every further
+    chunk will fail with the same message — so we stop early instead of
+    burning quota on guaranteed failures.
+    """
+    text = str(err).lower()
+    return any(marker in text for marker in _PRUNED_HISTORY_MARKERS)
 
 
 class FundingTracer:
@@ -50,6 +88,8 @@ class FundingTracer:
         *,
         max_hops: int = 3,
         usdc_addresses: list[str] | None = None,
+        chunk_size_blocks: int = DEFAULT_CHUNK_SIZE_BLOCKS,
+        max_lookback_blocks: int = DEFAULT_MAX_LOOKBACK_BLOCKS,
     ) -> None:
         """Initialize the funding tracer.
 
@@ -58,6 +98,11 @@ class FundingTracer:
             entity_registry: Registry for entity classification. Creates default if None.
             max_hops: Maximum hops to trace back (default 3).
             usdc_addresses: USDC contract addresses to track. Uses defaults if None.
+            chunk_size_blocks: Block window size per eth_getLogs call. Public
+                Polygon RPCs cap at 10_000 blocks; default leaves a safety margin.
+            max_lookback_blocks: How far back to scan when caller passes
+                ``from_block=0``. Default ~44 hours at 2s block time, which
+                fits inside the pruned-history horizon of most public RPCs.
         """
         self.polygon_client = polygon_client
         self.entity_registry = entity_registry or EntityRegistry()
@@ -65,6 +110,8 @@ class FundingTracer:
         self._usdc_addresses = [
             addr.lower() for addr in (usdc_addresses or [USDC_BRIDGED, USDC_NATIVE])
         ]
+        self._chunk_size_blocks = chunk_size_blocks
+        self._max_lookback_blocks = max_lookback_blocks
 
     async def trace(
         self,
@@ -209,46 +256,144 @@ class FundingTracer:
     ) -> list[dict[str, Any]]:
         """Get ERC20 Transfer event logs.
 
+        Public Polygon RPCs (publicnode, ankr, llamarpc) cap ``eth_getLogs`` at
+        10_000 blocks per call. To work around this we resolve the requested
+        range into a concrete block window (defaulting to the last
+        ``max_lookback_blocks`` when caller passes ``from_block=0``) and walk
+        the window in chunks of ``chunk_size_blocks``, oldest-first, stopping
+        once ``limit`` matches are collected. Walking oldest-first preserves
+        the "first transfer" semantics expected by the funding chain tracer.
+
+        If a chunk comes back with a "history has been pruned" style error
+        the rest of the walk is short-circuited — every subsequent chunk
+        would hit the same archive cutoff and there's no point burning quota
+        on guaranteed failures.
+
         Args:
             to_address: Filter by recipient address.
             token_address: ERC20 token contract address.
             limit: Maximum logs to return.
-            from_block: Starting block number.
-            to_block: Ending block number.
+            from_block: Starting block number (0 means
+                ``latest - max_lookback_blocks``).
+            to_block: Ending block number ("latest" resolves to current head).
 
         Returns:
-            List of log dictionaries.
+            List of log dictionaries, oldest first, capped at ``limit``.
         """
         # Pad address to 32 bytes for topic filter
         padded_to = "0x" + to_address.lower().replace("0x", "").zfill(64)
+        topics = [
+            TRANSFER_EVENT_TOPIC,  # Transfer event (must be 0x-prefixed for drpc)
+            None,  # from (any)
+            padded_to,  # to (target address)
+        ]
+        contract_address = AsyncWeb3.to_checksum_address(token_address)
 
+        start_block, end_block = await self._resolve_block_range(from_block, to_block)
+        if start_block > end_block:
+            return []
+
+        results: list[dict[str, Any]] = []
+        chunk_size = max(1, self._chunk_size_blocks)
+        chunk_start = start_block
+
+        while chunk_start <= end_block:
+            chunk_end = min(chunk_start + chunk_size - 1, end_block)
+            try:
+                chunk_logs = await self._fetch_logs_chunk(
+                    contract_address=contract_address,
+                    topics=topics,
+                    from_block=chunk_start,
+                    to_block=chunk_end,
+                )
+            except Exception as e:
+                if _is_pruned_history_error(e):
+                    # The provider has dropped this slice of history. Walking
+                    # further back will hit the same wall on every chunk;
+                    # stop now and return what we already have.
+                    logger.info(
+                        "eth_getLogs chunk %d-%d outside archive horizon for %s; stopping trace",
+                        chunk_start,
+                        chunk_end,
+                        to_address,
+                    )
+                    break
+                logger.warning(
+                    "eth_getLogs chunk %d-%d failed for %s: %s",
+                    chunk_start,
+                    chunk_end,
+                    to_address,
+                    e,
+                )
+                # Skip this window and keep walking — partial data is better
+                # than aborting the whole trace on a single flaky chunk.
+                chunk_start = chunk_end + 1
+                continue
+
+            for log in chunk_logs:
+                results.append(dict(log))
+                if len(results) >= limit:
+                    return results
+
+            chunk_start = chunk_end + 1
+
+        return results
+
+    async def _resolve_block_range(
+        self,
+        from_block: int | str,
+        to_block: int | str,
+    ) -> tuple[int, int]:
+        """Resolve symbolic block params to concrete numeric bounds.
+
+        ``from_block=0`` (the historical default) is rewritten to
+        ``latest - max_lookback_blocks`` so we don't try to scan all of Polygon.
+        """
+        w3 = self._select_w3()
+
+        if isinstance(to_block, str):
+            await self.polygon_client._rate_limiter.acquire()
+            head = int(await w3.eth.block_number)
+            end = head
+        else:
+            end = int(to_block)
+
+        if isinstance(from_block, str):
+            # Treat any symbolic from-block (e.g. "earliest") as "go back
+            # max_lookback_blocks from end"; that's what callers actually want.
+            start = max(0, end - self._max_lookback_blocks)
+        elif from_block == 0:
+            start = max(0, end - self._max_lookback_blocks)
+        else:
+            start = int(from_block)
+
+        return start, end
+
+    async def _fetch_logs_chunk(
+        self,
+        contract_address: str,
+        topics: list[Any],
+        from_block: int,
+        to_block: int,
+    ) -> list[Any]:
+        """Issue a single bounded ``eth_getLogs`` call."""
         await self.polygon_client._rate_limiter.acquire()
-
-        # Use the web3 instance from polygon client
-        w3 = (
-            self.polygon_client._w3
-            if self.polygon_client._primary_healthy
-            else (self.polygon_client._w3_fallback or self.polygon_client._w3)
-        )
-
-        # Get logs with Transfer event filtering by recipient
+        w3 = self._select_w3()
         # Note: web3 typing is overly restrictive for block params
-        logs = await w3.eth.get_logs(
+        return await w3.eth.get_logs(
             {
-                "address": AsyncWeb3.to_checksum_address(token_address),
-                "topics": [
-                    TRANSFER_EVENT_SIGNATURE.hex(),  # Transfer event
-                    None,  # from (any)
-                    padded_to,  # to (target address)
-                ],
+                "address": contract_address,
+                "topics": topics,
                 "fromBlock": from_block,  # type: ignore[typeddict-item]
                 "toBlock": to_block,  # type: ignore[typeddict-item]
             }
         )
 
-        # Convert to list of dicts and limit
-        result = [dict(log) for log in logs[:limit]]
-        return result
+    def _select_w3(self) -> AsyncWeb3:
+        """Pick primary or fallback web3 instance based on health."""
+        if self.polygon_client._primary_healthy:
+            return self.polygon_client._w3
+        return self.polygon_client._w3_fallback or self.polygon_client._w3
 
     async def _log_to_funding_transfer(
         self,
