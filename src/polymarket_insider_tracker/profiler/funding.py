@@ -312,8 +312,7 @@ class FundingTracer:
                     # further back will hit the same wall on every chunk;
                     # stop now and return what we already have.
                     logger.info(
-                        "eth_getLogs chunk %d-%d outside archive horizon for %s; "
-                        "stopping trace",
+                        "eth_getLogs chunk %d-%d outside archive horizon for %s; stopping trace",
                         chunk_start,
                         chunk_end,
                         to_address,

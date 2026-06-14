@@ -504,7 +504,7 @@ class TestGetTransferLogs:
         # Property-style awaitable: web3.py exposes block_number as a property
         # returning a coroutine, so each access must yield a fresh awaitable.
         type(mock_eth).block_number = property(  # type: ignore[misc]
-            lambda self: _block_number_coro()
+            lambda _self: _block_number_coro()
         )
         mock_w3 = MagicMock()
         mock_w3.eth = mock_eth
@@ -573,8 +573,6 @@ class TestGetTransferLogs:
     @pytest.mark.asyncio
     async def test_get_transfer_logs_default_lookback_fits_pruned_horizon(
         self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
     ) -> None:
         """Default ``max_lookback_blocks`` must stay inside what public RPCs serve.
 
