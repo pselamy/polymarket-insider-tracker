@@ -9,13 +9,14 @@ import contextlib
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 
 from redis.asyncio import Redis
 
 from .clob_client import ClobClient
+from .gamma_client import GammaClient, GammaClientError, GammaMarketStats
 from .models import MarketMetadata
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ class MarketMetadataSync:
         redis: Redis,
         clob_client: ClobClient,
         *,
+        gamma_client: GammaClient | None = None,
         sync_interval_seconds: int = DEFAULT_SYNC_INTERVAL_SECONDS,
         cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
         key_prefix: str = DEFAULT_REDIS_KEY_PREFIX,
@@ -102,6 +104,8 @@ class MarketMetadataSync:
         Args:
             redis: Redis async client for caching.
             clob_client: CLOB API client for fetching markets.
+            gamma_client: Optional gamma-api client for volume/liquidity
+                enrichment. Defaults to a fresh GammaClient() instance.
             sync_interval_seconds: Interval between syncs (default: 300 / 5 min).
             cache_ttl_seconds: TTL for cached entries (default: 600 / 10 min).
             key_prefix: Redis key prefix for market data.
@@ -110,6 +114,7 @@ class MarketMetadataSync:
         """
         self._redis = redis
         self._clob = clob_client
+        self._gamma = gamma_client or GammaClient()
         self._sync_interval = sync_interval_seconds
         self._cache_ttl = cache_ttl_seconds
         self._key_prefix = key_prefix
@@ -216,6 +221,18 @@ class MarketMetadataSync:
                 self._set_state(SyncState.ERROR)
                 # Continue running - will retry on next interval
 
+    async def _fetch_gamma_stats(self) -> dict[str, GammaMarketStats]:
+        """Fetch volume/liquidity stats from gamma-api.
+
+        Returns an empty dict on failure so a degraded gamma endpoint
+        does not stop CLOB metadata from being cached.
+        """
+        try:
+            return await self._gamma.get_active_market_stats()
+        except (GammaClientError, Exception) as e:
+            logger.warning("gamma stats fetch failed (continuing without volume): %s", e)
+            return {}
+
     async def _sync_all_markets(self) -> None:
         """Fetch all markets and cache them in Redis."""
         self._set_state(SyncState.SYNCING)
@@ -223,14 +240,27 @@ class MarketMetadataSync:
         self._stats.total_syncs += 1
 
         try:
-            # Fetch markets from CLOB API (runs in thread pool for sync API)
-            markets = await asyncio.to_thread(self._clob.get_markets, True)
+            # Fetch CLOB markets and gamma volume snapshot in parallel
+            markets, gamma_stats = await asyncio.gather(
+                asyncio.to_thread(self._clob.get_markets, True),
+                self._fetch_gamma_stats(),
+            )
 
-            # Cache each market in Redis
+            # Cache each market in Redis, enriched with gamma volume/liquidity
             cached_count = 0
+            enriched_count = 0
             for market in markets:
                 try:
                     metadata = MarketMetadata.from_market(market)
+                    stats = gamma_stats.get(metadata.condition_id)
+                    if stats is not None:
+                        metadata = replace(
+                            metadata,
+                            daily_volume=stats.daily_volume,
+                            weekly_volume=stats.weekly_volume,
+                            liquidity=stats.liquidity,
+                        )
+                        enriched_count += 1
                     await self._cache_market(metadata)
                     cached_count += 1
                 except Exception as e:
@@ -246,7 +276,10 @@ class MarketMetadataSync:
 
             self._set_state(SyncState.IDLE)
             logger.info(
-                f"Synced {cached_count} markets in {self._stats.last_sync_duration_seconds:.2f}s"
+                "Synced %d markets (%d enriched with gamma volume) in %.2fs",
+                cached_count,
+                enriched_count,
+                self._stats.last_sync_duration_seconds,
             )
 
             # Notify callback
