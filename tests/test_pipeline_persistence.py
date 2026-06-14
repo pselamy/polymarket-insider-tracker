@@ -6,14 +6,13 @@ wallet_profiles and funding_transfers tables when fresh wallets are detected.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.detector.models import FreshWalletSignal
