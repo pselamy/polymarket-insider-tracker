@@ -34,6 +34,8 @@ from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.repos import (
     FundingRepository,
     FundingTransferDTO,
+    RiskAssessmentDTO,
+    RiskAssessmentRepository,
     WalletProfileDTO,
     WalletRepository,
 )
@@ -43,6 +45,7 @@ if TYPE_CHECKING:
 
     from polymarket_insider_tracker.detector.models import (
         FreshWalletSignal,
+        RiskAssessment,
         SizeAnomalySignal,
     )
     from polymarket_insider_tracker.ingestor.models import TradeEvent
@@ -252,7 +255,17 @@ class Pipeline:
 
         # Initialize Risk Scorer
         logger.debug("Initializing risk scorer...")
-        self._risk_scorer = RiskScorer(self._redis)
+        self._risk_scorer = RiskScorer(
+            self._redis,
+            alert_threshold=settings.detector.alert_threshold,
+            dedup_window_seconds=settings.detector.dedup_window_seconds,
+        )
+        logger.info(
+            "RiskScorer threshold=%.2f dedup_window=%ds persist=%s",
+            settings.detector.alert_threshold,
+            settings.detector.dedup_window_seconds,
+            settings.detector.persist_assessments,
+        )
 
         # Initialize Alerting
         logger.debug("Initializing alerting components...")
@@ -476,12 +489,18 @@ class Pipeline:
             return None
 
     async def _score_and_alert(self, bundle: SignalBundle) -> None:
-        """Score signals and send alert if threshold exceeded."""
+        """Score signals, persist the assessment, and send alert if above threshold."""
         if not self._risk_scorer or not self._alert_formatter or not self._alert_dispatcher:
             return
 
         # Get risk assessment
         assessment = await self._risk_scorer.assess(bundle)
+
+        # Persist every signal-bearing assessment (not just delivered alerts).
+        # This is the ground-truth log future backtests will read instead of
+        # grepping systemd. Failure here must never block alerting.
+        if self._settings.detector.persist_assessments:
+            await self._persist_assessment(assessment)
 
         if not assessment.should_alert:
             logger.debug(
@@ -517,6 +536,55 @@ class Pipeline:
                 result.success_count,
                 result.success_count + result.failure_count,
             )
+
+    async def _persist_assessment(self, assessment: RiskAssessment) -> None:
+        """Write the assessment row. Best-effort; never raises."""
+        if not self._db_manager:
+            return
+        from decimal import Decimal as _D
+
+        trade = assessment.trade_event
+        fresh = assessment.fresh_wallet_signal
+        size_sig = assessment.size_anomaly_signal
+        wallet_age: _D | None = None
+        if fresh is not None and fresh.wallet_profile.age_hours is not None:
+            wallet_age = _D(str(round(float(fresh.wallet_profile.age_hours), 2)))
+        dto = RiskAssessmentDTO(
+            assessment_id=assessment.assessment_id,
+            trade_id=trade.trade_id,
+            wallet_address=assessment.wallet_address.lower(),
+            market_id=assessment.market_id,
+            asset_id=getattr(trade, "asset_id", None) or None,
+            side=trade.side,
+            outcome=getattr(trade, "outcome", None) or None,
+            outcome_index=getattr(trade, "outcome_index", None),
+            price=trade.price,
+            size=trade.size,
+            notional_usdc=trade.notional_value,
+            trade_timestamp=trade.timestamp,
+            weighted_score=_D(str(round(assessment.weighted_score, 3))),
+            signals_triggered=assessment.signals_triggered,
+            fresh_wallet_confidence=(
+                _D(str(round(fresh.confidence, 3))) if fresh is not None else None
+            ),
+            size_anomaly_confidence=(
+                _D(str(round(size_sig.confidence, 3))) if size_sig is not None else None
+            ),
+            is_niche_market=size_sig.is_niche_market if size_sig is not None else None,
+            volume_impact=(
+                _D(str(round(size_sig.volume_impact, 4))) if size_sig is not None else None
+            ),
+            book_impact=(_D(str(round(size_sig.book_impact, 4))) if size_sig is not None else None),
+            wallet_age_hours=wallet_age,
+            should_alert=assessment.should_alert,
+            threshold_at_eval=_D(str(round(self._settings.detector.alert_threshold, 3))),
+        )
+        try:
+            async with self._db_manager.get_async_session() as session:
+                repo = RiskAssessmentRepository(session)
+                await repo.insert(dto)
+        except Exception as e:
+            logger.warning("Failed to persist risk assessment %s: %s", assessment.assessment_id, e)
 
     async def run(self) -> None:
         """Start the pipeline and run until interrupted.

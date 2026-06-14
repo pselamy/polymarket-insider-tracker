@@ -162,6 +162,33 @@ class TelegramSettings(BaseSettings):
         )
 
 
+class DetectorSettings(BaseSettings):
+    """Risk-scorer / detector tuning."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="DETECTOR_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    alert_threshold: float = Field(
+        default=0.80,
+        alias="DETECTOR_ALERT_THRESHOLD",
+        description="Minimum weighted score required to trigger an alert",
+        ge=0.0,
+        le=1.0,
+    )
+    dedup_window_seconds: int = Field(
+        default=3600,
+        alias="DETECTOR_DEDUP_WINDOW_SECONDS",
+        description="Per-(wallet, market) dedup window in seconds",
+        ge=0,
+    )
+    persist_assessments: bool = Field(
+        default=True,
+        alias="DETECTOR_PERSIST_ASSESSMENTS",
+        description="Write every signal-bearing risk assessment to the database",
+    )
+
+
 class Settings(BaseSettings):
     """Main application settings.
 
@@ -191,6 +218,7 @@ class Settings(BaseSettings):
     polymarket: PolymarketSettings = Field(default_factory=PolymarketSettings)
     discord: DiscordSettings = Field(default_factory=DiscordSettings)
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
+    detector: DetectorSettings = Field(default_factory=DetectorSettings)
 
     # Application settings
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(

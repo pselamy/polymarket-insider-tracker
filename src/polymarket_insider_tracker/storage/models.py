@@ -115,3 +115,57 @@ class WalletRelationshipModel(Base):
         Index("idx_wallet_relationships_a", "wallet_a"),
         Index("idx_wallet_relationships_b", "wallet_b"),
     )
+
+
+class RiskAssessmentModel(Base):
+    """SQLAlchemy model for risk assessments.
+
+    One row per signal-bearing trade (i.e. trades that triggered at least one
+    detector). Captures everything a future backtest needs without going back
+    to the public API: trade identity, score, per-signal confidences, and
+    whether the alert was actually delivered (could be False due to dedup or
+    threshold).
+    """
+
+    __tablename__ = "risk_assessments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    assessment_id: Mapped[str] = mapped_column(String(36), unique=True, nullable=False)
+
+    # Trade identity
+    trade_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    wallet_address: Mapped[str] = mapped_column(String(42), nullable=False)
+    market_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    asset_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    side: Mapped[str] = mapped_column(String(8), nullable=False)
+    outcome: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    outcome_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+    size: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)
+    notional_usdc: Mapped[Decimal] = mapped_column(Numeric(20, 6), nullable=False)
+    trade_timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    # Scoring
+    weighted_score: Mapped[Decimal] = mapped_column(Numeric(4, 3), nullable=False)
+    signals_triggered: Mapped[int] = mapped_column(Integer, nullable=False)
+    fresh_wallet_confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    size_anomaly_confidence: Mapped[Decimal | None] = mapped_column(Numeric(4, 3), nullable=True)
+    is_niche_market: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    volume_impact: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    book_impact: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    wallet_age_hours: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+
+    # Decision
+    should_alert: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    threshold_at_eval: Mapped[Decimal] = mapped_column(Numeric(4, 3), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (
+        Index("idx_risk_assessments_wallet", "wallet_address"),
+        Index("idx_risk_assessments_market", "market_id"),
+        Index("idx_risk_assessments_trade_ts", "trade_timestamp"),
+        Index("idx_risk_assessments_score", "weighted_score"),
+    )

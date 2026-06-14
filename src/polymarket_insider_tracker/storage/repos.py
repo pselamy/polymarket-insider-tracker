@@ -18,6 +18,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from polymarket_insider_tracker.storage.models import (
     FundingTransferModel,
+    RiskAssessmentModel,
     WalletProfileModel,
     WalletRelationshipModel,
 )
@@ -510,3 +511,107 @@ class RelationshipRepository:
         )
         # SQLAlchemy Result does have rowcount but typing doesn't reflect it
         return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
+
+
+@dataclass
+class RiskAssessmentDTO:
+    """Data transfer object for a persisted risk assessment.
+
+    Captures everything a future backtest needs without going back to
+    public APIs: trade identity, score, per-signal confidences, and
+    whether the alert was actually delivered.
+    """
+
+    assessment_id: str
+    trade_id: str
+    wallet_address: str
+    market_id: str
+    asset_id: str | None
+    side: str
+    outcome: str | None
+    outcome_index: int | None
+    price: Decimal
+    size: Decimal
+    notional_usdc: Decimal
+    trade_timestamp: datetime
+    weighted_score: Decimal
+    signals_triggered: int
+    fresh_wallet_confidence: Decimal | None
+    size_anomaly_confidence: Decimal | None
+    is_niche_market: bool | None
+    volume_impact: Decimal | None
+    book_impact: Decimal | None
+    wallet_age_hours: Decimal | None
+    should_alert: bool
+    threshold_at_eval: Decimal
+    created_at: datetime | None = None
+
+
+class RiskAssessmentRepository:
+    """Repository for risk assessment data access."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def insert(self, dto: RiskAssessmentDTO) -> RiskAssessmentDTO:
+        """Insert a single assessment. Idempotent on assessment_id collisions."""
+        model = RiskAssessmentModel(
+            assessment_id=dto.assessment_id,
+            trade_id=dto.trade_id,
+            wallet_address=dto.wallet_address.lower(),
+            market_id=dto.market_id,
+            asset_id=dto.asset_id,
+            side=dto.side,
+            outcome=dto.outcome,
+            outcome_index=dto.outcome_index,
+            price=dto.price,
+            size=dto.size,
+            notional_usdc=dto.notional_usdc,
+            trade_timestamp=dto.trade_timestamp,
+            weighted_score=dto.weighted_score,
+            signals_triggered=dto.signals_triggered,
+            fresh_wallet_confidence=dto.fresh_wallet_confidence,
+            size_anomaly_confidence=dto.size_anomaly_confidence,
+            is_niche_market=dto.is_niche_market,
+            volume_impact=dto.volume_impact,
+            book_impact=dto.book_impact,
+            wallet_age_hours=dto.wallet_age_hours,
+            should_alert=dto.should_alert,
+            threshold_at_eval=dto.threshold_at_eval,
+        )
+        self.session.add(model)
+        await self.session.flush()
+        return dto
+
+    async def get_by_assessment_id(self, assessment_id: str) -> RiskAssessmentDTO | None:
+        result = await self.session.execute(
+            select(RiskAssessmentModel).where(RiskAssessmentModel.assessment_id == assessment_id)
+        )
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return RiskAssessmentDTO(
+            assessment_id=model.assessment_id,
+            trade_id=model.trade_id,
+            wallet_address=model.wallet_address,
+            market_id=model.market_id,
+            asset_id=model.asset_id,
+            side=model.side,
+            outcome=model.outcome,
+            outcome_index=model.outcome_index,
+            price=model.price,
+            size=model.size,
+            notional_usdc=model.notional_usdc,
+            trade_timestamp=model.trade_timestamp,
+            weighted_score=model.weighted_score,
+            signals_triggered=model.signals_triggered,
+            fresh_wallet_confidence=model.fresh_wallet_confidence,
+            size_anomaly_confidence=model.size_anomaly_confidence,
+            is_niche_market=model.is_niche_market,
+            volume_impact=model.volume_impact,
+            book_impact=model.book_impact,
+            wallet_age_hours=model.wallet_age_hours,
+            should_alert=model.should_alert,
+            threshold_at_eval=model.threshold_at_eval,
+            created_at=model.created_at,
+        )
