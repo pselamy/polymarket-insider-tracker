@@ -185,7 +185,11 @@ class TradeStreamHandler:
 
             # ws-live-data pushes {connection_id, payload:{...trade fields}}
             payload = data.get("payload")
-            if isinstance(payload, dict) and "transactionHash" in payload and "proxyWallet" in payload:
+            if (
+                isinstance(payload, dict)
+                and "transactionHash" in payload
+                and "proxyWallet" in payload
+            ):
                 trade = TradeEvent.from_websocket_message(payload)
 
                 self._stats.trades_received += 1
