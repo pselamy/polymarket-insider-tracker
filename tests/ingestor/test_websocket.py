@@ -84,7 +84,10 @@ class TestTradeStreamHandler:
         """Test building subscription message without filters."""
         msg = handler._build_subscription_message()
 
-        assert msg == {"subscriptions": [{"topic": "activity", "type": "trades"}]}
+        assert msg == {
+            "action": "subscribe",
+            "subscriptions": [{"topic": "activity", "type": "trades"}],
+        }
 
     def test_build_subscription_message_with_event_filter(self, on_trade_mock: AsyncMock) -> None:
         """Test building subscription message with event filter."""
@@ -110,11 +113,10 @@ class TestTradeStreamHandler:
     async def test_handle_message_trade(
         self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
     ) -> None:
-        """Test handling a valid trade message."""
+        """Test handling a valid trade message (payload-based routing)."""
         message = json.dumps(
             {
-                "topic": "activity",
-                "type": "trades",
+                "connection_id": "abc123",
                 "payload": {
                     "conditionId": "0xmarket",
                     "transactionHash": "0xtx",
@@ -142,14 +144,42 @@ class TestTradeStreamHandler:
     async def test_handle_message_non_trade(
         self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
     ) -> None:
-        """Test handling a non-trade message."""
+        """Test handling a non-trade message (no transactionHash/proxyWallet)."""
         message = json.dumps(
             {
-                "topic": "comments",
-                "type": "comment_created",
+                "connection_id": "abc123",
                 "payload": {"body": "Hello"},
             }
         )
+
+        await handler._handle_message(message)
+
+        on_trade_mock.assert_not_called()
+        assert handler.stats.trades_received == 0
+
+    @pytest.mark.asyncio
+    async def test_handle_message_payload_missing_proxy_wallet(
+        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
+    ) -> None:
+        """Ratchet: payload with transactionHash but no proxyWallet is not a trade."""
+        message = json.dumps(
+            {
+                "connection_id": "abc",
+                "payload": {"transactionHash": "0xtx", "other": "field"},
+            }
+        )
+
+        await handler._handle_message(message)
+
+        on_trade_mock.assert_not_called()
+        assert handler.stats.trades_received == 0
+
+    @pytest.mark.asyncio
+    async def test_handle_message_no_payload_key(
+        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
+    ) -> None:
+        """Ratchet: message without payload key is ignored."""
+        message = json.dumps({"connection_id": "abc", "status": "ok"})
 
         await handler._handle_message(message)
 
@@ -175,8 +205,7 @@ class TestTradeStreamHandler:
 
         message = json.dumps(
             {
-                "topic": "activity",
-                "type": "trades",
+                "connection_id": "abc",
                 "payload": {
                     "conditionId": "0x",
                     "transactionHash": "0x",
@@ -240,8 +269,9 @@ class TestTradeStreamHandler:
             assert ws is mock_ws
             mock_ws.send.assert_called_once()
 
-            # Verify subscription message
+            # Verify subscription message includes action: subscribe
             sent_msg = json.loads(mock_ws.send.call_args[0][0])
+            assert sent_msg["action"] == "subscribe"
             assert "subscriptions" in sent_msg
             assert sent_msg["subscriptions"][0]["topic"] == "activity"
             assert sent_msg["subscriptions"][0]["type"] == "trades"
@@ -292,8 +322,7 @@ class TestTradeStreamHandlerIntegration:
 
         trade_message = json.dumps(
             {
-                "topic": "activity",
-                "type": "trades",
+                "connection_id": "test-conn",
                 "payload": {
                     "conditionId": "0xtest",
                     "transactionHash": "0xtx",

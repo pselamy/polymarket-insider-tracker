@@ -6,14 +6,13 @@ wallet_profiles and funding_transfers tables when fresh wallets are detected.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.detector.models import FreshWalletSignal
@@ -83,9 +82,7 @@ async def db_manager(async_engine):
     manager._sync_engine = None
     manager._async_engine = async_engine
     manager._sync_session_factory = None
-    manager._async_session_factory = async_sessionmaker(
-        bind=async_engine, expire_on_commit=False
-    )
+    manager._async_session_factory = async_sessionmaker(bind=async_engine, expire_on_commit=False)
     return manager
 
 
@@ -266,9 +263,7 @@ class TestPipelinePersistence:
 
         # Use a broken db_manager that raises on get_async_session
         broken_db = MagicMock()
-        broken_db.get_async_session = MagicMock(
-            side_effect=Exception("DB connection failed")
-        )
+        broken_db.get_async_session = MagicMock(side_effect=Exception("DB connection failed"))
         pipeline._db_manager = broken_db
 
         fresh_signal = FreshWalletSignal(
