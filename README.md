@@ -2,80 +2,103 @@
 
 **Detect informed money before the market moves.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/pselamy/polymarket-insider-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/pselamy/polymarket-insider-tracker/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Real-time detection of suspicious trading patterns on Polymarket: fresh wallets, unusual sizing, niche-market activity, and funding chain analysis. Streams trades via WebSocket, profiles wallets on-chain (Polygon), scores risk with ML + heuristics, and dispatches alerts to Discord/Telegram.
 
 ---
 
-## The Opportunity
+## Quick Start (< 2 minutes)
 
-On January 3, 2026, a trader spotted a significant political event on Polymarket **before it happened**. How? Not by predicting the future, but by tracking suspicious trading behavior.
+### 1. Install
 
-> "You don't need to predict the future, you need to track suspicious behavior."
-> — [@DidiTrading](https://x.com/DidiTrading)
-
-An insider wallet turned **$35,000 into $442,000** (12.6x return) by entering a position hours before a major market move. The tool that detected this activity flagged five separate alerts before the event occurred.
-
-**This repository builds that tool.**
-
----
-
-## What This Does
-
-The Polymarket Insider Tracker monitors prediction market trading activity in real-time and identifies patterns that suggest informed trading:
-
-| Signal | What It Detects | Why It Matters |
-|--------|-----------------|----------------|
-| **Fresh Wallets** | Brand new wallets making large trades | Insiders create new wallets to hide their identity |
-| **Unusual Sizing** | Trades that are disproportionately large for the market | Informed traders bet bigger when they have edge |
-| **Niche Markets** | Activity in low-volume, specific-outcome markets | Easier to have inside information on obscure events |
-| **Funding Chains** | Where wallet funds originated from | Links seemingly separate wallets to the same entity |
-
-When suspicious activity is detected, you receive an instant alert with actionable intelligence.
-
----
-
-## How It Works
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌────────────────────┐
-│  Polymarket API │────>│  Wallet Profiler │────>│  Anomaly Detector  │
-│  (Real-time)    │     │  (Blockchain)    │     │  (ML + Heuristics) │
-└─────────────────┘     └──────────────────┘     └────────────────────┘
-                                                          │
-                              ┌────────────────────────────┘
-                              v
-                   ┌─────────────────────┐
-                   │   Alert Dispatcher  │───> Discord / Telegram / Email
-                   │   "Fresh wallet     │
-                   │    buying YES @7.5¢ │
-                   │    on niche market" │
-                   └─────────────────────┘
+```bash
+# Requires: Python 3.11+, Docker
+git clone https://github.com/pselamy/polymarket-insider-tracker.git
+cd polymarket-insider-tracker
+uv sync --all-extras          # or: pip install -e ".[dev]"
 ```
 
-### Detection Algorithms
+### 2. Start infrastructure
 
-1. **Fresh Wallet Detection**
-   - Checks wallet transaction history on Polygon
-   - Flags wallets with fewer than 5 lifetime transactions making trades over $1,000
-   - Traces funding source to identify if connected to known entities
+```bash
+docker compose up -d           # PostgreSQL 15 + Redis 7
+docker compose ps              # wait for healthy
+```
 
-2. **Liquidity Impact Analysis**
-   - Calculates trade size relative to market depth
-   - Flags trades consuming more than 2% of visible order book
-   - Weights by market category (niche markets score higher)
+### 3. Configure
 
-3. **Sniper Cluster Detection**
-   - Uses DBSCAN clustering to find wallets that consistently enter markets within minutes of creation
-   - Identifies coordinated behavior patterns
+```bash
+cp .env.example .env
+# Edit .env — only DATABASE_URL and REDIS_URL are required for local dev
+# (defaults in .env.example work with docker compose)
+```
 
-4. **Event Correlation**
-   - Cross-references trading activity with news feeds
-   - Detects positions opened 1-4 hours before related news breaks
+### 4. Run migrations + start
+
+```bash
+uv run alembic upgrade head
+uv run python -m polymarket_insider_tracker
+```
+
+You should see live trades within seconds:
+
+```
+INFO  Connection state: disconnected -> connecting
+INFO  Connected to wss://ws-live-data.polymarket.com and subscribed to trades
+DEBUG Trade: BUY 450 @ 1.00 on fifwc-ger-kor-2026-06-14-ger
+DEBUG Trade: SELL 5 @ 0.86 on chi1-cd1-cdl-2026-06-14-draw
+```
+
+### CLI Options
+
+```bash
+python -m polymarket_insider_tracker --help
+  --version          Show version
+  --config-check     Validate configuration and exit
+  --log-level DEBUG  Override log level
+  --dry-run          Run pipeline without sending alerts
+  --health-port 8080 Override health check port
+```
 
 ---
 
-## Sample Alert
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `REDIS_URL` | No | `redis://localhost:6379` | Redis connection string |
+| `POLYGON_RPC_URL` | No | `https://polygon-rpc.com` | Polygon RPC (public default works) |
+| `POLYGON_FALLBACK_RPC_URL` | No | — | Fallback RPC endpoint |
+| `POLYMARKET_WS_URL` | No | `wss://ws-live-data.polymarket.com` | WebSocket endpoint |
+| `POLYMARKET_API_KEY` | No | — | Optional API key for higher rate limits |
+| `DISCORD_WEBHOOK_URL` | No | — | Discord alerts |
+| `TELEGRAM_BOT_TOKEN` | No | — | Telegram alerts (needs `TELEGRAM_CHAT_ID` too) |
+| `TELEGRAM_CHAT_ID` | No | — | Telegram chat for alerts |
+| `LOG_LEVEL` | No | `INFO` | Logging level |
+| `DRY_RUN` | No | `false` | Skip sending alerts |
+| `HEALTH_PORT` | No | `8080` | Health check HTTP port |
+
+No API keys are needed for basic operation — the Polymarket WebSocket and CLOB REST APIs are public.
+
+---
+
+## What It Detects
+
+| Signal | Detection Method | Threshold |
+|--------|-----------------|-----------|
+| **Fresh Wallets** | Wallet age < 48h, nonce <= 5, making trades > $1k | Confidence 0.5-0.9 |
+| **Size Anomalies** | Trade size > 2% of 24h volume or > 5% of order book | Weighted by niche factor |
+| **Niche Markets** | Low-volume markets (< $50k daily) with specific outcomes | 1.5x risk multiplier |
+| **Funding Chains** | Trace wallet funding to known entities (exchanges, etc.) | On-chain lineage |
+| **Sniper Clusters** | DBSCAN clustering of wallets entering within minutes | Coordinated behavior |
+
+Risk scoring combines signals with configurable weights (default threshold: 0.6). Multi-signal bonuses: 2 signals +20%, 3+ signals +30%.
+
+### Sample Alert
 
 ```
 SUSPICIOUS ACTIVITY DETECTED
@@ -99,199 +122,62 @@ Confidence: HIGH (3/4 signals triggered)
 
 ---
 
-## Quick Start
+## Architecture
 
-### Prerequisites
+```
+Polymarket WebSocket ──> Ingestor ──> Profiler ──> Detector ──> Alerter
+(wss://ws-live-data)    (trades)    (on-chain)   (scoring)   (Discord/TG)
+                                        |
+                                   Polygon RPC
+```
 
-- Python 3.11+
-- Docker and Docker Compose
-- Polygon RPC endpoint (Alchemy, QuickNode, or self-hosted)
-- Polymarket API key (free at [docs.polymarket.com](https://docs.polymarket.com))
+### Components
 
-### Installation
+| Module | Purpose |
+|--------|---------|
+| `ingestor/` | WebSocket trade stream + CLOB REST client with rate limiting |
+| `profiler/` | Polygon wallet analysis, entity identification, funding chain tracing |
+| `detector/` | Fresh wallet, size anomaly, sniper cluster detection, composite risk scorer |
+| `alerter/` | Multi-channel dispatch (Discord webhooks, Telegram bot) with dedup |
+| `storage/` | SQLAlchemy ORM + Alembic migrations (PostgreSQL) |
+| `pipeline.py` | Orchestrator wiring all components together |
+| `shutdown.py` | Graceful SIGTERM/SIGINT handling with cleanup callbacks |
+
+---
+
+## Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/pselamy/polymarket-insider-tracker.git
-cd polymarket-insider-tracker
-
-# Copy environment template
-cp .env.example .env
-# Edit .env with your API keys
-
-# Start infrastructure (PostgreSQL, Redis)
-docker compose up -d
-
-# Wait for services to be healthy
-docker compose ps
-
-# Install Python dependencies
-uv sync --all-extras
-
-# Run database migrations
-uv run alembic upgrade head
-
-# Run the tracker
-uv run python -m polymarket_insider_tracker
+uv run pytest                        # run tests
+uv run ruff check src/ tests/        # lint
+uv run ruff format src/ tests/       # format
+uv run mypy src/                     # type check (strict mode)
 ```
 
 ### Docker Services
-
-The development stack includes:
 
 | Service | Port | Description |
 |---------|------|-------------|
 | PostgreSQL 15 | 5432 | Primary database |
 | Redis 7 | 6379 | Caching and pub/sub |
-| Adminer | 8080 | Database admin UI (optional) |
-| RedisInsight | 5540 | Redis admin UI (optional) |
-
-```bash
-# Start core services only
-docker compose up -d
-
-# Start with development tools (Adminer, RedisInsight)
-docker compose --profile tools up -d
-
-# View logs
-docker compose logs -f
-
-# Stop all services
-docker compose down
-
-# Stop and remove volumes (reset data)
-docker compose down -v
-```
-
-### Configuration
-
-```bash
-# .env file
-POLYGON_RPC_URL=https://polygon-mainnet.g.alchemy.com/v2/YOUR_KEY
-POLYMARKET_API_KEY=your_polymarket_api_key
-
-# Alert destinations (optional)
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-TELEGRAM_BOT_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_chat_id
-
-# Detection thresholds
-MIN_TRADE_SIZE_USDC=1000
-FRESH_WALLET_MAX_NONCE=5
-LIQUIDITY_IMPACT_THRESHOLD=0.02
-```
+| Adminer | 8080 | Database admin UI (optional, `--profile tools`) |
+| RedisInsight | 5540 | Redis admin UI (optional, `--profile tools`) |
 
 ---
 
-## Project Structure
+## Troubleshooting
 
-```
-polymarket-insider-tracker/
-├── src/
-│   └── polymarket_insider_tracker/
-│       ├── __main__.py     # CLI entry point
-│       ├── pipeline.py     # Core detection pipeline
-│       ├── ingestor/       # Real-time market data ingestion
-│       │   ├── clob_client.py  # Polymarket CLOB API wrapper
-│       │   └── websocket.py    # WebSocket event handler
-│       ├── profiler/       # Wallet analysis
-│       ├── detector/       # Anomaly detection engines
-│       ├── alerter/        # Notification dispatch
-│       └── storage/        # Persistence layer
-├── tests/                  # Test suite
-├── scripts/
-│   └── backtest.py         # Historical analysis
-├── docker-compose.yml
-├── pyproject.toml
-└── README.md
-```
+**No trades received / silent connection**
+The WebSocket subscription requires `action: "subscribe"` in the envelope. If you're on an older version, update — this was fixed in the WebSocket protocol alignment (see #89).
 
----
+**Connection timeout / DNS errors**
+Verify `wss://ws-live-data.polymarket.com` is reachable from your network. Some corporate firewalls block WebSocket connections.
 
-## Roadmap
+**Database migration errors**
+Ensure PostgreSQL is running (`docker compose ps`) and `DATABASE_URL` matches your docker-compose config. Run `uv run alembic upgrade head` after any schema changes.
 
-### Phase 1: Core Detection (Current)
-- [x] Project structure and documentation
-- [ ] Polymarket CLOB API integration
-- [ ] Fresh wallet detection
-- [ ] Size anomaly detection
-- [ ] Basic alerting (Discord/Telegram)
-
-### Phase 2: Advanced Intelligence
-- [ ] Funding chain analysis
-- [ ] Sniper cluster detection (DBSCAN)
-- [ ] Market categorization (niche vs mainstream)
-- [ ] Historical backtesting framework
-
-### Phase 3: Production Hardening
-- [ ] High-availability deployment
-- [ ] Rate limit management
-- [ ] False positive feedback loop
-- [ ] Web dashboard
-
----
-
-## Why This Matters
-
-Prediction markets are becoming a critical source of real-time probability estimates for world events. As they grow, so does the incentive for informed actors to exploit information asymmetry.
-
-This tool democratizes access to the same detection capabilities that sophisticated traders use. Whether you are:
-
-- **A trader** looking for alpha signals
-- **A researcher** studying market microstructure
-- **A platform operator** monitoring for manipulation
-
-...this tracker provides visibility into the hidden flows that move markets.
-
----
-
-## Technical Background
-
-### Polymarket Architecture
-
-Polymarket is a prediction market platform built on Polygon (Ethereum L2). Key characteristics:
-
-- **CLOB (Central Limit Order Book)**: Centralized matching engine for speed
-- **On-chain Settlement**: Final trades settle on Polygon blockchain
-- **USDC Collateral**: All positions denominated in USDC stablecoin
-- **Binary Outcomes**: Shares priced between $0.00 and $1.00
-
-### Data Sources
-
-| Source | Purpose | Latency |
-|--------|---------|---------|
-| Polymarket CLOB API | Real-time trades, orderbook | Milliseconds |
-| Polygon RPC | Wallet history, nonce, funding | 1-2 seconds |
-| Market Metadata API | Market categorization | On-demand |
-
-### Detection Challenges
-
-1. **Sybil Resistance**: Insiders use fresh wallets per trade
-2. **Rate Limits**: Polygon RPC calls require caching strategy
-3. **Market Classification**: NLP needed to categorize market niches
-4. **Timing**: CLOB data leads on-chain by seconds
-
----
-
-## Contributing
-
-Contributions are welcome! Please read our Contributing Guide before submitting PRs.
-
-### Development Setup
-
-```bash
-# Install dev dependencies
-uv sync --all-extras
-
-# Run tests
-uv run pytest
-
-# Run linting
-uv run ruff check src/
-
-# Run type checking
-uv run mypy src/
-```
+**Rate limiting on Polygon RPC**
+The default public RPC (`https://polygon-rpc.com`) has low rate limits. For production use, set `POLYGON_RPC_URL` to a dedicated provider (Alchemy, QuickNode, etc.).
 
 ---
 
@@ -304,20 +190,6 @@ This software is provided for **educational and research purposes only**.
 - Insider trading is illegal in regulated markets; this tool is for transparency and research
 - Users are responsible for compliance with applicable laws
 
----
-
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-## Acknowledgments
-
-- Inspired by [@DidiTrading](https://x.com/DidiTrading) and [@spacexbt](https://x.com/spacexbt)
-- Built on the open Polymarket API ecosystem
-- Community contributions welcome
-
----
-
-**Questions?** Open an issue or start a discussion.
