@@ -31,6 +31,7 @@ Primary external references:
 - [GitHub Spec Kit guide for existing projects](https://github.com/github/spec-kit/blob/main/docs/guides/existing-projects.md)
 - [GitHub Spec Kit agentic SDD workflow](https://github.com/github/spec-kit/blob/main/docs/reference/agentic-sdd.md)
 - [Polymarket public trades contract](https://docs.polymarket.com/api-reference/core/get-trades-for-a-user-or-markets)
+- [Polymarket API rate limits](https://docs.polymarket.com/api-reference/rate-limits)
 - [Polymarket Market WebSocket contract](https://docs.polymarket.com/api-reference/wss/market)
 - [Polymarket changelog](https://docs.polymarket.com/changelog/predictions)
 - [SQLAlchemy asynchronous installation notes](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html#asyncio-platform-installation-notes-including-apple-m1)
@@ -62,11 +63,12 @@ Primary external references:
 | G-010 | High | Type safety | Strict type checking has five current errors and is explicitly non-blocking in CI. | `mypy src`; `.github/workflows/ci.yml` | Slice 002 |
 | G-011 | High | Version support | Metadata promises every Python version from 3.11 upward, while CI validates only 3.11 and a default local sync selected 3.13 without an explicit support contract. | `pyproject.toml`; CI workflow; local setup | Slice 002; Patrick decision |
 | G-012 | High | Migration verification | CI starts PostgreSQL and Redis but unit tests use fakes/SQLite; migrations and the documented database driver are not exercised against the service. | CI workflow and test fixtures | Slice 002 |
-| G-013 | Medium | Quick start | “Only database and Redis” and “under two minutes” are not reproducible because required drivers are absent, ingestion is invalid, and startup blocks on metadata. | README plus G-001/G-004/G-007 | Slices 001–002 |
+| G-013a | Medium | Quick-start setup | “Only database and Redis” and “under two minutes” are not reproducible because required database dependencies are absent. | README plus G-007/G-008 | Slice 002 |
+| G-013b | High | Quick-start operation | The documented first run cannot reach useful monitoring promptly because ingestion is invalid and startup blocks on metadata. | README plus G-001/G-004 | Slice 001 |
 | G-014 | High | Readiness | `--config-check` validates shapes and notification presence, then says “ready to run” without reaching the database, Redis, Polygon, or trade source. | `__main__.py` | Slice 003 |
 | G-015 | High | Health | Health/metrics code exists but is not wired into the pipeline; `--health-port` is parsed and ignored. | `ingestor/health.py`, `pipeline.py`, `__main__.py` | Slice 003 |
 | G-016 | High | Failure propagation | A terminal background ingestion failure increments an error counter but leaves the pipeline in `RUNNING`; the CLI can wait forever while monitoring nothing. | `pipeline.py` | Slice 003 |
-| G-017 | Medium | External defaults | The default primary Polygon endpoint currently returns HTTP 401, adding avoidable retries and contradicting a no-key quick start. | `config.py`, README, bounded JSON-RPC probe | Slice 003 |
+| G-017 | High | External defaults | The default primary Polygon endpoint currently returns HTTP 401, preventing default wallet profiling until retries/fallback and contradicting a no-key quick start. | `config.py`, README, bounded JSON-RPC probe | Slice 003; explicit dependency of slice 004 |
 | G-018 | High | Effect safety | A threshold-passing dry run sets the delivery dedup key before delivery is skipped, so a later real run can suppress the alert. | `detector/scorer.py` then `pipeline.py` ordering | Slice 003 |
 | G-019 | High | Effect safety | A failed multi-channel delivery also retains the dedup key, suppressing retry for the configured window. | scorer/pipeline/dispatcher ordering | Slice 003 |
 | G-020 | Medium | Ownership | `AlertHistory` and `RiskScorer` implement separate dedup concepts, but only the scorer path is live, obscuring the authoritative delivery lifecycle. | `alerter/history.py`, `detector/scorer.py`, `pipeline.py` | Slice 003 |
@@ -78,17 +80,27 @@ Primary external references:
 | G-026 | High | Capability wiring | `SniperDetector` has isolated tests but is not instantiated by the pipeline; “ML + heuristics” presents it as operational. | detector package/tests vs `pipeline.py` | Slice 004; proposed explicit experimental status |
 | G-027 | High | Capability wiring | Funding chains are traced and stored only after a fresh-wallet signal; funding suspiciousness is absent from scoring, persisted risk inputs, and alert output despite the public “funding chain analysis” claim. | `pipeline.py`, signal/assessment models, README | Slice 004; proposed enrichment-only contract |
 | G-028 | Medium | Research claims | Changelog describes stored assessments as ground truth for future backtests and implies backtest scripts, but no backtest workflow exists in the repository. | CHANGELOG and file inventory | Explicitly defer; separate future spec required |
-| G-029 | Medium | Documentation | The tracked prediction-market skill repeats obsolete ingestion, threshold, signal-count, and operational-capability claims. | `docs/skill-tracking-prediction-market-flow.md` | Align within owning slices |
-| G-030 | Medium | Issue hygiene | Issue #93 remains open with an endpoint containing both `wss://` and `https://`; its deeper ingestion/startup symptoms remain valid even though the literal URL may be user configuration. | GitHub issue #93 | Reproduce/resolve through slices 001/003; no issue mutation before review |
+| G-029a | Medium | Ingestion documentation | The tracked prediction-market skill repeats the obsolete WebSocket ingestion contract. | `docs/skill-tracking-prediction-market-flow.md` | Slice 001 |
+| G-029b | Medium | Detection documentation | The tracked prediction-market skill repeats stale threshold, signal-count, and operational-capability claims. | `docs/skill-tracking-prediction-market-flow.md` | Slice 004 |
+| G-030a | Medium | Configuration diagnostics | Issue #93 contains a source URL with both `wss://` and `https://`; current validation would accept or poorly diagnose similar malformed-but-prefixed values. | GitHub issue #93 | Slice 003; no issue mutation before review |
+| G-030b | High | Ingestion/startup | Issue #93's deeper obsolete-protocol and 204.35-second blocking-startup symptoms remain reproducible concerns independent of the malformed user value. | GitHub issue #93 plus code trace | Slice 001; no issue mutation before review |
+| G-031 | Blocker | Source coverage | The public trades query is newest-first and bounded to 10,000 rows per reachable page range. A 2026-09-06 live-safe probe returned the full 10,000 rows even for a five-second requested window; only 83 taker-only or 259 all-participant rows were inside that exact window, and some rows fell outside documented `start`/`end` bounds. Without saturation and boundary detection, polling can silently lose trades or trust ineffective filters. | Official pagination contract plus bounded live-safe aggregate probe; no wallet data retained | Slice 001 |
+| G-032 | High | Detection coverage | The public trades query defaults to `takerOnly=true`; the product has no explicit decision on monitoring only takers versus all publicly returned participants. A bounded probe with `takerOnly=false` showed multiple wallet rows per transaction, which are distinct research observations rather than simple transport duplicates. | Official parameter contract plus bounded aggregate probe | Slice 001, with detection semantics documented by slice 004 |
+| G-033 | High | Storage contract | Slices 003 and 004 both require new delivery dispositions, evidence availability, and reproducibility fields in persisted assessments. Without one owned target schema, independent plans will create migration churn and incompatible records. | Specs 003 FR-012 and 004 FR-003; current risk-assessment schema | Slice 003 owns the target record/migration; slice 004 contributes required evidence fields before planning |
 
 ## Proposed Slice Map
 
-| Order | Specification | Owns | Explicitly does not own |
+| Execution order | Specification | Owns | Explicitly does not own |
 |---|---|---|---|
-| 1 | `001-supported-trade-ingestion` | G-001–G-006, ingestion portion of G-013/G-030 | Scoring changes; authenticated/private feeds; trading |
-| 2 | `002-reproducible-runtime` | G-007–G-013 | Feature behavior beyond setup, migrations, and required checks |
-| 3 | `003-safe-observable-operation` | G-014–G-021, operational portion of G-030 | New detector algorithms; real notification smoke tests |
-| 4 | `004-truthful-detection-contract` | G-022–G-029 | New uncalibrated scoring signals; backtesting; trading recommendations |
+| 1 | `002-reproducible-runtime` | G-007–G-012 and G-013a | Product behavior beyond setup, migrations, and required checks |
+| 2 | `001-supported-trade-ingestion` | G-001–G-006, G-013b, G-029a, G-030b, G-031, and G-032 | Scoring changes; authenticated/private feeds; trading |
+| 3 | `003-safe-observable-operation` | G-014–G-021, G-030a, and G-033 | New detector algorithms; real notification smoke tests |
+| 4 | `004-truthful-detection-contract` | G-022–G-028 and G-029b; consumes G-017/G-032/G-033 outcomes | New uncalibrated scoring signals; backtesting; trading recommendations |
+
+The numeric feature prefix records specification creation order, not execution order. Before every
+Spec Kit command, the operator MUST activate the intended slice explicitly via
+`SPECIFY_FEATURE_DIRECTORY=specs/<feature-directory>`; the ignored local `.specify/feature.json`
+pointer MUST NOT be trusted across slices or clones.
 
 ## Proposed Deferrals
 
@@ -99,6 +111,8 @@ Primary external references:
 | Funding-chain contribution to risk score | Funding is useful research context, but there are no approved weights or validated labels. Keep it as persisted enrichment until calibrated. | Patrick; separate approved specification |
 | Book-depth impact in core scoring | A complete all-market depth contract would expand ingestion substantially. Daily volume can make current size scoring truthful without that expansion; unavailable book depth must be explicit. | Patrick; consider after supported ingestion is stable |
 | Real Discord/Telegram smoke delivery | The constitution forbids it without explicit authorization. Deterministic fakes and dry-run evidence are sufficient for these slices. | Patrick; optional manual release check |
+| Indexer-backed wallet age | Wallet age is recoverable through an additional history/indexer provider, but that adds a new external contract, credential/rate-limit decisions, and failure modes. The core will label unknown age honestly first. | Patrick; separate approved specification after core convergence |
+| Python 3.14+ support | The currently declared open upper bound is unverified. Newer minors enter the supported matrix only after locked installation and required gates pass. | Patrick; revisit when the dependency matrix is green on the new minor |
 
 ## Verified Non-Gaps and Boundaries
 
@@ -115,7 +129,9 @@ Primary external references:
 ## Audit Limitations
 
 - Provider behavior was checked with short, read-only probes on 2026-09-06; no availability promise
-  can eliminate future external drift. The specifications therefore require explicit degraded state.
+  can eliminate future external drift. One aggregate-only five-second trade probe saturated a 10,000-row
+  response and found returned timestamps outside the requested bounds, so source-window assumptions now
+  require explicit feasibility, saturation, ordering, and loss detection before implementation.
 - No production credentials, private endpoints, real webhook destinations, or production data stores
   were used.
 - The issue #93 screenshot is evidence of a historical run, not proof that every current user has the

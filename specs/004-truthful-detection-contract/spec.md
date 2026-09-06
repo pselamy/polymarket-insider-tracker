@@ -115,7 +115,8 @@ persisted assessment fields, sample output, README, example environment, and the
   below the configured freshness boundary.
 - **FR-008**: When age is unknown and transaction count is below the boundary, the detector MAY emit a
   lower-certainty low-activity-wallet candidate, but all outputs MUST label age as unknown and MUST NOT state
-  or imply a less-than-48-hour age.
+  or imply a less-than-48-hour age. Its confidence MUST be capped at 0.50 and MUST NOT receive an age-based
+  or newly-created-wallet bonus.
 - **FR-009**: The transaction-count boundary MUST be strictly fewer than 5 prior transactions for the default
   contract, matching public wording and eliminating the current competing inclusive rules.
 - **FR-010**: Missing wallet evidence MUST reduce or remove its contribution; failure to retrieve evidence
@@ -136,6 +137,14 @@ persisted assessment fields, sample output, README, example environment, and the
   proof of illegal activity nor financial advice.
 - **FR-018**: README, changelog clarification, sample alert, example environment, architecture text, docstrings,
   and tracked skill MUST distinguish operational core, enrichment, experimental modules, and deferred work.
+- **FR-019**: Before the scoring change is approved for implementation, a fixed deterministic replay corpus
+  MUST define at least 32 cases spanning every operational signal combination, boundary, and missing-data
+  state. The old and proposed contracts MUST both be evaluated against it and their score distributions and
+  qualification counts recorded; the comparison is behavioral evidence, not a calibration claim.
+- **FR-020**: This slice MUST use the assessment schema and reusable end-to-end harness owned by slice 003,
+  adding detector evidence assertions without a second migration or competing pipeline harness.
+- **FR-021**: Every publicly returned participant observation selected by slice 001 MUST be evaluated as its
+  own wallet-bearing trade. Multiple participants in one transaction MUST NOT be collapsed before profiling.
 
 ### Key Entities
 
@@ -160,20 +169,25 @@ persisted assessment fields, sample output, README, example environment, and the
   equals trade notional divided by that volume within 0.0001; unknown inputs are never serialized as measured zero.
 - **SC-003**: Across all unknown-age fixture and pipeline outputs, zero statements claim or imply that the
   wallet is under 48 hours old.
-- **SC-004**: A repository-wide capability audit finds zero claims that sniper clustering, funding-based risk
-  scoring, book-depth scoring, or backtesting are operational in this slice.
+- **SC-004**: A deterministic capability-contract check over README, `.env.example`, CLI help/summary,
+  sample alert, architecture text, changelog, docstrings, and the tracked skill reports zero claims that
+  sniper clustering, funding-based risk scoring, book-depth scoring, or backtesting are operational.
 - **SC-005**: Default and overridden threshold examples reconstruct to the persisted result within 0.01 and
   display the exact effective threshold in 100% of cases.
 - **SC-006**: The deterministic end-to-end scenario preserves the same trade notional, wallet transaction
   count/age state, daily volume state, detector factors, score, and threshold from evaluation through persistence.
 - **SC-007**: Every public interpretation surface retains the research-only, non-accusatory, non-financial-advice boundary.
+- **SC-008**: The checked-in 32-or-more-case replay report records old and proposed score distributions,
+  threshold-qualification counts, and per-case deltas; every delta is attributable to a named requirement,
+  and any unanticipated change blocks implementation approval.
 
 ## Assumptions
 
 - The current 0.80 runtime default is retained as the operational default because it is already the code and
   changelog contract; this slice does not claim the threshold is statistically calibrated.
 - “Fresh wallet” becomes a precise known-age classification. Low transaction count with unknown age remains
-  useful but is labeled a lower-certainty “low-activity wallet, age unknown” candidate.
+  useful but is labeled a lower-certainty “low-activity wallet, age unknown” candidate capped at confidence
+  0.50 with no age or newly-created bonus.
 - The default transaction-count rule is fewer than 5 prior transactions, following the README wording. This
   intentionally resolves the current mix of `< 5` and `<= 5` behavior.
 - Available positive daily volume is part of the core size contract. Book-depth scoring is disabled and
@@ -182,3 +196,7 @@ persisted assessment fields, sample output, README, example environment, and the
   library. Neither affects live risk scores in this slice.
 - Backtesting, label collection, outcome evaluation, new detector algorithms, and claims of predictive
   accuracy are outside scope and require separate approved specifications.
+- Slice 003 lands the assessment schema and reusable end-to-end harness first. Slice 004 adds its assertions
+  to those contracts and does not own a second migration or harness.
+- Slice 003 must also resolve the failing default Polygon endpoint before this slice can claim the default
+  wallet-evidence workflow is usable.

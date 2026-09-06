@@ -35,3 +35,7 @@
 - Threshold 0.80, `< 5` nonce semantics, unknown-age labeling, daily-volume-only size evidence,
   and advanced-capability deferrals are proposed assumptions for Patrick's review. A changed decision
   requires a spec revision before clarification or planning.
+- Brownfield thresholds, field names, and named public surfaces are intentional compatibility/product
+  requirements, not accidental implementation-plan leakage.
+- Validation iteration 2 caps unknown-age confidence, requires a fixed before/after behavior corpus,
+  assigns schema/harness ownership, and makes capability consistency verification executable and bounded.

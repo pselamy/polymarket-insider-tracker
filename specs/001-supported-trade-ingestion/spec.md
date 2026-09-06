@@ -32,6 +32,9 @@ outcome, price, size, timestamp, asset, and transaction identity preserved.
    within 10 seconds of that source response.
 3. **Given** the provider repeats an already observed trade in overlapping results, **When** the result
    is processed again, **Then** the tracker does not profile, score, persist, or dispatch it again.
+4. **Given** the default all-participant coverage mode, **When** maker and taker observations share a
+   transaction, **Then** distinct wallet-bearing rows remain distinct observations while exact repeats
+   of either row are suppressed.
 
 ---
 
@@ -89,6 +92,10 @@ verify the documented result, warning, or actionable failure.
   market, asset, side, price, size, wallet, or timestamp observations.
 - Several trades may share the same second; a timestamp alone is not a sufficient checkpoint.
 - Results may arrive newest-first, out of order, late, repeated, or at a pagination boundary.
+- A requested time window may be ignored or applied imprecisely by the provider; returned timestamps
+  cannot be assumed to remain inside request bounds.
+- A full result page can mean either normal history padding or that newer observations exceeded the
+  reachable page depth; the tracker must distinguish and surface possible loss.
 - The provider may return an empty list during a quiet interval; empty is not automatically failure.
 - The provider may throttle, time out, return a partial page, or return a schema-incompatible row.
 - The local clock may differ from provider timestamps; event eligibility must not depend on exact clock equality.
@@ -127,6 +134,20 @@ verify the documented result, warning, or actionable failure.
   source reachability, schema compatibility, latest observed provider timestamp, and measured lag.
 - **FR-014**: README, example configuration, troubleshooting, architecture text, and the tracked skill
   MUST describe the same supported ingestion behavior and limitations.
+- **FR-015**: The default coverage contract MUST include all publicly returned participant observations,
+  not silently inherit a taker-only provider default. A taker-only mode MAY exist only as an explicit,
+  visible operator choice.
+- **FR-016**: Before implementation planning is approved, a bounded feasibility record MUST measure
+  current all-market row rate, provider publication lag, ordering, time-window behavior, page saturation,
+  cache behavior, and throttling against the official request limit without retaining wallet identities.
+- **FR-017**: Acquisition MUST detect when a full page does not reach the last durable observation boundary.
+  It MUST attempt a bounded documented recovery or enter a visible possible-data-loss state; it MUST NOT
+  advance the durable boundary past an unresolved gap.
+- **FR-018**: The default request cadence MUST remain at or below 5% of the provider's published endpoint
+  limit under normal operation. Retry and catch-up bursts MUST remain within the published limit.
+- **FR-019**: If the feasibility gate cannot demonstrate bounded loss detection and sustainable coverage,
+  work MUST stop for a product-scope decision. The tracker MUST NOT fall back to an undocumented interface
+  or silently claim comprehensive monitoring.
 
 ### Key Entities
 
@@ -151,10 +172,15 @@ verify the documented result, warning, or actionable failure.
   and without duplicates; after a terminal failure, the process reports failure instead of remaining healthy.
 - **SC-004**: A restart inside the configured recovery horizon processes all distinct missed fixture
   trades exactly once and emits zero pre-boundary replay events.
-- **SC-005**: The live-safe smoke check either confirms a schema-compatible wallet-bearing trade result
-  or exits nonzero with an actionable provider/schema diagnosis; it never reports a false pass.
-- **SC-006**: A documentation-to-runtime audit finds zero conflicting source hosts, protocols, credential
-  claims, or freshness descriptions in tracked user documentation.
+- **SC-005**: The live-safe smoke check reports the correct pass/fail result for seven named cases: a
+  valid wallet-bearing response, a valid empty response, throttling, timeout, malformed row, incompatible
+  top-level schema, and possible page saturation. It retains no wallet identifiers in its evidence output.
+- **SC-006**: A deterministic contract check over README, `.env.example`, CLI help/configuration summary,
+  architecture text, troubleshooting, and the tracked skill reports zero conflicting source hosts,
+  protocols, credential claims, coverage modes, or freshness descriptions.
+- **SC-007**: A timestamped feasibility report records at least three bounded live samples and reports
+  row rate, in-window ratio, oldest/newest timestamps, page saturation, ordering, provider lag, response
+  caching, and distance from the published rate limit; any unresolved loss condition blocks approval.
 
 ## Assumptions
 
@@ -162,6 +188,14 @@ verify the documented result, warning, or actionable failure.
   trades query, while the public Market WebSocket omits the trader wallet and RTDS no longer supports
   trade activity. The proposed default is therefore near-real-time polling of the supported public
   trade query, not an undocumented WebSocket topic.
+- The default requests all publicly exposed participant observations rather than accepting the provider's
+  taker-only default. Multiple wallet rows for one transaction can be legitimate and are not duplicates
+  unless their complete stable observation identity matches.
+- The provider currently publishes a `/trades` limit of 200 requests per 10 seconds. Normal acquisition
+  will use at most 10 requests per 10 seconds unless Patrick approves a revised evidence-backed bound.
+- A 2026-09-06 five-second aggregate probe returned a full 10,000-row page even though only 83 taker-only
+  or 259 all-participant rows had timestamps inside the requested window; some rows were outside the
+  documented bounds. Client-side boundary and saturation evidence is therefore mandatory.
 - “Real-time” will be replaced with “near-real-time” where users could otherwise infer push delivery.
   Internal processing is bounded after a source response; provider publication lag is measured and
   reported rather than falsely guaranteed.
@@ -171,3 +205,5 @@ verify the documented result, warning, or actionable failure.
 - Market metadata is enrichment. Its absence may reduce detector confidence but cannot hold ingestion
   hostage.
 - No authenticated user-trade feed, trading action, private data, or real notification delivery is in scope.
+- Slice 003 owns the reusable end-to-end harness. This slice owns source/replay fixtures and ingestion
+  assertions contributed to that harness, avoiding a second competing full-pipeline test framework.

@@ -34,3 +34,7 @@
 - Validation iteration 1 passed on 2026-09-06.
 - The source selection and 10-minute recovery horizon are explicit proposed assumptions for Patrick's
   review. A changed decision requires a spec revision before clarification or planning.
+- Brownfield source names and measurable protocol constraints are intentional compatibility/product
+  requirements, not an accidental implementation-plan leak.
+- Validation iteration 2 incorporated independent Agy/Claude Code review: all-participant coverage,
+  published rate limits, feasibility, page saturation, loss detection, and bounded smoke cases are explicit.

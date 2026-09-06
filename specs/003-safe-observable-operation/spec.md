@@ -63,6 +63,9 @@ dedup store.
 4. **Given** every configured channel has successfully received an equivalent wallet/market alert within
    the dedup window, **When** another equivalent alert qualifies, **Then** delivery is suppressed and the
    duplicate disposition is recorded.
+5. **Given** a channel outcome is ambiguous because the request may have been accepted before timeout,
+   **When** automatic retry is considered, **Then** the channel enters an explicit unknown state for a
+   bounded ambiguity window instead of being mislabeled success or clean failure.
 
 ---
 
@@ -126,8 +129,9 @@ and shutdown result.
   persisting a qualifying assessment MUST NOT by itself mark an alert as delivered.
 - **FR-009**: Dry-run mode MUST make zero network calls to Discord or Telegram and MUST write zero
   successful-delivery dedup keys.
-- **FR-010**: Delivery dedup state MUST be scoped per notification channel and written only after that
-  channel reports success. A failed channel MUST remain eligible without resending to successful channels.
+- **FR-010**: Successful-delivery dedup state MUST be scoped per notification channel and written only after
+  that channel reports success. A confirmed-failed channel MUST remain eligible without resending to
+  successful channels; an ambiguous attempt uses the separate bounded state defined below.
 - **FR-011**: The authoritative delivery lifecycle and dedup implementation MUST be singular and documented;
   dormant competing paths MUST be removed, delegated, or explicitly marked non-operational.
 - **FR-012**: Every signal-bearing assessment MUST be persisted when configured, including below-threshold,
@@ -141,6 +145,17 @@ and shutdown result.
   simulate as real, recommend, or automate a trade.
 - **FR-016**: Operational and troubleshooting documentation MUST define liveness, readiness, degraded state,
   dry-run effects, delivery dedup semantics, and nonzero terminal exit behavior consistently.
+- **FR-017**: The delivery identity MUST be notification channel plus normalized wallet plus market. Side,
+  score changes, and repeated trades within the configured window MUST NOT create a new delivery identity;
+  their assessments remain durable even when notification is suppressed.
+- **FR-018**: Channel outcomes MUST distinguish confirmed success, confirmed failure, and ambiguous/unknown.
+  Unknown outcomes MUST suppress automatic retry for a 60-second ambiguity window, then become eligible;
+  documentation MUST state that a duplicate remains possible after an ambiguous acceptance.
+- **FR-019**: This slice MUST own the target assessment/delivery schema and migration, including the evidence
+  availability and reproducibility fields already required by slice 004. Slice 004 MUST extend behavior
+  against that target instead of creating a competing assessment migration.
+- **FR-020**: This slice MUST own the reusable deterministic end-to-end harness. Slices 001 and 004 MUST
+  contribute source fixtures and evidence assertions to this harness rather than create competing frameworks.
 
 ### Key Entities
 
@@ -169,8 +184,12 @@ and shutdown result.
   from one distinct fixture trade and sends zero real external notifications.
 - **SC-006**: Every documented health route responds on the configured override port, and no health route
   responds on the superseded default port for that run.
-- **SC-007**: An operational-contract audit finds zero instances where configuration-only validation,
-  process liveness, source reachability, or full readiness are described as interchangeable.
+- **SC-007**: A deterministic operational-contract check over CLI help and output, README, health route
+  documentation, troubleshooting, and the tracked skill reports zero instances where configuration-only
+  validation, process liveness, source reachability, or full readiness are described as interchangeable.
+- **SC-008**: Confirmed-success, confirmed-failure, and ambiguous-timeout fixture cases produce three distinct
+  channel states; an ambiguous state suppresses retry for exactly the configured 60-second window and then
+  permits retry while retaining an explicit possible-duplicate disposition.
 
 ## Assumptions
 
@@ -179,8 +198,13 @@ and shutdown result.
   permit reduced evidence only if the resulting state is explicit and scoring never treats unknown data as known.
 - Delivery deduplication is per channel. This makes partial failure retryable without resending to a channel
   that already succeeded.
-- External notification providers cannot guarantee exactly-once delivery after ambiguous network failures;
-  the tracker guarantees inspectable at-most-once retry decisions based on confirmed outcomes.
+- The default dedup identity preserves the existing public wallet-plus-market window and adds the channel.
+  It intentionally does not split by side or score; every assessment is still persisted.
+- External notification providers cannot guarantee exactly-once delivery after ambiguous network failures.
+  The proposed policy suppresses retry for 60 seconds, then favors eventual delivery and records that a
+  duplicate is possible.
 - Persisting signal-bearing assessments remains enabled by default. This slice records delivery disposition
   but does not create a backtesting or calibration workflow.
 - Real Discord and Telegram delivery checks remain out of scope unless Patrick separately authorizes them.
+- Slice 004's evidence requirements are inputs to this slice's schema plan even though scoring behavior lands
+  later. This avoids back-to-back migrations for one assessment contract.

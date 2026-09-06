@@ -34,3 +34,7 @@
 - Validation iteration 1 passed on 2026-09-06.
 - Per-channel delivery deduplication and the dependency readiness policy are proposed assumptions for
   Patrick's review. A changed decision requires a spec revision before clarification or planning.
+- Brownfield health-route and channel names are intentional compatibility/product requirements, not an
+  accidental implementation-plan leak.
+- Validation iteration 2 defines delivery identity and ambiguous outcomes, assigns assessment-schema and
+  end-to-end-harness ownership, and makes the documentation consistency check executable and bounded.

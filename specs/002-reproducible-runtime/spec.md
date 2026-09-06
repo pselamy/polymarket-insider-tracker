@@ -102,8 +102,9 @@ and automated checks; verify that they name one consistent support matrix and re
   implicit driver mismatch is prohibited.
 - **FR-005**: The example environment MUST contain working local defaults for the documented service stack,
   identify truly required values, and contain no real credential.
-- **FR-006**: The quick start MUST include dependency installation, service startup, migration, readiness
-  validation, dry-run startup, and shutdown in the order a clean checkout requires.
+- **FR-006**: The foundation quick start MUST include dependency installation, local service startup,
+  migration, and bounded local configuration/service validation in the order a clean checkout requires.
+  End-to-end dry-run startup belongs to slices 001 and 003 and MUST NOT be claimed by this foundation slice.
 - **FR-007**: Every migration MUST retain a downgrade path, and automation MUST exercise upgrade to head,
   one-step downgrade, and re-upgrade using the supported PostgreSQL driver.
 - **FR-008**: Required format, lint, strict type, test, migration, and compatibility checks MUST be blocking.
@@ -146,19 +147,25 @@ and automated checks; verify that they name one consistent support matrix and re
 - **SC-005**: Injecting one controlled failure into each required gate causes that gate and the aggregate
   verification result to fail in every case.
 - **SC-006**: After prerequisites and service images are available, a contributor can reach successful
-  configuration/readiness validation from a clean checkout in under 5 minutes using only tracked instructions.
-- **SC-007**: A support-contract audit finds zero version, command, database-setting, or prerequisite
-  contradictions across metadata, lock state, automation, README, and example environment.
+  local configuration, database, cache, and migration validation from a clean checkout in under 5 minutes
+  using only tracked instructions.
+- **SC-007**: A deterministic support-contract check over project metadata, lock state, automation, README,
+  contributor commands, and `.env.example` reports zero version, command, database-setting, or prerequisite
+  contradictions.
 
 ## Assumptions
 
 - Python 3.11 through 3.13 inclusive is the proposed support window. Python 3.14 and later are excluded
   until their complete dependency and test matrix is verified; Python 3.10 and earlier remain unsupported.
-- Linux and Apple Silicon macOS are the supported contributor platforms for this slice. Windows-specific
-  support is not currently promised.
+- Linux and Apple Silicon macOS are the supported contributor platforms for this slice. Linux runs the
+  blocking 3.11/3.12/3.13 compatibility matrix. Apple Silicon runs the same repository verification entry
+  point as release evidence and SHOULD have an advisory or scheduled automated job when a suitable runner
+  is available; Windows-specific support is not currently promised.
 - The local quick start uses containerized PostgreSQL and Redis, while the application itself runs on
   the host. Initial container image download time is excluded from the five-minute target.
 - One canonical database setting is preferred because the current public contract exposes one. The plan
   may choose separate validated settings only if one portable value cannot serve both workflows safely.
 - A real external Polymarket, Polygon, Discord, or Telegram dependency is not required for deterministic
   quality gates; those checks belong to bounded live-safe verification or explicitly authorized release work.
+- This slice executes first even though its numeric feature prefix is `002`, because every later slice
+  depends on a reproducible database, dependency set, and blocking local/CI gates.
