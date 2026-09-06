@@ -1,8 +1,9 @@
 <!--
 Sync Impact Report
-- Version change: template -> 1.0.0
-- Modified principles: all template placeholders replaced by five project-specific principles
-- Added sections: Product and Operational Boundaries; Development Workflow and Quality Gates
+- Version change: 1.0.0 -> 1.0.1
+- Modified principles: Development Workflow and Quality Gates clarified for Spec Kit artifact
+  ownership, explicit feature activation, and gap-register convergence
+- Added sections: none
 - Removed sections: none
 - Follow-up TODOs: none
 -->
@@ -71,15 +72,24 @@ slices and reviewable commits; unrelated refactors are out of scope.
    that traces each material promise to code, tests, live evidence, an approved slice, or a documented
    deferral with owner and rationale.
 2. Each material slice MUST follow the applicable Spec Kit sequence: specify, clarify, plan,
-   requirements checklist, tasks, analyze, human validation, implement, and converge.
+   reviewer-owned domain requirements-quality checklists, tasks, analyze, human validation,
+   implement, and converge. The built-in `checklists/requirements.md` remains the author-owned
+   spec-quality checklist.
 3. Specifications own what and why; plans own implementation details. Assumptions affecting product
    scope, security, data semantics, compatibility, or user experience MUST be reviewed by Patrick
    before implementation.
-4. Bug fixes and behavior changes MUST begin with a failing regression test when practical. If that
+4. Agents MUST leave newly generated reviewer-owned domain checklist items unchecked. Only Patrick
+   or a human reviewer he designates may mark those requirements-quality criteria satisfied.
+5. Bug fixes and behavior changes MUST begin with a failing regression test when practical. If that
    is infeasible, the plan MUST record why and define equivalent reproducible evidence.
-5. Implementation MUST proceed in dependency-ordered, independently reviewable slices. Tests and
+6. Implementation MUST proceed in dependency-ordered, independently reviewable slices. Tests and
    documentation MUST change with the behavior they verify.
-6. A pull request may be prepared only after required checks and convergence pass. It MUST NOT be
+7. Before every per-slice Spec Kit command, the intended feature directory MUST be activated
+   explicitly. Ignored local pointer state MUST NOT select a slice implicitly on a multi-feature
+   branch or fresh clone.
+8. Every slice MUST update its owned gap-register entries and record any approved deferral before
+   convergence.
+9. A pull request may be prepared only after required checks and convergence pass. It MUST NOT be
    merged without Patrick's approval.
 
 ## Governance
@@ -92,4 +102,4 @@ principles, and PATCH for non-semantic clarification. Every specification, pull 
 convergence review MUST record compliance or an explicit approved exception. Unapproved exceptions
 are defects and block completion.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-06
+**Version**: 1.0.1 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-06
