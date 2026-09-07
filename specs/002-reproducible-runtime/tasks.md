@@ -55,13 +55,13 @@ services, complete the disposable migration cycle, clean up, and exit zero with 
 
 ### Tests for User Story 1
 
-- [ ] T006 [US1] Add failing compatibility, deprecation-warning, normalization, and secret-redaction cases for `DatabaseSettings` in `tests/test_config.py`
-- [ ] T007 [P] [US1] Add failing sync/async Psycopg engine-selection and disposal tests in `tests/storage/test_database.py`
+- [X] T006 [US1] Add failing compatibility, deprecation-warning, normalization, and secret-redaction cases for `DatabaseSettings` in `tests/test_config.py`
+- [X] T007 [P] [US1] Add failing sync/async Psycopg engine-selection and disposal tests in `tests/storage/test_database.py`
 - [ ] T008 [P] [US1] Add failing probe/migrations/all phase, real PostgreSQL/Redis, non-loopback refusal, migration-state, primary-failure cleanup, and cleanup-failure integration cases in `tests/integration/test_runtime_services.py`
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] Apply canonical URL normalization at configuration and engine boundaries in `src/polymarket_insider_tracker/config.py` and `src/polymarket_insider_tracker/storage/database.py`
+- [X] T009 [US1] Apply canonical URL normalization at configuration and engine boundaries in `src/polymarket_insider_tracker/config.py` and `src/polymarket_insider_tracker/storage/database.py`
 - [ ] T010 [US1] Require the canonical `DATABASE_URL`, remove the implicit/stale fallback contract, align local defaults, and pin PostgreSQL 15/Redis 7 by reviewed multi-architecture digest in `alembic/env.py`, `alembic.ini`, `.env.example`, and `docker-compose.yml`
 - [ ] T011 [US1] Implement distinct probe/migrations/all phases, loopback validation, PostgreSQL/Redis probes, disposable database creation, migration-state checks, async query, and guaranteed cleanup in `scripts/runtime_services.py`
 - [ ] T012 [US1] Replace the foundation quick start and database troubleshooting instructions with locked, canonical, non-destructive commands in `README.md`

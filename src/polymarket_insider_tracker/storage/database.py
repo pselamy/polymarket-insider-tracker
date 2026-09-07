@@ -15,6 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from polymarket_insider_tracker.storage.database_url import normalize_database_url
 from polymarket_insider_tracker.storage.models import Base
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ def create_sync_engine(database_url: str, **kwargs: Any) -> Engine:
     Returns:
         SQLAlchemy Engine instance.
     """
-    return create_engine(database_url, **kwargs)
+    return create_engine(normalize_database_url(database_url), **kwargs)
 
 
 def create_async_db_engine(database_url: str, **kwargs: Any) -> AsyncEngine:
@@ -47,7 +48,7 @@ def create_async_db_engine(database_url: str, **kwargs: Any) -> AsyncEngine:
     Returns:
         SQLAlchemy AsyncEngine instance.
     """
-    return create_async_engine(database_url, **kwargs)
+    return create_async_engine(normalize_database_url(database_url), **kwargs)
 
 
 def create_sync_session_factory(engine: Engine) -> sessionmaker[Session]:
@@ -123,7 +124,7 @@ class DatabaseManager:
             max_overflow: Maximum overflow connections.
             echo: Echo SQL statements for debugging.
         """
-        self.database_url = database_url
+        self.database_url = normalize_database_url(database_url)
         self.async_mode = async_mode
         self._pool_size = pool_size
         self._max_overflow = max_overflow
@@ -199,6 +200,7 @@ class DatabaseManager:
         if self._sync_engine is not None:
             self._sync_engine.dispose()
             self._sync_engine = None
+        self._sync_session_factory = None
         logger.info("Database connections disposed")
 
     async def dispose_async(self) -> None:
@@ -206,4 +208,5 @@ class DatabaseManager:
         if self._async_engine is not None:
             await self._async_engine.dispose()
             self._async_engine = None
+        self._async_session_factory = None
         logger.info("Async database connections disposed")

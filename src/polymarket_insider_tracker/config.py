@@ -14,12 +14,18 @@ from typing import Literal
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from polymarket_insider_tracker.storage.database_url import normalize_database_url
+
 
 class DatabaseSettings(BaseSettings):
     """Database connection settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     url: str = Field(
@@ -31,9 +37,7 @@ class DatabaseSettings(BaseSettings):
     @classmethod
     def validate_url(cls, v: str) -> str:
         """Validate database URL format."""
-        if not v.startswith(("postgresql://", "postgresql+asyncpg://")):
-            raise ValueError("DATABASE_URL must be a PostgreSQL connection string")
-        return v
+        return normalize_database_url(v)
 
 
 class RedisSettings(BaseSettings):

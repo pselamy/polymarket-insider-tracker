@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ from polymarket_insider_tracker.config import (
     clear_settings_cache,
     get_settings,
 )
+from polymarket_insider_tracker.storage.database_url import DatabaseUrlMigrationWarning
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -38,25 +40,62 @@ class TestDatabaseSettings:
 
     def test_valid_postgresql_url(self) -> None:
         """Test valid PostgreSQL URL."""
-        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://user:pass@localhost/db"}):
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": "postgresql://user:pass@localhost/db"}),
+            pytest.warns(DatabaseUrlMigrationWarning, match="postgresql.*psycopg"),
+        ):
             settings = DatabaseSettings()
-            assert settings.url == "postgresql://user:pass@localhost/db"
+        assert settings.url == "postgresql+psycopg://user:pass@localhost/db"
 
     def test_valid_asyncpg_url(self) -> None:
         """Test valid asyncpg URL."""
-        with patch.dict(
-            os.environ, {"DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db"}
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db"}),
+            pytest.warns(DatabaseUrlMigrationWarning, match="asyncpg.*psycopg"),
         ):
             settings = DatabaseSettings()
-            assert settings.url == "postgresql+asyncpg://user:pass@localhost/db"
+        assert settings.url == "postgresql+psycopg://user:pass@localhost/db"
+
+    def test_canonical_url_does_not_warn(self) -> None:
+        """Test that the canonical URL is accepted without a migration warning."""
+        with (
+            patch.dict(os.environ, {"DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db"}),
+            warnings.catch_warnings(record=True) as caught,
+        ):
+            warnings.simplefilter("always")
+            settings = DatabaseSettings()
+
+        assert settings.url == "postgresql+psycopg://user:pass@localhost/db"
+        assert caught == []
 
     def test_invalid_url_raises(self) -> None:
         """Test that invalid database URL raises validation error."""
         with (
             patch.dict(os.environ, {"DATABASE_URL": "mysql://user:pass@localhost/db"}),
-            pytest.raises(ValidationError, match="PostgreSQL connection string"),
+            pytest.raises(ValidationError, match="DATABASE_URL"),
         ):
             DatabaseSettings()
+
+    def test_incompatible_legacy_query_is_redacted(self) -> None:
+        """Test that driver migration failures never echo credentials."""
+        secret = "never-print-this-password"
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "DATABASE_URL": (
+                        f"postgresql+asyncpg://user:{secret}@localhost/db"
+                        "?prepared_statement_cache_size=0"
+                    )
+                },
+            ),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            DatabaseSettings()
+
+        message = str(exc_info.value)
+        assert "prepared_statement_cache_size" in message
+        assert secret not in message
 
 
 class TestRedisSettings:
@@ -204,7 +243,7 @@ class TestSettings:
             },
         ):
             settings = Settings()
-            assert settings.database.url == "postgresql://user:pass@localhost/db"
+            assert settings.database.url == "postgresql+psycopg://user:pass@localhost/db"
             assert settings.redis.url == "redis://localhost:6379"
 
     def test_default_log_level(self) -> None:
