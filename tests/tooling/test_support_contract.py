@@ -137,8 +137,16 @@ def _valid_repository(root: Path) -> None:
         services:
           postgres:
             image: postgres:15@sha256:{POSTGRES_DIGEST}
+            ports:
+              - "${{POSTGRES_PORT:-5432}}:5432"
+            environment:
+              POSTGRES_DB: ${{POSTGRES_DB:-polymarket_tracker}}
+              POSTGRES_USER: ${{POSTGRES_USER:-tracker}}
+              POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD:-dev_password}}
           redis:
             image: redis:7@sha256:{REDIS_DIGEST}
+            ports:
+              - "${{REDIS_PORT:-6379}}:6379"
         """,
     )
     _write(
@@ -155,7 +163,14 @@ def _valid_repository(root: Path) -> None:
     _write(
         root,
         ".env.example",
+        "POSTGRES_HOST=localhost\n"
+        "POSTGRES_PORT=5432\n"
+        "POSTGRES_DB=polymarket_tracker\n"
+        "POSTGRES_USER=tracker\n"
+        "POSTGRES_PASSWORD=dev_password\n"
         "DATABASE_URL=postgresql+psycopg://tracker:dev_password@localhost:5432/polymarket_tracker\n"
+        "REDIS_HOST=localhost\n"
+        "REDIS_PORT=6379\n"
         "REDIS_URL=redis://localhost:6379\n",
     )
     _write(root, "alembic.ini", "[alembic]\nscript_location = alembic\n")
@@ -166,6 +181,31 @@ def _valid_repository(root: Path) -> None:
         import os
         database_url = os.environ["DATABASE_URL"]
         config.set_main_option("sqlalchemy.url", database_url)
+        """,
+    )
+    _write(
+        root,
+        "scripts/verify.py",
+        """
+        GATES = {
+            "lock": ("uv", "lock", "--check"),
+            "support-contract": ("python", "scripts/check_support_contract.py"),
+            "format": ("python", "-m", "ruff", "format", "--check"),
+            "lint": ("python", "-m", "ruff", "check"),
+            "strict-types": (
+                "uv", "run", "--isolated", "--locked", "--all-extras",
+                "--python", "3.11", "mypy",
+            ),
+            "imports": ("python", "-c", "import polymarket_insider_tracker"),
+            "tests": ("python", "-m", "pytest"),
+            "services": ("python", "scripts/runtime_services.py", "--phase", "probe"),
+            "migrations": ("python", "scripts/runtime_services.py", "--phase", "migrations"),
+        }
+        BASE_PROFILES = {
+            "static": ("lock", "support-contract", "format", "lint", "strict-types"),
+            "compatibility": ("lock", "imports", "tests"),
+            "services": ("services", "migrations"),
+        }
         """,
     )
 
@@ -195,6 +235,37 @@ def test_repository_support_contract_is_complete() -> None:
     assert result.stdout.strip() == (
         "Support contract passed: tracked runtime surfaces are consistent."
     )
+
+
+def test_tracked_quickstart_loads_environment_and_reflects_implementation() -> None:
+    quickstart = (REPOSITORY_ROOT / "specs/002-reproducible-runtime/quickstart.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "contractual design evidence until" not in quickstart
+    assert "uv run --env-file .env python scripts/verify.py --profile all" in quickstart
+
+
+def test_verifier_profiles_and_compose_defaults_cannot_drift(tmp_path: Path) -> None:
+    _valid_repository(tmp_path)
+    verifier_path = tmp_path / "scripts/verify.py"
+    verifier_path.write_text(
+        verifier_path.read_text(encoding="utf-8").replace(
+            '"services": ("services", "migrations")', '"services": ("services",)'
+        ),
+        encoding="utf-8",
+    )
+    env_path = tmp_path / ".env.example"
+    env_path.write_text(
+        env_path.read_text(encoding="utf-8").replace("POSTGRES_PORT=5432", "POSTGRES_PORT=6543"),
+        encoding="utf-8",
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "verification profile" in result.stdout.lower()
+    assert "service settings" in result.stdout.lower()
 
 
 def test_reports_all_cross_surface_contradictions(tmp_path: Path) -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 from types import ModuleType
@@ -103,6 +104,85 @@ def test_non_loopback_database_is_rejected_before_backend_creation() -> None:
         module.validate_loopback_database_url(
             "postgresql+psycopg://tracker:secret@192.0.2.10:5432/research"
         )
+
+
+def test_invalid_redis_url_is_rejected_without_echoing_credentials() -> None:
+    module = _load_module()
+    secret = "never-print-this-redis-password"
+
+    with pytest.raises(module.ServicePrerequisiteError) as caught:
+        module.validate_redis_url(f"redis://tracker:{secret}@localhost:99999/0")
+
+    assert secret not in str(caught.value)
+    assert "REDIS_URL" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_redis_construction_failure_disposes_engine_and_redacts_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    secret = "never-print-this-redis-password"
+    redis_url = f"redis://tracker:{secret}@localhost:6379/0"
+
+    class FakeEngine:
+        disposed = False
+
+        async def dispose(self) -> None:
+            self.disposed = True
+
+    engine = FakeEngine()
+    monkeypatch.setattr(module, "create_async_db_engine", lambda _database_url: engine)
+
+    def fail_from_url(value: str) -> Any:
+        raise RuntimeError(f"redis setup failed for {value}")
+
+    monkeypatch.setattr(module.Redis, "from_url", staticmethod(fail_from_url))
+
+    with pytest.raises(module.ServiceVerificationError) as caught:
+        await module.probe_services(LOCAL_DATABASE_URL, redis_url)
+
+    assert engine.disposed is True
+    assert secret not in str(caught.value)
+    assert redis_url not in str(caught.value)
+    assert "***" in str(caught.value)
+
+
+def test_migration_cli_does_not_require_unused_redis_url(
+    monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    module = _load_module()
+    calls: list[tuple[str, str, str]] = []
+
+    async def execute(phase: str, database_url: str, redis_url: str) -> dict[str, object]:
+        calls.append((phase, database_url, redis_url))
+        return {"cleanup_succeeded": True}
+
+    monkeypatch.setattr(module, "execute_phase", execute)
+    monkeypatch.setenv("DATABASE_URL", LOCAL_DATABASE_URL)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+
+    exit_code = module.main(["--phase", "migrations", "--json"])
+    output = capsys.readouterr()
+
+    assert exit_code == 0
+    assert json.loads(output.out)["status"] == "passed"
+    assert calls == [("migrations", LOCAL_DATABASE_URL, "")]
+
+
+def test_probe_cli_still_requires_redis_url(
+    monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    module = _load_module()
+    monkeypatch.setenv("DATABASE_URL", LOCAL_DATABASE_URL)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+
+    exit_code = module.main(["--phase", "probe", "--json"])
+    output = capsys.readouterr()
+
+    assert exit_code == 2
+    assert json.loads(output.out)["status"] == "error"
+    assert "REDIS_URL" in output.out
 
 
 @pytest.mark.asyncio

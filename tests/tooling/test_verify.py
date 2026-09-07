@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -38,7 +40,7 @@ def test_profile_membership_and_ordering_are_exact() -> None:
         "support-contract",
         "format",
         "lint",
-        "mypy",
+        "strict-types",
     )
     assert module.gate_ids_for_profile("compatibility") == ("lock", "imports", "tests")
     assert module.gate_ids_for_profile("services") == ("services", "migrations")
@@ -52,7 +54,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
         "support-contract",
         "format",
         "lint",
-        "mypy",
+        "strict-types",
         "imports",
         "tests",
         "services",
@@ -63,7 +65,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
 def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
     module = _load_module()
 
-    assert module.GATES["mypy"].command == (
+    assert module.GATES["strict-types"].command == (
         "uv",
         "run",
         "--isolated",
@@ -73,6 +75,15 @@ def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
         "3.11",
         "mypy",
     )
+
+
+def test_gate_definitions_expose_prerequisites_and_redaction_policy() -> None:
+    module = _load_module()
+
+    assert set(module.GATES) == set(module.gate_ids_for_profile("all"))
+    for gate in module.GATES.values():
+        assert gate.redaction_policy == "configured-secrets"
+        assert gate.needs_services is (gate.id in {"services", "migrations"})
 
 
 def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
@@ -98,7 +109,7 @@ def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
         "support-contract",
         "format",
         "lint",
-        "mypy",
+        "strict-types",
         "imports",
         "tests",
         "services",
@@ -174,8 +185,28 @@ def test_first_failure_output_includes_not_run_gates() -> None:
 
     assert "[FAIL] format (exit 1, 0.20s): deliberate failure" in rendered
     assert "[SKIP] lint: not run after format failed" in rendered
-    assert "[SKIP] mypy: not run after format failed" in rendered
+    assert "[SKIP] strict-types: not run after format failed" in rendered
     assert "first failed gate: format" in rendered
+
+
+def test_prerequisite_exit_code_is_preserved_in_human_and_json_results() -> None:
+    module = _load_module()
+
+    def runner(gate: Any) -> Any:
+        return module.CommandExecution(
+            exit_code=2 if gate.id == "services" else 0,
+            stderr="missing service configuration\n" if gate.id == "services" else "",
+            duration_seconds=0.1,
+        )
+
+    result = module.run_verification("services", runner=runner)
+
+    assert result.status == "failed"
+    assert result.exit_code == 2
+    assert result.first_failed_gate == "services"
+    assert result.gates[1].status == "not-run"
+    assert "exit 2" in module.render_human(result)
+    assert json.loads(module.render_json(result))["exit_code"] == 2
 
 
 def test_invalid_profile_is_an_invocation_error_without_running_gates(capsys: Any) -> None:
@@ -193,6 +224,45 @@ def test_invalid_profile_is_an_invocation_error_without_running_gates(capsys: An
     assert calls == []
     assert captured.out == ""
     assert "choose from" in captured.err.lower()
+
+
+@pytest.mark.parametrize("argv", [["--json"], ["--profile", "unknown", "--json"]])
+def test_json_invocation_errors_emit_one_machine_readable_object(
+    argv: list[str], capsys: Any
+) -> None:
+    module = _load_module()
+
+    exit_code = module.main(argv, runner=_passing_runner(module))
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+
+    assert exit_code == 2
+    assert captured.out.count("\n") == 1
+    assert captured.err == ""
+    assert parsed["status"] == "error"
+    assert parsed["exit_code"] == 2
+    assert parsed["gates"] == []
+    assert parsed["error"]
+
+
+def test_help_lists_every_direct_gate_command() -> None:
+    result = subprocess.run(
+        [sys.executable, str(MODULE_PATH), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    for command in (
+        "uv run ruff format --check src tests scripts",
+        "uv run ruff check src tests scripts",
+        "uv run --isolated --locked --all-extras --python 3.11 mypy",
+        "uv run pytest",
+        "uv run --env-file .env alembic upgrade head",
+        "uv run python scripts/check_support_contract.py",
+    ):
+        assert command in result.stdout
 
 
 @pytest.mark.parametrize("as_json", [False, True])
@@ -217,4 +287,19 @@ def test_outputs_redact_database_credentials(
 
     assert secret not in rendered
     assert database_url not in rendered
+    assert "***" in rendered
+
+
+def test_malformed_sensitive_url_cannot_break_redaction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    secret = "malformed-url-password"
+    redis_url = f"redis://tracker:{secret}@localhost:99999/0"
+    monkeypatch.setenv("REDIS_URL", redis_url)
+
+    rendered = module.redact_text(f"could not parse {redis_url}")
+
+    assert secret not in rendered
+    assert redis_url not in rendered
     assert "***" in rendered
