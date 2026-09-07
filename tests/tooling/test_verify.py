@@ -1,0 +1,204 @@
+"""Contract tests for the aggregate runtime verifier."""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+from collections.abc import Callable
+from pathlib import Path
+from types import ModuleType
+from typing import Any
+
+import pytest
+
+MODULE_PATH = Path(__file__).parents[2] / "scripts" / "verify.py"
+
+
+def _load_module() -> ModuleType:
+    assert MODULE_PATH.exists(), "aggregate verifier is not implemented"
+    spec = importlib.util.spec_from_file_location("verify_under_test", MODULE_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _passing_runner(module: ModuleType) -> Callable[[Any], Any]:
+    def run(_gate: Any) -> Any:
+        return module.CommandExecution(exit_code=0, stdout="ok\n", duration_seconds=0.25)
+
+    return run
+
+
+def test_profile_membership_and_ordering_are_exact() -> None:
+    module = _load_module()
+
+    assert module.gate_ids_for_profile("static") == (
+        "lock",
+        "support-contract",
+        "format",
+        "lint",
+        "mypy",
+    )
+    assert module.gate_ids_for_profile("compatibility") == ("lock", "imports", "tests")
+    assert module.gate_ids_for_profile("services") == ("services", "migrations")
+
+
+def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
+    module = _load_module()
+
+    assert module.gate_ids_for_profile("all") == (
+        "lock",
+        "support-contract",
+        "format",
+        "lint",
+        "mypy",
+        "imports",
+        "tests",
+        "services",
+        "migrations",
+    )
+
+
+def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
+    module = _load_module()
+
+    assert module.GATES["mypy"].command == (
+        "uv",
+        "run",
+        "--isolated",
+        "--locked",
+        "--all-extras",
+        "--python",
+        "3.11",
+        "mypy",
+    )
+
+
+@pytest.mark.parametrize(
+    "failed_gate",
+    [
+        "lock",
+        "support-contract",
+        "format",
+        "lint",
+        "mypy",
+        "imports",
+        "tests",
+        "services",
+        "migrations",
+    ],
+)
+def test_each_required_gate_failure_fails_closed(failed_gate: str) -> None:
+    module = _load_module()
+    calls: list[str] = []
+
+    def runner(gate: Any) -> Any:
+        calls.append(gate.id)
+        exit_code = 17 if gate.id == failed_gate else 0
+        return module.CommandExecution(
+            exit_code=exit_code,
+            stdout=f"output from {gate.id}\n",
+            duration_seconds=0.1,
+        )
+
+    result = module.run_verification("all", runner=runner)
+    result_by_id = {gate.id: gate for gate in result.gates}
+
+    assert result.status == "failed"
+    assert result.exit_code == 1
+    assert result.first_failed_gate == failed_gate
+    assert result_by_id[failed_gate].status == "failed"
+    assert calls[-1] == failed_gate
+    selected_ids = module.gate_ids_for_profile("all")
+    for gate_id in selected_ids[selected_ids.index(failed_gate) + 1 :]:
+        assert result_by_id[gate_id].status == "not-run"
+
+
+def test_human_output_names_commands_and_results() -> None:
+    module = _load_module()
+
+    rendered = module.render_human(
+        module.run_verification("services", runner=_passing_runner(module))
+    )
+
+    assert "[RUN ] services:" in rendered
+    assert "scripts/runtime_services.py --phase probe" in rendered
+    assert "[PASS] services (0.25s)" in rendered
+    assert "[RUN ] migrations:" in rendered
+    assert "scripts/runtime_services.py --phase migrations" in rendered
+    assert "status: passed" in rendered
+
+
+def test_json_output_is_one_machine_readable_aggregate() -> None:
+    module = _load_module()
+    result = module.run_verification("compatibility", runner=_passing_runner(module))
+
+    rendered = module.render_json(result)
+    parsed = json.loads(rendered)
+
+    assert rendered.count("\n") == 0
+    assert parsed["profile"] == "compatibility"
+    assert parsed["status"] == "passed"
+    assert parsed["exit_code"] == 0
+    assert [gate["id"] for gate in parsed["gates"]] == ["lock", "imports", "tests"]
+
+
+def test_first_failure_output_includes_not_run_gates() -> None:
+    module = _load_module()
+
+    def runner(gate: Any) -> Any:
+        return module.CommandExecution(
+            exit_code=1 if gate.id == "format" else 0,
+            stderr="deliberate failure\n" if gate.id == "format" else "",
+            duration_seconds=0.2,
+        )
+
+    rendered = module.render_human(module.run_verification("static", runner=runner))
+
+    assert "[FAIL] format (exit 1, 0.20s): deliberate failure" in rendered
+    assert "[SKIP] lint: not run after format failed" in rendered
+    assert "[SKIP] mypy: not run after format failed" in rendered
+    assert "first failed gate: format" in rendered
+
+
+def test_invalid_profile_is_an_invocation_error_without_running_gates(capsys: Any) -> None:
+    module = _load_module()
+    calls: list[str] = []
+
+    def runner(gate: Any) -> Any:
+        calls.append(gate.id)
+        return module.CommandExecution(exit_code=0)
+
+    exit_code = module.main(["--profile", "unknown"], runner=runner)
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert calls == []
+    assert captured.out == ""
+    assert "choose from" in captured.err.lower()
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_outputs_redact_database_credentials(
+    as_json: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _load_module()
+    secret = "do-not-print-this-password"
+    database_url = f"postgresql+psycopg://tracker:{secret}@localhost:5432/research"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    def runner(_gate: Any) -> Any:
+        return module.CommandExecution(
+            exit_code=1,
+            stdout=f"connection failed: {database_url}\n",
+            stderr=f"password={secret}\n",
+            duration_seconds=0.1,
+        )
+
+    result = module.run_verification("services", runner=runner)
+    rendered = module.render_json(result) if as_json else module.render_human(result)
+
+    assert secret not in rendered
+    assert database_url not in rendered
+    assert "***" in rendered

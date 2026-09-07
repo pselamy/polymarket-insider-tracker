@@ -106,7 +106,7 @@ class GammaClient:
         self,
         client: httpx.AsyncClient,
         path: str,
-        params: dict[str, object],
+        params: dict[str, str | int],
     ) -> list[dict[str, object]]:
         last_exc: Exception | None = None
         delay = self._retry_base
@@ -160,7 +160,7 @@ class GammaClient:
             async def fetch_page(page_index: int) -> list[dict[str, object]]:
                 if stop.is_set():
                     return []
-                params = {
+                params: dict[str, str | int] = {
                     "limit": self._page_limit,
                     "offset": page_index * self._page_limit,
                     "active": "true",

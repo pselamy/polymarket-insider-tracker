@@ -83,15 +83,15 @@ fail and asserts a nonzero aggregate result.
 
 ### Tests for User Story 2
 
-- [ ] T014 [US2] Add failing tests for profile membership, ordering, de-duplication, human/JSON results, first-failure propagation, not-run gates, invalid invocation, and secret redaction in `tests/tooling/test_verify.py`
+- [X] T014 [US2] Add failing tests for profile membership, ordering, de-duplication, human/JSON results, first-failure propagation, not-run gates, invalid invocation, and secret redaction in `tests/tooling/test_verify.py`
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Implement the typed `static`, `compatibility`, `services`, and `all` gate orchestrator with stable exit semantics in `scripts/verify.py`
-- [ ] T016 [P] [US2] Apply the existing Ruff formatter without behavioral edits to `tests/detector/test_size_anomaly.py`
-- [ ] T017 [P] [US2] Correct the concrete HTTP parameter typing error without weakening checks in `src/polymarket_insider_tracker/ingestor/gamma_client.py`
-- [ ] T018 [P] [US2] Correct Web3 filter and `AsyncWeb3` typing without blanket ignores in `src/polymarket_insider_tracker/profiler/funding.py`
-- [ ] T019 [US2] Replace unlocked pip jobs with a least-privilege, full-SHA-action-pinned workflow using an exact uv 0.11 release, feature-branch push evidence with concurrency cancellation, locked static, Ubuntu 24.04 x86_64 Python 3.11/3.12/3.13 compatibility, matching digest-pinned real services, and stable required-summary jobs in `.github/workflows/ci.yml`
+- [X] T015 [US2] Implement the typed `static`, `compatibility`, `services`, and `all` gate orchestrator with stable exit semantics in `scripts/verify.py`
+- [X] T016 [P] [US2] Apply the existing Ruff formatter without behavioral edits to `tests/detector/test_size_anomaly.py`
+- [X] T017 [P] [US2] Correct the concrete HTTP parameter typing error without weakening checks in `src/polymarket_insider_tracker/ingestor/gamma_client.py`
+- [X] T018 [P] [US2] Correct Web3 filter and `AsyncWeb3` typing without blanket ignores in `src/polymarket_insider_tracker/profiler/funding.py`
+- [X] T019 [US2] Replace unlocked pip jobs with a least-privilege, full-SHA-action-pinned workflow using an exact uv 0.11 release, feature-branch push evidence with concurrency cancellation, locked static, Ubuntu 24.04 x86_64 Python 3.11/3.12/3.13 compatibility, matching digest-pinned real services, and stable required-summary jobs in `.github/workflows/ci.yml`
 - [ ] T020 [US2] Run static plus clean isolated compatibility profiles on all three Apple Silicon interpreters and append commands, versions, counts, durations, and results to `specs/002-reproducible-runtime/evidence/verification.md`
 
 **Checkpoint**: All required local gates pass, every injected gate failure is nonzero, and Linux CI has no
