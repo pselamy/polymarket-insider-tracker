@@ -21,7 +21,7 @@ written and observed failing before the corresponding implementation task.
 
 **Purpose**: Make the approved interpreter and dependency boundary resolvable before product-path work.
 
-- [ ] T001 Set `requires-python` to `>=3.11,<3.14`, require uv `>=0.11,<0.12`, require `sqlalchemy[asyncio]` and `psycopg[binary]`, configure typed tooling paths, regenerate the universal lock, and prove locked sync on 3.11/3.12/3.13 in `pyproject.toml` and `uv.lock`
+- [X] T001 Set `requires-python` to `>=3.11,<3.14`, require uv `>=0.11,<0.12`, require `sqlalchemy[asyncio]` and `psycopg[binary]`, configure typed tooling paths, regenerate the universal lock, and prove locked sync on 3.11/3.12/3.13 in `pyproject.toml` and `uv.lock`
 
 **Checkpoint**: Every supported interpreter resolves the declared dependency graph and includes `greenlet`
 and Psycopg 3; unsupported minors are outside project metadata.

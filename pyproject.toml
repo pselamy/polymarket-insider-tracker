@@ -3,13 +3,14 @@ name = "polymarket-insider-tracker"
 version = "0.1.0"
 description = "Detect insider activity on Polymarket"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "py-clob-client>=0.1.0",
     "web3>=6.0.0",
     "httpx>=0.25.0",
     "redis>=5.0.0",
-    "sqlalchemy>=2.0.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "psycopg[binary]>=3.1.0",
     "alembic>=1.13.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
@@ -35,6 +36,9 @@ dev = [
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+required-version = ">=0.11,<0.12"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -65,6 +69,7 @@ known-first-party = ["polymarket_insider_tracker"]
 
 [tool.mypy]
 python_version = "3.11"
+files = ["src", "scripts"]
 strict = true
 warn_return_any = true
 warn_unused_ignores = true
