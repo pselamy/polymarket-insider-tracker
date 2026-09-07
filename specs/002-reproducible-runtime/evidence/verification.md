@@ -224,6 +224,65 @@ The macOS 14 runner lifecycle note above is an external time-bounded maintenance
 recorded run it remained supported, proved arm64, and passed. It does not convert any current gate to an
 approved failure.
 
-## Pending Evidence
+## Provenance Inventory
 
-Only the provenance inventory required by T030 remains before convergence.
+**Parent anchor**: `52c5b764206141b80c98150eed8908a30fb1026b` (`docs: approve reproducible runtime plan`). This is the
+parent of the first slice-002 implementation commit; earlier Spec Kit adoption, constitution, audit, review,
+and approval artifacts are outside this implementation inventory.
+
+**Intended paths**: The approved `plan.md` project structure and `tasks.md` target list bounded changes to
+runtime metadata/lock state; database configuration and service definitions; README support/setup text;
+CI and verification scripts; storage boundaries plus the two pre-existing type failures; focused tests;
+slice evidence/task state; and only G-007–G-012/G-013a in the audit register. `.dockerignore` was the one
+setup addition required by the implementation workflow before code changes.
+
+The resulting union, verified with `git diff --name-status 52c5b76..57fa7c0`, is:
+
+```text
+A .dockerignore
+M .env.example
+M .github/workflows/ci.yml
+M README.md
+M alembic.ini
+M alembic/env.py
+M docker-compose.yml
+M pyproject.toml
+A scripts/check_support_contract.py
+A scripts/runtime_services.py
+A scripts/verify.py
+A specs/002-reproducible-runtime/evidence/verification.md
+M specs/002-reproducible-runtime/tasks.md
+M specs/audit/gap-register.md
+M src/polymarket_insider_tracker/config.py
+M src/polymarket_insider_tracker/ingestor/gamma_client.py
+M src/polymarket_insider_tracker/profiler/funding.py
+M src/polymarket_insider_tracker/storage/database.py
+A src/polymarket_insider_tracker/storage/database_url.py
+M tests/detector/test_size_anomaly.py
+A tests/integration/test_runtime_services.py
+A tests/storage/test_database.py
+A tests/storage/test_database_url.py
+M tests/test_config.py
+A tests/tooling/test_support_contract.py
+A tests/tooling/test_verify.py
+M uv.lock
+```
+
+Each actual commit inventory was independently read with
+`git show --format='COMMIT %H %s' --name-status --no-renames <hash>`:
+
+| Commit | Purpose | Verified actual paths |
+|---|---|---|
+| `9aa2cd05850ee1dbc04ea910ccec4597df00344a` | Lock supported runtime matrix | `.dockerignore`, `pyproject.toml`, `uv.lock`, task ledger |
+| `559240c3b02009651595f44ef2aac102d565da51` | Enforce runtime support contract | support checker, checker tests, task ledger |
+| `ef0b978d437a72eb0e651ff4563f647f2a641cd5` | Normalize PostgreSQL runtime URLs | URL module/tests, task ledger |
+| `7eb69ae56961242642ae9df890f813b3e88ee32d` | Apply canonical database configuration | config/database code and tests, task ledger |
+| `1383923338b5d7bf2f11eeb7eb2419047fb2a744` | Verify disposable local runtime | env/Alembic/Compose/README, service script/tests, evidence, task ledger |
+| `6e724e2013958b06af96d00e9a357057d031d205` | Enforce fail-closed verification profiles | CI, verifier/tests, focused format/type fixes, task ledger |
+| `709ba6bca8ee508ac961619622339df0e4718f4c` | Converge supported runtime contract | CI/README/verifier/checker tests, evidence, task ledger |
+| `60f443f27bc5d0bbbd33a0b78dcb57be31f03f96` | Refresh action runtime and cache isolation | CI, evidence, task ledger |
+| `57fa7c069f37bea574d388a3ba122a1c48baec45` | Record verification and close owned gaps | evidence, task ledger, bounded gap-register dispositions |
+
+No rename, deletion, schema migration, product-source integration, alert delivery, or trading path appears
+in the actual inventory. This provenance section is committed separately from the implementation hashes it
+records; by design it does not attempt to embed its own commit hash.
