@@ -75,6 +75,22 @@ def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
     )
 
 
+def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
+    module = _load_module()
+
+    for gate_id in (
+        "support-contract",
+        "format",
+        "lint",
+        "imports",
+        "tests",
+        "services",
+        "migrations",
+    ):
+        assert module.GATES[gate_id].command[0] == module.sys.executable
+        assert "uv" not in module.GATES[gate_id].command
+
+
 @pytest.mark.parametrize(
     "failed_gate",
     [

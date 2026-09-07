@@ -97,6 +97,27 @@ jobs:
       - name: Run service profile
         run: uv run python scripts/verify.py --profile services
 
+  apple:
+    name: Apple Silicon advisory compatibility
+    runs-on: macos-14
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.11.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Require the arm64 runner contract
+        run: test "$(uname -m)" = arm64
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Sync locked dependencies
+        run: uv sync --locked --all-extras --python 3.13
+      - name: Run compatibility profile
+        run: uv run python scripts/verify.py --profile compatibility
+
   required:
     name: Required checks
     if: always()

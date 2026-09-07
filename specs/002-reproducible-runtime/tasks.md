@@ -92,7 +92,7 @@ fail and asserts a nonzero aggregate result.
 - [X] T017 [P] [US2] Correct the concrete HTTP parameter typing error without weakening checks in `src/polymarket_insider_tracker/ingestor/gamma_client.py`
 - [X] T018 [P] [US2] Correct Web3 filter and `AsyncWeb3` typing without blanket ignores in `src/polymarket_insider_tracker/profiler/funding.py`
 - [X] T019 [US2] Replace unlocked pip jobs with a least-privilege, full-SHA-action-pinned workflow using an exact uv 0.11 release, feature-branch push evidence with concurrency cancellation, locked static, Ubuntu 24.04 x86_64 Python 3.11/3.12/3.13 compatibility, matching digest-pinned real services, and stable required-summary jobs in `.github/workflows/ci.yml`
-- [ ] T020 [US2] Run static plus clean isolated compatibility profiles on all three Apple Silicon interpreters and append commands, versions, counts, durations, and results to `specs/002-reproducible-runtime/evidence/verification.md`
+- [X] T020 [US2] Run static plus clean isolated compatibility profiles on all three Apple Silicon interpreters and append commands, versions, counts, durations, and results to `specs/002-reproducible-runtime/evidence/verification.md`
 
 **Checkpoint**: All required local gates pass, every injected gate failure is nonzero, and Linux CI has no
 ignored required step.
@@ -109,13 +109,13 @@ and prove Python 3.10 and 3.14 are rejected by locked project resolution.
 
 ### Tests for User Story 3
 
-- [ ] T021 [US3] Add a failing repository-level conformance case covering every enumerated support surface, immutable tool/action/image requirements, the Linux reference wording, and the intentional Ruff/mypy minimum-version exception in `tests/tooling/test_support_contract.py`
+- [X] T021 [US3] Add a failing repository-level conformance case covering every enumerated support surface, immutable tool/action/image requirements, the Linux reference wording, and the intentional Ruff/mypy minimum-version exception in `tests/tooling/test_support_contract.py`
 
 ### Implementation for User Story 3
 
-- [ ] T022 [US3] Align the Python badge, supported platform/version text, uv authority, timing boundary, aggregate commands, URL migration path, and actionable unsupported-version guidance in `README.md`
-- [ ] T023 [US3] Add an advisory arm64 `macos-14` compatibility job using the same verifier profile, without weakening the stable required Linux summary, in `.github/workflows/ci.yml`
-- [ ] T024 [US3] Run the repository support-contract checker and unsupported-minor probes, then append redacted commands and results to `specs/002-reproducible-runtime/evidence/verification.md`
+- [X] T022 [US3] Align the Python badge, supported platform/version text, uv authority, timing boundary, aggregate commands, URL migration path, and actionable unsupported-version guidance in `README.md`
+- [X] T023 [US3] Add an advisory arm64 `macos-14` compatibility job using the same verifier profile, without weakening the stable required Linux summary, in `.github/workflows/ci.yml`
+- [X] T024 [US3] Run the repository support-contract checker and unsupported-minor probes, then append redacted commands and results to `specs/002-reproducible-runtime/evidence/verification.md`
 
 **Checkpoint**: User Story 3 independently proves zero cross-surface contradictions and clear rejection of
 unsupported interpreters.

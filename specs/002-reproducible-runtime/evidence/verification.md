@@ -40,7 +40,70 @@ The command used the canonical loopback `DATABASE_URL` and local `REDIS_URL` fro
 separate post-run query returned `0` databases matching `pit_verify_%`, independently confirming cleanup.
 The configured `polymarket_tracker` application database was neither downgraded nor dropped.
 
+## User Story 2: Required Local Gates
+
+**Static profile**:
+
+```text
+uv run python scripts/verify.py --profile static
+lock: passed
+support-contract: passed
+format: passed (81 files)
+lint: passed
+mypy: passed (42 source files, locked Python 3.11 dependency resolution)
+status: passed
+duration: 12.29s
+exit: 0
+```
+
+The verifier itself was launched by Python 3.13.14. Its mypy gate intentionally resolves the locked
+Python 3.11 dependency set because mypy and Ruff enforce the minimum supported language/API contract.
+All other runtime gates use the verifier's selected interpreter, which prevents an isolated compatibility
+run from escaping into a different project `.venv`.
+
+**Apple Silicon compatibility matrix**:
+
+Each command used a fresh uv isolated environment and the checked-in lock:
+
+```text
+uv run --isolated --locked --all-extras --python 3.11 python scripts/verify.py --profile compatibility --json
+Python 3.11.15; 756 collected, 754 passed, 2 skipped; 74.455s; exit 0
+
+uv run --isolated --locked --all-extras --python 3.12 python scripts/verify.py --profile compatibility --json
+Python 3.12.13; 756 collected, 754 passed, 2 skipped; 73.804s; exit 0
+
+uv run --isolated --locked --all-extras --python 3.13 python scripts/verify.py --profile compatibility --json
+Python 3.13.14; 756 collected, 754 passed, 2 skipped; 73.439s; exit 0
+```
+
+The skips were the platform-specific Windows signal-handler case and the real-service test reserved for
+the separately passing service profile. No required compatibility failure was ignored.
+
+## User Story 3: Support Boundary
+
+```text
+uv run python scripts/check_support_contract.py
+Support contract passed: tracked runtime surfaces are consistent.
+exit: 0
+
+uv sync --locked --all-extras --python 3.10 --dry-run
+resolved Python 3.10.20; rejected by project requirement >=3.11,<3.14
+exit: 2
+
+uv sync --locked --all-extras --python 3.14 --dry-run
+resolved Python 3.14.6; rejected by project requirement >=3.11,<3.14
+exit: 2
+```
+
+`actionlint .github/workflows/ci.yml` also exited `0`. Action pins were resolved from the upstream Git
+repositories on 2026-09-07: `actions/checkout` v4.4.0 and `astral-sh/setup-uv` v7.6.0.
+
+The approved advisory label `macos-14` currently maps to GitHub's Apple Silicon arm64 runner. GitHub has
+also announced that macOS 14 runner images will become unsupported on 2026-11-02; the workflow must move
+to a then-supported arm64 label before that deadline. This lifecycle note does not change the current
+green support boundary and is not a claim of evidence from the advisory job itself.
+
 ## Pending Evidence
 
-Compatibility, aggregate-profile, clean-checkout timing, Linux CI, unsupported-version, final gap-register,
-and provenance evidence are recorded by T020 and T024–T030 after their corresponding implementation gates.
+Aggregate-profile, clean-checkout timing, Linux CI, final gap-register, final audit, and provenance evidence
+are recorded by T025–T030 after their corresponding implementation gates.

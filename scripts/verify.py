@@ -70,10 +70,12 @@ Runner = Callable[[Gate], CommandExecution]
 GATES: Mapping[str, Gate] = {
     "lock": Gate("lock", ("uv", "lock", "--check")),
     "support-contract": Gate(
-        "support-contract", ("uv", "run", "python", "scripts/check_support_contract.py")
+        "support-contract", (sys.executable, "scripts/check_support_contract.py")
     ),
-    "format": Gate("format", ("uv", "run", "ruff", "format", "--check", "src", "tests", "scripts")),
-    "lint": Gate("lint", ("uv", "run", "ruff", "check", "src", "tests", "scripts")),
+    "format": Gate(
+        "format", (sys.executable, "-m", "ruff", "format", "--check", "src", "tests", "scripts")
+    ),
+    "lint": Gate("lint", (sys.executable, "-m", "ruff", "check", "src", "tests", "scripts")),
     "mypy": Gate(
         "mypy",
         (
@@ -90,9 +92,7 @@ GATES: Mapping[str, Gate] = {
     "imports": Gate(
         "imports",
         (
-            "uv",
-            "run",
-            "python",
+            sys.executable,
             "-c",
             (
                 "import alembic, greenlet, psycopg, redis, sqlalchemy; "
@@ -101,14 +101,14 @@ GATES: Mapping[str, Gate] = {
             ),
         ),
     ),
-    "tests": Gate("tests", ("uv", "run", "pytest")),
+    "tests": Gate("tests", (sys.executable, "-m", "pytest")),
     "services": Gate(
         "services",
-        ("uv", "run", "python", "scripts/runtime_services.py", "--phase", "probe"),
+        (sys.executable, "scripts/runtime_services.py", "--phase", "probe"),
     ),
     "migrations": Gate(
         "migrations",
-        ("uv", "run", "python", "scripts/runtime_services.py", "--phase", "migrations"),
+        (sys.executable, "scripts/runtime_services.py", "--phase", "migrations"),
     ),
 }
 

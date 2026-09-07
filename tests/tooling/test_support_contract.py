@@ -8,6 +8,7 @@ from pathlib import Path
 from textwrap import dedent
 
 CHECKER = Path(__file__).parents[2] / "scripts" / "check_support_contract.py"
+REPOSITORY_ROOT = Path(__file__).parents[2]
 POSTGRES_DIGEST = "a" * 64
 REDIS_DIGEST = "b" * 64
 
@@ -185,6 +186,15 @@ def test_valid_repository_contract_passes(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "support contract passed" in result.stdout.lower()
+
+
+def test_repository_support_contract_is_complete() -> None:
+    result = _run(REPOSITORY_ROOT)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip() == (
+        "Support contract passed: tracked runtime surfaces are consistent."
+    )
 
 
 def test_reports_all_cross_surface_contradictions(tmp_path: Path) -> None:

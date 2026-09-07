@@ -3,10 +3,26 @@
 **Detect informed money before the market moves.**
 
 [![CI](https://github.com/pselamy/polymarket-insider-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/pselamy/polymarket-insider-tracker/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11–3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Real-time detection of suspicious trading patterns on Polymarket: fresh wallets, unusual sizing, niche-market activity, and funding chain analysis. Streams trades via WebSocket, profiles wallets on-chain (Polygon), scores risk with ML + heuristics, and dispatches alerts to Discord/Telegram.
+
+---
+
+## Supported Runtime
+
+- CPython 3.11, 3.12, and 3.13 are supported. Python 3.10 and 3.14+ are intentionally rejected by
+  project metadata until their complete locked matrices are approved.
+- Ubuntu 24.04 x86_64 is the blocking Linux reference environment. This does not certify every Linux
+  distribution, libc, or architecture.
+- Apple Silicon macOS (`arm64`) is supported and receives advisory compatibility automation plus local
+  release evidence with Docker services.
+- uv `>=0.11,<0.12` and the checked-in `uv.lock` define reproducible installation. CI installs uv
+  0.11.26 exactly; later uv versions must first be admitted by an approved support change.
+
+Run `uv run python scripts/verify.py --profile all` for the complete local gate, or select `static`,
+`compatibility`, or `services` for the independently runnable profiles described below.
 
 ---
 
@@ -165,11 +181,16 @@ Polymarket WebSocket ──> Ingestor ──> Profiler ──> Detector ──> 
 ## Development
 
 ```bash
-uv run pytest                        # run tests
-uv run ruff check src/ tests/        # lint
-uv run ruff format src/ tests/       # format
-uv run mypy src/                     # type check (strict mode)
+uv run python scripts/verify.py --profile static
+uv run python scripts/verify.py --profile compatibility
+uv run --env-file .env python scripts/verify.py --profile services
+uv run --env-file .env python scripts/verify.py --profile all
 ```
+
+The `static` profile checks the lock, cross-file support contract, formatting, lint, and strict mypy.
+The `compatibility` profile checks locked imports and the deterministic test suite. The `services`
+profile performs real local probes and the disposable migration cycle. Individual commands remain
+visible in verifier output and `--help`.
 
 ### Docker Services
 
