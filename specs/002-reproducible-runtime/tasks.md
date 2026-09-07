@@ -126,8 +126,8 @@ unsupported interpreters.
 
 **Purpose**: Prove the complete slice, close only its owned audit gaps, and leave reviewable evidence.
 
-- [ ] T025 Run `uv run python scripts/verify.py --profile all` with local services and append the complete redacted result to `specs/002-reproducible-runtime/evidence/verification.md`
-- [ ] T026 Time the documented foundation path from a clean Apple Silicon checkout with packages uncached but service images present and append the under-five-minute result to `specs/002-reproducible-runtime/evidence/verification.md`
+- [X] T025 Run `uv run python scripts/verify.py --profile all` with local services and append the complete redacted result to `specs/002-reproducible-runtime/evidence/verification.md`
+- [X] T026 Time the documented foundation path from a clean Apple Silicon checkout with packages uncached but service images present and append the under-five-minute result to `specs/002-reproducible-runtime/evidence/verification.md`
 - [ ] T027 Run the blocking Linux workflow jobs, capture their immutable run URL and per-job conclusions, and append them to `specs/002-reproducible-runtime/evidence/verification.md`
 - [ ] T028 Update only G-007 through G-012 and G-013a with implementation and evidence dispositions in `specs/audit/gap-register.md`
 - [ ] T029 Re-run the spec checklist, support-contract checker, diff check, secret scan, and full required commands; record any approved deferral before convergence in `specs/002-reproducible-runtime/evidence/verification.md`

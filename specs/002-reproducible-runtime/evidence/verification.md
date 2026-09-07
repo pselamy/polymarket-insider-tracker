@@ -96,14 +96,64 @@ exit: 2
 ```
 
 `actionlint .github/workflows/ci.yml` also exited `0`. Action pins were resolved from the upstream Git
-repositories on 2026-09-07: `actions/checkout` v4.4.0 and `astral-sh/setup-uv` v7.6.0.
+repositories on 2026-09-07: `actions/checkout` v6.1.0 and `astral-sh/setup-uv` v7.6.0. The checkout pin
+was advanced from v4.4.0 after the first Linux run reported its Node 20 action runtime as deprecated.
+Per-job setup-uv cache suffixes prevent parallel matrix jobs from contending for one save key.
 
 The approved advisory label `macos-14` currently maps to GitHub's Apple Silicon arm64 runner. GitHub has
 also announced that macOS 14 runner images will become unsupported on 2026-11-02; the workflow must move
 to a then-supported arm64 label before that deadline. This lifecycle note does not change the current
 green support boundary and is not a claim of evidence from the advisory job itself.
 
+## Complete Local Profile
+
+The pinned Compose services were healthy before the aggregate command started:
+
+```text
+uv run --env-file .env.example python scripts/verify.py --profile all --json
+lock: passed (0.016s)
+support-contract: passed (0.044s)
+format: passed, 81 files (0.046s)
+lint: passed (0.021s)
+mypy: passed, 42 source files (12.485s)
+imports: passed (0.349s)
+tests: passed (11.334s)
+services: passed (0.224s)
+migrations: passed (0.939s)
+aggregate: passed in 25.458s
+exit: 0
+```
+
+No gate was duplicated, skipped, or suppressed. The generated migration database identifier and configured
+database credential were omitted from this artifact.
+
+## Clean-Checkout Timing
+
+Commit `709ba6bca8ee508ac961619622339df0e4718f4c` was cloned into a new temporary checkout on Apple Silicon.
+The timed path used Python 3.13.14, a newly created empty `UV_CACHE_DIR`, no pre-existing `.venv`, and
+already-present PostgreSQL/Redis container images. It included local clone, locked sync, service readiness,
+and the complete `all` profile:
+
+```text
+uv sync --locked --all-extras --python 3.13
+90 locked packages installed from an initially empty package cache
+
+docker compose up -d --wait postgres redis
+PostgreSQL healthy; Redis healthy
+
+uv run --env-file .env.example python scripts/verify.py --profile all --json
+all nine gates passed in 60.359s
+
+complete clean-checkout path: 92s
+target: under 300s
+exit: 0
+```
+
+The cleanup trap removed only the temporary Compose project and its new volumes, then moved the temporary
+checkout to macOS Trash. A post-run check found no matching temporary containers, volumes, or `/tmp`
+directory. The original repository's service volumes were retained.
+
 ## Pending Evidence
 
-Aggregate-profile, clean-checkout timing, Linux CI, final gap-register, final audit, and provenance evidence
-are recorded by T025–T030 after their corresponding implementation gates.
+Linux CI, final gap-register, final audit, and provenance evidence are recorded by T027–T030 after their
+corresponding implementation gates.
