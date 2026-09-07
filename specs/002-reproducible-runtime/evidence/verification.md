@@ -153,7 +153,77 @@ The cleanup trap removed only the temporary Compose project and its new volumes,
 checkout to macOS Trash. A post-run check found no matching temporary containers, volumes, or `/tmp`
 directory. The original repository's service volumes were retained.
 
+## GitHub Actions Evidence
+
+**Immutable run**: [CI run 34162965900](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900)
+
+**Commit**: `60f443f27bc5d0bbbd33a0b78dcb57be31f03f96`
+
+**Trigger and result**: feature-branch `push`; completed `success` from 2026-09-07T21:23:36Z through
+2026-09-07T21:24:29Z.
+
+| Job | Platform contract | Conclusion | Duration | Immutable job evidence |
+|---|---|---|---:|---|
+| Static required checks | Ubuntu 24.04 x86_64, Python 3.11 tooling | success | 26s | [job 101868373950](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900/job/101868373950) |
+| Python 3.11 compatibility | Ubuntu 24.04 x86_64 | success | 28s | [job 101868373844](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900/job/101868373844) |
+| Python 3.12 compatibility | Ubuntu 24.04 x86_64 | success | 27s | [job 101868373881](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900/job/101868373881) |
+| Python 3.13 compatibility | Ubuntu 24.04 x86_64 | success | 27s | [job 101868373825](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900/job/101868373825) |
+| PostgreSQL and Redis required checks | Ubuntu 24.04 x86_64, pinned real services | success | 37s | [job 101868373810](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900/job/101868373810) |
+| Apple Silicon advisory compatibility | macOS 14 arm64, Python 3.13 | success | 41s | [job 101868373870](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900/job/101868373870) |
+| Required checks | Stable blocking predecessor summary | success | 2s | [job 101868490341](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34162965900/job/101868490341) |
+
+GitHub's check-run annotation API returned zero annotations for every job. This second run supersedes the
+earlier green run at `709ba6b`, whose deprecated Node 20 checkout runtime and shared cache-save keys were
+corrected before accepting CI evidence.
+
+## Final Pre-Convergence Audit
+
+**Date**: 2026-09-07
+
+```text
+SPECIFY_FEATURE_DIRECTORY=specs/002-reproducible-runtime \
+  .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
+feature directory resolved explicitly; all required design/task documents present
+exit: 0
+
+spec clarification marker scan
+no [NEEDS CLARIFICATION] markers in spec.md
+exit: 0
+
+requirements checklist
+16 checked; 0 open
+
+uv run python scripts/check_support_contract.py
+Support contract passed: tracked runtime surfaces are consistent.
+exit: 0
+
+actionlint .github/workflows/ci.yml
+exit: 0
+
+git diff --check
+exit: 0
+
+high-confidence credential signatures across working tree and reachable Git history
+no private-key, GitHub, AWS, Slack, Google, Discord-webhook, or Telegram-token signature found
+exit: 0
+
+uv run --env-file .env.example python scripts/verify.py --profile all --json
+all nine gates passed in 25.723s
+exit: 0
+
+post-run pit_verify_% database count
+0
+```
+
+**Approved deferral**: `checklists/runtime.md` remains 0/35 checked because it is reviewer-owned
+requirements-quality evidence, not an implementation-completion ledger. Patrick's 2026-09-07 approval of
+the recommended plan and its four analysis remediations explicitly authorized implementation while those
+markers remain unchanged. No implementation task, required check, or owned gap is deferred.
+
+The macOS 14 runner lifecycle note above is an external time-bounded maintenance obligation; at the
+recorded run it remained supported, proved arm64, and passed. It does not convert any current gate to an
+approved failure.
+
 ## Pending Evidence
 
-Linux CI, final gap-register, final audit, and provenance evidence are recorded by T027–T030 after their
-corresponding implementation gates.
+Only the provenance inventory required by T030 remains before convergence.
