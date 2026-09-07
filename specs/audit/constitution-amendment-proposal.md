@@ -1,7 +1,7 @@
 # Constitution Amendment Proposal: Spec Kit Artifact Ownership
 
-**Proposed version**: 1.0.1
-**Status**: Awaiting Patrick approval
+**Applied version**: 1.0.1
+**Status**: Approved by Patrick and applied in commit `9942e84`
 **Reason**: Clarify current GitHub Spec Kit v1.0.4 artifact ownership and multi-feature activation without
 changing the product boundary or quality bar.
 
@@ -10,7 +10,8 @@ Spec Kit has both an author-owned built-in spec-quality checklist at `checklists
 reviewer-owned custom domain checklists at `checklists/<domain>.md`. The ignored local feature pointer also
 creates a silent wrong-slice risk when one branch contains multiple feature directories.
 
-Upon Patrick's approval of the revised baseline, apply this patch-level governance clarification:
+Patrick approved the recommended baseline on 2026-09-06. The resulting patch-level governance
+clarification was applied as follows:
 
 1. Replace Development Workflow and Quality Gates item 2 with:
 

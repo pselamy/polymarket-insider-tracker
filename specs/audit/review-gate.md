@@ -1,12 +1,14 @@
 # Initial Scope and Assumption Review Gate
 
-**Status**: Awaiting Patrick's decision
+**Status**: Recommended baseline approved by Patrick on 2026-09-06
 **Prepared**: 2026-09-06
-**Implementation authorization**: Not granted
+**Planning authorization**: Granted for slice 002
+**Implementation authorization**: Granted for slice 002 by Patrick on 2026-09-07; merge and later slices remain unauthorized
 
 The gap register and four specification-quality checklists are complete. The specs contain no
 unresolved placeholder because each uncertain area has a recommended assumption. Those assumptions
-still require Patrick's explicit review before clarification, planning, task generation, or code changes.
+were approved as the baseline package. That approval authorizes clarification, planning, checklist and
+task generation, and analysis for slice 002, but not application-code changes.
 
 ## Decision A1 — Supported Trade Source
 
@@ -108,9 +110,13 @@ own bounded specification before planning.
   tasks, analyze, human validation, implementation, and convergence.
 - A pull request may be prepared after all evidence converges, but it will not be merged without Patrick.
 
-## Requested Response
+## Decision Record
 
-Approve the revised baseline as a package, or list overrides as `A1`, `A2`, `A3`, and/or `A4` with the
-desired behavior. Approval authorizes clarification and planning for slice 002 first; it does not authorize
-application code. The resulting plan, domain checklists, tasks, and analysis return to Patrick for the next
-human validation gate before implementation.
+Patrick responded **“approve recommended baseline”** on 2026-09-06 with no A1–A4 overrides. The resulting
+slice-002 plan, reviewer-owned domain checklist, tasks, and analysis return to Patrick for the next human
+validation gate before implementation.
+
+Patrick then responded **“approve recommended slice 002 plan”** on 2026-09-07. This approves the four
+recommended analysis remediations, accepts the reviewer-owned runtime checklist for implementation entry
+without changing its markers, and authorizes slice-002 implementation. It does not authorize a merge or
+implementation of slices 001, 003, or 004.

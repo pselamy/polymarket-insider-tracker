@@ -32,8 +32,8 @@
 ## Notes
 
 - Validation iteration 1 passed on 2026-09-06.
-- Python 3.11–3.13 and Linux/Apple Silicon macOS are proposed support assumptions for Patrick's review.
-  A changed support boundary requires a spec revision before clarification or planning.
+- Python 3.11–3.13 and Linux/Apple Silicon macOS were approved by Patrick on 2026-09-06.
+  A changed support boundary requires a spec revision and renewed human approval.
 - Brownfield language, database, service, and command names are intentional compatibility/product
   requirements rather than accidental implementation-plan leakage.
 - Validation iteration 2 moved this foundation slice first and removed its dependency on the still-broken

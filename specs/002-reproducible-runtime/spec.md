@@ -4,9 +4,23 @@
 
 **Created**: 2026-09-06
 
-**Status**: Proposed for Patrick review; implementation is not yet authorized
+**Status**: Scope and recommended implementation plan approved by Patrick on 2026-09-07
 
 **Input**: User description: "Make clean-checkout setup, database migrations, supported Python versions, and all required quality gates reproducible and honest."
+
+## Clarifications
+
+### Session 2026-09-06
+
+- Q: Which runtime and platform support boundary should this slice make enforceable? → A: Python
+  3.11–3.13 on Linux and Apple Silicon macOS, with a blocking Linux matrix, equivalent Apple Silicon
+  release evidence, and advisory or scheduled Apple automation when a suitable runner exists.
+- Q: What finite evidence boundary makes the Linux promise reviewable? → A: Linux compatibility is
+  verified on Ubuntu 24.04 x86_64 as the blocking reference environment; the project does not claim
+  separate certification of every distribution, libc, or Linux architecture.
+- Q: How should legacy asyncpg URLs with driver-specific query options migrate to Psycopg? → A: Preserve
+  driver-neutral URL components and portable query parameters; reject incompatible driver-specific
+  parameters before engine creation with an actionable, credential-redacted migration error.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -80,6 +94,7 @@ and automated checks; verify that they name one consistent support matrix and re
 - Apple Silicon may not receive optional asynchronous database dependencies unless they are explicit.
 - A database connection string can be syntactically PostgreSQL yet select a driver unsuitable for one
   of the application or migration paths.
+- A legacy asyncpg URL can contain a driver-specific query option that Psycopg cannot interpret safely.
 - A lockfile can resolve successfully on one interpreter while metadata claims additional versions.
 - Service containers may be healthy before the schema is current, or the schema may be current while
   application connectivity is broken.
@@ -99,7 +114,9 @@ and automated checks; verify that they name one consistent support matrix and re
   and Apple Silicon macOS.
 - **FR-004**: One documented database configuration value MUST be usable by both the running tracker and
   migration workflow, or the documentation MUST expose and validate separate values explicitly. An
-  implicit driver mismatch is prohibited.
+  implicit driver mismatch is prohibited. Legacy URL migration MUST preserve driver-neutral components
+  and portable parameters while rejecting incompatible driver-specific parameters before engine creation
+  with an actionable redacted error.
 - **FR-005**: The example environment MUST contain working local defaults for the documented service stack,
   identify truly required values, and contain no real credential.
 - **FR-006**: The foundation quick start MUST include dependency installation, local service startup,
@@ -155,12 +172,13 @@ and automated checks; verify that they name one consistent support matrix and re
 
 ## Assumptions
 
-- Python 3.11 through 3.13 inclusive is the proposed support window. Python 3.14 and later are excluded
+- Python 3.11 through 3.13 inclusive is the approved support window. Python 3.14 and later are excluded
   until their complete dependency and test matrix is verified; Python 3.10 and earlier remain unsupported.
 - Linux and Apple Silicon macOS are the supported contributor platforms for this slice. Linux runs the
-  blocking 3.11/3.12/3.13 compatibility matrix. Apple Silicon runs the same repository verification entry
-  point as release evidence and SHOULD have an advisory or scheduled automated job when a suitable runner
-  is available; Windows-specific support is not currently promised.
+  blocking 3.11/3.12/3.13 compatibility matrix on the Ubuntu 24.04 x86_64 reference environment; this does
+  not imply separate certification of every distribution, libc, or Linux architecture. Apple Silicon runs
+  the same repository verification entry point as release evidence and SHOULD have an advisory or scheduled
+  automated job when a suitable runner is available; Windows-specific support is not currently promised.
 - The local quick start uses containerized PostgreSQL and Redis, while the application itself runs on
   the host. Initial container image download time is excluded from the five-minute target.
 - One canonical database setting is preferred because the current public contract exposes one. The plan
