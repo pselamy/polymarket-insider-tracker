@@ -34,8 +34,8 @@ and Psycopg 3; unsupported minors are outside project metadata.
 
 **⚠️ CRITICAL**: No user-story behavior starts until these contracts have failing tests and implementations.
 
-- [ ] T002 [P] Add fixture-based failing tests for exact Python/platform/uv sets, locked dependencies, full-SHA action pins, minimal workflow permissions, immutable matching service images, CI gate semantics, documentation/database consistency, and complete contradiction reporting in `tests/tooling/test_support_contract.py`
-- [ ] T003 Implement the read-only, deterministic, all-findings support-contract checker and redacted diagnostics in `scripts/check_support_contract.py`
+- [X] T002 [P] Add fixture-based failing tests for exact Python/platform/uv sets, locked dependencies, full-SHA action pins, minimal workflow permissions, immutable matching service images, CI gate semantics, documentation/database consistency, and complete contradiction reporting in `tests/tooling/test_support_contract.py`
+- [X] T003 Implement the read-only, deterministic, all-findings support-contract checker and redacted diagnostics in `scripts/check_support_contract.py`
 - [ ] T004 [P] Add failing table-driven tests for canonical, bare, asyncpg, malformed, portable-query, incompatible-driver-query, and credential-bearing database URLs in `tests/storage/test_database_url.py`
 - [ ] T005 Implement parsed driver-only normalization, portable-query preservation, incompatible-driver-option rejection, legacy warnings, validation, and safe rendering in `src/polymarket_insider_tracker/storage/database_url.py`
 
