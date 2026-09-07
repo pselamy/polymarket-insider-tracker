@@ -286,3 +286,110 @@ Each actual commit inventory was independently read with
 No rename, deletion, schema migration, product-source integration, alert delivery, or trading path appears
 in the actual inventory. This provenance section is committed separately from the implementation hashes it
 records; by design it does not attempt to embed its own commit hash.
+
+## Post-Analysis Convergence and Adversarial Review
+
+**Date**: 2026-09-07
+
+**Implementation anchor**: `00d87fad69646719d287373100285230574c053c`
+
+Patrick explicitly requested a sequential independent-agent pass on the approved Phase 7 convergence
+work. Agy `gemini-3.8-flash-high` produced the first uncommitted implementation from base `f2d0ff7`.
+Claude Code `fable` then reviewed that real diff and finished it without push, PR, or merge authority.
+The resulting seven-file artifact was transferred to the local checkout through explicit patches and
+verified against the remote artifact by matching Git object hashes before Codex accepted or changed it.
+
+Claude's review rejected the first pass until it corrected Python 3.11/3.12 argparse behavior, malformed
+database-URL prerequisite handling, cleanup ordering when a Redis close fails, additional URL/non-URL
+credential redaction cases, incomplete environment-loading instructions, and support-checker drift
+coverage. Codex then ran a separate refute-first review and found three further contradictions:
+
+1. the service helper admitted `rediss://` and `unix://` values that application `RedisSettings` rejects;
+2. the documented `.env`-loaded aggregate let deterministic pytest load live application endpoints,
+   opened an outbound TLS connection, and exceeded the five-minute target;
+3. `data-model.md` named Gate Result's identifier `gate_id` and described a different redaction-policy
+   shape from the runtime contract and implementation.
+
+Each finding was recorded as T039–T041 rather than hidden in the diff. The Redis-scheme regression was
+observed red as `2 failed, 47 passed, 1 skipped`; the aggregate-environment runner assertion was observed
+red as `1 failed`; and the data-model assertion was observed red as `1 failed`. The contaminated aggregate
+was interrupted after it exceeded five minutes and a process/socket sample confirmed a live outbound TLS
+read during pytest. The final design scrubs application configuration from the aggregate test subprocess
+and runs pytest from an isolated temporary working directory, while the separately named service and
+migration gates retain the loaded local service configuration.
+
+**Final focused matrix** (locked isolated environments):
+
+```text
+Python 3.11.15: 52 collected; 51 passed, 1 skipped; 7.87s; exit 0
+Python 3.12.13: 52 collected; 51 passed, 1 skipped; 6.59s; exit 0
+Python 3.13.14: 52 collected; 51 passed, 1 skipped; 6.49s; exit 0
+```
+
+The skip is the explicitly opt-in real-service integration case, proven separately below.
+
+**Deterministic suite with the contributor environment loaded**:
+
+```text
+uv run --env-file .env pytest -q
+775 collected; 773 passed, 2 skipped; 16 warnings; 11.10s
+real: 11.58s
+exit: 0
+```
+
+The warnings are the existing WebSockets deprecation, legacy database-URL migration warnings exercised
+by tests, and an existing mocked-coroutine resource warning. No test contacted a configured live endpoint.
+
+**Complete real-service aggregate**:
+
+```text
+uv run --env-file .env python scripts/verify.py --profile all
+lock: passed (0.01s)
+support-contract: passed (0.05s)
+format: passed, 81 files (0.06s)
+lint: passed (0.07s)
+strict-types: passed, 42 source files on locked Python 3.11 (12.13s)
+imports: passed (0.24s)
+tests: 775 collected; 773 passed, 2 skipped (11.24s)
+services: PostgreSQL async query and Redis PING passed (0.22s)
+migrations: head -> previous -> head; async query and cleanup passed (0.89s)
+aggregate duration: 24.91s
+wall clock: 24.97s
+exit: 0
+```
+
+A separate post-run PostgreSQL query returned no database matching `pit_verify_%`, independently proving
+that the generated sibling database was removed. The configured application database and retained local
+service volumes were not removed.
+
+Ruff format, Ruff lint, minimum-version mypy, `actionlint`, the support-contract checker, the explicit
+feature prerequisite check, clarification-marker scan, diff check, and high-confidence working-diff
+secret scan all exited `0`. The reviewer-owned runtime checklist remains intentionally unchanged at 0/35
+per the approved baseline.
+
+The final manual Spec Kit convergence rerun found zero open implementation tasks and zero stale
+pre-implementation/old-schema phrases. `tasks.md` had SHA-256
+`b8ee51d7bd1e6a1f07447ff1cb0f37d058f65235566886ad20c93170531848a2` both before and after the rerun,
+so convergence made no further mutation.
+
+### Fresh CI evidence for convergence implementation
+
+**Immutable run**: [CI run 34168055921](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921)
+
+**Commit**: `00d87fad69646719d287373100285230574c053c`
+
+**Trigger and result**: feature-branch `push`; completed `success` from 2026-09-07T22:50:59Z through
+2026-09-07T22:51:51Z.
+
+| Job | Conclusion | Duration | Immutable job evidence |
+|---|---|---:|---|
+| Static required checks | success | 23s | [job 101882927588](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921/job/101882927588) |
+| PostgreSQL and Redis required checks | success | 40s | [job 101882927705](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921/job/101882927705) |
+| Apple Silicon advisory compatibility | success | 43s | [job 101882927711](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921/job/101882927711) |
+| Python 3.11 compatibility | success | 28s | [job 101882927712](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921/job/101882927712) |
+| Python 3.12 compatibility | success | 27s | [job 101882927715](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921/job/101882927715) |
+| Python 3.13 compatibility | success | 28s | [job 101882927755](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921/job/101882927755) |
+| Required checks | success | 4s | [job 101883037803](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34168055921/job/101883037803) |
+
+The check-run annotation API returned zero annotations for all seven jobs. This run supersedes the
+expected red-test checkpoint run at `f2d0ff7` and is the authoritative convergence implementation proof.
