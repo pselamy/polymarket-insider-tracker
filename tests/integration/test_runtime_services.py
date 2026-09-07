@@ -117,6 +117,16 @@ def test_invalid_redis_url_is_rejected_without_echoing_credentials() -> None:
     assert "REDIS_URL" in str(caught.value)
 
 
+@pytest.mark.parametrize("redis_url", ["rediss://localhost:6379", "unix:///tmp/redis.sock"])
+def test_redis_verifier_uses_the_same_scheme_contract_as_the_application(
+    redis_url: str,
+) -> None:
+    module = _load_module()
+
+    with pytest.raises(module.ServicePrerequisiteError, match="redis://"):
+        module.validate_redis_url(redis_url)
+
+
 @pytest.mark.asyncio
 async def test_redis_construction_failure_disposes_engine_and_redacts_url(
     monkeypatch: pytest.MonkeyPatch,
@@ -148,6 +158,62 @@ async def test_redis_construction_failure_disposes_engine_and_redacts_url(
     assert "***" in str(caught.value)
 
 
+@pytest.mark.asyncio
+async def test_redis_cleanup_failure_still_disposes_engine_and_redacts_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    secret = "never-print-this-cleanup-password"
+    redis_url = f"redis://tracker:{secret}@localhost:6379/0"
+
+    class FakeResult:
+        def scalar_one(self) -> int:
+            return 1
+
+    class FakeConnection:
+        async def __aenter__(self) -> FakeConnection:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def execute(self, _statement: object) -> FakeResult:
+            return FakeResult()
+
+    class FakeEngine:
+        disposed = False
+
+        def connect(self) -> FakeConnection:
+            return FakeConnection()
+
+        async def dispose(self) -> None:
+            self.disposed = True
+
+    class FakeRedis:
+        closed = False
+
+        async def ping(self) -> bool:
+            return True
+
+        async def aclose(self) -> None:
+            self.closed = True
+            raise RuntimeError(f"redis cleanup failed for {redis_url}")
+
+    engine = FakeEngine()
+    redis = FakeRedis()
+    monkeypatch.setattr(module, "create_async_db_engine", lambda _database_url: engine)
+    monkeypatch.setattr(module.Redis, "from_url", staticmethod(lambda _value: redis))
+
+    with pytest.raises(module.ServiceVerificationError) as caught:
+        await module.probe_services(LOCAL_DATABASE_URL, redis_url)
+
+    assert redis.closed is True
+    assert engine.disposed is True
+    assert secret not in str(caught.value)
+    assert redis_url not in str(caught.value)
+    assert "***" in str(caught.value)
+
+
 def test_migration_cli_does_not_require_unused_redis_url(
     monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:
@@ -170,9 +236,7 @@ def test_migration_cli_does_not_require_unused_redis_url(
     assert calls == [("migrations", LOCAL_DATABASE_URL, "")]
 
 
-def test_probe_cli_still_requires_redis_url(
-    monkeypatch: pytest.MonkeyPatch, capsys: Any
-) -> None:
+def test_probe_cli_still_requires_redis_url(monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     module = _load_module()
     monkeypatch.setenv("DATABASE_URL", LOCAL_DATABASE_URL)
     monkeypatch.delenv("REDIS_URL", raising=False)
@@ -183,6 +247,25 @@ def test_probe_cli_still_requires_redis_url(
     assert exit_code == 2
     assert json.loads(output.out)["status"] == "error"
     assert "REDIS_URL" in output.out
+
+
+def test_malformed_database_url_is_a_redacted_prerequisite_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    module = _load_module()
+    secret = "never-print-this-database-password"
+    database_url = f"postgresql+psycopg://tracker:{secret}@localhost:99999/research"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    exit_code = module.main(["--phase", "migrations", "--json"])
+    output = capsys.readouterr()
+
+    assert exit_code == 2
+    assert output.err == ""
+    assert json.loads(output.out)["status"] == "error"
+    assert secret not in output.out
+    assert database_url not in output.out
+    assert "traceback" not in output.out.casefold()
 
 
 @pytest.mark.asyncio

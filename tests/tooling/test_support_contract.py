@@ -246,6 +246,16 @@ def test_tracked_quickstart_loads_environment_and_reflects_implementation() -> N
     assert "uv run --env-file .env python scripts/verify.py --profile all" in quickstart
 
 
+def test_gate_data_model_matches_the_runtime_contract() -> None:
+    data_model = (REPOSITORY_ROOT / "specs/002-reproducible-runtime/data-model.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "| `id` | Gate identifier | Required |" in data_model
+    assert "| `gate_id` |" not in data_model
+    assert "`configured-secrets`" in data_model
+
+
 def test_verifier_profiles_and_compose_defaults_cannot_drift(tmp_path: Path) -> None:
     _valid_repository(tmp_path)
     verifier_path = tmp_path / "scripts/verify.py"

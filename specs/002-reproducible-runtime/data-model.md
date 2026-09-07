@@ -82,7 +82,7 @@ multiple composition paths.
 | `id` | stable enum | `lock`, `support-contract`, `format`, `lint`, `strict-types`, `imports`, `tests`, `services`, `migrations` |
 | `command` | argument tuple | Executed without an interpolating shell |
 | `needs_services` | boolean | True only for service or migration gates |
-| `redaction_policy` | enum | No URL, URL-with-hidden-password, or no sensitive input |
+| `redaction_policy` | stable enum | `configured-secrets`; captured output is scrubbed against every configured URL and secret value before rendering |
 
 Gate order is deterministic. Required gates cannot carry an ignore-failure attribute. The `services` and
 `migrations` identifiers are distinct even though the contributor helper can compose both in one direct
@@ -92,7 +92,7 @@ invocation.
 
 | Field | Type | Rule |
 |---|---|---|
-| `gate_id` | Gate identifier | Required |
+| `id` | Gate identifier | Required |
 | `status` | enum | `passed`, `failed`, `not-run` |
 | `exit_code` | integer or null | Zero only when passed; null only when not run |
 | `duration_seconds` | non-negative decimal | Monotonic elapsed time |

@@ -208,11 +208,14 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
 
 ## Phase 7: Convergence
 
-- [ ] T031 Correct the implemented-state wording and load `.env` in the tracked clean foundation command, then add an executable clean-path regression per FR-006 and US1/AC1 (partial)
-- [ ] T032 Preserve aggregate prerequisite exit code `2` in human/JSON results while retaining first-failure and not-run behavior per FR-012 and the runtime contract's Exit Status section (contradicts)
-- [ ] T033 Validate and credential-redact Redis URLs, guard client/engine construction, and guarantee cleanup for direct probe failures with regression tests per FR-012 and the runtime contract's Service and Migration Safety section (partial)
-- [ ] T034 Make `runtime_services.py --phase migrations` require only `DATABASE_URL` while `probe` and `all` require `REDIS_URL`, with CLI regression coverage per the plan's distinct verification-phase decision (partial)
-- [ ] T035 Extend the support-contract checker and fixture tests to verify exact verifier profile membership/minimum-version mypy behavior and full `.env.example`/Compose service-setting compatibility per SC-007 and the plan's finite support contract (partial)
-- [ ] T036 Emit one machine-readable invocation-error object when `--json` accompanies a missing or invalid profile, with regression coverage per the runtime contract's JSON Output and Exit Status sections (partial)
-- [ ] T037 Align `Gate` with the planned gate-definition contract by using the stable `strict-types` identifier and explicit prerequisite/redaction metadata, with profile and serialization tests per the plan's data-model Gate Definition (contradicts)
-- [ ] T038 List the exact directly runnable Ruff, mypy, pytest, Alembic, and support-contract commands in `verify.py --help`, with a CLI assertion per the runtime contract's Profiles section (partial)
+- [X] T031 Correct the implemented-state wording and load `.env` in the tracked clean foundation command, then add an executable clean-path regression per FR-006 and US1/AC1 (partial)
+- [X] T032 Preserve aggregate prerequisite exit code `2` in human/JSON results while retaining first-failure and not-run behavior per FR-012 and the runtime contract's Exit Status section (contradicts)
+- [X] T033 Validate and credential-redact Redis URLs, guard client/engine construction, and guarantee cleanup for direct probe failures with regression tests per FR-012 and the runtime contract's Service and Migration Safety section (partial)
+- [X] T034 Make `runtime_services.py --phase migrations` require only `DATABASE_URL` while `probe` and `all` require `REDIS_URL`, with CLI regression coverage per the plan's distinct verification-phase decision (partial)
+- [X] T035 Extend the support-contract checker and fixture tests to verify exact verifier profile membership/minimum-version mypy behavior and full `.env.example`/Compose service-setting compatibility per SC-007 and the plan's finite support contract (partial)
+- [X] T036 Emit one machine-readable invocation-error object when `--json` accompanies a missing or invalid profile, with regression coverage per the runtime contract's JSON Output and Exit Status sections (partial)
+- [X] T037 Align `Gate` with the planned gate-definition contract by using the stable `strict-types` identifier and explicit prerequisite/redaction metadata, with profile and serialization tests per the plan's data-model Gate Definition (contradicts)
+- [X] T038 List the exact directly runnable Ruff, mypy, pytest, Alembic, and support-contract commands in `verify.py --help`, with a CLI assertion per the runtime contract's Profiles section (partial)
+- [X] T039 Align runtime-service Redis URL validation with the application's exact `redis://` scheme contract and reject verifier-only schemes with regression coverage per FR-006 and SC-007 (adversarial finding)
+- [X] T040 Isolate the deterministic pytest gate from both inherited application variables and implicit repository `.env` discovery, then prove the documented `.env`-loaded aggregate path remains offline and under five minutes per FR-011, SC-002, and the runtime contract's Profiles section (adversarial finding)
+- [X] T041 Align the Gate Definition redaction policy and Gate Result identifier in `data-model.md` with the implemented/runtime-contract schema, guarded by a repository documentation assertion per SC-007 (convergence finding)

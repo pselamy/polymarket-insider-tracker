@@ -102,6 +102,41 @@ def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
         assert "uv" not in module.GATES[gate_id].command
 
 
+def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://tracker:secret@localhost/db")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+    monkeypatch.setenv("POLYGON_FALLBACK_RPC_URL", "https://fallback.invalid")
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", "https://discord.invalid/secret")
+    monkeypatch.setenv("RUN_SERVICE_TESTS", "1")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    environments: list[dict[str, str] | None] = []
+
+    def run(*_args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        environments.append(kwargs.get("env"))
+        return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+    monkeypatch.setattr(module.subprocess, "run", run)
+
+    module._run_command(module.GATES["tests"])
+    module._run_command(module.GATES["services"])
+
+    tests_environment, services_environment = environments
+    assert tests_environment is not None
+    assert tests_environment["PATH"] == "/usr/bin"
+    for key in (
+        "DATABASE_URL",
+        "REDIS_URL",
+        "POLYGON_FALLBACK_RPC_URL",
+        "DISCORD_WEBHOOK_URL",
+        "RUN_SERVICE_TESTS",
+    ):
+        assert key not in tests_environment
+    assert services_environment is None
+
+
 @pytest.mark.parametrize(
     "failed_gate",
     [
@@ -226,7 +261,14 @@ def test_invalid_profile_is_an_invocation_error_without_running_gates(capsys: An
     assert "choose from" in captured.err.lower()
 
 
-@pytest.mark.parametrize("argv", [["--json"], ["--profile", "unknown", "--json"]])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--json"],
+        ["--profile", "unknown", "--json"],
+        ["--profile", "static", "--json", "--unknown-option"],
+    ],
+)
 def test_json_invocation_errors_emit_one_machine_readable_object(
     argv: list[str], capsys: Any
 ) -> None:
@@ -303,3 +345,20 @@ def test_malformed_sensitive_url_cannot_break_redaction(
     assert secret not in rendered
     assert redis_url not in rendered
     assert "***" in rendered
+
+
+def test_non_url_secrets_are_redacted_as_complete_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    webhook = "https://discord.com/api/webhooks/public-id/private-token"
+    api_key = "polymarket-private-key"
+    monkeypatch.setenv("DISCORD_WEBHOOK_URL", webhook)
+    monkeypatch.setenv("POLYMARKET_API_KEY", api_key)
+
+    rendered = module.redact_text(f"webhook={webhook} api_key={api_key}")
+
+    assert webhook not in rendered
+    assert "private-token" not in rendered
+    assert api_key not in rendered
+    assert rendered == "webhook=*** api_key=***"

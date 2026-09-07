@@ -5,16 +5,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import ipaddress
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import unquote, urlsplit
 
 import psycopg
 from alembic.config import Config
@@ -26,12 +29,26 @@ from sqlalchemy.engine import URL, make_url
 
 from polymarket_insider_tracker.storage.database import create_async_db_engine
 from polymarket_insider_tracker.storage.database_url import (
+    DatabaseUrlError,
     normalize_database_url,
-    render_database_url_safe,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PHASES = ("probe", "migrations", "all")
+REQUIRED_ENVIRONMENT: Mapping[str, tuple[str, ...]] = {
+    "probe": ("DATABASE_URL", "REDIS_URL"),
+    "migrations": ("DATABASE_URL",),
+    "all": ("DATABASE_URL", "REDIS_URL"),
+}
+REDIS_SCHEME = "redis"
+PREREQUISITE_EXIT_CODE = 2
+VERIFICATION_FAILURE_EXIT_CODE = 1
+
+# scheme://authority[path][?query][#fragment]; the authority ends at the first "/", "?", or "#".
+_URL_PATTERN = re.compile(
+    r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*)://(?P<authority>[^/?#]*)(?P<path>[^?#]*)(?P<tail>[?#].*)?$",
+    re.DOTALL,
+)
 
 
 class ServicePrerequisiteError(RuntimeError):
@@ -83,7 +100,13 @@ def _resolved_addresses(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6
 
 def validate_loopback_database_url(database_url: str) -> str:
     """Return a canonical URL only when every resolved host address is loopback."""
-    canonical = normalize_database_url(database_url)
+    if not database_url:
+        raise ServicePrerequisiteError("DATABASE_URL is required")
+    try:
+        canonical = normalize_database_url(database_url)
+    except DatabaseUrlError as exc:
+        # The product error names the offending component or key without echoing the value.
+        raise ServicePrerequisiteError(str(exc)) from exc
     host = make_url(canonical).host
     if host is None:
         raise ServicePrerequisiteError("DATABASE_URL must include a loopback host")
@@ -95,15 +118,99 @@ def validate_loopback_database_url(database_url: str) -> str:
     return canonical
 
 
+def validate_redis_url(redis_url: str) -> str:
+    """Return ``redis_url`` unchanged when it is usable, or fail without echoing any value."""
+    if not redis_url:
+        raise ServicePrerequisiteError("REDIS_URL is required")
+    try:
+        parsed = urlsplit(redis_url)
+    except ValueError as exc:
+        raise ServicePrerequisiteError("REDIS_URL could not be parsed as a URL") from exc
+    if parsed.scheme != REDIS_SCHEME:
+        raise ServicePrerequisiteError("REDIS_URL must use the redis:// scheme")
+    if not parsed.hostname:
+        raise ServicePrerequisiteError("REDIS_URL must include a host")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ServicePrerequisiteError(
+            "REDIS_URL port must be an integer between 1 and 65535"
+        ) from exc
+    if port is not None and not 1 <= port <= 65535:
+        raise ServicePrerequisiteError("REDIS_URL port must be an integer between 1 and 65535")
+    return redis_url
+
+
 def _psycopg_dsn(url: URL) -> str:
     return url.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
-def _redact_text(value: str, database_url: str) -> str:
-    redacted = value.replace(database_url, render_database_url_safe(database_url))
-    password = make_url(database_url).password
+def _split_userinfo(authority: str) -> tuple[str | None, str | None, str]:
+    """Split an authority into (username, password, hostinfo) exactly like URL consumers do."""
+    userinfo, separator, hostinfo = authority.rpartition("@")
+    if not separator:
+        return None, None, hostinfo
+    username, separator, password = userinfo.partition(":")
+    return username, (password if separator else None), hostinfo
+
+
+def _url_credentials(value: str) -> tuple[str, ...]:
+    """Return the raw credentials a consumer would read from ``value``.
+
+    Both the userinfo password and any ``password`` query parameter count, because redis-py and
+    libpq accept either spelling. Parsing never requires a well-formed URL.
+    """
+    match = _URL_PATTERN.match(value)
+    if match is None:
+        return ()
+    credentials: list[str] = []
+    password = _split_userinfo(match.group("authority"))[1]
     if password:
-        redacted = redacted.replace(password, "***")
+        credentials.append(password)
+    tail = match.group("tail") or ""
+    if tail.startswith("?"):
+        for pair in tail[1:].partition("#")[0].split("&"):
+            name, separator, raw_value = pair.partition("=")
+            if separator and raw_value and name.casefold() == "password":
+                credentials.append(raw_value)
+    return tuple(credentials)
+
+
+def _credential_forms(value: str) -> tuple[str, ...]:
+    """Return every encoded or decoded credential spelling a tool might echo from ``value``."""
+    forms: list[str] = []
+    for credential in _url_credentials(value):
+        for form in (credential, unquote(credential)):
+            if form not in forms:
+                forms.append(form)
+    return tuple(forms)
+
+
+def _redacted_url(value: str) -> str:
+    """Render a URL with its credential and query hidden, or ``***`` when it is unparseable."""
+    match = _URL_PATTERN.match(value)
+    if match is None:
+        return "***"
+    username, password, hostinfo = _split_userinfo(match.group("authority"))
+    if username is None:
+        credential = ""
+    elif password is None:
+        credential = f"{username}@"
+    else:
+        credential = f"{username}:***@"
+    query = "?***" if match.group("tail") else ""
+    return f"{match.group('scheme')}://{credential}{hostinfo}{match.group('path')}{query}"
+
+
+def _redact_text(value: str, *sensitive_urls: str) -> str:
+    """Hide every given URL, and every spelling of its password, inside diagnostic text."""
+    redacted = value
+    for url in sensitive_urls:
+        if not url:
+            continue
+        redacted = redacted.replace(url, _redacted_url(url))
+        for form in _credential_forms(url):
+            redacted = redacted.replace(form, "***")
     return redacted
 
 
@@ -173,25 +280,31 @@ class RealMigrationBackend:
 
 
 async def probe_services(database_url: str, redis_url: str) -> dict[str, object]:
-    """Run a real async PostgreSQL query and Redis PING against local services."""
+    """Run a real async PostgreSQL query and Redis PING against local services.
+
+    Both inputs are validated before any client exists. Every constructed client is registered
+    for cleanup immediately, so a failure while building or using the second one still disposes
+    the first, and every diagnostic is redacted before it leaves this function.
+    """
     canonical = validate_loopback_database_url(database_url)
-    engine = create_async_db_engine(canonical)
-    redis = Redis.from_url(redis_url)
+    validated_redis_url = validate_redis_url(redis_url)
     try:
-        async with engine.connect() as connection:
-            result = await connection.execute(text("SELECT 1"))
-            if result.scalar_one() != 1:
-                raise ServiceVerificationError("PostgreSQL probe returned an unexpected value")
-        if await redis.ping() is not True:
-            raise ServiceVerificationError("Redis PING did not return PONG")
+        async with contextlib.AsyncExitStack() as cleanup:
+            engine = create_async_db_engine(canonical)
+            cleanup.push_async_callback(engine.dispose)
+            redis = Redis.from_url(validated_redis_url)
+            cleanup.push_async_callback(redis.aclose)
+            async with engine.connect() as connection:
+                result = await connection.execute(text("SELECT 1"))
+                if result.scalar_one() != 1:
+                    raise ServiceVerificationError("PostgreSQL probe returned an unexpected value")
+            if await redis.ping() is not True:
+                raise ServiceVerificationError("Redis PING did not return PONG")
     except ServiceVerificationError:
         raise
     except Exception as exc:
-        message = _redact_text(str(exc), canonical)
+        message = _redact_text(str(exc), database_url, canonical, validated_redis_url)
         raise ServiceVerificationError(f"service probe failed: {message}") from exc
-    finally:
-        await engine.dispose()
-        await redis.aclose()
     return {"postgres_reachable": True, "redis_reachable": True}
 
 
@@ -244,12 +357,12 @@ async def run_migration_cycle(
                 cleanup_error = exc
 
     if cleanup_error is not None:
-        message = _redact_text(str(cleanup_error), canonical)
+        message = _redact_text(str(cleanup_error), database_url, canonical, temporary_url)
         raise ServiceVerificationError(
             f"temporary database cleanup failed: {message}"
         ) from cleanup_error
     if primary_error is not None:
-        message = _redact_text(str(primary_error), canonical)
+        message = _redact_text(str(primary_error), database_url, canonical, temporary_url)
         raise ServiceVerificationError(
             f"migration verification failed: {message}"
         ) from primary_error
@@ -265,12 +378,16 @@ async def run_migration_cycle(
 async def execute_phase(
     phase: str,
     database_url: str,
-    redis_url: str,
+    redis_url: str = "",
     *,
     probe_runner: ProbeRunner | None = None,
     migration_runner: MigrationRunner | None = None,
 ) -> dict[str, object]:
-    """Execute one explicit service-verification phase and return merged evidence."""
+    """Execute one explicit service-verification phase and return merged evidence.
+
+    ``redis_url`` is only consulted by the ``probe`` and ``all`` phases; ``migrations`` proves the
+    disposable database cycle from ``database_url`` alone.
+    """
     if phase not in PHASES:
         raise ServicePrerequisiteError(f"unknown phase {phase!r}; choose probe, migrations, or all")
     run_probe = probe_runner or probe_services
@@ -281,6 +398,11 @@ async def execute_phase(
     if phase in {"migrations", "all"}:
         evidence.update(await run_migrations(database_url))
     return evidence
+
+
+def missing_environment(phase: str, environment: Mapping[str, str]) -> tuple[str, ...]:
+    """Return the variables ``phase`` needs that are absent or empty in ``environment``."""
+    return tuple(name for name in REQUIRED_ENVIRONMENT[phase] if not environment.get(name))
 
 
 def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
@@ -300,32 +422,36 @@ def _emit_result(phase: str, status: str, evidence: dict[str, object], as_json: 
         print(f"  {key}: {value}")
 
 
+def _emit_failure(phase: str, status: str, message: str, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps({"phase": phase, "status": status, "error": message}))
+        return
+    print(f"[FAIL] runtime-{phase}: {message}", file=sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the selected phase and map failures to the documented exit semantics."""
     args = _parse_args(argv)
-    database_url = os.environ.get("DATABASE_URL")
-    redis_url = os.environ.get("REDIS_URL")
-    if not database_url or not redis_url:
-        message = "DATABASE_URL and REDIS_URL are required"
-        if args.json:
-            print(json.dumps({"phase": args.phase, "status": "error", "error": message}))
-        else:
-            print(f"[FAIL] runtime-{args.phase}: {message}", file=sys.stderr)
-        return 2
+    missing = missing_environment(args.phase, os.environ)
+    if missing:
+        message = f"{' and '.join(missing)} must be set for --phase {args.phase}"
+        _emit_failure(args.phase, "error", message, args.json)
+        return PREREQUISITE_EXIT_CODE
+    database_url = os.environ["DATABASE_URL"]
+    redis_url = os.environ.get("REDIS_URL", "")
     try:
         evidence = asyncio.run(execute_phase(args.phase, database_url, redis_url))
     except ServicePrerequisiteError as exc:
-        if args.json:
-            print(json.dumps({"phase": args.phase, "status": "error", "error": str(exc)}))
-        else:
-            print(f"[FAIL] runtime-{args.phase}: {exc}", file=sys.stderr)
-        return 2
+        _emit_failure(args.phase, "error", str(exc), args.json)
+        return PREREQUISITE_EXIT_CODE
     except ServiceVerificationError as exc:
-        if args.json:
-            print(json.dumps({"phase": args.phase, "status": "failed", "error": str(exc)}))
-        else:
-            print(f"[FAIL] runtime-{args.phase}: {exc}", file=sys.stderr)
-        return 1
+        _emit_failure(args.phase, "failed", str(exc), args.json)
+        return VERIFICATION_FAILURE_EXIT_CODE
+    except Exception as exc:
+        # An unexpected error must still fail closed without a traceback that echoes the URLs.
+        message = _redact_text(f"unexpected {type(exc).__name__}: {exc}", database_url, redis_url)
+        _emit_failure(args.phase, "failed", message, args.json)
+        return VERIFICATION_FAILURE_EXIT_CODE
     _emit_result(args.phase, "passed", evidence, args.json)
     return 0
 

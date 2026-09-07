@@ -20,6 +20,13 @@ uv run python scripts/verify.py --profile PROFILE [--json]
 Individual Ruff, mypy, pytest, Alembic, and support-contract commands remain directly runnable and are
 listed by `--help`; the aggregate entry point does not hide their output.
 
+The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`
+before starting pytest. The test harness also runs from an isolated temporary working directory so Pydantic
+cannot implicitly rediscover the repository `.env`. Together these boundaries keep the compatibility suite
+deterministic and prevent unit tests from contacting configured live endpoints. The separately identified
+`services` and `migrations` gates inherit the loaded service configuration and provide the real integration
+proof.
+
 ## Inputs
 
 | Input | Required | Contract |

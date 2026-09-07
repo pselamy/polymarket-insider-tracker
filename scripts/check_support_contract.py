@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import NamedTuple
+from urllib.parse import urlsplit
 
 PYTHON_SPECIFIER = ">=3.11,<3.14"
 LOCK_PYTHON_SPECIFIER = ">=3.11,<3.14"
@@ -17,6 +20,37 @@ UV_SPECIFIER = ">=0.11,<0.12"
 CI_UV_VERSION = "0.11.26"
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 IMAGE_PATTERN = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
+COMPOSE_DEFAULT_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*):-([^}]*)\}")
+
+# The verifier's public gate contract; a drift here changes what CI and contributors prove.
+EXPECTED_PROFILES: Mapping[str, tuple[str, ...]] = {
+    "static": ("lock", "support-contract", "format", "lint", "strict-types"),
+    "compatibility": ("lock", "imports", "tests"),
+    "services": ("services", "migrations"),
+}
+EXPECTED_GATE_IDS = frozenset(
+    gate_id for gate_ids in EXPECTED_PROFILES.values() for gate_id in gate_ids
+)
+STRICT_TYPES_COMMAND = (
+    "uv",
+    "run",
+    "--isolated",
+    "--locked",
+    "--all-extras",
+    "--python",
+    "3.11",
+    "mypy",
+)
+
+
+class _UrlComponents(NamedTuple):
+    """URL components compared against the discrete service settings; values are never printed."""
+
+    username: str | None
+    password: str | None
+    hostname: str | None
+    port: str | None
+    database: str
 
 
 def _compact_specifier(value: object) -> str:
@@ -195,12 +229,11 @@ def _check_workflow(root: Path, findings: list[str]) -> tuple[str | None, str | 
 
 
 def _check_compose(
-    root: Path,
+    compose: str,
     workflow_postgres: str | None,
     workflow_redis: str | None,
     findings: list[str],
 ) -> None:
-    compose = _read_text(root, "docker-compose.yml", findings)
     compose_postgres = _workflow_image(compose, "postgres", 15)
     compose_redis = _workflow_image(compose, "redis", 7)
     if compose_postgres is None or compose_redis is None:
@@ -230,17 +263,6 @@ def _check_documentation(root: Path, findings: list[str]) -> None:
     if "python 3.11+" in lowered:
         findings.append("README python range: open-ended Python 3.11+ promise is prohibited")
 
-    env_text = _read_text(root, ".env.example", findings)
-    env_values = {}
-    for line in env_text.splitlines():
-        if line and not line.startswith("#") and "=" in line:
-            key, value = line.split("=", 1)
-            env_values[key] = value
-    if not env_values.get("DATABASE_URL", "").startswith("postgresql+psycopg://"):
-        findings.append("example database URL: .env.example must use postgresql+psycopg")
-    if not env_values.get("REDIS_URL", "").startswith("redis://"):
-        findings.append("example Redis URL: .env.example must provide a redis:// value")
-
     alembic_ini = _read_text(root, "alembic.ini", findings)
     if re.search(r"(?m)^sqlalchemy\.url\s*=\s*\S+", alembic_ini):
         findings.append(
@@ -251,14 +273,227 @@ def _check_documentation(root: Path, findings: list[str]) -> None:
         findings.append("Alembic configuration: env.py must require and apply DATABASE_URL")
 
 
+def _env_values(env_text: str) -> dict[str, str]:
+    """Parse ``KEY=value`` lines from a dotenv-style file, ignoring comments and blanks."""
+    values: dict[str, str] = {}
+    for raw_line in env_text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip()
+    return values
+
+
+def _compose_defaults(compose: str, findings: list[str]) -> dict[str, str]:
+    """Collect every ``${VAR:-default}`` in Compose and reject conflicting defaults for one VAR."""
+    defaults: dict[str, str] = {}
+    for key, value in COMPOSE_DEFAULT_PATTERN.findall(compose):
+        if key in defaults and defaults[key] != value:
+            findings.append(f"service settings: docker-compose.yml declares two defaults for {key}")
+        defaults.setdefault(key, value)
+    return defaults
+
+
+def _url_components(value: str) -> _UrlComponents | None:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    return _UrlComponents(
+        username=parsed.username,
+        password=parsed.password,
+        hostname=parsed.hostname,
+        port=None if port is None else str(port),
+        database=parsed.path.lstrip("/"),
+    )
+
+
+def _check_service_url(
+    label: str,
+    url: str,
+    expected: Mapping[str, tuple[str, str | None]],
+    findings: list[str],
+) -> None:
+    """Compare URL components with the discrete settings, naming keys but never values."""
+    components = _url_components(url)
+    if components is None:
+        findings.append(f"service settings: .env.example {label} is not a valid URL")
+        return
+    for component, (setting_name, expected_value) in expected.items():
+        if expected_value is None:
+            continue
+        if getattr(components, component) != expected_value:
+            findings.append(
+                f"service settings: .env.example {label} {component} does not match {setting_name}"
+            )
+
+
+def _check_environment_example(
+    env_values: Mapping[str, str],
+    compose_defaults: Mapping[str, str],
+    findings: list[str],
+) -> None:
+    """Require one consistent local service story across .env.example and Compose."""
+    for key in sorted(env_values.keys() & compose_defaults.keys()):
+        if env_values[key] != compose_defaults[key]:
+            findings.append(
+                f"service settings: .env.example {key} does not match the docker-compose.yml default"
+            )
+
+    def setting(key: str, fallback: str | None = None) -> str | None:
+        return env_values.get(key) or compose_defaults.get(key) or fallback
+
+    database_url = env_values.get("DATABASE_URL", "")
+    if not database_url.startswith("postgresql+psycopg://"):
+        findings.append("example database URL: .env.example must use postgresql+psycopg")
+    if database_url:
+        _check_service_url(
+            "DATABASE_URL",
+            database_url,
+            {
+                "username": ("POSTGRES_USER", setting("POSTGRES_USER")),
+                "password": ("POSTGRES_PASSWORD", setting("POSTGRES_PASSWORD")),
+                "hostname": ("POSTGRES_HOST", setting("POSTGRES_HOST", "localhost")),
+                "port": ("POSTGRES_PORT", setting("POSTGRES_PORT")),
+                "database": ("POSTGRES_DB", setting("POSTGRES_DB")),
+            },
+            findings,
+        )
+
+    redis_url = env_values.get("REDIS_URL", "")
+    if not redis_url.startswith("redis://"):
+        findings.append("example Redis URL: .env.example must provide a redis:// value")
+    if redis_url:
+        _check_service_url(
+            "REDIS_URL",
+            redis_url,
+            {
+                "hostname": ("REDIS_HOST", setting("REDIS_HOST", "localhost")),
+                "port": ("REDIS_PORT", setting("REDIS_PORT")),
+            },
+            findings,
+        )
+
+
+def _module_assignment(tree: ast.Module, name: str) -> ast.expr | None:
+    """Return the value assigned to module-level ``name``, with or without an annotation."""
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign):
+            target: ast.expr | None = node.target
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+        else:
+            continue
+        if isinstance(target, ast.Name) and target.id == name and node.value is not None:
+            return node.value
+    return None
+
+
+def _string_tuple(node: ast.expr) -> tuple[str, ...] | None:
+    """Return a tuple/list literal as strings; non-literal elements become ``<expression>``."""
+    if not isinstance(node, (ast.Tuple, ast.List)):
+        return None
+    return tuple(
+        element.value
+        if isinstance(element, ast.Constant) and isinstance(element.value, str)
+        else "<expression>"
+        for element in node.elts
+    )
+
+
+def _gate_command(node: ast.expr) -> tuple[str, ...] | None:
+    """Extract the command from ``Gate(id, command, ...)``, ``Gate(command=...)``, or a tuple."""
+    if not isinstance(node, ast.Call):
+        return _string_tuple(node)
+    if len(node.args) >= 2:
+        return _string_tuple(node.args[1])
+    for keyword in node.keywords:
+        if keyword.arg == "command":
+            return _string_tuple(keyword.value)
+    return None
+
+
+def _profile_table(node: ast.expr) -> dict[str, tuple[str, ...]] | None:
+    if not isinstance(node, ast.Dict):
+        return None
+    profiles: dict[str, tuple[str, ...]] = {}
+    for key, value in zip(node.keys, node.values, strict=True):
+        gate_ids = _string_tuple(value)
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)) or gate_ids is None:
+            return None
+        profiles[key.value] = gate_ids
+    return profiles
+
+
+def _gate_table(node: ast.expr) -> dict[str, tuple[str, ...]] | None:
+    if not isinstance(node, ast.Dict):
+        return None
+    gates: dict[str, tuple[str, ...]] = {}
+    for key, value in zip(node.keys, node.values, strict=True):
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return None
+        gates[key.value] = _gate_command(value) or ()
+    return gates
+
+
+def _check_verifier(root: Path, findings: list[str]) -> None:
+    """Read the verifier's literal gate and profile tables without executing it."""
+    verifier = _read_text(root, "scripts/verify.py", findings)
+    if not verifier:
+        return
+    try:
+        tree = ast.parse(verifier)
+    except SyntaxError:
+        findings.append("verification profile: scripts/verify.py is not valid Python")
+        return
+
+    profiles_node = _module_assignment(tree, "BASE_PROFILES")
+    profiles = _profile_table(profiles_node) if profiles_node is not None else None
+    if profiles is None:
+        findings.append(
+            "verification profile: scripts/verify.py must define BASE_PROFILES as a literal mapping"
+        )
+    else:
+        for profile, expected in EXPECTED_PROFILES.items():
+            if profiles.get(profile) != expected:
+                findings.append(
+                    f"verification profile: {profile} must be exactly {', '.join(expected)}"
+                )
+        for profile in sorted(profiles.keys() - EXPECTED_PROFILES.keys()):
+            findings.append(f"verification profile: unexpected base profile {profile}")
+
+    gates_node = _module_assignment(tree, "GATES")
+    gates = _gate_table(gates_node) if gates_node is not None else None
+    if gates is None:
+        findings.append(
+            "verification profile: scripts/verify.py must define GATES as a literal mapping"
+        )
+        return
+    if set(gates) != EXPECTED_GATE_IDS:
+        findings.append(
+            "verification profile: GATES must define exactly "
+            + ", ".join(sorted(EXPECTED_GATE_IDS))
+        )
+    if gates.get("strict-types") != STRICT_TYPES_COMMAND:
+        findings.append(
+            "tool baseline: the strict-types gate must run " + " ".join(STRICT_TYPES_COMMAND)
+        )
+
+
 def find_contradictions(root: Path) -> list[str]:
     """Return every deterministic support-contract contradiction under ``root``."""
     findings: list[str] = []
     _check_project(root, findings)
     _check_lock(root, findings)
     postgres, redis = _check_workflow(root, findings)
-    _check_compose(root, postgres, redis, findings)
+    compose = _read_text(root, "docker-compose.yml", findings)
+    _check_compose(compose, postgres, redis, findings)
     _check_documentation(root, findings)
+    env_values = _env_values(_read_text(root, ".env.example", findings))
+    _check_environment_example(env_values, _compose_defaults(compose, findings), findings)
+    _check_verifier(root, findings)
     return findings
 
 

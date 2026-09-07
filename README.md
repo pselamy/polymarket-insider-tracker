@@ -21,7 +21,7 @@ Real-time detection of suspicious trading patterns on Polymarket: fresh wallets,
 - uv `>=0.11,<0.12` and the checked-in `uv.lock` define reproducible installation. CI installs uv
   0.11.26 exactly; later uv versions must first be admitted by an approved support change.
 
-Run `uv run python scripts/verify.py --profile all` for the complete local gate, or select `static`,
+Run `uv run --env-file .env python scripts/verify.py --profile all` for the complete local gate, or select `static`,
 `compatibility`, or `services` for the independently runnable profiles described below.
 
 ---

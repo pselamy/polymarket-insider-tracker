@@ -1,7 +1,6 @@
 # Quickstart Validation: Reproducible Supported Runtime
 
-This is the target validation sequence for slice 002. Commands are contractual design evidence until the
-slice is implemented and the post-analysis implementation gate is approved.
+This is the target validation sequence for slice 002. Commands validate the implemented reproducible runtime.
 
 ## Prerequisites
 
@@ -16,13 +15,13 @@ dependency installation remains inside the measured foundation path.
 
 ## Clean Foundation Path
 
-From the repository root after implementation:
+From the repository root:
 
 ```bash
 uv sync --locked --all-extras --python 3.13
 cp .env.example .env
 docker compose up -d --wait postgres redis
-uv run python scripts/verify.py --profile all
+uv run --env-file .env python scripts/verify.py --profile all
 ```
 
 Expected result:
@@ -41,9 +40,14 @@ The normal application database named in `.env` is never downgraded or dropped.
 ```bash
 uv run python scripts/verify.py --profile static
 uv run python scripts/verify.py --profile compatibility
-uv run python scripts/verify.py --profile services
-uv run python scripts/verify.py --profile all --json
+uv run --env-file .env python scripts/verify.py --profile services
+uv run --env-file .env python scripts/verify.py --profile all --json
 ```
+
+The `services` and `all` profiles read `DATABASE_URL` and `REDIS_URL`; `--env-file .env` loads them
+from the copied example configuration. The `static` and `compatibility` profiles need no service
+configuration. `uv run python scripts/verify.py --help` lists the directly runnable command behind
+every gate.
 
 See [contracts/runtime-verification.md](contracts/runtime-verification.md) for exact gate membership,
 output, exit status, and migration safety behavior.
@@ -70,7 +74,9 @@ On Apple Silicon, record `uname -m` with release evidence and require `arm64`. T
   deprecation warning.
 - Asyncpg URL with an incompatible driver-specific query option: rejected before engine creation with the
   offending key and a redacted migration instruction.
-- Non-loopback database URL for `services`: exit `2` before creating or migrating a database.
+- Missing `DATABASE_URL` or `REDIS_URL` for `services`: exit `2` naming the missing variable before any
+  service is contacted.
+- Non-loopback or malformed database URL for `services`: exit `2` before creating or migrating a database.
 - Missing PostgreSQL/Redis: exit `1`, name the unreachable service, and print no credential-bearing URL.
 - Any Ruff, mypy, pytest, service, or migration failure: aggregate exit is nonzero; later gates are not run.
 
