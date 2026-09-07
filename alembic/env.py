@@ -6,6 +6,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from polymarket_insider_tracker.storage.database_url import normalize_database_url
 from polymarket_insider_tracker.storage.models import Base
 
 # this is the Alembic Config object
@@ -18,10 +19,13 @@ if config.config_file_name is not None:
 # Target metadata for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Get database URL from environment variable or config
-database_url = os.environ.get("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# DATABASE_URL is the sole application and migration contract. ConfigParser uses percent
+# interpolation, so escaped percent signs preserve encoded URL values.
+raw_database_url = os.environ.get("DATABASE_URL")
+if raw_database_url is None:
+    raise RuntimeError("DATABASE_URL is required for Alembic migrations")
+database_url = normalize_database_url(raw_database_url)
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:

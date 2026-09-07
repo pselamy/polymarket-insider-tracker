@@ -57,15 +57,15 @@ services, complete the disposable migration cycle, clean up, and exit zero with 
 
 - [X] T006 [US1] Add failing compatibility, deprecation-warning, normalization, and secret-redaction cases for `DatabaseSettings` in `tests/test_config.py`
 - [X] T007 [P] [US1] Add failing sync/async Psycopg engine-selection and disposal tests in `tests/storage/test_database.py`
-- [ ] T008 [P] [US1] Add failing probe/migrations/all phase, real PostgreSQL/Redis, non-loopback refusal, migration-state, primary-failure cleanup, and cleanup-failure integration cases in `tests/integration/test_runtime_services.py`
+- [X] T008 [P] [US1] Add failing probe/migrations/all phase, real PostgreSQL/Redis, non-loopback refusal, migration-state, primary-failure cleanup, and cleanup-failure integration cases in `tests/integration/test_runtime_services.py`
 
 ### Implementation for User Story 1
 
 - [X] T009 [US1] Apply canonical URL normalization at configuration and engine boundaries in `src/polymarket_insider_tracker/config.py` and `src/polymarket_insider_tracker/storage/database.py`
-- [ ] T010 [US1] Require the canonical `DATABASE_URL`, remove the implicit/stale fallback contract, align local defaults, and pin PostgreSQL 15/Redis 7 by reviewed multi-architecture digest in `alembic/env.py`, `alembic.ini`, `.env.example`, and `docker-compose.yml`
-- [ ] T011 [US1] Implement distinct probe/migrations/all phases, loopback validation, PostgreSQL/Redis probes, disposable database creation, migration-state checks, async query, and guaranteed cleanup in `scripts/runtime_services.py`
-- [ ] T012 [US1] Replace the foundation quick start and database troubleshooting instructions with locked, canonical, non-destructive commands in `README.md`
-- [ ] T013 [US1] Run the independent service command on Apple Silicon and record architecture, revisions, cleanup, exit status, and redacted output in `specs/002-reproducible-runtime/evidence/verification.md`
+- [X] T010 [US1] Require the canonical `DATABASE_URL`, remove the implicit/stale fallback contract, align local defaults, and pin PostgreSQL 15/Redis 7 by reviewed multi-architecture digest in `alembic/env.py`, `alembic.ini`, `.env.example`, and `docker-compose.yml`
+- [X] T011 [US1] Implement distinct probe/migrations/all phases, loopback validation, PostgreSQL/Redis probes, disposable database creation, migration-state checks, async query, and guaranteed cleanup in `scripts/runtime_services.py`
+- [X] T012 [US1] Replace the foundation quick start and database troubleshooting instructions with locked, canonical, non-destructive commands in `README.md`
+- [X] T013 [US1] Run the independent service command on Apple Silicon and record architecture, revisions, cleanup, exit status, and redacted output in `specs/002-reproducible-runtime/evidence/verification.md`
 
 **Checkpoint**: User Story 1 is usable independently; the contributor's configured application database
 has not been downgraded or dropped.
