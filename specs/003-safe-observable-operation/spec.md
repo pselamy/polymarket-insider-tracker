@@ -184,9 +184,9 @@ and shutdown result.
   from one distinct fixture trade and sends zero real external notifications.
 - **SC-006**: Every documented health route responds on the configured override port, and no health route
   responds on the superseded default port for that run.
-- **SC-007**: A deterministic operational-contract check over CLI help and output, README, health route
-  documentation, troubleshooting, and the tracked skill reports zero instances where configuration-only
-  validation, process liveness, source reachability, or full readiness are described as interchangeable.
+- **SC-007**: Deterministic behavioral tests prove that configuration-only validation, process liveness,
+  source reachability, and full readiness remain distinct states. Contributor documentation describes
+  those tested behaviors without being reparsed by a bespoke operational-contract checker.
 - **SC-008**: Confirmed-success, confirmed-failure, and ambiguous-timeout fixture cases produce three distinct
   channel states; an ambiguous state suppresses retry for exactly the configured 60-second window and then
   permits retry while retaining an explicit possible-duplicate disposition.

@@ -3,7 +3,8 @@
 > **Superseded mechanism (2026-09-08):** The completed tasks below accurately record the original
 > implementation, but the bespoke cross-file support checker and its fixture suite were later removed.
 > Runtime declarations now remain with their native owners and are exercised by lock, compatibility,
-> service, and focused verifier gates. See Phase 8.
+> service, and focused verifier gates. The reviewer-owned checklist remains unchanged, so its references
+> to the removed checker are historical. See Phase 8.
 
 **Input**: Design documents from `specs/002-reproducible-runtime/`
 
