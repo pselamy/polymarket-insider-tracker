@@ -277,6 +277,21 @@ class TestTradeStreamHandler:
             assert sent_msg["subscriptions"][0]["type"] == "trades"
 
     @pytest.mark.asyncio
+    async def test_running_reconnect_returns_with_a_live_connection(
+        self, handler: TradeStreamHandler
+    ) -> None:
+        """A reconnect that leaves the handler running must assign its connection."""
+        mock_ws = AsyncMock()
+        handler._running = True
+        handler._connect = AsyncMock(return_value=mock_ws)
+
+        with patch("polymarket_insider_tracker.ingestor.websocket.asyncio.sleep", AsyncMock()):
+            await handler._reconnect_loop()
+
+        assert handler._running is True
+        assert handler._ws is mock_ws
+
+    @pytest.mark.asyncio
     async def test_cleanup_closes_websocket(self, handler: TradeStreamHandler) -> None:
         """Test that cleanup closes the WebSocket."""
         mock_ws = AsyncMock()

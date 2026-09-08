@@ -34,6 +34,12 @@ def mock_polygon_client() -> MagicMock:
     client._primary_healthy = True
     client._w3 = MagicMock()
     client._w3_fallback = None
+    client.acquire_rate_limit = AsyncMock()
+    client.select_web3 = MagicMock(
+        side_effect=lambda: (
+            client._w3 if client._primary_healthy else (client._w3_fallback or client._w3)
+        )
+    )
     client.get_block = AsyncMock(return_value={"timestamp": 1704067200})
     return client
 

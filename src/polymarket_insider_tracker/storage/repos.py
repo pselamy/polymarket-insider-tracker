@@ -10,7 +10,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -27,6 +27,13 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+class RowCountResult(Protocol):
+    """DML result surface returned by SQLAlchemy but omitted from its generic Result type."""
+
+    @property
+    def rowcount(self) -> int | None: ...
 
 
 @dataclass
@@ -239,8 +246,8 @@ class WalletRepository:
         result = await self.session.execute(
             delete(WalletProfileModel).where(WalletProfileModel.address == address.lower())
         )
-        # SQLAlchemy Result does have rowcount but typing doesn't reflect it
-        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
+        rowcount = cast(RowCountResult, result).rowcount
+        return (rowcount or 0) > 0
 
     async def mark_stale(self, address: str) -> bool:
         """Mark a wallet profile as stale (soft delete).
@@ -259,8 +266,8 @@ class WalletRepository:
             .where(WalletProfileModel.address == address.lower())
             .values(analyzed_at=stale_time, updated_at=datetime.now(UTC))
         )
-        # SQLAlchemy Result does have rowcount but typing doesn't reflect it
-        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
+        rowcount = cast(RowCountResult, result).rowcount
+        return (rowcount or 0) > 0
 
 
 class FundingRepository:
@@ -444,7 +451,7 @@ class RelationshipRepository:
             List of related wallet addresses.
         """
         relationships = await self.get_relationships(wallet, relationship_type)
-        related = set()
+        related: set[str] = set()
         normalized = wallet.lower()
         for rel in relationships:
             if rel.wallet_a == normalized:
@@ -509,8 +516,8 @@ class RelationshipRepository:
                 WalletRelationshipModel.relationship_type == relationship_type,
             )
         )
-        # SQLAlchemy Result does have rowcount but typing doesn't reflect it
-        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
+        rowcount = cast(RowCountResult, result).rowcount
+        return (rowcount or 0) > 0
 
 
 @dataclass

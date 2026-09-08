@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, cast
 
 from redis.asyncio import Redis
 
@@ -51,6 +51,13 @@ if TYPE_CHECKING:
     from polymarket_insider_tracker.ingestor.models import TradeEvent
 
 logger = logging.getLogger(__name__)
+
+
+class RedisFactory(Protocol):
+    """Concrete Redis construction surface used by the pipeline."""
+
+    @classmethod
+    def from_url(cls, url: str) -> Redis: ...
 
 
 class PipelineState(StrEnum):
@@ -206,7 +213,8 @@ class Pipeline:
 
         # Initialize Redis
         logger.debug("Initializing Redis connection...")
-        self._redis = Redis.from_url(settings.redis.url)
+        redis_factory = cast(type[RedisFactory], Redis)
+        self._redis = redis_factory.from_url(settings.redis.url)
 
         # Initialize Database Manager
         logger.debug("Initializing database manager...")
@@ -442,8 +450,10 @@ class Pipeline:
                 await wallet_repo.upsert(dto)
 
                 # Trace and persist funding transfers
+                funding_transfer_count = 0
                 if self._funding_tracer:
                     chain = await self._funding_tracer.trace(address)
+                    funding_transfer_count = len(chain.chain)
                     if chain.chain:
                         funding_repo = FundingRepository(session)
                         funding_dtos = [
@@ -462,7 +472,7 @@ class Pipeline:
 
                 logger.debug(
                     "Persisted wallet profile and %d funding transfers for %s",
-                    len(chain.chain) if self._funding_tracer and chain.chain else 0,
+                    funding_transfer_count,
                     address[:10] + "...",
                 )
         except Exception as e:

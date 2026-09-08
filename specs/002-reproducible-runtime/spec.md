@@ -61,9 +61,9 @@ failure per gate and verify that the aggregate check reports failure.
 **Acceptance Scenarios**:
 
 1. **Given** the proposed branch, **When** all required local checks run, **Then** format, lint, strict
-   type checking, tests, service probes, and migrations all pass with no ignored required failure.
-2. **Given** a deliberate type error, formatting error, test failure, or migration failure, **When** the
-   corresponding automated check runs, **Then** the pull request is blocked.
+   mypy, strict Pyright, tests, service probes, and migrations all pass with no ignored required failure.
+2. **Given** a deliberate mypy or Pyright type error, formatting error, test failure, or migration
+   failure, **When** the corresponding automated check runs, **Then** the pull request is blocked.
 3. **Given** any supported Python version, **When** the compatibility suite runs, **Then** installation
    and the required test subset pass on that version.
 
@@ -110,7 +110,7 @@ and automated checks; verify that they name one consistent support matrix and re
 - **FR-002**: The supported set for this slice MUST be Python 3.11, 3.12, and 3.13 inclusive; versions
   outside that set MUST NOT be advertised as supported.
 - **FR-003**: A clean installation MUST include every dependency required by asynchronous database use,
-  PostgreSQL runtime access, migrations, tests, linting, formatting, and strict type checking on Linux
+  PostgreSQL runtime access, migrations, tests, linting, formatting, and both strict type checkers on Linux
   and Apple Silicon macOS.
 - **FR-004**: One documented database configuration value MUST be usable by both the running tracker and
   migration workflow, or the documentation MUST expose and validate separate values explicitly. An
@@ -124,7 +124,7 @@ and automated checks; verify that they name one consistent support matrix and re
   End-to-end dry-run startup belongs to slices 001 and 003 and MUST NOT be claimed by this foundation slice.
 - **FR-007**: Every migration MUST retain a downgrade path, and automation MUST exercise upgrade to head,
   one-step downgrade, and re-upgrade using the supported PostgreSQL driver.
-- **FR-008**: Required format, lint, strict type, test, migration, and compatibility checks MUST be blocking.
+- **FR-008**: Required format, lint, strict mypy, strict Pyright, test, migration, and compatibility checks MUST be blocking.
   Any approved exception MUST be explicit, time-bounded, owned, and visible in the gap register.
 - **FR-009**: Automated tests MUST use the declared locked dependency set rather than resolving an
   unrelated environment on each run.
@@ -134,10 +134,13 @@ and automated checks; verify that they name one consistent support matrix and re
   that runs the same required gates contributors are expected to satisfy before review.
 - **FR-012**: Installation and gate output MUST identify the failing prerequisite or command without
   exposing credential-bearing URLs.
-- **FR-013**: All current formatting and strict type failures at the audit anchor MUST be resolved; they
+- **FR-013**: All current formatting, strict mypy, and strict Pyright failures at the audit anchor MUST be resolved; they
   MUST NOT be hidden through exclusions, blanket ignores, or non-blocking status.
 - **FR-014**: README, contributor commands, example configuration, automation, and project metadata MUST
   use the same setup and support terminology.
+- **FR-015**: Pyright MUST remain an independent, exactly pinned and locked strict checker of the complete
+  `src/polymarket_insider_tracker` package at the Python 3.11 compatibility floor. It MUST NOT use a
+  baseline, diff-only mode, blanket suppression, broad exclusion, or downgraded diagnostics.
 
 ### Key Entities
 
@@ -157,7 +160,7 @@ and automated checks; verify that they name one consistent support matrix and re
   undeclared packages and complete the database test suite with zero dependency-related errors.
 - **SC-002**: The documented migration smoke cycle succeeds against PostgreSQL: upgrade to head, downgrade
   one revision, and re-upgrade to head, all using tracked configuration.
-- **SC-003**: Formatting, lint, strict type checking, and the full deterministic test suite each report
+- **SC-003**: Formatting, lint, strict mypy, strict Pyright, and the full deterministic test suite each report
   zero failures from a clean locked environment.
 - **SC-004**: Installation and the required compatibility test subset pass on 100% of Python 3.11, 3.12,
   and 3.13 jobs.

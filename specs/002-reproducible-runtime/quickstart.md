@@ -30,7 +30,7 @@ Expected result:
 - PostgreSQL and Redis answer real probes;
 - migrations reach head, downgrade one revision in a disposable database, return to head, and clean up;
 - an asynchronous query succeeds through the same canonical database URL;
-- lock, Black format, Ruff lint, strict type, and deterministic test gates all pass;
+- lock, Black format, Ruff lint, strict mypy, strict Pyright, and deterministic test gates all pass;
 - the aggregate process exits `0` without contacting external market, chain, or notification services.
 
 The normal application database named in `.env` is never downgraded or dropped.
@@ -78,7 +78,8 @@ On Apple Silicon, record `uname -m` with release evidence and require `arm64`. T
   service is contacted.
 - Non-loopback or malformed database URL for `services`: exit `2` before creating or migrating a database.
 - Missing PostgreSQL/Redis: exit `1`, name the unreachable service, and print no credential-bearing URL.
-- Any Black, Ruff, mypy, pytest, service, or migration failure: aggregate exit is nonzero; later gates are not run.
+- Any Black, Ruff, mypy, Pyright, pytest, service, or migration failure: aggregate exit is nonzero;
+  later gates are not run.
 
 ## Cleanup
 

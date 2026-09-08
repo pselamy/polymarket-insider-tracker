@@ -130,6 +130,34 @@ class TestPolygonClient:
         assert key == "polygon:nonce:0xabc123"
 
     @pytest.mark.asyncio
+    async def test_acquire_rate_limit_uses_shared_limiter(self) -> None:
+        """Public consumers share the client's existing request limiter."""
+        client = PolygonClient("https://polygon-rpc.com")
+        client._rate_limiter.acquire = AsyncMock()
+
+        await client.acquire_rate_limit()
+
+        client._rate_limiter.acquire.assert_awaited_once_with()
+
+    def test_select_web3_uses_healthy_client(self) -> None:
+        """The public selector follows primary health and fallback availability."""
+        client = PolygonClient(
+            "https://polygon-rpc.com",
+            fallback_rpc_url="https://fallback.com",
+        )
+        primary = client._w3
+        fallback = client._w3_fallback
+
+        assert client.select_web3() is primary
+        client._primary_healthy = False
+        assert client.select_web3() is fallback
+
+        client_without_fallback = PolygonClient("https://polygon-rpc.com")
+        sole_client = client_without_fallback._w3
+        client_without_fallback._primary_healthy = False
+        assert client_without_fallback.select_web3() is sole_client
+
+    @pytest.mark.asyncio
     async def test_get_cached_miss(self, mock_redis: AsyncMock) -> None:
         """Test cache miss."""
         client = PolygonClient("https://polygon-rpc.com", redis=mock_redis)

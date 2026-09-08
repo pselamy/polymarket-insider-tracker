@@ -6,6 +6,7 @@ wallet_profiles and funding_transfers tables when fresh wallets are detected.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
@@ -186,6 +187,30 @@ class TestPipelinePersistence:
             assert rows[0].address == sample_profile.address.lower()
             assert rows[0].nonce == sample_profile.nonce
             assert rows[0].is_fresh is True
+
+    @pytest.mark.asyncio
+    async def test_persists_wallet_without_a_funding_tracer(
+        self, mock_settings, db_manager, sample_trade, sample_profile, async_engine, caplog
+    ):
+        """Guard the explicitly initialized transfer count when no tracer is configured."""
+        pipeline = Pipeline(mock_settings)
+        pipeline._db_manager = db_manager
+        pipeline._funding_tracer = None
+        fresh_signal = FreshWalletSignal(
+            trade_event=sample_trade,
+            wallet_profile=sample_profile,
+            confidence=0.8,
+            factors={"base": 0.5},
+        )
+
+        with caplog.at_level(logging.WARNING):
+            await pipeline._persist_wallet_and_funding(fresh_signal)
+
+        assert "Failed to persist wallet/funding data" not in caplog.text
+        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
+            rows = (await session.execute(select(WalletProfileModel))).scalars().all()
+            assert len(rows) == 1
+            assert rows[0].address == sample_profile.address.lower()
 
     @pytest.mark.asyncio
     async def test_on_trade_persists_funding_transfers(

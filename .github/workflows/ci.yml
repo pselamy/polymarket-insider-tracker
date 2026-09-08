@@ -29,7 +29,7 @@ jobs:
         run: uv python install 3.11
       - name: Sync locked dependencies
         run: uv sync --locked --all-extras --python 3.11
-      - name: Run static profile
+      - name: Run static profile with mypy and Pyright
         run: uv run python scripts/verify.py --profile static
 
   compatibility:
@@ -131,10 +131,10 @@ jobs:
     steps:
       - name: Require every blocking predecessor
         env:
-          STATIC_RESULT: ${{ needs.static.result }}
+          STATIC_WITH_PYRIGHT_RESULT: ${{ needs.static.result }}
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
           SERVICES_RESULT: ${{ needs.services.result }}
         run: |
-          test "$STATIC_RESULT" = success
+          test "$STATIC_WITH_PYRIGHT_RESULT" = success
           test "$COMPATIBILITY_RESULT" = success
           test "$SERVICES_RESULT" = success

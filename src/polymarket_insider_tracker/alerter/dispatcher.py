@@ -43,7 +43,7 @@ class DispatchResult:
 
     success_count: int
     failure_count: int
-    channel_results: dict[str, bool] = field(default_factory=dict)
+    channel_results: dict[str, bool] = field(default_factory=dict[str, bool])
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
@@ -195,7 +195,7 @@ class AlertDispatcher:
         Returns:
             List of DispatchResult for each alert.
         """
-        results = []
+        results: list[DispatchResult] = []
         for alert in alerts:
             result = await self.dispatch(alert)
             results.append(result)

@@ -58,7 +58,7 @@ def get_risk_color(score: float) -> int:
 
 def get_triggered_signals(assessment: RiskAssessment) -> list[str]:
     """Get list of triggered signal names."""
-    signals = []
+    signals: list[str] = []
     if assessment.fresh_wallet_signal:
         signals.append("Fresh Wallet")
     if assessment.size_anomaly_signal:
@@ -236,7 +236,7 @@ class AlertFormatter:
         # Add detailed info for detailed verbosity
         if self.verbosity == "detailed":
             # Add confidence breakdown
-            confidences = []
+            confidences: list[str] = []
             if assessment.fresh_wallet_signal:
                 conf = assessment.fresh_wallet_signal.confidence
                 confidences.append(f"Fresh Wallet: {conf:.0%}")

@@ -90,6 +90,20 @@ GATES: Mapping[str, Gate] = {
             "mypy",
         ),
     ),
+    "pyright": Gate(
+        "pyright",
+        (
+            "uv",
+            "run",
+            "--isolated",
+            "--locked",
+            "--all-extras",
+            "--python",
+            "3.11",
+            "pyright",
+            "src/polymarket_insider_tracker",
+        ),
+    ),
     "imports": Gate(
         "imports",
         (
@@ -116,7 +130,7 @@ GATES: Mapping[str, Gate] = {
 }
 
 BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
-    "static": ("lock", "format", "lint", "strict-types"),
+    "static": ("lock", "format", "lint", "strict-types", "pyright"),
     "compatibility": ("lock", "imports", "tests"),
     "services": ("services", "migrations"),
 }
@@ -151,6 +165,11 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ("format", "uv run black --check ."),
     ("lint", "uv run ruff check src tests scripts"),
     ("strict-types", "uv run --isolated --locked --all-extras --python 3.11 mypy"),
+    (
+        "pyright",
+        "uv run --isolated --locked --all-extras --python 3.11 "
+        "pyright src/polymarket_insider_tracker",
+    ),
     (
         "imports",
         'uv run python -c "import alembic, greenlet, psycopg, redis, sqlalchemy; '

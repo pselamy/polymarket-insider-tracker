@@ -8,8 +8,9 @@ environment variables at startup.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -216,7 +217,11 @@ class Settings(BaseSettings):
     )
 
     # Nested configuration groups
-    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    # Pydantic's static constructor signature cannot express that BaseSettings supplies the required
+    # database URL from DATABASE_URL when the zero-argument default factory runs.
+    database: DatabaseSettings = Field(
+        default_factory=cast(Callable[[], DatabaseSettings], DatabaseSettings)
+    )
     redis: RedisSettings = Field(default_factory=RedisSettings)
     polygon: PolygonSettings = Field(default_factory=PolygonSettings)
     polymarket: PolymarketSettings = Field(default_factory=PolymarketSettings)

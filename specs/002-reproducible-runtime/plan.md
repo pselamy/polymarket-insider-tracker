@@ -19,7 +19,8 @@ entry point for a blocking Linux matrix and service job plus an advisory Apple S
 **Language/Version**: CPython 3.11, 3.12, and 3.13; lowest supported syntax remains Python 3.11
 
 **Primary Dependencies**: uv `>=0.11,<0.12` project/lock workflow; SQLAlchemy 2.x with its `asyncio`
-extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Black, Ruff, and mypy
+extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Black, Ruff, mypy, and
+Pyright `1.1.411`
 
 **Storage**: PostgreSQL 15 and Redis 7; no persisted schema change in this slice
 
@@ -121,7 +122,8 @@ modules. No new service, package, or migration is needed.
 - Change `requires-python` and the lock boundary to `>=3.11,<3.14`.
 - Declare `[tool.uv] required-version = ">=0.11,<0.12"`; CI installs a reviewed exact uv 0.11 release,
   while the repository contract rejects unsupported uv versions.
-- Keep Black, Ruff, and mypy configured for Python 3.11 because it is the minimum accepted syntax/API level.
+- Keep Black, Ruff, mypy, and Pyright configured for Python 3.11 because it is the minimum accepted
+  syntax/API level. Pyright independently checks the complete production package in strict mode after mypy.
 - Keep each runtime declaration in its native authority: package support in `pyproject.toml`, resolved
   support in `uv.lock`, executable platform evidence in CI, and contributor guidance in `README.md`.
   Validate those surfaces through their real consumers instead of reparsing them in a bespoke checker.
@@ -152,6 +154,9 @@ modules. No new service, package, or migration is needed.
   aggregate exits nonzero and names the first failed gate while preserving that command's output.
 - Unit tests inject a fake command runner and exercise one failure per required gate. There is no
   production flag that fabricates success or weakens a gate.
+- Keep `strict-types` as the existing mypy gate and add a separate `pyright` gate immediately after it.
+  The exact Pyright command names `src/polymarket_insider_tracker`, uses the locked Python 3.11
+  environment, and consumes strict configuration with no exclusions or baseline.
 - The service profile invokes separately identifiable `services` and `migrations` gates through
   `scripts/runtime_services.py --phase probe` and `--phase migrations`; the helper defaults to `all` for
   contributors. The probe performs an async SQLAlchemy query and Redis `PING`. The migration phase refuses
@@ -164,7 +169,8 @@ modules. No new service, package, or migration is needed.
   SHA with a release-comment annotation.
 - Install an exact approved uv 0.11 release from the SHA-pinned setup action and run
   `uv sync --locked --all-extras`; stop using an independent pip resolution.
-- Run a blocking static job, a blocking Linux compatibility matrix for 3.11/3.12/3.13, and a blocking
+- Run a blocking static job containing both independent type gates, a blocking Linux compatibility matrix
+  for 3.11/3.12/3.13, and a blocking
   PostgreSQL/Redis service job on `ubuntu-24.04`. Remove `continue-on-error` from strict type checking.
 - Pin PostgreSQL 15 and Redis 7 service images by reviewed multi-architecture digest in both Compose and
   CI so local and automated evidence use the same immutable image identities.

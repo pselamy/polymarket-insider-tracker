@@ -1,10 +1,40 @@
 """Data models for the ingestor module."""
 
 import contextlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
+
+
+class ClobOrderbookLevel(Protocol):
+    """Typed read-only surface consumed from a py-clob-client price level."""
+
+    @property
+    def price(self) -> object: ...
+
+    @property
+    def size(self) -> object: ...
+
+
+class ClobOrderbook(Protocol):
+    """Typed read-only surface consumed from a py-clob-client order book."""
+
+    @property
+    def market(self) -> object: ...
+
+    @property
+    def asset_id(self) -> object: ...
+
+    @property
+    def bids(self) -> Sequence[ClobOrderbookLevel] | None: ...
+
+    @property
+    def asks(self) -> Sequence[ClobOrderbookLevel] | None: ...
+
+    @property
+    def tick_size(self) -> object: ...
 
 
 @dataclass(frozen=True)
@@ -89,7 +119,7 @@ class Orderbook:
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
-    def from_clob_orderbook(cls, orderbook: Any) -> "Orderbook":
+    def from_clob_orderbook(cls, orderbook: ClobOrderbook) -> "Orderbook":
         """Create an Orderbook from a py-clob-client orderbook object."""
         bids = tuple(
             OrderbookLevel(

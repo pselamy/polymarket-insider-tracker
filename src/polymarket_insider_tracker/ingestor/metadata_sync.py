@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Protocol, cast
 
 from redis.asyncio import Redis
 
@@ -20,6 +21,18 @@ from .gamma_client import GammaClient, GammaClientError, GammaMarketStats
 from .models import MarketMetadata
 
 logger = logging.getLogger(__name__)
+
+
+class RedisScanner(Protocol):
+    """Concrete Redis SCAN surface used by the metadata synchronizer."""
+
+    async def scan(
+        self,
+        cursor: int = 0,
+        *,
+        match: str | None = None,
+        count: int | None = None,
+    ) -> tuple[int, list[bytes | str]]: ...
 
 
 # Default configuration
@@ -357,8 +370,9 @@ class MarketMetadataSync:
         pattern = f"{self._key_prefix}*"
 
         cursor = 0
+        scanner = cast(RedisScanner, self._redis)
         while True:
-            cursor, keys = await self._redis.scan(cursor, match=pattern, count=100)
+            cursor, keys = await scanner.scan(cursor, match=pattern, count=100)
             for key in keys:
                 cached = await self._redis.get(key)
                 if cached:

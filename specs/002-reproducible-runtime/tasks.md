@@ -231,3 +231,18 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
 - [X] T042 Remove the bespoke cross-file support checker, its synthetic repository fixtures, and its two
   prose assertions; remove the gate from aggregate verification; retain runtime truth in native metadata,
   lock, CI, service probes, focused verifier tests, and contributor documentation.
+
+## Phase 9: Independent Pyright Ratchet
+
+- [X] T043 Pin and lock Pyright in the uv development environment; configure strict Python 3.11 checking
+  for the complete production package, with narrow local stubs only for consumed untyped dependencies.
+- [X] T044 Add Pyright as a distinct fail-closed verifier gate after strict mypy, and require the static
+  profile through the protected CI aggregator.
+- [X] T045 Resolve every strict Pyright diagnostic without exclusions, baselines, blanket suppressions,
+  or weakened first-party types; retain strict mypy and Ruff.
+- [X] T046 Add focused verifier, protocol-boundary, and runtime behavior-guard tests and align the active
+  README, specification, plan, data model, quickstart, and runtime contract.
+- [X] T047 Run the complete local static, compatibility, service, and aggregate verifier profiles on the
+  implementation candidate and retain their results for the reviewer handoff and pull-request description.
+- [X] T048 Complete the required immutable Agy and Claude Code/fable reviews, resolve all findings, open
+  the non-draft pull request, and verify its blocking GitHub checks without merging it.

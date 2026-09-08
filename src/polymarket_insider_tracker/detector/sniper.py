@@ -219,7 +219,7 @@ class SniperDetector:
         Returns:
             Tuple of (feature_matrix, wallet_index_map).
         """
-        features = []
+        features: list[list[float]] = []
         wallet_index: dict[int, str] = {}
         row_idx = 0
 
@@ -350,7 +350,7 @@ class SniperDetector:
             wallet_markets.append(markets)
 
         if len(wallet_markets) >= 2:
-            common_markets = set.intersection(*wallet_markets)
+            common_markets = wallet_markets[0].intersection(*wallet_markets[1:])
             markets_in_common = len(common_markets)
         else:
             markets_in_common = 0

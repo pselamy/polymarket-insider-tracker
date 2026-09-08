@@ -13,6 +13,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from typing import cast
 
 import httpx
 
@@ -107,19 +108,19 @@ class GammaClient:
         client: httpx.AsyncClient,
         path: str,
         params: dict[str, str | int],
-    ) -> list[dict[str, object]]:
+    ) -> list[object]:
         last_exc: Exception | None = None
         delay = self._retry_base
         for attempt in range(self._max_retries):
             try:
                 resp = await client.get(path, params=params)
                 resp.raise_for_status()
-                payload = resp.json()
+                payload: object = resp.json()
                 if not isinstance(payload, list):
                     raise GammaClientError(
                         f"Unexpected gamma response shape for {path}: {type(payload).__name__}"
                     )
-                return payload
+                return cast(list[object], payload)
             except (httpx.HTTPError, ValueError) as exc:
                 last_exc = exc
                 logger.warning(
@@ -157,7 +158,7 @@ class GammaClient:
             headers={"User-Agent": "polymarket-insider-tracker/0.1"},
         ) as client:
 
-            async def fetch_page(page_index: int) -> list[dict[str, object]]:
+            async def fetch_page(page_index: int) -> list[object]:
                 if stop.is_set():
                     return []
                 params: dict[str, str | int] = {
@@ -192,7 +193,7 @@ class GammaClient:
             for raw in page:
                 if not isinstance(raw, dict):
                     continue
-                parsed = _parse_market(raw)
+                parsed = _parse_market(cast(dict[str, object], raw))
                 if parsed is not None:
                     results[parsed.condition_id] = parsed
             if len(page) < self._page_limit:
