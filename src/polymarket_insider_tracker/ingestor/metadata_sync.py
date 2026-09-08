@@ -32,7 +32,7 @@ class RedisScanner(Protocol):
         *,
         match: str | None = None,
         count: int | None = None,
-    ) -> tuple[int, list[bytes]]: ...
+    ) -> tuple[int, list[bytes | str]]: ...
 
 
 # Default configuration

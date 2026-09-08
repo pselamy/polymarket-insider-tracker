@@ -217,6 +217,8 @@ class Settings(BaseSettings):
     )
 
     # Nested configuration groups
+    # Pydantic's static constructor signature cannot express that BaseSettings supplies the required
+    # database URL from DATABASE_URL when the zero-argument default factory runs.
     database: DatabaseSettings = Field(
         default_factory=cast(Callable[[], DatabaseSettings], DatabaseSettings)
     )
