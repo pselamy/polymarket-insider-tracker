@@ -424,9 +424,9 @@ class TestTelegramMarkdown:
         result = formatter.format(high_risk_assessment)
         md = result.telegram_markdown
         for unescaped in ("0.82", "0.075", "15,000.00"):
-            assert unescaped not in md, (
-                f"unescaped {unescaped!r} would be rejected by Telegram MarkdownV2: {md!r}"
-            )
+            assert (
+                unescaped not in md
+            ), f"unescaped {unescaped!r} would be rejected by Telegram MarkdownV2: {md!r}"
         for escaped in ("0\\.82", "0\\.075", "15,000\\.00"):
             assert escaped in md, f"missing escaped {escaped!r} in {md!r}"
 

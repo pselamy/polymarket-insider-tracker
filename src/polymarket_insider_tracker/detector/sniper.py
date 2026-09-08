@@ -228,17 +228,12 @@ class SniperDetector:
             for entry in entries:
                 # Normalize market ID to 0-1 range
                 market_hash = (
-                    (
-                        int(
-                            hashlib.md5(  # noqa: S324
-                                entry.market_id.encode()
-                            ).hexdigest()[:8],
-                            16,
-                        )
-                        % 1000
+                    int(
+                        hashlib.md5(entry.market_id.encode()).hexdigest()[:8],  # noqa: S324
+                        16,
                     )
-                    / 1000.0
-                )
+                    % 1000
+                ) / 1000.0
 
                 # Normalize entry delta to hours (0-5 mins = 0-0.083 hours)
                 delta_hours = entry.entry_delta_seconds / 3600.0

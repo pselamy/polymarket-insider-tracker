@@ -19,7 +19,7 @@ entry point for a blocking Linux matrix and service job plus an advisory Apple S
 **Language/Version**: CPython 3.11, 3.12, and 3.13; lowest supported syntax remains Python 3.11
 
 **Primary Dependencies**: uv `>=0.11,<0.12` project/lock workflow; SQLAlchemy 2.x with its `asyncio`
-extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Ruff, and mypy
+extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Black, Ruff, and mypy
 
 **Storage**: PostgreSQL 15 and Redis 7; no persisted schema change in this slice
 
@@ -121,7 +121,7 @@ modules. No new service, package, or migration is needed.
 - Change `requires-python` and the lock boundary to `>=3.11,<3.14`.
 - Declare `[tool.uv] required-version = ">=0.11,<0.12"`; CI installs a reviewed exact uv 0.11 release,
   while the repository contract rejects unsupported uv versions.
-- Keep Ruff and mypy configured for Python 3.11 because it is the minimum accepted syntax/API level.
+- Keep Black, Ruff, and mypy configured for Python 3.11 because it is the minimum accepted syntax/API level.
 - Keep each runtime declaration in its native authority: package support in `pyproject.toml`, resolved
   support in `uv.lock`, executable platform evidence in CI, and contributor guidance in `README.md`.
   Validate those surfaces through their real consumers instead of reparsing them in a bespoke checker.

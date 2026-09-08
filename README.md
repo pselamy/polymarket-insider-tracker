@@ -187,7 +187,8 @@ uv run --env-file .env python scripts/verify.py --profile services
 uv run --env-file .env python scripts/verify.py --profile all
 ```
 
-The `static` profile checks the lock, formatting, lint, and strict mypy.
+The `static` profile checks the lock, Black formatting across the repository, Ruff lint/import rules,
+and strict mypy.
 The `compatibility` profile checks locked imports and the deterministic test suite. The `services`
 profile performs real local probes and the disposable migration cycle. Individual commands remain
 visible in verifier output and `--help`.

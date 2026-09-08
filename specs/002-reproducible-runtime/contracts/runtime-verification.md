@@ -12,12 +12,12 @@ uv run python scripts/verify.py --profile PROFILE [--json]
 
 | Profile | Required gates | Intended caller |
 |---|---|---|
-| `static` | lock freshness, format, lint, strict mypy | Contributor and Linux quality job |
+| `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy | Contributor and Linux quality job |
 | `compatibility` | lock freshness, dependency/import smoke, full deterministic pytest suite | Linux version matrix and advisory Apple job |
 | `services` | `services` connectivity/async-query gate, then independent `migrations` disposable-cycle gate | Linux service job and local release evidence |
 | `all` | Every gate above, without duplicate execution | Contributor pre-review/release evidence |
 
-Individual Ruff, mypy, pytest, and Alembic commands remain directly runnable and are
+Individual Black, Ruff, mypy, pytest, and Alembic commands remain directly runnable and are
 listed by `--help`; the aggregate entry point does not hide their output.
 
 The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`

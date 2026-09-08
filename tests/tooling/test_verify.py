@@ -75,6 +75,18 @@ def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
     )
 
 
+def test_format_gate_uses_black_against_the_entire_repository() -> None:
+    module = _load_module()
+
+    assert module.GATES["format"].command == (
+        module.sys.executable,
+        "-m",
+        "black",
+        "--check",
+        ".",
+    )
+
+
 def test_gate_definitions_expose_prerequisites_and_redaction_policy() -> None:
     module = _load_module()
 
@@ -293,7 +305,7 @@ def test_help_lists_every_direct_gate_command() -> None:
 
     assert result.returncode == 0
     for command in (
-        "uv run ruff format --check src tests scripts",
+        "uv run black --check .",
         "uv run ruff check src tests scripts",
         "uv run --isolated --locked --all-extras --python 3.11 mypy",
         "uv run pytest",
