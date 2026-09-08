@@ -274,8 +274,8 @@ completion is not evidence for this phase; each item below is checked only when 
   the data model, changelog, and this ledger. Commit hashes are recorded in
   `evidence/verification.md` (Phase 10).
 - [X] T058 Codex refute-first review of the fable-corrected branch, with every finding resolved or recorded.
-- [ ] T059 Open the non-draft pull request for `quality/vulture-required-gate` against `main`.
-- [ ] T060 Verify that the independent `Vulture dead code check` job and the `Required checks` aggregator pass
+- [X] T059 Open the non-draft pull request for `quality/vulture-required-gate` against `main`.
+- [X] T060 Verify that the independent `Vulture dead code check` job and the `Required checks` aggregator pass
   on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.
 - [ ] T061 Patrick's approval of the pull request.
 - [ ] T062 Merge into `main`.

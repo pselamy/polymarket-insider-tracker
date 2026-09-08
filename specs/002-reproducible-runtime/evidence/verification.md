@@ -535,5 +535,32 @@ uv run --env-file .env.example python scripts/verify.py
 
 The live service run reached PostgreSQL and Redis, then exercised the disposable Alembic sequence
 `002_risk_assessments -> 001_initial -> 002_risk_assessments`, completed an async query, dropped its
-temporary database, and left no `pit_verify_%` database behind. Pull request, GitHub CI, approval, merge,
-and post-merge evidence are not claimed here; T059–T063 remain open.
+temporary database, and left no `pit_verify_%` database behind. At the time of this local review, pull
+request, GitHub CI, approval, merge, and post-merge evidence were not yet claimed; T059–T063 were open.
+
+### Pull request CI checkpoint
+
+Pull request [#115](https://github.com/pselamy/polymarket-insider-tracker/pull/115) was opened non-draft
+from `quality/vulture-required-gate` into `main`. At the checkpoint below, its immutable base was
+`a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f` and its implementation head was
+`69654eee7528bbdec1bc67aff6dab2490df1c04a`.
+
+Pull-request workflow run
+[`34273501118`](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118) completed
+with conclusion `success` on that exact head:
+
+| Job | Conclusion | Duration | Immutable job |
+|---|---|---:|---|
+| PostgreSQL and Redis required checks | success | 56s | [102220735416](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735416) |
+| Apple Silicon advisory compatibility | success | 37s | [102220735703](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735703) |
+| Python 3.11 compatibility | success | 29s | [102220735874](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735874) |
+| Python 3.12 compatibility | success | 32s | [102220735783](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735783) |
+| Python 3.13 compatibility | success | 40s | [102220735899](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735899) |
+| Static required checks | success | 36s | [102220735892](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735892) |
+| Vulture dead code check | success | 20s | [102220735828](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735828) |
+| Required checks | success | 4s | [102221051318](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102221051318) |
+
+The protected `main` branch remained strict and required the `Required checks` context, which passed only
+after its four blocking predecessors (`static`, `vulture`, `compatibility`, and `services`) succeeded. At
+this checkpoint the PR was open, non-draft, mergeable, and reported `CLEAN`; it had no review decision and
+was not merged. Patrick's approval, merge, and post-merge confirmation remain pending (T061–T063).
