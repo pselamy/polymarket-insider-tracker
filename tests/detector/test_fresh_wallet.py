@@ -282,7 +282,7 @@ class TestFreshWalletDetectorAnalyze:
     async def test_handles_analyzer_error(self, detector, mock_wallet_analyzer):
         """Test graceful handling of analyzer errors."""
         trade = create_trade_event()
-        mock_wallet_analyzer.analyze.side_effect = Exception("RPC error")
+        mock_wallet_analyzer.analyze.configure_mock(side_effect=Exception("RPC error"))
 
         result = await detector.analyze(trade)
 
@@ -498,7 +498,7 @@ class TestBatchAnalysis:
 
         # First call succeeds, second fails
         profile = create_wallet_profile(nonce=2, age_hours=24.0)
-        mock_wallet_analyzer.analyze.side_effect = [profile, Exception("Error")]
+        mock_wallet_analyzer.analyze.configure_mock(side_effect=[profile, Exception("Error")])
 
         results = await detector.analyze_batch(trades)
 

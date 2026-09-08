@@ -109,7 +109,7 @@ class TestDiscordChannel:
             mock_response_success.status_code = 204
 
             mock_client = AsyncMock()
-            mock_client.post.side_effect = [mock_response_429, mock_response_success]
+            mock_client.post.configure_mock(side_effect=[mock_response_429, mock_response_success])
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client
@@ -207,7 +207,7 @@ class TestTelegramChannel:
             mock_response_success.json.return_value = {"ok": True}
 
             mock_client = AsyncMock()
-            mock_client.post.side_effect = [mock_response_429, mock_response_success]
+            mock_client.post.configure_mock(side_effect=[mock_response_429, mock_response_success])
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client_class.return_value = mock_client

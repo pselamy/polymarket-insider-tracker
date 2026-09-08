@@ -274,7 +274,7 @@ class TestMarketMetadataSync:
         self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
     ) -> None:
         """Test start failure handling."""
-        mock_clob.get_markets.side_effect = Exception("API error")
+        mock_clob.get_markets.configure_mock(side_effect=Exception("API error"))
         sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
 
         with pytest.raises(MetadataSyncError, match="initial sync failed"):

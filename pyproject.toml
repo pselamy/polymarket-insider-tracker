@@ -31,7 +31,9 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.7.0",
     "pyright==1.1.411",
+    "vulture==2.16",
     "pre-commit>=3.0.0",
+    "pyyaml>=6.0.0",
     "aiosqlite>=0.19.0",
 ]
 
@@ -99,6 +101,11 @@ include = ["src/polymarket_insider_tracker"]
 pythonVersion = "3.11"
 stubPath = "typings"
 typeCheckingMode = "strict"
+
+# Vulture runs at its default confidence with no baseline, allowlist, ignore list, decorator
+# exemption, or path exclusion; framework-consumed names are made visible through real code and tests.
+[tool.vulture]
+paths = ["src", "tests", "scripts", "alembic", "conftest.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

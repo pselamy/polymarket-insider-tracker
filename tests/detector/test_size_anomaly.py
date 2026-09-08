@@ -68,24 +68,6 @@ def sample_trade() -> TradeEvent:
     )
 
 
-@pytest.fixture
-def large_trade() -> TradeEvent:
-    """Create a large trade event."""
-    return TradeEvent(
-        market_id="market_abc123",
-        trade_id="tx_002",
-        wallet_address="0xlargewallet",
-        side="BUY",
-        outcome="Yes",
-        outcome_index=0,
-        price=Decimal("0.50"),
-        size=Decimal("100000"),  # $50,000 notional
-        timestamp=datetime.now(UTC),
-        asset_id="token_123",
-        event_title="Big Market",
-    )
-
-
 # ============================================================================
 # SizeAnomalySignal Tests
 # ============================================================================
@@ -738,7 +720,7 @@ class TestAnalyzeMethod:
         sample_trade: TradeEvent,
     ) -> None:
         """Test analyze handles exception when fetching metadata."""
-        mock_metadata_sync.get_market.side_effect = Exception("Redis error")
+        mock_metadata_sync.get_market.configure_mock(side_effect=Exception("Redis error"))
         detector = SizeAnomalyDetector(mock_metadata_sync)
 
         # Should still work with minimal metadata
@@ -870,10 +852,12 @@ class TestBatchAnalysis:
     ) -> None:
         """Test batch analysis handles individual trade errors."""
         # First call succeeds, second fails
-        mock_metadata_sync.get_market.side_effect = [
-            Exception("Error"),
-            None,
-        ]
+        mock_metadata_sync.get_market.configure_mock(
+            side_effect=[
+                Exception("Error"),
+                None,
+            ]
+        )
 
         trades = [
             TradeEvent(

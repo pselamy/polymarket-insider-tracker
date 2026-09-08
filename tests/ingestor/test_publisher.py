@@ -249,8 +249,8 @@ class TestEventPublisher:
     @pytest.mark.asyncio
     async def test_create_consumer_group_already_exists(self, mock_redis: AsyncMock) -> None:
         """Test creating a consumer group that already exists."""
-        mock_redis.xgroup_create.side_effect = ResponseError(
-            "BUSYGROUP Consumer Group name already exists"
+        mock_redis.xgroup_create.configure_mock(
+            side_effect=ResponseError("BUSYGROUP Consumer Group name already exists")
         )
         publisher = EventPublisher(mock_redis)
 
@@ -270,7 +270,7 @@ class TestEventPublisher:
     @pytest.mark.asyncio
     async def test_ensure_consumer_group_exists(self, mock_redis: AsyncMock) -> None:
         """Test ensure_consumer_group returns False if exists."""
-        mock_redis.xgroup_create.side_effect = ResponseError("BUSYGROUP")
+        mock_redis.xgroup_create.configure_mock(side_effect=ResponseError("BUSYGROUP"))
         publisher = EventPublisher(mock_redis)
 
         created = await publisher.ensure_consumer_group("existing-group")
@@ -423,7 +423,7 @@ class TestEventPublisher:
     @pytest.mark.asyncio
     async def test_get_stream_info_not_exists(self, mock_redis: AsyncMock) -> None:
         """Test getting stream info when stream doesn't exist."""
-        mock_redis.xinfo_stream.side_effect = ResponseError("ERR no such key")
+        mock_redis.xinfo_stream.configure_mock(side_effect=ResponseError("ERR no such key"))
         publisher = EventPublisher(mock_redis)
 
         info = await publisher.get_stream_info()

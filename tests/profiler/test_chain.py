@@ -329,7 +329,7 @@ class TestPolygonClient:
         client = PolygonClient("https://polygon-rpc.com", redis=mock_redis)
 
         with patch.object(client, "_execute_with_retry", new_callable=AsyncMock) as mock_exec:
-            mock_exec.side_effect = RPCError("Connection failed")
+            mock_exec.configure_mock(side_effect=RPCError("Connection failed"))
 
             healthy = await client.health_check()
 

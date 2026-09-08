@@ -187,14 +187,6 @@ class DatabaseManager:
         finally:
             await session.close()
 
-    def init_schema(self) -> None:
-        """Initialize database schema synchronously."""
-        init_db(self._get_sync_engine())
-
-    async def init_schema_async(self) -> None:
-        """Initialize database schema asynchronously."""
-        await init_async_db(self._get_async_engine())
-
     def dispose(self) -> None:
         """Dispose of all database connections."""
         if self._sync_engine is not None:

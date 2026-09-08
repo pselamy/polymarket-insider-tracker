@@ -104,6 +104,24 @@ GATES: Mapping[str, Gate] = {
             "src/polymarket_insider_tracker",
         ),
     ),
+    "vulture": Gate(
+        "vulture",
+        (
+            "uv",
+            "run",
+            "--isolated",
+            "--locked",
+            "--all-extras",
+            "--python",
+            "3.11",
+            "vulture",
+            "src",
+            "tests",
+            "scripts",
+            "alembic",
+            "conftest.py",
+        ),
+    ),
     "imports": Gate(
         "imports",
         (
@@ -130,7 +148,7 @@ GATES: Mapping[str, Gate] = {
 }
 
 BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
-    "static": ("lock", "format", "lint", "strict-types", "pyright"),
+    "static": ("lock", "format", "lint", "strict-types", "pyright", "vulture"),
     "compatibility": ("lock", "imports", "tests"),
     "services": ("services", "migrations"),
 }
@@ -140,7 +158,6 @@ PROFILE_NAMES = ("static", "compatibility", "services", "all")
 # other configured secret is replaced completely because its value may live anywhere in the string.
 SERVICE_URL_KEYS = ("DATABASE_URL", "REDIS_URL")
 SECRET_VALUE_KEYS = ("POLYMARKET_API_KEY", "DISCORD_WEBHOOK_URL", "TELEGRAM_BOT_TOKEN")
-SENSITIVE_ENVIRONMENT_KEYS = SERVICE_URL_KEYS + SECRET_VALUE_KEYS
 TEST_CONFIGURATION_KEYS = frozenset(
     {"DATABASE_URL", "REDIS_URL", "LOG_LEVEL", "DRY_RUN", "HEALTH_PORT", "RUN_SERVICE_TESTS"}
 )
@@ -169,6 +186,11 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
         "pyright",
         "uv run --isolated --locked --all-extras --python 3.11 "
         "pyright src/polymarket_insider_tracker",
+    ),
+    (
+        "vulture",
+        "uv run --isolated --locked --all-extras --python 3.11 vulture "
+        "src tests scripts alembic conftest.py",
     ),
     (
         "imports",

@@ -246,3 +246,49 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
   implementation candidate and retain their results for the reviewer handoff and pull-request description.
 - [X] T048 Complete the required immutable Agy and Claude Code/fable reviews, resolve all findings, open
   the non-draft pull request, and verify its blocking GitHub checks without merging it.
+
+## Phase 10: Required Vulture Dead-Code Gate
+
+Branch `quality/vulture-required-gate` from base `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f`. Phase 9
+completion is not evidence for this phase; each item below is checked only when true for this slice.
+
+- [X] T049 Pin and lock `vulture==2.16` in `pyproject.toml` and regenerate `uv.lock` reproducibly.
+- [X] T050 Configure Vulture over `src`, `tests`, `scripts`, `alembic`, and `conftest.py` (every tracked
+  repository Python file) at its default confidence with no baseline, allowlist, `ignore_names`,
+  `ignore_decorators`, path exclusion, inline suppression, or confidence threshold.
+- [X] T051 Add `vulture` as an explicit fail-closed gate after `pyright` in `scripts/verify.py` (`static` and
+  `all` profiles), naming its scope on the command line.
+- [X] T052 Add an independent required `vulture` job in `.github/workflows/ci.yml` and bind it into the
+  `Required checks` aggregator.
+- [X] T053 Resolve every default-confidence Vulture finding through genuine dead-code removal or real
+  code/test structure, preserving live behavior and recording removed public surface in `CHANGELOG.md`.
+- [X] T054 Add tests proving local gate membership/order, per-gate failure propagation, the CI job's command
+  binding to the verifier gate, aggregator dependency/order, and fail-closed handling of every non-success
+  predecessor result by executing the real aggregator script.
+- [X] T055 Align README, specification, plan, data model, runtime contract, quickstart, and tasks with the
+  Vulture gate requirements.
+- [X] T056 Agy first pass committed as `c596aa74dd87f4eff2cc22a30de5a5d6e17640c8` and preserved unamended as
+  the reviewable first-pass anchor.
+- [X] T057 Claude Code/fable adversarial review completed on top of the Agy commit: removed `min_confidence`,
+  `ignore_decorators`, and `ignore_names`; made the bare scan clean through real structure; bound the CI
+  job and aggregator tests to the real workflow and verifier; fixed trailing-blank-line diff errors; updated
+  the data model, changelog, and this ledger. Commit hashes are recorded in
+  `evidence/verification.md` (Phase 10).
+- [X] T058 Codex refute-first review of the fable-corrected branch, with every finding resolved or recorded.
+- [X] T059 Open the non-draft pull request for `quality/vulture-required-gate` against `main`.
+- [X] T060 Verify that the independent `Vulture dead code check` job and the `Required checks` aggregator pass
+  on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.
+- [ ] T061 Patrick's approval of the pull request.
+- [ ] T062 Merge into `main`.
+- [ ] T063 Post-merge: confirm the `main` workflow run is green with the `vulture` job present in the
+  required aggregator, and close this ledger.
+- [X] T064 Agy corrective pass committed as `fc8ae9009b83b53b7e5033527252e005c43c9557` on checkpoint
+  `4df55be84ecb506946263e6e145b95dda726f3d9`: extended the Vulture scope to `alembic` and `conftest.py`,
+  exposed the Pytest/Alembic entry points through `__all__`, and removed the test type suppression.
+- [X] T065 Claude Code/fable adversarial review of the corrective commit `fc8ae90`, with fixes committed on
+  top of it unamended as `2a909a6619ba8091ef8ed85e96f5a64ea7f979db` and the review recorded in
+  `evidence/verification.md`.
+- [X] T066 Codex refute-first re-review of the fable-corrected corrective head.
+- [X] T067 Verify that both push and pull-request workflows pass on reviewed corrective implementation head
+  `ac691ab16a57b702d6870842e7479cbaf5b2784f` and record the immutable runs; T060's evidence covers head
+  `69654ee` only.

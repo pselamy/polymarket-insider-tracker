@@ -589,36 +589,3 @@ class RiskAssessmentRepository:
         self.session.add(model)
         await self.session.flush()
         return dto
-
-    async def get_by_assessment_id(self, assessment_id: str) -> RiskAssessmentDTO | None:
-        result = await self.session.execute(
-            select(RiskAssessmentModel).where(RiskAssessmentModel.assessment_id == assessment_id)
-        )
-        model = result.scalar_one_or_none()
-        if model is None:
-            return None
-        return RiskAssessmentDTO(
-            assessment_id=model.assessment_id,
-            trade_id=model.trade_id,
-            wallet_address=model.wallet_address,
-            market_id=model.market_id,
-            asset_id=model.asset_id,
-            side=model.side,
-            outcome=model.outcome,
-            outcome_index=model.outcome_index,
-            price=model.price,
-            size=model.size,
-            notional_usdc=model.notional_usdc,
-            trade_timestamp=model.trade_timestamp,
-            weighted_score=model.weighted_score,
-            signals_triggered=model.signals_triggered,
-            fresh_wallet_confidence=model.fresh_wallet_confidence,
-            size_anomaly_confidence=model.size_anomaly_confidence,
-            is_niche_market=model.is_niche_market,
-            volume_impact=model.volume_impact,
-            book_impact=model.book_impact,
-            wallet_age_hours=model.wallet_age_hours,
-            should_alert=model.should_alert,
-            threshold_at_eval=model.threshold_at_eval,
-            created_at=model.created_at,
-        )

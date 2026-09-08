@@ -398,3 +398,410 @@ so convergence made no further mutation.
 
 The check-run annotation API returned zero annotations for all seven jobs. This run supersedes the
 expected red-test checkpoint run at `f2d0ff7` and is the authoritative convergence implementation proof.
+
+## Phase 10: Required Vulture Dead-Code Gate
+
+**Date**: 2026-09-08
+
+**Base**: `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f` · **Agy first pass**:
+`c596aa74dd87f4eff2cc22a30de5a5d6e17640c8`, preserved unamended as the reviewable anchor.
+
+**Environment**: Linux 6.8 x86_64, uv 0.11.21, verifier launched by CPython 3.13.14. Floor-pinned gates
+(mypy, Pyright, Vulture) ran in the locked isolated Python 3.11 environment.
+
+### Claude Code/fable adversarial review of the Agy first pass
+
+Bare Vulture over the base tree with no configuration reported 51 findings. The Agy tree removed the
+genuine dead code but hid the remaining 36 findings behind `min_confidence = 60`,
+`ignore_decorators = ["@field_validator", "@pytest.fixture"]`, and
+`ignore_names = ["model_config", "side_effect"]`. Findings and dispositions:
+
+1. **Filtered scan (blocker)**: all three settings removed; `[tool.vulture]` now names only `paths`. The
+   36 exposed findings were resolved through real structure: the four `@field_validator` methods became
+   module-level functions attached with `Annotated[..., AfterValidator(...)]`; 21 `mock.side_effect = value`
+   attribute stores became `configure_mock(side_effect=value)`; the nine `model_config` declarations are
+   read by a contract test that pins the shared `.env` loading policy per settings group, backed by a
+   behavioral test loading one shared `.env` through every group; the session autouse fixture now yields
+   its isolated directory and `tests/test_harness_isolation.py` proves the runtime-contract isolation
+   guarantee; the config cache fixture yields the reset used by the cache-reload test.
+2. **Scope not named on the command (blocker)**: the verifier gate, `--help`, CI job, README, plan, and
+   contract now run `vulture src tests scripts`, mirroring the Pyright explicit-scope precedent.
+3. **Workflow simulation (blocker)**: the fail-closed test re-typed the aggregator script. Replaced by
+   `tests/tooling/test_ci_workflow.py`, which parses the real `ci.yml`, binds the `vulture` job's command to
+   `GATES["vulture"].command_text` and `DIRECT_GATE_COMMANDS`, asserts `if: always()` and the exact `needs`
+   order, and executes the real aggregator `run:` script under GitHub's `bash --noprofile --norc -eo
+   pipefail` for every blocking job × {failure, cancelled, skipped} plus the all-success case.
+4. **`git diff --check` (blocker)**: trailing blank lines in this file and `tasks.md` removed.
+5. **Deletions re-evaluated**: every Agy removal had no caller, test, export consumer, or documentation
+   reference in history. `DatabaseManager.init_schema*`, `GracefulShutdown(exit_on_timeout=)`,
+   `ShutdownTimeoutError`, and `RiskAssessmentRepository.get_by_assessment_id` were public surface, so the
+   `CHANGELOG.md` gained a `Removed` section with migration notes; the shutdown docstring no longer claims
+   force-exit on timeout, which was never implemented.
+6. **Weak guard test**: the `traced_at` test now asserts an aware UTC timestamp bounded by the test clock.
+7. **Undeclared test dependency**: `yaml` was imported through a transitive pre-commit dependency;
+   `pyyaml>=6.0.0` is now declared in the dev extra (lock changed only in metadata entries).
+8. **Documentation drift**: `data-model.md` profile table and gate identifier enum lacked `vulture`; FR-016,
+   plan, contract, README, and the task ledger now state the unfiltered default-confidence contract; the
+   static CI step name names Vulture; the Phase 10 ledger records Agy, fable, Codex, PR, CI, approval,
+   merge, and post-merge states factually.
+
+### Commands and results on the corrected tree
+
+```text
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts --config /dev/null
+exit: 0 (no configuration file, default confidence, no ignore mechanism)
+
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
+exit: 0
+
+uv run python scripts/verify.py --profile static
+lock: passed; format: passed; lint: passed
+strict-types: passed (Success: no issues found in 41 source files)
+pyright: passed (0 errors, 0 warnings, 0 informations)
+vulture: passed
+status: passed; duration: 7.12s; exit: 0
+
+uv run python scripts/verify.py --profile compatibility
+lock: passed; imports: passed
+tests: 803 passed, 2 skipped, 16 warnings in 11.38s
+status: passed; exit: 0
+
+uv run --isolated --locked --all-extras --python 3.11 python scripts/verify.py --profile compatibility --json
+status: passed; exit: 0
+uv run --isolated --locked --all-extras --python 3.12 python scripts/verify.py --profile compatibility --json
+status: passed; exit: 0
+
+uv lock --check                       exit: 0
+actionlint .github/workflows/ci.yml   exit: 0
+git diff --check                      exit: 0
+```
+
+The two skips are the platform-specific Windows signal-handler case and the opt-in real-service integration
+case. The 16 warnings are the pre-existing WebSockets deprecation, legacy database-URL migration warnings
+exercised by tests, and the mocked-coroutine resource warning.
+
+**Advisory complexity scan** (`complexipy --max-complexity-allowed 10 --failed` on changed behavior-heavy
+files): every changed function is within budget. `scripts/verify.py` `run_verification` (15) and
+`render_human` (11) exceed the budget but are unchanged by this slice; refactoring them is out of scope.
+
+**Service profile on this host**: `uv run --env-file .env.example python scripts/verify.py --profile services`
+exited `1`. The PostgreSQL listener on `127.0.0.1:5432` is not the Compose stack (password authentication
+failed for user `tracker`), Redis on `6379` refused the connection, and the Docker socket denied access to
+this user. Service and migration evidence for this slice is therefore not claimed locally and is left to
+the orchestrator and the CI service job.
+
+**Not performed**: no pull request, push, merge, or repository-setting change. Items T058–T063 remain open.
+
+### Provenance
+
+| Commit | Purpose |
+|---|---|
+| `c596aa74dd87f4eff2cc22a30de5a5d6e17640c8` | Agy first pass (reviewed, unamended) |
+| `efd42073aa8f7ddecbf9373731479b811fa06758` | Claude Code/fable review fixes listed above |
+
+This provenance entry is committed separately from the fix commit it records and does not embed its own hash.
+
+### Codex refute-first review of the fable-corrected tree
+
+Codex independently reviewed immutable fable head
+`3e6a4bdde17373f7c5955f5886f604dbe0213b76` and found no unresolved blocker. The review covered the
+complete base-to-head diff, every production deletion, the Pydantic validator rewrite, the canonical
+verifier and direct-command contract, the real CI workflow and fail-closed aggregator tests, dependency
+and lock metadata, active documentation, and the factual task state. The unfiltered policy was also
+checked mechanically: no Vulture confidence override, ignored name/decorator, allowlist, baseline,
+suppression, or path exclusion is present in the implementation.
+
+Independent reproduction on macOS arm64 with uv 0.11.26 and CPython 3.13.14 produced:
+
+```text
+git diff --check a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f..HEAD      exit: 0
+actionlint .github/workflows/ci.yml                                   exit: 0
+uv lock --check                                                       exit: 0
+uv run python scripts/verify.py --profile static                      status: passed
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts --config /dev/null                                exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts                                                   exit: 0
+uv run --isolated --locked --all-extras --python 3.11 python
+  scripts/verify.py --profile compatibility --json                    status: passed
+uv run --isolated --locked --all-extras --python 3.12 python
+  scripts/verify.py --profile compatibility --json                    status: passed
+uv run --isolated --locked --all-extras --python 3.13 python
+  scripts/verify.py --profile compatibility --json                    status: passed
+uv run pytest -q                                                      803 passed, 2 skipped
+uv run --env-file .env.example python scripts/verify.py
+  --profile services                                                  status: passed
+```
+
+The live service run reached PostgreSQL and Redis, then exercised the disposable Alembic sequence
+`002_risk_assessments -> 001_initial -> 002_risk_assessments`, completed an async query, dropped its
+temporary database, and left no `pit_verify_%` database behind. At the time of this local review, pull
+request, GitHub CI, approval, merge, and post-merge evidence were not yet claimed; T059–T063 were open.
+
+### Pull request CI checkpoint
+
+Pull request [#115](https://github.com/pselamy/polymarket-insider-tracker/pull/115) was opened non-draft
+from `quality/vulture-required-gate` into `main`. At the checkpoint below, its immutable base was
+`a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f` and its implementation head was
+`69654eee7528bbdec1bc67aff6dab2490df1c04a`.
+
+Pull-request workflow run
+[`34273501118`](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118) completed
+with conclusion `success` on that exact head:
+
+| Job | Conclusion | Duration | Immutable job |
+|---|---|---:|---|
+| PostgreSQL and Redis required checks | success | 56s | [102220735416](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735416) |
+| Apple Silicon advisory compatibility | success | 37s | [102220735703](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735703) |
+| Python 3.11 compatibility | success | 29s | [102220735874](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735874) |
+| Python 3.12 compatibility | success | 32s | [102220735783](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735783) |
+| Python 3.13 compatibility | success | 40s | [102220735899](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735899) |
+| Static required checks | success | 36s | [102220735892](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735892) |
+| Vulture dead code check | success | 20s | [102220735828](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102220735828) |
+| Required checks | success | 4s | [102221051318](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34273501118/job/102221051318) |
+
+The protected `main` branch remained strict and required the `Required checks` context, which passed only
+after its four blocking predecessors (`static`, `vulture`, `compatibility`, and `services`) succeeded. At
+this checkpoint the PR was open, non-draft, mergeable, and reported `CLEAN`; it had no review decision and
+was not merged. Patrick's approval, merge, and post-merge confirmation remain pending (T061–T063).
+
+### Agy corrective implementation pass
+
+**Date**: 2026-09-08 · **Commit**: `fc8ae9009b83b53b7e5033527252e005c43c9557` (sole parent
+`4df55be84ecb506946263e6e145b95dda726f3d9`), preserved unamended as the reviewable corrective anchor.
+The sections above record what actually ran on the earlier heads and are not restated in this scope.
+
+A fresh corrective pass was implemented on `quality/vulture-required-gate` starting from immutable checkpoint
+`4df55be84ecb506946263e6e145b95dda726f3d9` to resolve two independently reproduced blockers:
+
+1. **Tracked repository Python files omitted from Vulture scope (blocker)**:
+   The Vulture gate claimed complete repository dead-code coverage but scanned only `src`, `tests`, and
+   `scripts`. Exactly four tracked repository-owned Python files were omitted: root `conftest.py`,
+   `alembic/env.py`, and the two migration revisions under `alembic/versions/`
+   (`20260104_0000_initial_schema.py` and `20260522_1130_risk_assessments.py`).
+   The bare scan `vulture conftest.py alembic --config /dev/null` reported 14 Pytest/Alembic convention-based
+   entry points (2 in `conftest.py` and 6 in each migration revision).
+2. **Type suppression in CI contract tests (blocker)**:
+   `tests/tooling/test_ci_workflow.py` contained `# type: ignore[union-attr]`, violating the
+   suppression-free repository contract.
+
+#### Findings and dispositions
+
+1. **Canonical explicit scope extended everywhere to `src tests scripts alembic conftest.py`**:
+   The explicit five-path scope was applied to `pyproject.toml` `[tool.vulture].paths`,
+   `scripts/verify.py` `GATES["vulture"]` command tuple, `DIRECT_GATE_COMMANDS`, `--help` epilog,
+   `.github/workflows/ci.yml` `vulture` job step, `README.md`, and all Spec Kit Phase 10 artifacts
+   (`spec.md` FR-016, `plan.md`, `contracts/runtime-verification.md`, `tasks.md`, and this file).
+   No loose glob pattern is used.
+2. **Framework-consumed entry points made visible through real Python structure**:
+   Explicit `__all__` exports were added in root `conftest.py` (`event_loop_policy`, `pytest_plugins`),
+   `alembic/versions/20260104_0000_initial_schema.py` (`branch_labels`, `depends_on`, `down_revision`,
+   `downgrade`, `revision`, `upgrade`), and `alembic/versions/20260522_1130_risk_assessments.py`
+   (`branch_labels`, `depends_on`, `down_revision`, `downgrade`, `revision`, `upgrade`).
+   `alembic/env.py` was verified clean under Vulture (0 findings) as its runner functions are invoked
+   directly at module level. No baseline, allowlist, ignore name/decorator, confidence threshold,
+   exclusion, inline suppression, noqa, or grandfathering mechanism was used. Both the bare
+   `--config /dev/null` scan and the configured scan over all five paths exit 0 with zero findings.
+3. **Type suppression removed**:
+   Replaced `# type: ignore[union-attr]` in `tests/tooling/test_ci_workflow.py` with an ordinary
+   `_matched_job` helper function containing an explicit regex match assertion. Strict typing and
+   readability are preserved with zero type suppressions.
+4. **Drift-catching tests added**:
+   - `test_vulture_scope_matches_between_ci_pyproject_and_verifier`: verifies that `pyproject.toml`,
+     `verify.py` gate tuple, direct command help, and the CI workflow all share the exact canonical
+     scope and order (`src tests scripts alembic conftest.py`).
+   - `test_all_tracked_python_files_are_covered_by_vulture_scope`: dynamically queries `git ls-files "*.py"`
+     and asserts that 100% of tracked repository-owned Python files are covered by the explicit scope,
+     and every scope entry covers at least one tracked file.
+   - `test_vulture_job_is_independent_and_runs_the_canonical_gate_command` and fail-closed aggregator
+     tests in `test_ci_workflow.py` verify that the independent job and protected aggregator remain
+     fail-closed.
+5. **Task ledger and review state kept factual**:
+   PR #115 and earlier CI run `34273501118` remain recorded for head `69654ee`. CI on the corrective
+   head, re-reviews, approval, merge, and post-merge confirmation remain pending (T065–T067 and
+   T061–T063 open).
+
+#### Verification commands and results
+
+```text
+git diff --check                                                      exit: 0
+actionlint .github/workflows/ci.yml                                   not available locally
+uv lock --check                                                       exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py --config /dev/null            exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py                               exit: 0
+uv run python scripts/verify.py --profile static                      status: passed (exit 0)
+uv run python scripts/verify.py --profile compatibility               status: passed (exit 0, 805 passed, 2 skipped)
+uv run --isolated --locked --all-extras --python 3.11 python
+  scripts/verify.py --profile compatibility --json                    status: passed (exit 0)
+uv run --isolated --locked --all-extras --python 3.12 python
+  scripts/verify.py --profile compatibility --json                    status: passed (exit 0)
+uv run --isolated --locked --all-extras --python 3.13 python
+  scripts/verify.py --profile compatibility --json                    status: passed (exit 0)
+```
+
+### Claude Code/fable adversarial review of the Agy corrective commit
+
+**Date**: 2026-09-08 · **Reviewed**: `fc8ae9009b83b53b7e5033527252e005c43c9557` (sole parent
+`4df55be84ecb506946263e6e145b95dda726f3d9`, clean worktree), left unamended; fixes below are committed on
+top of it. Environment: Linux 6.8 x86_64, uv 0.11.21, verifier launched by CPython 3.13.14; floor-pinned
+gates ran in the locked isolated Python 3.11 environment.
+
+Independently reproduced before reviewing the fixes: at `4df55be` exactly four tracked Python files sat
+outside the Vulture scope (`conftest.py`, `alembic/env.py`, and the two migration revisions), and the bare
+scan `vulture conftest.py alembic --config /dev/null` reported 14 default-confidence findings (2 + 6 + 6)
+with `alembic/env.py` clean. At `fc8ae90` the exact pinned command over `src tests scripts alembic
+conftest.py` exits 0 with and without `--config /dev/null`. Findings and dispositions:
+
+1. **Historical evidence rewritten (blocker)**: the corrective commit changed the earlier "Claude
+   Code/fable adversarial review of the Agy first pass" finding 2 and the "Commands and results on the
+   corrected tree" block from `vulture src tests scripts` to the five-path command, although only the
+   three-path command ever ran on heads `efd4207`, `3e6a4bd`, and `69654ee`. Both hunks are restored to the
+   text recorded at `4df55be`; the wider scope is described only in the dated corrective sections.
+2. **Corrective section unprovenanced (blocker)**: the "Agy corrective implementation pass" section named
+   no date or commit and pointed open work at `T061–T063`, which do not cover the corrective-head CI run
+   or re-reviews. The section now records its date, commit, and parent; the ledger gained `T064`
+   (Agy corrective commit, done), `T065` (this review, completed by the provenance commit), `T066` (Codex
+   re-review), and `T067` (CI on the final corrective head, noting that `T060` covers head `69654ee` only).
+   `T066–T067` and `T061–T063` are open.
+3. **`__all__` exports verified as real framework structure**: `alembic.script.ScriptDirectory`
+   loads both revisions with every exported name defined; `alembic upgrade head --sql` and
+   `alembic downgrade head:base --sql` each emit the full 17-statement DDL sequence in offline mode; root
+   `conftest.py` still registers `pytest_asyncio` and the session `event_loop_policy` override, and Pytest
+   collects 807 tests. No baseline, allowlist, `ignore_names`, `ignore_decorators`, confidence option, path
+   exclusion, inline suppression, `noqa`, wrapper filtering, or grandfathering exists in the implementation
+   or the changed tests (`grep` over `pyproject.toml`, `scripts/verify.py`, `conftest.py`, `alembic/`, and
+   `tests/tooling/`). Ruff reports no undefined `__all__` member in `alembic/` or `conftest.py`.
+4. **Coverage test reviewed**: `git ls-files "*.py"` matches at any depth (git pathspec `*` crosses `/`),
+   lists only tracked files, runs from the repository root under `actions/checkout`, and the exactly-one
+   match assertion rejects overlapping or duplicate entries while the non-empty assertion rejects unused
+   or empty entries. The `typings/*.pyi` stubs are excluded deliberately: they describe third-party APIs,
+   and Vulture's directory discovery collects only `*.py`.
+5. **Test readability**: `tomllib` is imported at module level in both tooling test modules; the
+   canonical scope and command constants sit with the other workflow constants instead of between tests;
+   the 100+ column f-string assertion became a named constant. Two pre-existing strict Pyright errors in
+   the same file (a `Literal`-keyed `dict.fromkeys` result passed as `Mapping[str, str]`) are fixed with an
+   explicit `dict[str, str]` annotation; `tests/tooling` is now clean under strict Pyright and contains
+   no type suppression.
+6. **Active documentation**: README, FR-016, plan, contract, and `T050` now state that the five paths
+   hold every tracked repository Python file, and the contract names the coverage test; over-long lines
+   introduced by the corrective commit are re-wrapped. No three-path claim remains outside historical
+   sections. `CHANGELOG.md`, `data-model.md`, and `quickstart.md` make no scope claim and are unchanged.
+7. **Fail-closed CI**: the independent `vulture` job has no `needs`, `if`, or `continue-on-error`; the
+   aggregator keeps `if: always()`, the exact `needs` order, and the per-job `test ... = success` script,
+   and the real-script tests still fail it for every job × {failure, cancelled, skipped}.
+
+Out of scope and unchanged: the Ruff lint gate still names `src tests scripts`, so `alembic/` and
+`conftest.py` are formatted by Black but not linted by Ruff in the gate; extending it is a separate slice.
+
+#### Commands and results on the fable-corrected corrective tree
+
+```text
+git diff --check                                                      exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py --config /dev/null            exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py                               exit: 0
+uv run python scripts/verify.py --profile static
+  lock, format, lint, strict-types (41 source files), pyright
+  (0 errors), vulture                                                 status: passed, exit 0
+uv run pytest -q                                                      805 passed, 2 skipped, 16 warnings
+uv run --isolated --locked --all-extras --python 3.11 python
+  scripts/verify.py --profile compatibility --json                    status: passed, exit 0
+uv run --isolated --locked --all-extras --python 3.12 python
+  scripts/verify.py --profile compatibility --json                    status: passed, exit 0
+uv run --isolated --locked --all-extras --python 3.13 python
+  scripts/verify.py --profile compatibility --json                    status: passed, exit 0
+pyright tests/tooling (advisory, outside the gate)                    0 errors
+ruff check alembic conftest.py (advisory, outside the gate)           exit: 0
+alembic upgrade head --sql / downgrade head:base --sql (offline)      exit: 0, 17 statements each
+complexipy tests/tooling --max-complexity-allowed 10 --failed         none over budget
+actionlint .github/workflows/ci.yml                                   not installed on this host
+uv run --env-file .env.example python scripts/verify.py
+  --profile services                                                  exit: 1
+```
+
+The service profile failed at the probe: the PostgreSQL listener on `127.0.0.1:5432` is not the Compose
+stack (password authentication failed for user `tracker`), Redis on `6379` refused the connection, and the
+Docker socket denied access to this user. Live service and migration evidence for the corrective head is
+therefore not claimed here and is left to the CI `services` job. No pull request, push, review, merge, or
+repository-setting change was performed; `T066–T067` and `T061–T063` remain open until true.
+
+#### Provenance
+
+| Commit | Purpose |
+|---|---|
+| `fc8ae9009b83b53b7e5033527252e005c43c9557` | Agy corrective pass (reviewed, unamended) |
+| `2a909a6619ba8091ef8ed85e96f5a64ea7f979db` | Claude Code/fable review fixes listed above |
+
+This provenance entry is committed separately from the fix commit it records and does not embed its own hash.
+
+### Codex re-review of the complete-scope correction
+
+**Date**: 2026-09-08 · **Reviewed**: Fable head
+`2ad6ac164333723514ec812006aa1f700f41e4cd` (sole parent
+`2a909a6619ba8091ef8ed85e96f5a64ea7f979db`) and the complete additive chain back to corrective base
+`4df55be84ecb506946263e6e145b95dda726f3d9`.
+
+Codex independently inspected the full corrective diff and found no unresolved blocker. The review confirmed
+that all 85 tracked `*.py` files match exactly one of the five explicit scope entries; the real pyproject,
+verifier tuple, verifier help, and independent CI job agree on the same ordered command; the root Pytest and
+both Alembic revision `__all__` declarations export only names consumed by those frameworks; and the real
+aggregator script still fails closed for each blocking job's failed, cancelled, and skipped results. The
+earlier three-path evidence is restored as immutable history, while the wider command appears only in the
+dated corrective sections. No Vulture escape hatch or type suppression is present in the implementation or
+changed contract tests.
+
+Independent reproduction on macOS arm64 with uv 0.11.26 and CPython 3.13.14 produced:
+
+```text
+git diff --check 4df55be84ecb506946263e6e145b95dda726f3d9..2ad6ac1    exit: 0
+actionlint .github/workflows/ci.yml                                   exit: 0
+uv lock --check                                                       exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py --config /dev/null            exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py                               exit: 0
+uv run ruff check alembic conftest.py                                 exit: 0
+uv run --isolated --locked --all-extras --python 3.11
+  pyright tests/tooling                                               0 errors, 0 warnings
+uv run pytest tests/tooling/ -q                                       51 passed
+complexipy tests/tooling --max-complexity-allowed 10 --failed         none over budget
+uv run --env-file .env.example python scripts/verify.py --profile all status: passed
+```
+
+The `all` profile passed lock, Black, Ruff, strict mypy, strict Pyright, complete-scope Vulture, imports,
+805 tests with 2 platform/opt-in skips, live PostgreSQL and Redis probes, and the disposable Alembic cycle.
+The temporary migration database was cleaned up. Corrective-head GitHub CI is not claimed in this section;
+T067 remains open until an immutable run completes. Approval, merge, and post-merge tasks T061–T063 also
+remain open.
+
+### Corrective implementation PR CI checkpoint
+
+**Date**: 2026-09-08 · **Verified head**: `ac691ab16a57b702d6870842e7479cbaf5b2784f`.
+
+Both CI trigger paths completed successfully on the exact reviewed corrective implementation head
+`ac691ab16a57b702d6870842e7479cbaf5b2784f`: push run
+[`34284040682`](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682) and pull-request
+run [`34284046393`](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393).
+
+| Job | Push conclusion / immutable job | Pull-request conclusion / immutable job |
+|---|---|---|
+| Static required checks | success / [102255322301](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322301) | success / [102255340785](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340785) |
+| PostgreSQL and Redis required checks | success / [102255322462](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322462) | success / [102255340835](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340835) |
+| Vulture dead code check | success / [102255322545](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322545) | success / [102255340480](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340480) |
+| Python 3.11 compatibility | success / [102255322566](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322566) | success / [102255340990](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340990) |
+| Python 3.12 compatibility | success / [102255322585](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322585) | success / [102255340890](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340890) |
+| Python 3.13 compatibility | success / [102255322576](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322576) | success / [102255341119](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255341119) |
+| Apple Silicon advisory compatibility | success / [102255322604](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322604) | success / [102255340914](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340914) |
+| Required checks | success / [102255537603](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255537603) | success / [102255559933](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255559933) |
+
+The protected `main` branch still used strict required-status checks with `Required checks` as its required
+context. Both instances passed only after the static, Vulture, compatibility, and service predecessors
+succeeded. At this checkpoint PR #115 was open, non-draft, mergeable, and `CLEAN`; `main` remained at exact
+base `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f`, no review decision was present, and no merge occurred.
+T067 is complete. Patrick's approval, merge, and post-merge confirmation remain pending (T061–T063).
+
+This evidence checkpoint is committed separately from the implementation head it records and does not embed
+its own hash. Its final-head CI status is reported on PR #115.

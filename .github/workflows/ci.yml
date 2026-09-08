@@ -29,7 +29,7 @@ jobs:
         run: uv python install 3.11
       - name: Sync locked dependencies
         run: uv sync --locked --all-extras --python 3.11
-      - name: Run static profile with mypy and Pyright
+      - name: Run static profile with mypy, Pyright, and Vulture
         run: uv run python scripts/verify.py --profile static
 
   compatibility:
@@ -122,19 +122,40 @@ jobs:
       - name: Run compatibility profile
         run: uv run python scripts/verify.py --profile compatibility
 
+  vulture:
+    name: Vulture dead code check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.11.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: vulture-3.11
+      - name: Install Python
+        run: uv python install 3.11
+      - name: Sync locked dependencies
+        run: uv sync --locked --all-extras --python 3.11
+      - name: Run Vulture dead-code verification
+        run: uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
+
   required:
     name: Required checks
     if: always()
-    needs: [static, compatibility, services]
+    needs: [static, vulture, compatibility, services]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every blocking predecessor
         env:
           STATIC_WITH_PYRIGHT_RESULT: ${{ needs.static.result }}
+          VULTURE_RESULT: ${{ needs.vulture.result }}
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
           SERVICES_RESULT: ${{ needs.services.result }}
         run: |
           test "$STATIC_WITH_PYRIGHT_RESULT" = success
+          test "$VULTURE_RESULT" = success
           test "$COMPATIBILITY_RESULT" = success
           test "$SERVICES_RESULT" = success

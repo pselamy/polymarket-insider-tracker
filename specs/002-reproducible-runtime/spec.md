@@ -61,8 +61,8 @@ failure per gate and verify that the aggregate check reports failure.
 **Acceptance Scenarios**:
 
 1. **Given** the proposed branch, **When** all required local checks run, **Then** format, lint, strict
-   mypy, strict Pyright, tests, service probes, and migrations all pass with no ignored required failure.
-2. **Given** a deliberate mypy or Pyright type error, formatting error, test failure, or migration
+   mypy, strict Pyright, Vulture dead-code verification, tests, service probes, and migrations all pass with no ignored required failure.
+2. **Given** a deliberate mypy or Pyright type error, dead code finding, formatting error, test failure, or migration
    failure, **When** the corresponding automated check runs, **Then** the pull request is blocked.
 3. **Given** any supported Python version, **When** the compatibility suite runs, **Then** installation
    and the required test subset pass on that version.
@@ -124,7 +124,7 @@ and automated checks; verify that they name one consistent support matrix and re
   End-to-end dry-run startup belongs to slices 001 and 003 and MUST NOT be claimed by this foundation slice.
 - **FR-007**: Every migration MUST retain a downgrade path, and automation MUST exercise upgrade to head,
   one-step downgrade, and re-upgrade using the supported PostgreSQL driver.
-- **FR-008**: Required format, lint, strict mypy, strict Pyright, test, migration, and compatibility checks MUST be blocking.
+- **FR-008**: Required format, lint, strict mypy, strict Pyright, Vulture dead-code check, test, migration, and compatibility checks MUST be blocking.
   Any approved exception MUST be explicit, time-bounded, owned, and visible in the gap register.
 - **FR-009**: Automated tests MUST use the declared locked dependency set rather than resolving an
   unrelated environment on each run.
@@ -141,6 +141,12 @@ and automated checks; verify that they name one consistent support matrix and re
 - **FR-015**: Pyright MUST remain an independent, exactly pinned and locked strict checker of the complete
   `src/polymarket_insider_tracker` package at the Python 3.11 compatibility floor. It MUST NOT use a
   baseline, diff-only mode, blanket suppression, broad exclusion, or downgraded diagnostics.
+- **FR-016**: Vulture MUST remain an independent, exactly pinned and locked dead-code checker across `src`,
+  `tests`, `scripts`, `alembic`, and `conftest.py` (every tracked repository Python file) at the Python 3.11
+  compatibility floor, running at Vulture's default confidence. It
+  MUST NOT use a baseline, whitelist/allowlist file, `ignore_names`, `ignore_decorators`, path exclusion,
+  inline suppression, minimum-confidence threshold, or non-blocking status. Names that frameworks consume by
+  convention MUST be made visible through real code and tests rather than exempted.
 
 ### Key Entities
 
@@ -160,7 +166,7 @@ and automated checks; verify that they name one consistent support matrix and re
   undeclared packages and complete the database test suite with zero dependency-related errors.
 - **SC-002**: The documented migration smoke cycle succeeds against PostgreSQL: upgrade to head, downgrade
   one revision, and re-upgrade to head, all using tracked configuration.
-- **SC-003**: Formatting, lint, strict mypy, strict Pyright, and the full deterministic test suite each report
+- **SC-003**: Formatting, lint, strict mypy, strict Pyright, Vulture dead-code verification, and the full deterministic test suite each report
   zero failures from a clean locked environment.
 - **SC-004**: Installation and the required compatibility test subset pass on 100% of Python 3.11, 3.12,
   and 3.13 jobs.

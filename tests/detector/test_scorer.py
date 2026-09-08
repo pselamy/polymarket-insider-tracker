@@ -506,7 +506,7 @@ class TestAssessMethod:
         """Test assess deduplicates repeated alerts."""
         # First call: key doesn't exist (returns True)
         # Second call: key exists (returns False/None)
-        mock_redis.set.side_effect = [True, False]
+        mock_redis.set.configure_mock(side_effect=[True, False])
 
         scorer = RiskScorer(mock_redis)
         bundle = SignalBundle(

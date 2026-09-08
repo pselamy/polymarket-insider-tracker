@@ -10,12 +10,41 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from functools import lru_cache
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AfterValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from polymarket_insider_tracker.storage.database_url import normalize_database_url
+
+
+def _validate_redis_url(value: str) -> str:
+    """Validate Redis URL format."""
+    if not value.startswith("redis://"):
+        raise ValueError("REDIS_URL must start with redis://")
+    return value
+
+
+def _validate_http_url(value: str) -> str:
+    """Validate RPC URL format."""
+    if not value.startswith(("http://", "https://")):
+        raise ValueError("RPC URL must be an HTTP(S) endpoint")
+    return value
+
+
+def _validate_websocket_url(value: str) -> str:
+    """Validate WebSocket URL format."""
+    if not value.startswith(("ws://", "wss://")):
+        raise ValueError("WebSocket URL must start with ws:// or wss://")
+    return value
+
+
+# Field-level validation is attached through annotated types so each rule is an ordinary function
+# whose use is visible to readers and static tooling alike.
+CanonicalDatabaseUrl = Annotated[str, AfterValidator(normalize_database_url)]
+RedisUrl = Annotated[str, AfterValidator(_validate_redis_url)]
+HttpEndpointUrl = Annotated[str, AfterValidator(_validate_http_url)]
+WebSocketEndpointUrl = Annotated[str, AfterValidator(_validate_websocket_url)]
 
 
 class DatabaseSettings(BaseSettings):
@@ -29,16 +58,10 @@ class DatabaseSettings(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    url: str = Field(
+    url: CanonicalDatabaseUrl = Field(
         alias="DATABASE_URL",
         description="PostgreSQL connection string",
     )
-
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        """Validate database URL format."""
-        return normalize_database_url(v)
 
 
 class RedisSettings(BaseSettings):
@@ -48,19 +71,11 @@ class RedisSettings(BaseSettings):
         env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    url: str = Field(
+    url: RedisUrl = Field(
         default="redis://localhost:6379",
         alias="REDIS_URL",
         description="Redis connection string",
     )
-
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        """Validate Redis URL format."""
-        if not v.startswith("redis://"):
-            raise ValueError("REDIS_URL must start with redis://")
-        return v
 
 
 class PolygonSettings(BaseSettings):
@@ -70,26 +85,16 @@ class PolygonSettings(BaseSettings):
         env_prefix="POLYGON_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    rpc_url: str = Field(
+    rpc_url: HttpEndpointUrl = Field(
         default="https://polygon-rpc.com",
         alias="POLYGON_RPC_URL",
         description="Primary Polygon RPC endpoint",
     )
-    fallback_rpc_url: str | None = Field(
+    fallback_rpc_url: HttpEndpointUrl | None = Field(
         default=None,
         alias="POLYGON_FALLBACK_RPC_URL",
         description="Fallback Polygon RPC endpoint",
     )
-
-    @field_validator("rpc_url", "fallback_rpc_url")
-    @classmethod
-    def validate_url(cls, v: str | None) -> str | None:
-        """Validate RPC URL format."""
-        if v is None:
-            return v
-        if not v.startswith(("http://", "https://")):
-            raise ValueError("RPC URL must be an HTTP(S) endpoint")
-        return v
 
 
 class PolymarketSettings(BaseSettings):
@@ -99,7 +104,7 @@ class PolymarketSettings(BaseSettings):
         env_prefix="POLYMARKET_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    ws_url: str = Field(
+    ws_url: WebSocketEndpointUrl = Field(
         default="wss://ws-subscriptions-clob.polymarket.com/ws/market",
         alias="POLYMARKET_WS_URL",
         description="Polymarket WebSocket URL for live data",
@@ -109,14 +114,6 @@ class PolymarketSettings(BaseSettings):
         alias="POLYMARKET_API_KEY",
         description="Optional Polymarket API key",
     )
-
-    @field_validator("ws_url")
-    @classmethod
-    def validate_ws_url(cls, v: str) -> str:
-        """Validate WebSocket URL format."""
-        if not v.startswith(("ws://", "wss://")):
-            raise ValueError("WebSocket URL must start with ws:// or wss://")
-        return v
 
 
 class DiscordSettings(BaseSettings):
