@@ -6,6 +6,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tomllib
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -65,8 +66,6 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
 
 
 def test_vulture_gate_is_unfiltered_and_names_its_complete_scope() -> None:
-    import tomllib
-
     module = _load_module()
     canonical_scope = ("src", "tests", "scripts", "alembic", "conftest.py")
 

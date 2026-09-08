@@ -38,8 +38,10 @@ The independent `vulture` gate runs after `pyright` and before runtime imports:
 uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
 ```
 
-`pyproject.toml` pins Vulture `2.16` and names the `src`, `tests`, `scripts`, `alembic`, and `conftest.py` scope; the command repeats
-those paths so its scope is visible and fail-closed at invocation. Vulture runs at its default confidence with
+`pyproject.toml` pins Vulture `2.16` and names the `src`, `tests`, `scripts`, `alembic`, and `conftest.py`
+scope, which together hold every tracked repository Python file; the command repeats those paths so its
+scope is visible and fail-closed at invocation. A contract test lists the tracked `*.py` files with git and
+proves each one is covered by exactly one scope entry. Vulture runs at its default confidence with
 no baseline, allowlist, `ignore_names`, `ignore_decorators`, path exclusion, inline suppression, or
 minimum-confidence setting. Names that frameworks consume by convention (Pydantic `model_config`,
 `unittest.mock` `side_effect`, autouse fixtures) are made visible through real code and tests, not exempted.

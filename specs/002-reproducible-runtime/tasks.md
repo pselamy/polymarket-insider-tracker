@@ -253,8 +253,9 @@ Branch `quality/vulture-required-gate` from base `a0c0d9945a3a38cec965e09a1ed2d5
 completion is not evidence for this phase; each item below is checked only when true for this slice.
 
 - [X] T049 Pin and lock `vulture==2.16` in `pyproject.toml` and regenerate `uv.lock` reproducibly.
-- [X] T050 Configure Vulture over `src`, `tests`, `scripts`, `alembic`, and `conftest.py` at its default confidence with no baseline,
-  allowlist, `ignore_names`, `ignore_decorators`, path exclusion, inline suppression, or confidence threshold.
+- [X] T050 Configure Vulture over `src`, `tests`, `scripts`, `alembic`, and `conftest.py` (every tracked
+  repository Python file) at its default confidence with no baseline, allowlist, `ignore_names`,
+  `ignore_decorators`, path exclusion, inline suppression, or confidence threshold.
 - [X] T051 Add `vulture` as an explicit fail-closed gate after `pyright` in `scripts/verify.py` (`static` and
   `all` profiles), naming its scope on the command line.
 - [X] T052 Add an independent required `vulture` job in `.github/workflows/ci.yml` and bind it into the
@@ -281,3 +282,11 @@ completion is not evidence for this phase; each item below is checked only when 
 - [ ] T062 Merge into `main`.
 - [ ] T063 Post-merge: confirm the `main` workflow run is green with the `vulture` job present in the
   required aggregator, and close this ledger.
+- [X] T064 Agy corrective pass committed as `fc8ae9009b83b53b7e5033527252e005c43c9557` on checkpoint
+  `4df55be84ecb506946263e6e145b95dda726f3d9`: extended the Vulture scope to `alembic` and `conftest.py`,
+  exposed the Pytest/Alembic entry points through `__all__`, and removed the test type suppression.
+- [ ] T065 Claude Code/fable adversarial review of the corrective commit, with fixes committed on top of
+  it unamended and the review recorded in `evidence/verification.md`.
+- [ ] T066 Codex refute-first re-review of the fable-corrected corrective head.
+- [ ] T067 Verify that the pull-request workflow passes on the final corrective head and record the
+  immutable run; T060's evidence covers head `69654ee` only.

@@ -425,7 +425,7 @@ genuine dead code but hid the remaining 36 findings behind `min_confidence = 60`
    its isolated directory and `tests/test_harness_isolation.py` proves the runtime-contract isolation
    guarantee; the config cache fixture yields the reset used by the cache-reload test.
 2. **Scope not named on the command (blocker)**: the verifier gate, `--help`, CI job, README, plan, and
-   contract now run `vulture src tests scripts alembic conftest.py`, mirroring the Pyright explicit-scope precedent.
+   contract now run `vulture src tests scripts`, mirroring the Pyright explicit-scope precedent.
 3. **Workflow simulation (blocker)**: the fail-closed test re-typed the aggregator script. Replaced by
    `tests/tooling/test_ci_workflow.py`, which parses the real `ci.yml`, binds the `vulture` job's command to
    `GATES["vulture"].command_text` and `DIRECT_GATE_COMMANDS`, asserts `if: always()` and the exact `needs`
@@ -448,10 +448,10 @@ genuine dead code but hid the remaining 36 findings behind `min_confidence = 60`
 ### Commands and results on the corrected tree
 
 ```text
-uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py --config /dev/null
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts --config /dev/null
 exit: 0 (no configuration file, default confidence, no ignore mechanism)
 
-uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
 exit: 0
 
 uv run python scripts/verify.py --profile static
@@ -567,6 +567,10 @@ was not merged. Patrick's approval, merge, and post-merge confirmation remain pe
 
 ### Agy corrective implementation pass
 
+**Date**: 2026-09-08 · **Commit**: `fc8ae9009b83b53b7e5033527252e005c43c9557` (sole parent
+`4df55be84ecb506946263e6e145b95dda726f3d9`), preserved unamended as the reviewable corrective anchor.
+The sections above record what actually ran on the earlier heads and are not restated in this scope.
+
 A fresh corrective pass was implemented on `quality/vulture-required-gate` starting from immutable checkpoint
 `4df55be84ecb506946263e6e145b95dda726f3d9` to resolve two independently reproduced blockers:
 
@@ -613,8 +617,9 @@ A fresh corrective pass was implemented on `quality/vulture-required-gate` start
      tests in `test_ci_workflow.py` verify that the independent job and protected aggregator remain
      fail-closed.
 5. **Task ledger and review state kept factual**:
-   PR #115 and earlier CI run `34273501118` remain recorded. Rerun CI on the corrective head,
-   re-reviews, approval, merge, and post-merge confirmation remain pending (T061–T063 open).
+   PR #115 and earlier CI run `34273501118` remain recorded for head `69654ee`. CI on the corrective
+   head, re-reviews, approval, merge, and post-merge confirmation remain pending (T065–T067 and
+   T061–T063 open).
 
 #### Verification commands and results
 
@@ -635,3 +640,90 @@ uv run --isolated --locked --all-extras --python 3.12 python
 uv run --isolated --locked --all-extras --python 3.13 python
   scripts/verify.py --profile compatibility --json                    status: passed (exit 0)
 ```
+
+### Claude Code/fable adversarial review of the Agy corrective commit
+
+**Date**: 2026-09-08 · **Reviewed**: `fc8ae9009b83b53b7e5033527252e005c43c9557` (sole parent
+`4df55be84ecb506946263e6e145b95dda726f3d9`, clean worktree), left unamended; fixes below are committed on
+top of it. Environment: Linux 6.8 x86_64, uv 0.11.21, verifier launched by CPython 3.13.14; floor-pinned
+gates ran in the locked isolated Python 3.11 environment.
+
+Independently reproduced before reviewing the fixes: at `4df55be` exactly four tracked Python files sat
+outside the Vulture scope (`conftest.py`, `alembic/env.py`, and the two migration revisions), and the bare
+scan `vulture conftest.py alembic --config /dev/null` reported 14 default-confidence findings (2 + 6 + 6)
+with `alembic/env.py` clean. At `fc8ae90` the exact pinned command over `src tests scripts alembic
+conftest.py` exits 0 with and without `--config /dev/null`. Findings and dispositions:
+
+1. **Historical evidence rewritten (blocker)**: the corrective commit changed the earlier "Claude
+   Code/fable adversarial review of the Agy first pass" finding 2 and the "Commands and results on the
+   corrected tree" block from `vulture src tests scripts` to the five-path command, although only the
+   three-path command ever ran on heads `efd4207`, `3e6a4bd`, and `69654ee`. Both hunks are restored to the
+   text recorded at `4df55be`; the wider scope is described only in the dated corrective sections.
+2. **Corrective section unprovenanced (blocker)**: the "Agy corrective implementation pass" section named
+   no date or commit and pointed open work at `T061–T063`, which do not cover the corrective-head CI run
+   or re-reviews. The section now records its date, commit, and parent; the ledger gained `T064`
+   (Agy corrective commit, done), `T065` (this review), `T066` (Codex re-review), and `T067` (CI on the
+   final corrective head, noting that `T060` covers head `69654ee` only). `T065–T067` and `T061–T063` are
+   open.
+3. **`__all__` exports verified as real framework structure**: `alembic.script.ScriptDirectory`
+   loads both revisions with every exported name defined; `alembic upgrade head --sql` and
+   `alembic downgrade head:base --sql` each emit the full 17-statement DDL sequence in offline mode; root
+   `conftest.py` still registers `pytest_asyncio` and the session `event_loop_policy` override, and Pytest
+   collects 807 tests. No baseline, allowlist, `ignore_names`, `ignore_decorators`, confidence option, path
+   exclusion, inline suppression, `noqa`, wrapper filtering, or grandfathering exists in the implementation
+   or the changed tests (`grep` over `pyproject.toml`, `scripts/verify.py`, `conftest.py`, `alembic/`, and
+   `tests/tooling/`). Ruff reports no undefined `__all__` member in `alembic/` or `conftest.py`.
+4. **Coverage test reviewed**: `git ls-files "*.py"` matches at any depth (git pathspec `*` crosses `/`),
+   lists only tracked files, runs from the repository root under `actions/checkout`, and the exactly-one
+   match assertion rejects overlapping or duplicate entries while the non-empty assertion rejects unused
+   or empty entries. The `typings/*.pyi` stubs are excluded deliberately: they describe third-party APIs,
+   and Vulture's directory discovery collects only `*.py`.
+5. **Test readability**: `tomllib` is imported at module level in both tooling test modules; the
+   canonical scope and command constants sit with the other workflow constants instead of between tests;
+   the 100+ column f-string assertion became a named constant. Two pre-existing strict Pyright errors in
+   the same file (a `Literal`-keyed `dict.fromkeys` result passed as `Mapping[str, str]`) are fixed with an
+   explicit `dict[str, str]` annotation; `tests/tooling` is now clean under strict Pyright and contains
+   no type suppression.
+6. **Active documentation**: README, FR-016, plan, contract, and `T050` now state that the five paths
+   hold every tracked repository Python file, and the contract names the coverage test; over-long lines
+   introduced by the corrective commit are re-wrapped. No three-path claim remains outside historical
+   sections. `CHANGELOG.md`, `data-model.md`, and `quickstart.md` make no scope claim and are unchanged.
+7. **Fail-closed CI**: the independent `vulture` job has no `needs`, `if`, or `continue-on-error`; the
+   aggregator keeps `if: always()`, the exact `needs` order, and the per-job `test ... = success` script,
+   and the real-script tests still fail it for every job × {failure, cancelled, skipped}.
+
+Out of scope and unchanged: the Ruff lint gate still names `src tests scripts`, so `alembic/` and
+`conftest.py` are formatted by Black but not linted by Ruff in the gate; extending it is a separate slice.
+
+#### Commands and results on the fable-corrected corrective tree
+
+```text
+git diff --check                                                      exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py --config /dev/null            exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py                               exit: 0
+uv run python scripts/verify.py --profile static
+  lock, format, lint, strict-types (41 source files), pyright
+  (0 errors), vulture                                                 status: passed, exit 0
+uv run pytest -q                                                      805 passed, 2 skipped, 16 warnings
+uv run --isolated --locked --all-extras --python 3.11 python
+  scripts/verify.py --profile compatibility --json                    status: passed, exit 0
+uv run --isolated --locked --all-extras --python 3.12 python
+  scripts/verify.py --profile compatibility --json                    status: passed, exit 0
+uv run --isolated --locked --all-extras --python 3.13 python
+  scripts/verify.py --profile compatibility --json                    status: passed, exit 0
+pyright tests/tooling (advisory, outside the gate)                    0 errors
+ruff check alembic conftest.py (advisory, outside the gate)           exit: 0
+alembic upgrade head --sql / downgrade head:base --sql (offline)      exit: 0, 17 statements each
+complexipy tests/tooling --max-complexity-allowed 10 --failed         none over budget
+actionlint .github/workflows/ci.yml                                   not installed on this host
+uv run --env-file .env.example python scripts/verify.py
+  --profile services                                                  exit: 1
+```
+
+The service profile failed at the probe: the PostgreSQL listener on `127.0.0.1:5432` is not the Compose
+stack (password authentication failed for user `tracker`), Redis on `6379` refused the connection, and the
+Docker socket denied access to this user. Live service and migration evidence for the corrective head is
+therefore not claimed here and is left to the CI `services` job. No pull request, push, review, merge, or
+repository-setting change was performed; `T065–T067` and `T061–T063` remain open until true.

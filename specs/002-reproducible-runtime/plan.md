@@ -157,8 +157,8 @@ modules. No new service, package, or migration is needed.
 - Keep `strict-types` as the existing mypy gate, keep `pyright` immediately after it, and add a separate
   `vulture` dead-code gate immediately after `pyright`. The exact Vulture command uses the locked Python 3.11
   environment and names its scope on the command line
-  (`uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py`). Vulture runs at its
-  default confidence with no baseline, allowlist, `ignore_names`, `ignore_decorators`, path exclusion, or
+  (`uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py`),
+  covering every tracked repository Python file. Vulture runs at its default confidence with no baseline, allowlist, `ignore_names`, `ignore_decorators`, path exclusion, or
   inline suppression; framework-consumed names are made visible through real code and tests.
 - The service profile invokes separately identifiable `services` and `migrations` gates through
   `scripts/runtime_services.py --phase probe` and `--phase migrations`; the helper defaults to `all` for

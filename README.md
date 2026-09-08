@@ -197,8 +197,9 @@ uv run --isolated --locked --all-extras --python 3.11 pyright src/polymarket_ins
 
 `pyproject.toml` keeps that scope in strict mode with no exclusions or baseline. The local stubs under
 `typings/` describe only the external `py-clob-client` and scikit-learn APIs consumed by the package.
-Vulture runs as its own required CI job and verifier gate over `src`, `tests`, `scripts`, `alembic`, and `conftest.py` at its default
-confidence, with no baseline, allowlist, ignore list, decorator exemption, or path exclusion:
+Vulture runs as its own required CI job and verifier gate over `src`, `tests`, `scripts`, `alembic`, and
+`conftest.py`, which together hold every tracked repository Python file. It runs at its default confidence
+with no baseline, allowlist, ignore list, decorator exemption, or path exclusion:
 
 ```bash
 uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py

@@ -10,6 +10,7 @@ import importlib.util
 import os
 import re
 import subprocess
+import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from types import ModuleType
@@ -24,6 +25,12 @@ VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
 
 # Every job the protected aggregator must depend on, in workflow order.
 BLOCKING_JOBS = ("static", "vulture", "compatibility", "services")
+# Every tracked repository Python file lives under exactly one of these paths, in gate order.
+CANONICAL_VULTURE_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+CANONICAL_VULTURE_COMMAND = (
+    "uv run --isolated --locked --all-extras --python 3.11 vulture "
+    + " ".join(CANONICAL_VULTURE_SCOPE)
+)
 NON_SUCCESS_RESULTS = ("failure", "cancelled", "skipped")
 NEEDS_RESULT_EXPRESSION = re.compile(r"^\$\{\{ needs\.(?P<job>[A-Za-z0-9_-]+)\.result \}\}$")
 # GitHub runs `run:` steps on Linux with `bash --noprofile --norc -eo pipefail {0}`.
@@ -95,9 +102,6 @@ def test_static_job_runs_the_verifier_static_profile_that_includes_vulture() -> 
     )
 
 
-CANONICAL_VULTURE_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
-
-
 def test_vulture_job_is_independent_and_runs_the_canonical_gate_command() -> None:
     verifier = _verifier()
     job = _workflow()["jobs"]["vulture"]
@@ -116,8 +120,6 @@ def test_vulture_job_is_independent_and_runs_the_canonical_gate_command() -> Non
 
 
 def test_vulture_scope_matches_between_ci_pyproject_and_verifier() -> None:
-    import tomllib
-
     verifier = _verifier()
     with (REPOSITORY_ROOT / "pyproject.toml").open("rb") as handle:
         pyproject_data = tomllib.load(handle)
@@ -131,10 +133,7 @@ def test_vulture_scope_matches_between_ci_pyproject_and_verifier() -> None:
 
     assert pyproject_paths == CANONICAL_VULTURE_SCOPE
     assert verifier_scope == CANONICAL_VULTURE_SCOPE
-    assert (
-        direct_command
-        == f"uv run --isolated --locked --all-extras --python 3.11 vulture {' '.join(CANONICAL_VULTURE_SCOPE)}"
-    )
+    assert direct_command == CANONICAL_VULTURE_COMMAND
     assert ci_step == direct_command
 
 
@@ -151,13 +150,15 @@ def test_required_aggregator_always_runs_and_binds_every_blocking_job_in_order()
 
 
 def test_required_script_passes_only_when_every_blocking_job_succeeded() -> None:
-    assert _run_required_script(dict.fromkeys(BLOCKING_JOBS, "success")) == 0
+    results: dict[str, str] = dict.fromkeys(BLOCKING_JOBS, "success")
+
+    assert _run_required_script(results) == 0
 
 
 @pytest.mark.parametrize("result", NON_SUCCESS_RESULTS)
 @pytest.mark.parametrize("job_id", BLOCKING_JOBS)
 def test_required_script_fails_closed_for_each_non_success_result(job_id: str, result: str) -> None:
-    results = dict.fromkeys(BLOCKING_JOBS, "success")
+    results: dict[str, str] = dict.fromkeys(BLOCKING_JOBS, "success")
     results[job_id] = result
 
     assert _run_required_script(results) != 0
