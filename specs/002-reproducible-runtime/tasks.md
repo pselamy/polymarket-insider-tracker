@@ -240,7 +240,7 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
   profile through the protected CI aggregator.
 - [X] T045 Resolve every strict Pyright diagnostic without exclusions, baselines, blanket suppressions,
   or weakened first-party types; retain strict mypy and Ruff.
-- [X] T046 Add focused verifier, protocol-boundary, and runtime-regression tests and align the active
+- [X] T046 Add focused verifier, protocol-boundary, and runtime behavior-guard tests and align the active
   README, specification, plan, data model, quickstart, and runtime contract.
 - [ ] T047 Run the complete local static, compatibility, service, and aggregate verifier profiles on the
   final candidate and record their results in the pull request.

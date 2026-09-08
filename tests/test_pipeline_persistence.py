@@ -192,7 +192,7 @@ class TestPipelinePersistence:
     async def test_persists_wallet_without_a_funding_tracer(
         self, mock_settings, db_manager, sample_trade, sample_profile, async_engine, caplog
     ):
-        """A disabled funding tracer must not turn a successful wallet write into an error."""
+        """Guard the explicitly initialized transfer count when no tracer is configured."""
         pipeline = Pipeline(mock_settings)
         pipeline._db_manager = db_manager
         pipeline._funding_tracer = None
