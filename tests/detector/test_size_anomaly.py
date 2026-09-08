@@ -669,9 +669,7 @@ class TestAnalyzeMethod:
         )
 
         # Provide small daily_volume so volume_impact exceeds 2% threshold
-        signal = await detector.analyze(
-            small_but_high_impact_trade, daily_volume=Decimal("1000")
-        )
+        signal = await detector.analyze(small_but_high_impact_trade, daily_volume=Decimal("1000"))
         assert signal is not None
         assert signal.volume_impact > 0.02
 

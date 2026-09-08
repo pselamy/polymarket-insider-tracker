@@ -3,54 +3,87 @@
 **Detect informed money before the market moves.**
 
 [![CI](https://github.com/pselamy/polymarket-insider-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/pselamy/polymarket-insider-tracker/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11–3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Real-time detection of suspicious trading patterns on Polymarket: fresh wallets, unusual sizing, niche-market activity, and funding chain analysis. Streams trades via WebSocket, profiles wallets on-chain (Polygon), scores risk with ML + heuristics, and dispatches alerts to Discord/Telegram.
 
 ---
 
-## Quick Start (< 2 minutes)
+## Supported Runtime
+
+- CPython 3.11, 3.12, and 3.13 are supported. Python 3.10 and 3.14+ are intentionally rejected by
+  project metadata until their complete locked matrices are approved.
+- Ubuntu 24.04 x86_64 is the blocking Linux reference environment. This does not certify every Linux
+  distribution, libc, or architecture.
+- Apple Silicon macOS (`arm64`) is supported and receives advisory compatibility automation plus local
+  release evidence with Docker services.
+- uv `>=0.11,<0.12` and the checked-in `uv.lock` define reproducible installation. CI installs uv
+  0.11.26 exactly; later uv versions must first be admitted by an approved support change.
+
+Run `uv run --env-file .env python scripts/verify.py --profile all` for the complete local gate, or select `static`,
+`compatibility`, or `services` for the independently runnable profiles described below.
+
+---
+
+## Foundation Quick Start (under 5 minutes)
+
+The measured foundation path includes locked Python dependency installation and excludes only the first
+download of the PostgreSQL and Redis container images. It verifies the local runtime and services; it
+does not contact Polymarket, Polygon, Discord, or Telegram.
 
 ### 1. Install
 
 ```bash
-# Requires: Python 3.11+, Docker
+# Requires: Python 3.11, 3.12, or 3.13; uv 0.11; Docker with Compose
 git clone https://github.com/pselamy/polymarket-insider-tracker.git
 cd polymarket-insider-tracker
-uv sync --all-extras          # or: pip install -e ".[dev]"
+uv sync --locked --all-extras
 ```
 
-### 2. Start infrastructure
+The checked-in `uv.lock` is the reproducible dependency authority. Editable pip installation is an
+unsupported convenience and is not equivalent verification evidence.
 
-```bash
-docker compose up -d           # PostgreSQL 15 + Redis 7
-docker compose ps              # wait for healthy
-```
-
-### 3. Configure
+### 2. Configure
 
 ```bash
 cp .env.example .env
-# Edit .env — only DATABASE_URL and REDIS_URL are required for local dev
-# (defaults in .env.example work with docker compose)
+# Edit .env if the default loopback ports or development credentials conflict locally.
 ```
 
-### 4. Run migrations + start
+New configurations use one Psycopg 3 URL for the application and Alembic:
+
+```text
+postgresql+psycopg://tracker:dev_password@localhost:5432/polymarket_tracker
+```
+
+### 3. Start infrastructure
 
 ```bash
-uv run alembic upgrade head
-uv run python -m polymarket_insider_tracker
+docker compose up -d --wait postgres redis
+docker compose ps
 ```
 
-You should see live trades within seconds:
+### 4. Verify services and migrations safely
 
+```bash
+uv run --env-file .env python scripts/runtime_services.py --phase all
 ```
-INFO  Connection state: disconnected -> connecting
-INFO  Connected to wss://ws-live-data.polymarket.com and subscribed to trades
-DEBUG Trade: BUY 450 @ 1.00 on fifwc-ger-kor-2026-06-14-ger
-DEBUG Trade: SELL 5 @ 0.86 on chi1-cd1-cdl-2026-06-14-draw
+
+This probes PostgreSQL and Redis, then runs upgrade → downgrade → upgrade against a generated disposable
+loopback database. It always attempts to remove that database and never downgrades or drops the normal
+application database named in `.env`.
+
+### 5. Migrate the application database and start
+
+```bash
+uv run --env-file .env alembic upgrade head
+uv run --env-file .env python -m polymarket_insider_tracker --config-check
+uv run --env-file .env python -m polymarket_insider_tracker
 ```
+
+The final command contacts configured external services. It is outside the deterministic foundation
+verification above.
 
 ### CLI Options
 
@@ -148,11 +181,16 @@ Polymarket WebSocket ──> Ingestor ──> Profiler ──> Detector ──> 
 ## Development
 
 ```bash
-uv run pytest                        # run tests
-uv run ruff check src/ tests/        # lint
-uv run ruff format src/ tests/       # format
-uv run mypy src/                     # type check (strict mode)
+uv run python scripts/verify.py --profile static
+uv run python scripts/verify.py --profile compatibility
+uv run --env-file .env python scripts/verify.py --profile services
+uv run --env-file .env python scripts/verify.py --profile all
 ```
+
+The `static` profile checks the lock, cross-file support contract, formatting, lint, and strict mypy.
+The `compatibility` profile checks locked imports and the deterministic test suite. The `services`
+profile performs real local probes and the disposable migration cycle. Individual commands remain
+visible in verifier output and `--help`.
 
 ### Docker Services
 
@@ -174,7 +212,12 @@ The WebSocket subscription requires `action: "subscribe"` in the envelope. If yo
 Verify `wss://ws-live-data.polymarket.com` is reachable from your network. Some corporate firewalls block WebSocket connections.
 
 **Database migration errors**
-Ensure PostgreSQL is running (`docker compose ps`) and `DATABASE_URL` matches your docker-compose config. Run `uv run alembic upgrade head` after any schema changes.
+Ensure PostgreSQL is healthy with `docker compose ps` and that `.env` contains a loopback
+`postgresql+psycopg://` `DATABASE_URL` matching the Compose credentials. Run
+`uv run --env-file .env python scripts/runtime_services.py --phase probe` first, then
+`uv run --env-file .env alembic upgrade head`. Bare `postgresql://` and legacy
+`postgresql+asyncpg://` values are temporarily normalized with a deprecation warning; migrate them to
+the canonical Psycopg spelling. Driver-specific asyncpg query options are rejected before connection.
 
 **Rate limiting on Polygon RPC**
 The default public RPC (`https://polygon-rpc.com`) has low rate limits. For production use, set `POLYGON_RPC_URL` to a dedicated provider (Alchemy, QuickNode, etc.).

@@ -1,0 +1,41 @@
+# Specification Quality Checklist: Truthful Detection Contract
+
+**Purpose**: Validate specification completeness and quality before proceeding to planning
+**Created**: 2026-09-06
+**Feature**: [spec.md](../spec.md)
+
+## Content Quality
+
+- [x] No implementation details (languages, frameworks, APIs)
+- [x] Focused on user value and business needs
+- [x] Written for non-technical stakeholders
+- [x] All mandatory sections completed
+
+## Requirement Completeness
+
+- [x] No `[NEEDS CLARIFICATION]` markers remain
+- [x] Requirements are testable and unambiguous
+- [x] Success criteria are measurable
+- [x] Success criteria are technology-agnostic (no implementation details)
+- [x] All acceptance scenarios are defined
+- [x] Edge cases are identified
+- [x] Scope is clearly bounded
+- [x] Dependencies and assumptions identified
+
+## Feature Readiness
+
+- [x] All functional requirements have clear acceptance criteria
+- [x] User scenarios cover primary flows
+- [x] Feature meets measurable outcomes defined in Success Criteria
+- [x] No implementation details leak into specification
+
+## Notes
+
+- Validation iteration 1 passed on 2026-09-06.
+- Threshold 0.80, `< 5` nonce semantics, unknown-age labeling, daily-volume-only size evidence,
+  and advanced-capability deferrals are proposed assumptions for Patrick's review. A changed decision
+  requires a spec revision before clarification or planning.
+- Brownfield thresholds, field names, and named public surfaces are intentional compatibility/product
+  requirements, not accidental implementation-plan leakage.
+- Validation iteration 2 caps unknown-age confidence, requires a fixed before/after behavior corpus,
+  assigns schema/harness ownership, and makes capability consistency verification executable and bounded.

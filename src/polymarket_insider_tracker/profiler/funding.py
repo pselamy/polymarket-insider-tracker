@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from web3 import AsyncWeb3
+from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.profiler.entities import EntityRegistry
 from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer
@@ -382,14 +383,14 @@ class FundingTracer:
         # Note: web3 typing is overly restrictive for block params
         return await w3.eth.get_logs(
             {
-                "address": contract_address,
+                "address": AsyncWeb3.to_checksum_address(contract_address),
                 "topics": topics,
-                "fromBlock": from_block,  # type: ignore[typeddict-item]
-                "toBlock": to_block,  # type: ignore[typeddict-item]
+                "fromBlock": from_block,
+                "toBlock": to_block,
             }
         )
 
-    def _select_w3(self) -> AsyncWeb3:
+    def _select_w3(self) -> AsyncWeb3[AsyncHTTPProvider]:
         """Pick primary or fallback web3 instance based on health."""
         if self.polygon_client._primary_healthy:
             return self.polygon_client._w3
