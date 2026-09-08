@@ -19,8 +19,8 @@ entry point for a blocking Linux matrix and service job plus an advisory Apple S
 **Language/Version**: CPython 3.11, 3.12, and 3.13; lowest supported syntax remains Python 3.11
 
 **Primary Dependencies**: uv `>=0.11,<0.12` project/lock workflow; SQLAlchemy 2.x with its `asyncio`
-extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Black, Ruff, mypy, and
-Pyright `1.1.411`
+extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Black, Ruff, mypy,
+Pyright `1.1.411`, and Vulture `2.16`
 
 **Storage**: PostgreSQL 15 and Redis 7; no persisted schema change in this slice
 
@@ -154,9 +154,10 @@ modules. No new service, package, or migration is needed.
   aggregate exits nonzero and names the first failed gate while preserving that command's output.
 - Unit tests inject a fake command runner and exercise one failure per required gate. There is no
   production flag that fabricates success or weakens a gate.
-- Keep `strict-types` as the existing mypy gate and add a separate `pyright` gate immediately after it.
-  The exact Pyright command names `src/polymarket_insider_tracker`, uses the locked Python 3.11
-  environment, and consumes strict configuration with no exclusions or baseline.
+- Keep `strict-types` as the existing mypy gate, keep `pyright` immediately after it, and add a separate
+  `vulture` dead-code gate immediately after `pyright`. The exact Vulture command names the locked Python 3.11
+  environment (`uv run --isolated --locked --all-extras --python 3.11 vulture`), scanning `src`, `tests`, and
+  `scripts` with standard 60% confidence and no baseline or allowlist file.
 - The service profile invokes separately identifiable `services` and `migrations` gates through
   `scripts/runtime_services.py --phase probe` and `--phase migrations`; the helper defaults to `all` for
   contributors. The probe performs an async SQLAlchemy query and Redis `PING`. The migration phase refuses
@@ -169,12 +170,12 @@ modules. No new service, package, or migration is needed.
   SHA with a release-comment annotation.
 - Install an exact approved uv 0.11 release from the SHA-pinned setup action and run
   `uv sync --locked --all-extras`; stop using an independent pip resolution.
-- Run a blocking static job containing both independent type gates, a blocking Linux compatibility matrix
-  for 3.11/3.12/3.13, and a blocking
+- Run a blocking static job containing both independent type gates and Vulture, an independent blocking
+  `vulture` job on `ubuntu-24.04`, a blocking Linux compatibility matrix for 3.11/3.12/3.13, and a blocking
   PostgreSQL/Redis service job on `ubuntu-24.04`. Remove `continue-on-error` from strict type checking.
 - Pin PostgreSQL 15 and Redis 7 service images by reviewed multi-architecture digest in both Compose and
   CI so local and automated evidence use the same immutable image identities.
-- Add a stable final required job that fails unless every blocking predecessor succeeds.
+- Add a stable final required job that fails unless every blocking predecessor succeeds (including `vulture`).
 - Run the same blocking workflow on feature-branch pushes, with concurrency cancellation for stale runs,
   so immutable Linux evidence exists before the constitution permits pull-request preparation.
 - Run the compatibility profile on GitHub's arm64 `macos-14` runner as an advisory job. Full Apple

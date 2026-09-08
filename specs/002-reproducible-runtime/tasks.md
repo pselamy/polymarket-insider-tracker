@@ -246,3 +246,15 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
   implementation candidate and retain their results for the reviewer handoff and pull-request description.
 - [X] T048 Complete the required immutable Agy and Claude Code/fable reviews, resolve all findings, open
   the non-draft pull request, and verify its blocking GitHub checks without merging it.
+
+## Phase 10: Vulture Dead-Code Gate
+
+- [X] T049 Pin and lock `vulture==2.16` in `pyproject.toml` and regenerate `uv.lock` reproducibly.
+- [X] T050 Configure Vulture without a baseline, allowlist, or confidence relaxation, scanning `src`, `tests`, and `scripts`.
+- [X] T051 Add Vulture as an explicit fail-closed gate in `scripts/verify.py` (`static` and `all` profiles).
+- [X] T052 Add Vulture as an independent required job in `.github/workflows/ci.yml` and wire into `required` checks aggregator.
+- [X] T053 Resolve every genuine dead-code finding revealed by Vulture without breaking live behavior or tests.
+- [X] T054 Add automated tests covering Vulture gate command, static profile inclusion, CI job presence, and fail-closed required check behavior.
+- [X] T055 Align README, specification, plan, runtime contract, quickstart, and tasks with the Vulture gate requirements.
+- [ ] T056 Open the non-draft pull request and verify that the independent Vulture CI job and Required checks aggregator pass.
+

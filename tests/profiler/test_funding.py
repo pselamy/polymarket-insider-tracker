@@ -938,6 +938,11 @@ class TestFundingChainModel:
         )
         assert chain.funding_depth == 3
 
+    def test_traced_at_default(self) -> None:
+        """Test traced_at default value is populated."""
+        chain = FundingChain(target_address=TEST_WALLET)
+        assert chain.traced_at is not None
+
 
 class TestConstants:
     """Tests for module constants."""

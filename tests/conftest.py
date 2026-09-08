@@ -16,9 +16,3 @@ def isolate_repository_dotenv(tmp_path_factory: pytest.TempPathFactory) -> Itera
         yield
     finally:
         os.chdir(original_directory)
-
-
-@pytest.fixture
-def sample_market_id() -> str:
-    """Sample market ID for testing."""
-    return "0x1234567890abcdef1234567890abcdef12345678"

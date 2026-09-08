@@ -21,11 +21,9 @@ T = TypeVar("T")
 # Constants
 DEFAULT_HOST = "https://clob.polymarket.com"
 MAX_REQUESTS_PER_SECOND = 10
-MIN_REQUEST_INTERVAL = 1.0 / MAX_REQUESTS_PER_SECOND  # 0.1 seconds
 
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BASE_DELAY = 1.0
-RETRY_STATUS_CODES = (429, 500, 502, 503, 504)
 
 
 class RateLimiter:
@@ -164,16 +162,6 @@ class ClobClient:
             host,
             requests_per_second,
         )
-
-    def _with_rate_limit(self, func: Callable[P, T]) -> Callable[P, T]:
-        """Wrap a function with rate limiting."""
-
-        @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            self._rate_limiter.acquire_sync()
-            return func(*args, **kwargs)
-
-        return wrapper
 
     @with_retry()
     def get_markets(self, active_only: bool = True) -> list[Market]:

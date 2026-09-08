@@ -398,3 +398,37 @@ so convergence made no further mutation.
 
 The check-run annotation API returned zero annotations for all seven jobs. This run supersedes the
 expected red-test checkpoint run at `f2d0ff7` and is the authoritative convergence implementation proof.
+
+## Phase 10: Vulture Dead-Code Gate Evidence
+
+**Date**: 2026-09-08
+
+**Direct Vulture Command**:
+
+```text
+uv run --isolated --locked --all-extras --python 3.11 vulture
+exit: 0 (0 dead-code findings across src, tests, and scripts)
+```
+
+**Verifier Static Profile**:
+
+```text
+uv run python scripts/verify.py --profile static
+lock: passed
+format: passed
+lint: passed
+strict-types: passed
+pyright: passed
+vulture: passed
+status: passed
+exit: 0
+```
+
+**Deterministic Pytest Suite**:
+
+```text
+uv run pytest
+781 passed, 2 skipped
+exit: 0
+```
+

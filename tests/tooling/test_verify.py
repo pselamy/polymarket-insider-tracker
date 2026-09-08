@@ -41,6 +41,7 @@ def test_profile_membership_and_ordering_are_exact() -> None:
         "lint",
         "strict-types",
         "pyright",
+        "vulture",
     )
     assert module.gate_ids_for_profile("compatibility") == ("lock", "imports", "tests")
     assert module.gate_ids_for_profile("services") == ("services", "migrations")
@@ -55,10 +56,26 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
         "lint",
         "strict-types",
         "pyright",
+        "vulture",
         "imports",
         "tests",
         "services",
         "migrations",
+    )
+
+
+def test_vulture_gate_uses_minimum_supported_python_and_isolated_environment() -> None:
+    module = _load_module()
+
+    assert module.GATES["vulture"].command == (
+        "uv",
+        "run",
+        "--isolated",
+        "--locked",
+        "--all-extras",
+        "--python",
+        "3.11",
+        "vulture",
     )
 
 
@@ -172,6 +189,7 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
         "lint",
         "strict-types",
         "pyright",
+        "vulture",
         "imports",
         "tests",
         "services",
@@ -249,6 +267,7 @@ def test_first_failure_output_includes_not_run_gates() -> None:
     assert "[SKIP] lint: not run after format failed" in rendered
     assert "[SKIP] strict-types: not run after format failed" in rendered
     assert "[SKIP] pyright: not run after format failed" in rendered
+    assert "[SKIP] vulture: not run after format failed" in rendered
     assert "first failed gate: format" in rendered
 
 
@@ -330,6 +349,7 @@ def test_help_lists_every_direct_gate_command() -> None:
         "uv run --isolated --locked --all-extras --python 3.11 mypy",
         "uv run --isolated --locked --all-extras --python 3.11 "
         "pyright src/polymarket_insider_tracker",
+        "uv run --isolated --locked --all-extras --python 3.11 vulture",
         "uv run pytest",
         "uv run --env-file .env alembic upgrade head",
     ):
@@ -391,3 +411,72 @@ def test_non_url_secrets_are_redacted_as_complete_values(
     assert "private-token" not in rendered
     assert api_key not in rendered
     assert rendered == "webhook=*** api_key=***"
+
+
+CI_WORKFLOW_PATH = Path(__file__).parents[2] / ".github" / "workflows" / "ci.yml"
+
+
+def test_ci_workflow_defines_independent_vulture_job() -> None:
+    import yaml
+
+    assert CI_WORKFLOW_PATH.exists(), "CI workflow file missing"
+    with open(CI_WORKFLOW_PATH, encoding="utf-8") as f:
+        workflow = yaml.safe_load(f)
+
+    jobs = workflow["jobs"]
+    assert "vulture" in jobs, "vulture job missing from CI jobs"
+    vulture_job = jobs["vulture"]
+    assert vulture_job["runs-on"] == "ubuntu-24.04"
+    assert vulture_job["timeout-minutes"] == 15
+
+    step_runs = [step.get("run") for step in vulture_job["steps"] if "run" in step]
+    assert "uv run --isolated --locked --all-extras --python 3.11 vulture" in step_runs
+
+    setup_uv_steps = [
+        step for step in vulture_job["steps"] if "astral-sh/setup-uv" in step.get("uses", "")
+    ]
+    assert len(setup_uv_steps) == 1
+    assert setup_uv_steps[0]["with"]["cache-suffix"] == "vulture-3.11"
+
+
+def test_ci_workflow_required_job_blocks_on_vulture_success() -> None:
+    import yaml
+
+    with open(CI_WORKFLOW_PATH, encoding="utf-8") as f:
+        workflow = yaml.safe_load(f)
+
+    required_job = workflow["jobs"]["required"]
+    assert "vulture" in required_job["needs"]
+
+    step = required_job["steps"][0]
+    assert step["env"]["VULTURE_RESULT"] == "${{ needs.vulture.result }}"
+    assert 'test "$VULTURE_RESULT" = success' in step["run"]
+
+
+@pytest.mark.parametrize(
+    ("vulture_result", "expected_exit"),
+    [
+        ("success", 0),
+        ("failure", 1),
+        ("cancelled", 1),
+        ("skipped", 1),
+    ],
+)
+def test_ci_workflow_required_gate_fails_closed_on_non_success(
+    vulture_result: str, expected_exit: int
+) -> None:
+    bash_script = f"""
+    STATIC_WITH_PYRIGHT_RESULT="success"
+    VULTURE_RESULT="{vulture_result}"
+    COMPATIBILITY_RESULT="success"
+    SERVICES_RESULT="success"
+    test "$STATIC_WITH_PYRIGHT_RESULT" = success
+    test "$VULTURE_RESULT" = success
+    test "$COMPATIBILITY_RESULT" = success
+    test "$SERVICES_RESULT" = success
+    """
+    result = subprocess.run(["bash", "-e", "-c", bash_script], capture_output=True, text=True)
+    if expected_exit == 0:
+        assert result.returncode == 0
+    else:
+        assert result.returncode != 0

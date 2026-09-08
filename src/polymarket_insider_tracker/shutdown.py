@@ -43,10 +43,6 @@ DEFAULT_SHUTDOWN_TIMEOUT = 30.0
 SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 
 
-class ShutdownTimeoutError(Exception):
-    """Raised when graceful shutdown exceeds timeout."""
-
-
 class GracefulShutdown:
     """Graceful shutdown handler with signal trapping.
 
@@ -75,17 +71,13 @@ class GracefulShutdown:
     def __init__(
         self,
         timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
-        *,
-        exit_on_timeout: bool = True,
     ) -> None:
         """Initialize the shutdown handler.
 
         Args:
             timeout: Maximum time in seconds to wait for graceful shutdown.
-            exit_on_timeout: If True, force exit when timeout is exceeded.
         """
         self._timeout = timeout
-        self._exit_on_timeout = exit_on_timeout
 
         self._shutdown_event: asyncio.Event | None = None
         self._shutdown_requested = False

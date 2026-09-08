@@ -112,7 +112,6 @@ class AlertHistory:
     # Redis key prefixes
     KEY_PREFIX_DEDUP = "alert:dedup:"
     KEY_PREFIX_ALERT = "alert:record:"
-    KEY_PREFIX_FEEDBACK = "alert:feedback:"
     KEY_INDEX_TIME = "alert:index:time"
     KEY_INDEX_WALLET = "alert:index:wallet:"
     KEY_INDEX_MARKET = "alert:index:market:"

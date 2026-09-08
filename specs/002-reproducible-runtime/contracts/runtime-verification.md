@@ -12,15 +12,15 @@ uv run python scripts/verify.py --profile PROFILE [--json]
 
 | Profile | Required gates | Intended caller |
 |---|---|---|
-| `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy, strict Pyright | Contributor and Linux quality job |
+| `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy, strict Pyright, Vulture dead code detection | Contributor and Linux quality job |
 | `compatibility` | lock freshness, dependency/import smoke, full deterministic pytest suite | Linux version matrix and advisory Apple job |
 | `services` | `services` connectivity/async-query gate, then independent `migrations` disposable-cycle gate | Linux service job and local release evidence |
 | `all` | Every gate above, without duplicate execution | Contributor pre-review/release evidence |
 
-Individual Black, Ruff, mypy, Pyright, pytest, and Alembic commands remain directly runnable and are
+Individual Black, Ruff, mypy, Pyright, Vulture, pytest, and Alembic commands remain directly runnable and are
 listed by `--help`; the aggregate entry point does not hide their output.
 
-The independent `pyright` gate runs after `strict-types` (mypy) and before runtime imports:
+The independent `pyright` gate runs after `strict-types` (mypy) and before `vulture`:
 
 ```text
 uv run --isolated --locked --all-extras --python 3.11 pyright src/polymarket_insider_tracker
@@ -31,6 +31,15 @@ uv run --isolated --locked --all-extras --python 3.11 pyright src/polymarket_ins
 is visible and fail-closed at invocation. There is no exclusion, baseline, diff-only mode, diagnostic
 downgrade, or error-suppression setting. `typings/` owns narrow local interfaces for only the untyped
 third-party APIs the production package consumes; it is not a substitute for checking first-party files.
+
+The independent `vulture` gate runs after `pyright` and before runtime imports:
+
+```text
+uv run --isolated --locked --all-extras --python 3.11 vulture
+```
+
+`pyproject.toml` configures Vulture `2.16` for Python 3.11, scanning `src`, `tests`, and `scripts` with
+standard 60% confidence and no baseline or allowlist file.
 
 The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`
 before starting pytest. The test harness also runs from an isolated temporary working directory so Pydantic
