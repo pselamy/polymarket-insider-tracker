@@ -354,16 +354,13 @@ class FundingRepository:
         return FundingTransferDTO.from_model(model) if model else None
 
     async def insert(self, dto: FundingTransferDTO) -> FundingTransferDTO:
-        """Insert a new funding transfer.
+        """Insert a single funding transfer.
 
         Args:
             dto: Funding transfer data.
 
         Returns:
             Inserted FundingTransferDTO.
-
-        Raises:
-            IntegrityError if tx_hash already exists.
         """
         model = FundingTransferModel(
             from_address=dto.from_address.lower(),
@@ -378,6 +375,20 @@ class FundingRepository:
         await self.session.flush()
         return dto
 
+    @staticmethod
+    def _is_duplicate_funding_error(e: Exception) -> bool:
+        err_str = str(e).lower()
+        return "unique constraint" in err_str or "duplicate key" in err_str
+
+    async def _try_insert_single(self, dto: FundingTransferDTO) -> bool:
+        try:
+            await self.insert(dto)
+            return True
+        except Exception as e:
+            if self._is_duplicate_funding_error(e):
+                return False
+            raise
+
     async def insert_many(self, dtos: list[FundingTransferDTO]) -> int:
         """Insert multiple funding transfers.
 
@@ -391,14 +402,8 @@ class FundingRepository:
         """
         inserted = 0
         for dto in dtos:
-            try:
-                await self.insert(dto)
+            if await self._try_insert_single(dto):
                 inserted += 1
-            except Exception as e:
-                # Skip duplicates
-                if "UNIQUE constraint" in str(e) or "duplicate key" in str(e).lower():
-                    continue
-                raise
         return inserted
 
 

@@ -28,13 +28,12 @@ class DatabaseUrlMigrationWarning(UserWarning):
     """Warn that a legacy PostgreSQL driver spelling was normalized."""
 
 
-def _parse_database_url(value: str) -> URL:
-    try:
-        url = make_url(value)
-        port = url.port
-    except (ArgumentError, TypeError, ValueError) as exc:
-        raise DatabaseUrlError("DATABASE_URL is not a valid PostgreSQL URL") from exc
+def _validate_port(port: int | None) -> None:
+    if port is not None and not 1 <= port <= 65535:
+        raise DatabaseUrlError("DATABASE_URL port must be between 1 and 65535")
 
+
+def _validate_url_fields(url: URL) -> None:
     if url.drivername not in SUPPORTED_DRIVERS:
         raise DatabaseUrlError(
             "DATABASE_URL must use postgresql+psycopg, postgresql, or postgresql+asyncpg"
@@ -43,8 +42,17 @@ def _parse_database_url(value: str) -> URL:
         raise DatabaseUrlError("DATABASE_URL must include a PostgreSQL host")
     if not url.database:
         raise DatabaseUrlError("DATABASE_URL must include a database name")
-    if port is not None and not 1 <= port <= 65535:
-        raise DatabaseUrlError("DATABASE_URL port must be between 1 and 65535")
+
+
+def _parse_database_url(value: str) -> URL:
+    try:
+        url = make_url(value)
+        port = url.port
+    except (ArgumentError, TypeError, ValueError) as exc:
+        raise DatabaseUrlError("DATABASE_URL is not a valid PostgreSQL URL") from exc
+
+    _validate_url_fields(url)
+    _validate_port(port)
     return url
 
 

@@ -6,7 +6,7 @@ import os
 import time
 from collections.abc import Callable
 from functools import wraps
-from typing import ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar, cast
 
 from py_clob_client.client import ClobClient as BaseClobClient
 from py_clob_client.clob_types import BookParams
@@ -67,6 +67,59 @@ class RetryError(Exception):
         self.last_exception = last_exception
 
 
+def _sleep_backoff(
+    attempt: int,
+    max_retries: int,
+    base_delay: float,
+    error: Exception,
+) -> None:
+    delay = base_delay * (2**attempt)
+    logger.warning(
+        "Attempt %d/%d failed: %s. Retrying in %.1f seconds...",
+        attempt + 1,
+        max_retries + 1,
+        str(error),
+        delay,
+    )
+    time.sleep(delay)
+
+
+def _attempt_call(
+    func: Callable[P, T],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    retry_on: tuple[type[Exception], ...],
+) -> tuple[T | None, Exception | None]:
+    try:
+        return func(*args, **kwargs), None
+    except retry_on as e:
+        return None, e
+
+
+def _execute_with_retry(
+    func: Callable[P, T],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    max_retries: int,
+    base_delay: float,
+    retry_on: tuple[type[Exception], ...],
+) -> T:
+    last_exception: Exception | None = None
+
+    for attempt in range(max_retries + 1):
+        res, exc = _attempt_call(func, args, kwargs, retry_on)
+        if exc is None:
+            return cast(T, res)
+        last_exception = exc
+        if attempt < max_retries:
+            _sleep_backoff(attempt, max_retries, base_delay, exc)
+
+    raise RetryError(
+        f"All {max_retries + 1} attempts failed for {func.__name__}",
+        last_exception=last_exception,
+    )
+
+
 def with_retry(
     max_retries: int = DEFAULT_MAX_RETRIES,
     base_delay: float = DEFAULT_RETRY_BASE_DELAY,
@@ -86,30 +139,7 @@ def with_retry(
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            last_exception: Exception | None = None
-
-            for attempt in range(max_retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except retry_on as e:
-                    last_exception = e
-                    if attempt == max_retries:
-                        break
-
-                    delay = base_delay * (2**attempt)
-                    logger.warning(
-                        "Attempt %d/%d failed: %s. Retrying in %.1f seconds...",
-                        attempt + 1,
-                        max_retries + 1,
-                        str(e),
-                        delay,
-                    )
-                    time.sleep(delay)
-
-            raise RetryError(
-                f"All {max_retries + 1} attempts failed for {func.__name__}",
-                last_exception=last_exception,
-            )
+            return _execute_with_retry(func, args, kwargs, max_retries, base_delay, retry_on)
 
         return wrapper
 
@@ -163,6 +193,26 @@ class ClobClient:
             requests_per_second,
         )
 
+    def _fetch_simplified_markets(self, cursor: str | None) -> dict[str, Any]:
+        if cursor:
+            result = self._client.get_simplified_markets(cursor)
+        else:
+            result = self._client.get_simplified_markets()
+        return cast(dict[str, Any], result)
+
+    @staticmethod
+    def _extract_page_markets(market_list: list[dict[str, Any]], active_only: bool) -> list[Market]:
+        markets: list[Market] = []
+        for market_data in market_list:
+            market = Market.from_dict(market_data)
+            if not (active_only and market.closed):
+                markets.append(market)
+        return markets
+
+    @staticmethod
+    def _is_cursor_terminal(next_cursor: str | None) -> bool:
+        return not next_cursor or next_cursor == "LTE="
+
     @with_retry()
     def get_markets(self, active_only: bool = True) -> list[Market]:
         """Fetch all markets from the CLOB.
@@ -179,20 +229,12 @@ class ClobClient:
         cursor: str | None = None
 
         while True:
-            if cursor:
-                response = self._client.get_simplified_markets(cursor)
-            else:
-                response = self._client.get_simplified_markets()
-
-            data = response.get("data", [])
-            for market_data in data:
-                market = Market.from_dict(market_data)
-                if active_only and market.closed:
-                    continue
-                all_markets.append(market)
+            response = self._fetch_simplified_markets(cursor)
+            raw_data = response.get("data", [])
+            all_markets.extend(self._extract_page_markets(raw_data, active_only))
 
             next_cursor = response.get("next_cursor")
-            if not next_cursor or next_cursor == "LTE=":
+            if self._is_cursor_terminal(next_cursor):
                 break
             cursor = next_cursor
 

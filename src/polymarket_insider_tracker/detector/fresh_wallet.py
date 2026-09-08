@@ -225,14 +225,22 @@ class FreshWalletDetector:
 
         signals: list[FreshWalletSignal] = []
         for trade, result in zip(trades, results, strict=True):
-            if isinstance(result, BaseException):
-                logger.warning(
-                    "Failed to analyze trade %s: %s",
-                    trade.trade_id,
-                    result,
-                )
-                continue
-            if result is not None:
-                signals.append(result)
+            signal = self._handle_batch_result(trade, result)
+            if signal is not None:
+                signals.append(signal)
 
         return signals
+
+    @staticmethod
+    def _handle_batch_result(
+        trade: TradeEvent,
+        result: FreshWalletSignal | BaseException | None,
+    ) -> FreshWalletSignal | None:
+        if isinstance(result, BaseException):
+            logger.warning(
+                "Failed to analyze trade %s: %s",
+                trade.trade_id,
+                result,
+            )
+            return None
+        return result

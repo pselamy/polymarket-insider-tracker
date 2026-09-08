@@ -124,18 +124,22 @@ class TradeStreamHandler:
         """Stream statistics."""
         return self._stats
 
+    async def _notify_state_change(self, new_state: ConnectionState) -> None:
+        if not self._on_state_change:
+            return
+        try:
+            await self._on_state_change(new_state)
+        except Exception as e:
+            logger.error("Error in state change callback: %s", e)
+
     async def _set_state(self, new_state: ConnectionState) -> None:
         """Update state and notify callback."""
-        if self._state != new_state:
-            old_state = self._state
-            self._state = new_state
-            logger.info("Connection state: %s -> %s", old_state.value, new_state.value)
-
-            if self._on_state_change:
-                try:
-                    await self._on_state_change(new_state)
-                except Exception as e:
-                    logger.error("Error in state change callback: %s", e)
+        if self._state == new_state:
+            return
+        old_state = self._state
+        self._state = new_state
+        logger.info("Connection state: %s -> %s", old_state.value, new_state.value)
+        await self._notify_state_change(new_state)
 
     def _build_subscription_message(self) -> dict[str, Any]:
         """Build the WebSocket subscription message."""
@@ -178,12 +182,25 @@ class TradeStreamHandler:
             self._stats.last_error = str(e)
             raise ConnectionError(f"Failed to connect to {self._host}: {e}") from e
 
+    async def _emit_trade(self, trade: TradeEvent) -> None:
+        self._stats.trades_received += 1
+        self._stats.last_trade_time = time.time()
+        logger.debug(
+            "Trade: %s %s @ %s on %s",
+            trade.side,
+            trade.size,
+            trade.price,
+            trade.market_slug,
+        )
+        try:
+            await self._on_trade(trade)
+        except Exception as e:
+            logger.error("Error in trade callback: %s", e)
+
     async def _handle_message(self, message: str) -> None:
         """Parse and process an incoming WebSocket message."""
         try:
             data = json.loads(message)
-
-            # ws-live-data pushes {connection_id, payload:{...trade fields}}
             payload = data.get("payload")
             if (
                 isinstance(payload, dict)
@@ -191,30 +208,19 @@ class TradeStreamHandler:
                 and "proxyWallet" in payload
             ):
                 trade = TradeEvent.from_websocket_message(cast(dict[str, Any], payload))
-
-                self._stats.trades_received += 1
-                self._stats.last_trade_time = time.time()
-
-                logger.debug(
-                    "Trade: %s %s @ %s on %s",
-                    trade.side,
-                    trade.size,
-                    trade.price,
-                    trade.market_slug,
-                )
-
-                try:
-                    await self._on_trade(trade)
-                except Exception as e:
-                    logger.error("Error in trade callback: %s", e)
-
+                await self._emit_trade(trade)
             else:
                 logger.debug("Received non-trade message: %s", str(data)[:120])
-
         except json.JSONDecodeError as e:
             logger.warning("Invalid JSON message: %s", e)
         except Exception as e:
             logger.error("Error processing message: %s", e)
+
+    async def _process_stream_item(self, message: Any) -> None:
+        if isinstance(message, str):
+            await self._handle_message(message)
+        else:
+            logger.debug("Received binary message (%d bytes)", len(message))
 
     async def _listen(self, ws: ClientConnection) -> None:
         """Listen for messages on the WebSocket."""
@@ -222,12 +228,7 @@ class TradeStreamHandler:
             async for message in ws:
                 if not self._running:
                     break
-
-                if isinstance(message, str):
-                    await self._handle_message(message)
-                else:
-                    logger.debug("Received binary message (%d bytes)", len(message))
-
+                await self._process_stream_item(message)
         except ConnectionClosed as e:
             logger.warning("Connection closed: %s", e)
             raise
@@ -261,6 +262,24 @@ class TradeStreamHandler:
                 # Exponential backoff with jitter
                 delay = min(delay * 2, self._max_reconnect_delay)
 
+    async def _handle_connection_loss(self, exc: Exception) -> None:
+        if not self._running:
+            return
+        logger.warning("Connection lost: %s", exc)
+        await self._set_state(ConnectionState.DISCONNECTED)
+        await self._reconnect_loop()
+
+    async def _run_iteration(self) -> None:
+        try:
+            assert self._ws is not None
+            await self._listen(self._ws)
+        except (ConnectionClosed, Exception) as e:
+            await self._handle_connection_loss(e)
+
+    async def _run_loop(self) -> None:
+        while self._running:
+            await self._run_iteration()
+
     async def start(self) -> None:
         """Connect and begin streaming trades.
 
@@ -278,27 +297,8 @@ class TradeStreamHandler:
         self._stop_event = asyncio.Event()
 
         try:
-            # Initial connection
             self._ws = await self._connect()
-
-            # Main loop
-            while self._running:
-                try:
-                    await self._listen(self._ws)
-                except (ConnectionClosed, Exception) as e:
-                    if not self._running:
-                        break
-
-                    logger.warning("Connection lost: %s", e)
-                    await self._set_state(ConnectionState.DISCONNECTED)
-
-                    # Attempt reconnection
-                    await self._reconnect_loop()
-
-                    # A running reconnect loop returns only after assigning a live connection.
-                    if not self._running:
-                        break
-
+            await self._run_loop()
         finally:
             await self._cleanup()
 

@@ -390,6 +390,10 @@ _CATEGORY_KEYWORDS: dict[str, list[str]] = {
 }
 
 
+def _matches_category_keywords(title_lower: str, keywords: list[str]) -> bool:
+    return any(keyword in title_lower for keyword in keywords)
+
+
 def derive_category(title: str) -> str:
     """Derive a market category from the market title.
 
@@ -402,9 +406,8 @@ def derive_category(title: str) -> str:
     title_lower = title.lower()
 
     for category, keywords in _CATEGORY_KEYWORDS.items():
-        for keyword in keywords:
-            if keyword in title_lower:
-                return category
+        if _matches_category_keywords(title_lower, keywords):
+            return category
 
     return "other"
 
@@ -460,6 +463,18 @@ class MarketMetadata:
             last_updated=datetime.now(UTC),
         )
 
+    @staticmethod
+    def _str_or_none(val: Any | None) -> str | None:
+        return str(val) if val is not None else None
+
+    @classmethod
+    def _serialize_token(cls, token: Token) -> dict[str, Any]:
+        return {
+            "token_id": token.token_id,
+            "outcome": token.outcome,
+            "price": cls._str_or_none(token.price),
+        }
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a dictionary for Redis storage.
 
@@ -470,23 +485,34 @@ class MarketMetadata:
             "condition_id": self.condition_id,
             "question": self.question,
             "description": self.description,
-            "tokens": [
-                {
-                    "token_id": t.token_id,
-                    "outcome": t.outcome,
-                    "price": str(t.price) if t.price is not None else None,
-                }
-                for t in self.tokens
-            ],
+            "tokens": [self._serialize_token(t) for t in self.tokens],
             "end_date": self.end_date.isoformat() if self.end_date else None,
             "active": self.active,
             "closed": self.closed,
             "category": self.category,
-            "daily_volume": str(self.daily_volume) if self.daily_volume is not None else None,
-            "weekly_volume": str(self.weekly_volume) if self.weekly_volume is not None else None,
-            "liquidity": str(self.liquidity) if self.liquidity is not None else None,
+            "daily_volume": self._str_or_none(self.daily_volume),
+            "weekly_volume": self._str_or_none(self.weekly_volume),
+            "liquidity": self._str_or_none(self.liquidity),
             "last_updated": self.last_updated.isoformat(),
         }
+
+    @staticmethod
+    def _parse_iso_dt(val: Any | None, default: datetime | None = None) -> datetime | None:
+        if not val:
+            return default
+        try:
+            return datetime.fromisoformat(str(val))
+        except (ValueError, AttributeError):
+            return default
+
+    @staticmethod
+    def _parse_opt_dec(val: Any | None) -> Decimal | None:
+        if val is None or val == "":
+            return None
+        try:
+            return Decimal(str(val))
+        except (ValueError, ArithmeticError):
+            return None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MarketMetadata":
@@ -500,42 +526,19 @@ class MarketMetadata:
         """
         tokens_data = data.get("tokens", [])
         tokens = tuple(Token.from_dict(t) for t in tokens_data)
-
-        end_date = None
-        end_date_str = data.get("end_date")
-        if end_date_str:
-            with contextlib.suppress(ValueError, AttributeError):
-                end_date = datetime.fromisoformat(end_date_str)
-
-        last_updated_str = data.get("last_updated")
-        if last_updated_str:
-            try:
-                last_updated = datetime.fromisoformat(last_updated_str)
-            except (ValueError, AttributeError):
-                last_updated = datetime.now(UTC)
-        else:
-            last_updated = datetime.now(UTC)
-
-        def _opt_dec(key: str) -> Decimal | None:
-            raw = data.get(key)
-            if raw is None or raw == "":
-                return None
-            try:
-                return Decimal(str(raw))
-            except (ValueError, ArithmeticError):
-                return None
+        now = datetime.now(UTC)
 
         return cls(
             condition_id=str(data["condition_id"]),
             question=str(data.get("question", "")),
             description=str(data.get("description", "")),
             tokens=tokens,
-            end_date=end_date,
+            end_date=cls._parse_iso_dt(data.get("end_date")),
             active=bool(data.get("active", True)),
             closed=bool(data.get("closed", False)),
             category=str(data.get("category", "other")),
-            daily_volume=_opt_dec("daily_volume"),
-            weekly_volume=_opt_dec("weekly_volume"),
-            liquidity=_opt_dec("liquidity"),
-            last_updated=last_updated,
+            daily_volume=cls._parse_opt_dec(data.get("daily_volume")),
+            weekly_volume=cls._parse_opt_dec(data.get("weekly_volume")),
+            liquidity=cls._parse_opt_dec(data.get("liquidity")),
+            last_updated=cls._parse_iso_dt(data.get("last_updated"), default=now) or now,
         )

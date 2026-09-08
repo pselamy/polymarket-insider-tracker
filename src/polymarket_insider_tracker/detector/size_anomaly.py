@@ -6,6 +6,7 @@ with unusually large position sizes relative to market liquidity.
 
 import logging
 from decimal import Decimal
+from typing import Any
 
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
@@ -107,55 +108,15 @@ class SizeAnomalyDetector:
             SizeAnomalySignal if the trade triggers anomaly detection,
             None otherwise.
         """
-        # Get market metadata
-        try:
-            metadata = await self._metadata_sync.get_market(trade.market_id)
-            if metadata is None:
-                logger.warning(
-                    "No metadata found for market %s, creating minimal metadata",
-                    trade.market_id,
-                )
-                metadata = self._create_minimal_metadata(trade)
-        except Exception as e:
-            logger.warning(
-                "Failed to get metadata for market %s: %s",
-                trade.market_id,
-                e,
-            )
-            metadata = self._create_minimal_metadata(trade)
-
+        metadata = await self._fetch_metadata(trade)
         trade_size = trade.notional_value
 
         # Calculate impacts
         volume_impact = self._calculate_volume_impact(trade_size, daily_volume)
         book_impact = self._calculate_book_impact(trade_size, book_depth)
-
-        # Determine if niche market
         is_niche = self._is_niche_market(metadata, daily_volume)
 
-        # Check if any threshold exceeded
-        exceeds_volume = volume_impact > self._volume_threshold
-        exceeds_book = book_impact > self._book_threshold
-
-        # Niche-only signals require a minimum trade size; otherwise we'd
-        # flood alerts with every tiny trade in any niche-prone category.
-        niche_only = is_niche and not exceeds_volume and not exceeds_book
-        if niche_only and trade_size < self._niche_min_trade_size:
-            logger.debug(
-                "Trade %s niche-only but size %s < min %s, skipping",
-                trade.trade_id,
-                trade_size,
-                self._niche_min_trade_size,
-            )
-            return None
-
-        if not exceeds_volume and not exceeds_book and not is_niche:
-            logger.debug(
-                "Trade %s does not exceed thresholds: volume=%.4f, book=%.4f",
-                trade.trade_id,
-                volume_impact,
-                book_impact,
-            )
+        if self._should_skip_trade(trade, volume_impact, book_impact, is_niche):
             return None
 
         # Calculate confidence score
@@ -190,6 +151,55 @@ class SizeAnomalyDetector:
             factors=factors,
         )
 
+    async def _fetch_metadata(self, trade: TradeEvent) -> MarketMetadata:
+        try:
+            metadata = await self._metadata_sync.get_market(trade.market_id)
+            if metadata is None:
+                logger.warning(
+                    "No metadata found for market %s, creating minimal metadata",
+                    trade.market_id,
+                )
+                return self._create_minimal_metadata(trade)
+            return metadata
+        except Exception as e:
+            logger.warning(
+                "Failed to get metadata for market %s: %s",
+                trade.market_id,
+                e,
+            )
+            return self._create_minimal_metadata(trade)
+
+    def _should_skip_trade(
+        self,
+        trade: TradeEvent,
+        volume_impact: float,
+        book_impact: float,
+        is_niche: bool,
+    ) -> bool:
+        exceeds_volume = volume_impact > self._volume_threshold
+        exceeds_book = book_impact > self._book_threshold
+
+        niche_only = is_niche and not exceeds_volume and not exceeds_book
+        if niche_only and trade.notional_value < self._niche_min_trade_size:
+            logger.debug(
+                "Trade %s niche-only but size %s < min %s, skipping",
+                trade.trade_id,
+                trade.notional_value,
+                self._niche_min_trade_size,
+            )
+            return True
+
+        if not exceeds_volume and not exceeds_book and not is_niche:
+            logger.debug(
+                "Trade %s does not exceed thresholds: volume=%.4f, book=%.4f",
+                trade.trade_id,
+                volume_impact,
+                book_impact,
+            )
+            return True
+
+        return False
+
     def _create_minimal_metadata(self, trade: TradeEvent) -> MarketMetadata:
         """Create minimal metadata from trade event."""
         from polymarket_insider_tracker.ingestor.models import Token
@@ -217,7 +227,7 @@ class SizeAnomalyDetector:
 
         Args:
             trade_size: Trade notional value in USDC.
-            daily_volume: 24h trading volume in USDC.
+            daily_volume: 24h market volume in USDC.
 
         Returns:
             Volume impact ratio, or 0.0 if volume unknown.
@@ -269,6 +279,20 @@ class SizeAnomalyDetector:
         # If volume unknown, use category heuristics
         return daily_volume is None and metadata.category in NICHE_PRONE_CATEGORIES
 
+    @staticmethod
+    def _apply_niche_multiplier(
+        is_niche: bool,
+        confidence: float,
+        factors: dict[str, float],
+    ) -> float:
+        if not is_niche:
+            return confidence
+        if confidence > 0:
+            factors["niche_multiplier"] = 1.5
+            return confidence * 1.5
+        factors["niche_base"] = 0.2
+        return 0.2
+
     def calculate_confidence(
         self,
         *,
@@ -310,20 +334,26 @@ class SizeAnomalyDetector:
             factors["book_impact"] = book_score
             confidence += book_score
 
-        # Niche market multiplier
-        if is_niche and confidence > 0:
-            factors["niche_multiplier"] = 1.5
-            confidence *= 1.5
-
-        # If niche but no other signals, give small base confidence
-        if is_niche and confidence == 0:
-            factors["niche_base"] = 0.2
-            confidence = 0.2
-
-        # Clamp to valid range
+        confidence = self._apply_niche_multiplier(is_niche, confidence, factors)
         confidence = max(0.0, min(1.0, confidence))
-
         return confidence, factors
+
+    def _create_batch_tasks(
+        self,
+        trades: list[TradeEvent],
+        volume_data: dict[str, Decimal] | None,
+        book_data: dict[str, Decimal] | None,
+    ) -> list[Any]:
+        v_data = volume_data or {}
+        b_data = book_data or {}
+        return [
+            self.analyze(
+                trade,
+                daily_volume=v_data.get(trade.market_id),
+                book_depth=b_data.get(trade.market_id),
+            )
+            for trade in trades
+        ]
 
     async def analyze_batch(
         self,
@@ -346,29 +376,27 @@ class SizeAnomalyDetector:
         """
         import asyncio
 
-        volume_data = volume_data or {}
-        book_data = book_data or {}
-
-        tasks = [
-            self.analyze(
-                trade,
-                daily_volume=volume_data.get(trade.market_id),
-                book_depth=book_data.get(trade.market_id),
-            )
-            for trade in trades
-        ]
+        tasks = self._create_batch_tasks(trades, volume_data, book_data)
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         signals: list[SizeAnomalySignal] = []
         for trade, result in zip(trades, results, strict=True):
-            if isinstance(result, BaseException):
-                logger.warning(
-                    "Failed to analyze trade %s: %s",
-                    trade.trade_id,
-                    result,
-                )
-                continue
-            if result is not None:
-                signals.append(result)
+            signal = self._handle_batch_result(trade, result)
+            if signal is not None:
+                signals.append(signal)
 
         return signals
+
+    @staticmethod
+    def _handle_batch_result(
+        trade: TradeEvent,
+        result: SizeAnomalySignal | BaseException | None,
+    ) -> SizeAnomalySignal | None:
+        if isinstance(result, BaseException):
+            logger.warning(
+                "Failed to analyze trade %s: %s",
+                trade.trade_id,
+                result,
+            )
+            return None
+        return result

@@ -290,27 +290,30 @@ class Pipeline:
 
         logger.info("All components initialized")
 
+    def _build_discord_channel(self) -> DiscordChannel | None:
+        discord = self._settings.discord
+        if not discord.enabled or not discord.webhook_url:
+            return None
+        logger.info("Discord channel enabled")
+        return DiscordChannel(discord.webhook_url.get_secret_value())
+
+    def _build_telegram_channel(self) -> TelegramChannel | None:
+        telegram = self._settings.telegram
+        if not telegram.enabled or not telegram.bot_token or not telegram.chat_id:
+            return None
+        logger.info("Telegram channel enabled")
+        return TelegramChannel(telegram.bot_token.get_secret_value(), telegram.chat_id)
+
     def _build_alert_channels(self) -> list[AlertChannel]:
         """Build list of enabled alert channels."""
         channels: list[AlertChannel] = []
-        settings = self._settings
+        discord_chan = self._build_discord_channel()
+        if discord_chan:
+            channels.append(discord_chan)
 
-        if settings.discord.enabled and settings.discord.webhook_url:
-            webhook_url = settings.discord.webhook_url.get_secret_value()
-            channels.append(DiscordChannel(webhook_url))
-            logger.info("Discord channel enabled")
-
-        if settings.telegram.enabled:
-            bot_token = settings.telegram.bot_token
-            chat_id = settings.telegram.chat_id
-            if bot_token and chat_id:
-                channels.append(
-                    TelegramChannel(
-                        bot_token.get_secret_value(),
-                        chat_id,
-                    )
-                )
-                logger.info("Telegram channel enabled")
+        telegram_chan = self._build_telegram_channel()
+        if telegram_chan:
+            channels.append(telegram_chan)
 
         if not channels:
             logger.warning("No alert channels configured")
@@ -436,7 +439,6 @@ class Pipeline:
 
         try:
             async with self._db_manager.get_async_session() as session:
-                # Persist wallet profile
                 wallet_repo = WalletRepository(session)
                 dto = WalletProfileDTO(
                     address=address,
@@ -448,28 +450,7 @@ class Pipeline:
                     analyzed_at=profile.analyzed_at,
                 )
                 await wallet_repo.upsert(dto)
-
-                # Trace and persist funding transfers
-                funding_transfer_count = 0
-                if self._funding_tracer:
-                    chain = await self._funding_tracer.trace(address)
-                    funding_transfer_count = len(chain.chain)
-                    if chain.chain:
-                        funding_repo = FundingRepository(session)
-                        funding_dtos = [
-                            FundingTransferDTO(
-                                from_address=t.from_address,
-                                to_address=t.to_address,
-                                amount=t.amount,
-                                token=t.token,
-                                tx_hash=t.tx_hash,
-                                block_number=t.block_number,
-                                timestamp=t.timestamp,
-                            )
-                            for t in chain.chain
-                        ]
-                        await funding_repo.insert_many(funding_dtos)
-
+                funding_transfer_count = await self._persist_funding_transfers(session, address)
                 logger.debug(
                     "Persisted wallet profile and %d funding transfers for %s",
                     funding_transfer_count,
@@ -477,6 +458,28 @@ class Pipeline:
                 )
         except Exception as e:
             logger.warning("Failed to persist wallet/funding data for %s: %s", address, e)
+
+    async def _persist_funding_transfers(self, session: Any, address: str) -> int:
+        if not self._funding_tracer:
+            return 0
+        chain = await self._funding_tracer.trace(address)
+        if not chain.chain:
+            return 0
+        funding_repo = FundingRepository(session)
+        funding_dtos = [
+            FundingTransferDTO(
+                from_address=t.from_address,
+                to_address=t.to_address,
+                amount=t.amount,
+                token=t.token,
+                tx_hash=t.tx_hash,
+                block_number=t.block_number,
+                timestamp=t.timestamp,
+            )
+            for t in chain.chain
+        ]
+        await funding_repo.insert_many(funding_dtos)
+        return len(chain.chain)
 
     async def _detect_fresh_wallet(self, trade: TradeEvent) -> FreshWalletSignal | None:
         """Run fresh wallet detection."""
@@ -498,41 +501,16 @@ class Pipeline:
             logger.warning("Size anomaly detection failed for %s: %s", trade.trade_id, e)
             return None
 
-    async def _score_and_alert(self, bundle: SignalBundle) -> None:
-        """Score signals, persist the assessment, and send alert if above threshold."""
-        if not self._risk_scorer or not self._alert_formatter or not self._alert_dispatcher:
-            return
+    def _can_alert(self) -> bool:
+        return (
+            self._risk_scorer is not None
+            and self._alert_formatter is not None
+            and self._alert_dispatcher is not None
+        )
 
-        # Get risk assessment
-        assessment = await self._risk_scorer.assess(bundle)
-
-        # Persist every signal-bearing assessment (not just delivered alerts).
-        # This is the ground-truth log future backtests will read instead of
-        # grepping systemd. Failure here must never block alerting.
-        if self._settings.detector.persist_assessments:
-            await self._persist_assessment(assessment)
-
-        if not assessment.should_alert:
-            logger.debug(
-                "Trade %s below alert threshold (score=%.2f)",
-                bundle.trade_event.trade_id,
-                assessment.weighted_score,
-            )
-            return
-
-        # Format and dispatch alert
-        formatted_alert = self._alert_formatter.format(assessment)
-
-        if self._dry_run:
-            logger.info(
-                "[DRY RUN] Would send alert: wallet=%s, score=%.2f",
-                assessment.wallet_address[:10] + "...",
-                assessment.weighted_score,
-            )
-            return
-
+    async def _dispatch_alert(self, formatted_alert: Any, assessment: RiskAssessment) -> None:
+        assert self._alert_dispatcher is not None
         result = await self._alert_dispatcher.dispatch(formatted_alert)
-
         if result.all_succeeded:
             self._stats.alerts_sent += 1
             logger.info(
@@ -546,6 +524,38 @@ class Pipeline:
                 result.success_count,
                 result.success_count + result.failure_count,
             )
+
+    async def _send_or_dry_run_alert(self, assessment: RiskAssessment) -> None:
+        assert self._alert_formatter is not None
+        formatted_alert = self._alert_formatter.format(assessment)
+        if self._dry_run:
+            logger.info(
+                "[DRY RUN] Would send alert: wallet=%s, score=%.2f",
+                assessment.wallet_address[:10] + "...",
+                assessment.weighted_score,
+            )
+            return
+        await self._dispatch_alert(formatted_alert, assessment)
+
+    async def _score_and_alert(self, bundle: SignalBundle) -> None:
+        """Score signals, persist the assessment, and send alert if above threshold."""
+        if not self._can_alert():
+            return
+        assert self._risk_scorer is not None
+
+        assessment = await self._risk_scorer.assess(bundle)
+        if self._settings.detector.persist_assessments:
+            await self._persist_assessment(assessment)
+
+        if not assessment.should_alert:
+            logger.debug(
+                "Trade %s below alert threshold (score=%.2f)",
+                bundle.trade_event.trade_id,
+                assessment.weighted_score,
+            )
+            return
+
+        await self._send_or_dry_run_alert(assessment)
 
     async def _persist_assessment(self, assessment: RiskAssessment) -> None:
         """Write the assessment row. Best-effort; never raises."""

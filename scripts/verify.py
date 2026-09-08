@@ -122,6 +122,19 @@ GATES: Mapping[str, Gate] = {
             "conftest.py",
         ),
     ),
+    "complexipy": Gate(
+        "complexipy",
+        (
+            "uv",
+            "run",
+            "--isolated",
+            "--locked",
+            "--all-extras",
+            "--python",
+            "3.11",
+            "complexipy",
+        ),
+    ),
     "imports": Gate(
         "imports",
         (
@@ -148,7 +161,7 @@ GATES: Mapping[str, Gate] = {
 }
 
 BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
-    "static": ("lock", "format", "lint", "strict-types", "pyright", "vulture"),
+    "static": ("lock", "format", "lint", "strict-types", "pyright", "vulture", "complexipy"),
     "compatibility": ("lock", "imports", "tests"),
     "services": ("services", "migrations"),
 }
@@ -193,6 +206,10 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
         "src tests scripts alembic conftest.py",
     ),
     (
+        "complexipy",
+        "uv run --isolated --locked --all-extras --python 3.11 complexipy",
+    ),
+    (
         "imports",
         'uv run python -c "import alembic, greenlet, psycopg, redis, sqlalchemy; '
         "import polymarket_insider_tracker; "
@@ -208,18 +225,20 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
 APPLY_MIGRATIONS_COMMAND = "uv run --env-file .env alembic upgrade head"
 
 
+def _all_profile_gate_ids() -> tuple[str, ...]:
+    gates: list[str] = []
+    for name in ("static", "compatibility", "services"):
+        gates.extend(BASE_PROFILES[name])
+    return tuple(dict.fromkeys(gates))
+
+
 def gate_ids_for_profile(profile: str) -> tuple[str, ...]:
     """Return the exact ordered, de-duplicated gate IDs for ``profile``."""
     if profile in BASE_PROFILES:
         return BASE_PROFILES[profile]
-    if profile != "all":
-        raise ValueError(f"unknown profile {profile!r}")
-    ordered: list[str] = []
-    for profile_name in ("static", "compatibility", "services"):
-        for gate_id in BASE_PROFILES[profile_name]:
-            if gate_id not in ordered:
-                ordered.append(gate_id)
-    return tuple(ordered)
+    if profile == "all":
+        return _all_profile_gate_ids()
+    raise ValueError(f"unknown profile {profile!r}")
 
 
 def _split_userinfo(authority: str) -> tuple[str | None, str | None, str]:
@@ -229,6 +248,25 @@ def _split_userinfo(authority: str) -> tuple[str | None, str | None, str]:
         return None, None, hostinfo
     username, separator, password = userinfo.partition(":")
     return username, (password if separator else None), hostinfo
+
+
+def _extract_query_password(pair: str) -> str | None:
+    name, separator, raw_value = pair.partition("=")
+    if not separator or not raw_value:
+        return None
+    return raw_value if name.casefold() == "password" else None
+
+
+def _query_credentials(tail: str) -> list[str]:
+    if not tail.startswith("?"):
+        return []
+    query = tail[1:].partition("#")[0]
+    results: list[str] = []
+    for pair in query.split("&"):
+        pwd = _extract_query_password(pair)
+        if pwd:
+            results.append(pwd)
+    return results
 
 
 def _url_credentials(value: str) -> tuple[str, ...]:
@@ -244,23 +282,16 @@ def _url_credentials(value: str) -> tuple[str, ...]:
     password = _split_userinfo(match.group("authority"))[1]
     if password:
         credentials.append(password)
-    tail = match.group("tail") or ""
-    if tail.startswith("?"):
-        for pair in tail[1:].partition("#")[0].split("&"):
-            name, separator, raw_value = pair.partition("=")
-            if separator and raw_value and name.casefold() == "password":
-                credentials.append(raw_value)
+    credentials.extend(_query_credentials(match.group("tail") or ""))
     return tuple(credentials)
 
 
 def _credential_forms(value: str) -> tuple[str, ...]:
     """Return every encoded or decoded credential spelling a tool might echo from ``value``."""
-    forms: list[str] = []
+    raw_forms: list[str] = []
     for credential in _url_credentials(value):
-        for form in (credential, unquote(credential)):
-            if form not in forms:
-                forms.append(form)
-    return tuple(forms)
+        raw_forms.extend((credential, unquote(credential)))
+    return tuple(dict.fromkeys(raw_forms))
 
 
 def _redacted_url(value: str) -> str:
@@ -283,22 +314,35 @@ def _redacted_url(value: str) -> str:
     return f"{match.group('scheme')}://{credential}{hostinfo}{match.group('path')}{query}"
 
 
-def redact_text(text: str, environment: Mapping[str, str] | None = None) -> str:
-    """Redact configured credentials and complete sensitive values from diagnostics."""
-    values = environment if environment is not None else os.environ
+def _redact_service_url(text: str, value: str) -> str:
+    redacted = text.replace(value, _redacted_url(value))
+    for form in _credential_forms(value):
+        redacted = redacted.replace(form, "***")
+    return redacted
+
+
+def _redact_urls(text: str, values: Mapping[str, str]) -> str:
     redacted = text
     for key in SERVICE_URL_KEYS:
         value = values.get(key)
-        if not value:
-            continue
-        redacted = redacted.replace(value, _redacted_url(value))
-        for form in _credential_forms(value):
-            redacted = redacted.replace(form, "***")
+        if value:
+            redacted = _redact_service_url(redacted, value)
+    return redacted
+
+
+def _redact_secrets(text: str, values: Mapping[str, str]) -> str:
+    redacted = text
     for key in SECRET_VALUE_KEYS:
         value = values.get(key)
         if value:
             redacted = redacted.replace(value, "***")
     return redacted
+
+
+def redact_text(text: str, environment: Mapping[str, str] | None = None) -> str:
+    """Redact configured credentials and complete sensitive values from diagnostics."""
+    values = environment if environment is not None else os.environ
+    return _redact_secrets(_redact_urls(text, values), values)
 
 
 def _environment_for_gate(gate: Gate) -> dict[str, str] | None:
@@ -337,11 +381,19 @@ def _run_command(gate: Gate) -> CommandExecution:
     )
 
 
+def _first_nonempty_line(stream: str) -> str | None:
+    for line in stream.splitlines():
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return None
+
+
 def _summary(execution: CommandExecution) -> str:
     for stream in (execution.stderr, execution.stdout):
-        for line in stream.splitlines():
-            if line.strip():
-                return line.strip()
+        line = _first_nonempty_line(stream)
+        if line is not None:
+            return line
     return "command returned a nonzero exit status"
 
 
@@ -358,11 +410,72 @@ def _aggregate_exit_code(failure: GateResult | None) -> int:
     return GATE_FAILURE_EXIT_CODE
 
 
+def _execute_gate(gate: Gate, execute: Runner) -> CommandExecution:
+    try:
+        execution = execute(gate)
+    except Exception as exc:
+        execution = CommandExecution(exit_code=1, stderr=f"runner error: {exc}")
+    return CommandExecution(
+        exit_code=execution.exit_code,
+        stdout=redact_text(execution.stdout),
+        stderr=redact_text(execution.stderr),
+        duration_seconds=execution.duration_seconds,
+    )
+
+
+def _build_gate_result(gate: Gate, execution: CommandExecution) -> GateResult:
+    if execution.exit_code == 0:
+        status: GateStatus = "passed"
+        summary = _first_nonempty_line(execution.stdout) or "passed"
+    else:
+        status = "failed"
+        summary = _summary(execution)
+    return GateResult(
+        id=gate.id,
+        command=gate.command_text,
+        status=status,
+        exit_code=execution.exit_code,
+        duration_seconds=execution.duration_seconds,
+        summary=summary,
+        stdout=execution.stdout,
+        stderr=execution.stderr,
+    )
+
+
+def _build_skipped_result(gate: Gate, failed_gate_id: str) -> GateResult:
+    return GateResult(
+        id=gate.id,
+        command=gate.command_text,
+        status="not-run",
+        exit_code=None,
+        duration_seconds=0.0,
+        summary=f"not run after {failed_gate_id} failed",
+    )
+
+
+def _verification_outcome(
+    failure: GateResult | None,
+) -> tuple[Literal["passed", "failed"], str | None]:
+    if failure is None:
+        return "passed", None
+    return "failed", failure.id
+
+
+def _get_runner(runner: Runner | None) -> Runner:
+    return runner if runner is not None else _run_command
+
+
+def _step_gate(gate: Gate, execute: Runner) -> tuple[GateResult, float]:
+    safe_execution = _execute_gate(gate, execute)
+    gate_result = _build_gate_result(gate, safe_execution)
+    return gate_result, safe_execution.duration_seconds
+
+
 def run_verification(profile: str, *, runner: Runner | None = None) -> VerificationResult:
     """Execute ``profile`` until its first failure and mark later gates not-run."""
     selected = gate_ids_for_profile(profile)
     typed_profile = cast(ProfileName, profile)
-    execute = runner or _run_command
+    execute = _get_runner(runner)
     results: list[GateResult] = []
     failure: GateResult | None = None
     total_duration = 0.0
@@ -370,80 +483,57 @@ def run_verification(profile: str, *, runner: Runner | None = None) -> Verificat
     for gate_id in selected:
         gate = GATES[gate_id]
         if failure is not None:
-            results.append(
-                GateResult(
-                    id=gate.id,
-                    command=gate.command_text,
-                    status="not-run",
-                    exit_code=None,
-                    duration_seconds=0.0,
-                    summary=f"not run after {failure.id} failed",
-                )
-            )
+            results.append(_build_skipped_result(gate, failure.id))
             continue
-        try:
-            execution = execute(gate)
-        except Exception as exc:
-            execution = CommandExecution(exit_code=1, stderr=f"runner error: {exc}")
-        safe_execution = CommandExecution(
-            exit_code=execution.exit_code,
-            stdout=redact_text(execution.stdout),
-            stderr=redact_text(execution.stderr),
-            duration_seconds=execution.duration_seconds,
-        )
-        total_duration += safe_execution.duration_seconds
-        if safe_execution.exit_code == 0:
-            status: GateStatus = "passed"
-            summary = next(
-                (line.strip() for line in safe_execution.stdout.splitlines() if line.strip()),
-                "passed",
-            )
-        else:
-            status = "failed"
-            summary = _summary(safe_execution)
-        gate_result = GateResult(
-            id=gate.id,
-            command=gate.command_text,
-            status=status,
-            exit_code=safe_execution.exit_code,
-            duration_seconds=safe_execution.duration_seconds,
-            summary=summary,
-            stdout=safe_execution.stdout,
-            stderr=safe_execution.stderr,
-        )
+        gate_result, duration = _step_gate(gate, execute)
+        total_duration += duration
         results.append(gate_result)
-        if status == "failed":
+        if gate_result.status == "failed":
             failure = gate_result
 
+    status, first_failed = _verification_outcome(failure)
     return VerificationResult(
         profile=typed_profile,
-        status="failed" if failure is not None else "passed",
+        status=status,
         exit_code=_aggregate_exit_code(failure),
         duration_seconds=total_duration,
         gates=tuple(results),
-        first_failed_gate=failure.id if failure is not None else None,
+        first_failed_gate=first_failed,
     )
+
+
+def _render_gate_output(gate: GateResult) -> list[str]:
+    lines: list[str] = []
+    if gate.stdout:
+        lines.extend(gate.stdout.rstrip().splitlines())
+    if gate.stderr:
+        lines.extend(gate.stderr.rstrip().splitlines())
+    return lines
+
+
+def _render_gate_status(gate: GateResult) -> str:
+    if gate.status == "passed":
+        return f"[PASS] {gate.id} ({gate.duration_seconds:.2f}s)"
+    return (
+        f"[FAIL] {gate.id} (exit {gate.exit_code}, "
+        f"{gate.duration_seconds:.2f}s): {gate.summary}"
+    )
+
+
+def _render_gate(gate: GateResult) -> list[str]:
+    if gate.status == "not-run":
+        return [f"[SKIP] {gate.id}: {gate.summary}"]
+    lines = [f"[RUN ] {gate.id}: {gate.command}"]
+    lines.extend(_render_gate_output(gate))
+    lines.append(_render_gate_status(gate))
+    return lines
 
 
 def render_human(result: VerificationResult) -> str:
     """Render copyable commands, captured diagnostics, and stable statuses."""
     lines: list[str] = []
     for gate in result.gates:
-        if gate.status == "not-run":
-            lines.append(f"[SKIP] {gate.id}: {gate.summary}")
-            continue
-        lines.append(f"[RUN ] {gate.id}: {gate.command}")
-        if gate.stdout:
-            lines.extend(gate.stdout.rstrip().splitlines())
-        if gate.stderr:
-            lines.extend(gate.stderr.rstrip().splitlines())
-        if gate.status == "passed":
-            lines.append(f"[PASS] {gate.id} ({gate.duration_seconds:.2f}s)")
-        else:
-            lines.append(
-                f"[FAIL] {gate.id} (exit {gate.exit_code}, "
-                f"{gate.duration_seconds:.2f}s): {gate.summary}"
-            )
+        lines.extend(_render_gate(gate))
     lines.append(f"status: {result.status}")
     lines.append(f"duration: {result.duration_seconds:.2f}s")
     if result.first_failed_gate is not None:
@@ -527,6 +617,16 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _handle_invocation_error(
+    parser: argparse.ArgumentParser, exc: Exception, json_mode: bool
+) -> None:
+    if json_mode:
+        print(render_invocation_error(str(exc)))
+    else:
+        parser.print_usage(sys.stderr)
+        print(f"{parser.prog}: error: {exc}", file=sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None, *, runner: Runner | None = None) -> int:
     """Parse one profile, execute it, and map the result to its stable exit code."""
     arguments = tuple(sys.argv[1:] if argv is None else argv)
@@ -534,14 +634,11 @@ def main(argv: Sequence[str] | None = None, *, runner: Runner | None = None) -> 
     try:
         args = parser.parse_args(arguments)
     except argparse.ArgumentError as exc:
-        if "--json" in arguments:
-            print(render_invocation_error(str(exc)))
-        else:
-            parser.print_usage(sys.stderr)
-            print(f"{parser.prog}: error: {exc}", file=sys.stderr)
+        _handle_invocation_error(parser, exc, "--json" in arguments)
         return PREREQUISITE_EXIT_CODE
     result = run_verification(args.profile, runner=runner)
-    print(render_json(result) if args.json else render_human(result))
+    output = render_json(result) if args.json else render_human(result)
+    print(output)
     return result.exit_code
 
 

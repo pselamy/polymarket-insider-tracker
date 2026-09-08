@@ -188,7 +188,7 @@ uv run --env-file .env python scripts/verify.py --profile all
 ```
 
 The `static` profile checks the lock, Black formatting across the repository, Ruff lint/import rules,
-strict mypy, strict Pyright, and Vulture dead code detection. Pyright is an additional checker, not a mypy replacement. Its canonical
+strict mypy, strict Pyright, Vulture dead code detection, and Complexipy cognitive complexity analysis. Pyright is an additional checker, not a mypy replacement. Its canonical
 scope is the complete production package, configured for the lowest supported Python version:
 
 ```bash
@@ -203,6 +203,14 @@ with no baseline, allowlist, ignore list, decorator exemption, or path exclusion
 
 ```bash
 uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
+```
+
+Complexipy runs as its own required CI job and verifier gate over `src`, `tests`, `scripts`, `alembic`, and
+`conftest.py`, which together hold every tracked repository Python file. It enforces a strict maximum cognitive
+complexity of 5 with `--no-ignore` enabled, rejecting inline suppression comments and configuration escape hatches:
+
+```bash
+uv run --isolated --locked --all-extras --python 3.11 complexipy src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore
 ```
 
 The `compatibility` profile checks locked imports and the deterministic test suite. The `services`

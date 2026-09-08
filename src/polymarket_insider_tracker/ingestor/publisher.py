@@ -78,6 +78,26 @@ def _serialize_trade_event(event: TradeEvent) -> dict[str, str]:
     }
 
 
+def _decode_stream_dict(data: dict[bytes | str, bytes | str]) -> dict[str, str]:
+    decoded: dict[str, str] = {}
+    for k, v in data.items():
+        key = k.decode() if isinstance(k, bytes) else str(k)
+        value = v.decode() if isinstance(v, bytes) else str(v)
+        decoded[key] = value
+    return decoded
+
+
+def _parse_event_timestamp(timestamp_str: str) -> datetime:
+    try:
+        return datetime.fromisoformat(timestamp_str)
+    except (ValueError, TypeError):
+        return datetime.now(UTC)
+
+
+def _decode_entry_id(entry_id: bytes | str) -> str:
+    return entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
+
+
 def _deserialize_trade_event(data: dict[bytes | str, bytes | str]) -> TradeEvent:
     """Deserialize a TradeEvent from Redis Stream data.
 
@@ -87,21 +107,9 @@ def _deserialize_trade_event(data: dict[bytes | str, bytes | str]) -> TradeEvent
     Returns:
         TradeEvent instance.
     """
-    # Convert bytes to strings if needed
-    decoded: dict[str, str] = {}
-    for k, v in data.items():
-        key = k.decode() if isinstance(k, bytes) else k
-        value = v.decode() if isinstance(v, bytes) else v
-        decoded[key] = value
+    decoded = _decode_stream_dict(data)
+    timestamp = _parse_event_timestamp(decoded.get("timestamp", ""))
 
-    # Parse timestamp
-    timestamp_str = decoded.get("timestamp", "")
-    try:
-        timestamp = datetime.fromisoformat(timestamp_str)
-    except (ValueError, TypeError):
-        timestamp = datetime.now(UTC)
-
-    # Parse side
     side_raw = decoded.get("side", "BUY").upper()
     side: Literal["BUY", "SELL"] = "BUY" if side_raw == "BUY" else "SELL"
 
@@ -122,6 +130,44 @@ def _deserialize_trade_event(data: dict[bytes | str, bytes | str]) -> TradeEvent
         trader_name=decoded.get("trader_name", ""),
         trader_pseudonym=decoded.get("trader_pseudonym", ""),
     )
+
+
+def _parse_stream_entry(
+    entry_id: bytes | str,
+    data: dict[bytes | str, bytes | str],
+    *,
+    context: str = "entry",
+) -> StreamEntry | None:
+    if not data:
+        return None
+    entry_id_str = _decode_entry_id(entry_id)
+    try:
+        event = _deserialize_trade_event(data)
+        return StreamEntry(entry_id=entry_id_str, event=event)
+    except Exception as e:
+        logger.warning(f"Failed to deserialize {context} {entry_id_str}: {e}")
+        return None
+
+
+def _collect_entries_from_stream(
+    stream_entries: list[tuple[bytes | str, dict[bytes | str, bytes | str]]],
+    context: str,
+) -> list[StreamEntry]:
+    entries: list[StreamEntry] = []
+    for entry_id, data in stream_entries:
+        entry = _parse_stream_entry(entry_id, data, context=context)
+        if entry is not None:
+            entries.append(entry)
+    return entries
+
+
+def _parse_stream_results(results: Any, *, context: str = "entry") -> list[StreamEntry]:
+    if not results:
+        return []
+    entries: list[StreamEntry] = []
+    for _stream_name, stream_entries in results:
+        entries.extend(_collect_entries_from_stream(stream_entries, context))
+    return entries
 
 
 class EventPublisher:
@@ -221,15 +267,7 @@ class EventPublisher:
             pipe.xadd(self._stream_name, redis_fields, maxlen=self._max_len)
 
         results = await pipe.execute()
-
-        entry_ids: list[str] = []
-        for entry_id in results:
-            if isinstance(entry_id, bytes):
-                entry_ids.append(entry_id.decode())
-            else:
-                entry_ids.append(str(entry_id))
-
-        return entry_ids
+        return [_decode_entry_id(entry_id) for entry_id in results]
 
     async def create_consumer_group(
         self,
@@ -310,24 +348,7 @@ class EventPublisher:
             count=count,
             block=block_ms,
         )
-
-        entries: list[StreamEntry] = []
-        if not results:
-            return entries
-
-        # Results format: [[stream_name, [(entry_id, data), ...]]]
-        for _stream_name, stream_entries in results:
-            for entry_id, data in stream_entries:
-                # Decode entry_id
-                entry_id_str = entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
-
-                try:
-                    event = _deserialize_trade_event(data)
-                    entries.append(StreamEntry(entry_id=entry_id_str, event=event))
-                except Exception as e:
-                    logger.warning(f"Failed to deserialize entry {entry_id_str}: {e}")
-
-        return entries
+        return _parse_stream_results(results, context="entry")
 
     async def read_pending(
         self,
@@ -356,26 +377,7 @@ class EventPublisher:
             {self._stream_name: "0"},
             count=count,
         )
-
-        entries: list[StreamEntry] = []
-        if not results:
-            return entries
-
-        for _stream_name, stream_entries in results:
-            for entry_id, data in stream_entries:
-                entry_id_str = entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
-
-                # Skip entries with no data (already acked)
-                if not data:
-                    continue
-
-                try:
-                    event = _deserialize_trade_event(data)
-                    entries.append(StreamEntry(entry_id=entry_id_str, event=event))
-                except Exception as e:
-                    logger.warning(f"Failed to deserialize pending entry {entry_id_str}: {e}")
-
-        return entries
+        return _parse_stream_results(results, context="pending entry")
 
     async def ack(self, group_name: str, *entry_ids: str) -> int:
         """Acknowledge that entries have been processed.

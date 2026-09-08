@@ -801,7 +801,132 @@ The protected `main` branch still used strict required-status checks with `Requi
 context. Both instances passed only after the static, Vulture, compatibility, and service predecessors
 succeeded. At this checkpoint PR #115 was open, non-draft, mergeable, and `CLEAN`; `main` remained at exact
 base `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f`, no review decision was present, and no merge occurred.
-T067 is complete. Patrick's approval, merge, and post-merge confirmation remain pending (T061–T063).
+T067 is complete. Patrick's approval, merge, and post-merge confirmation are recorded below (T061–T063 closed).
 
 This evidence checkpoint is committed separately from the implementation head it records and does not embed
 its own hash. Its final-head CI status is reported on PR #115.
+
+### Vulture PR merge and post-merge CI checkpoint
+
+**Date**: 2026-09-08 · **Merge commit**: `ff146dccbb37ef90f8784bd3115adf64f206f96d`.
+
+Pull request #115 received Patrick's explicit approval and was merged into `main` at commit
+`ff146dccbb37ef90f8784bd3115adf64f206f96d`. Post-merge GitHub Actions run
+[`34286515835`](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34286515835) completed
+successfully with all required checks passing, including the independent `vulture` dead code check job and
+the `Required checks` aggregator. This closes T061, T062, and T063.
+
+## Phase 11: Required Complexipy Cognitive Complexity Gate
+
+### Upstream evidence and baseline analysis
+
+- **Upstream release**: `complexipy==8.0.1` (PyPI release 2026-09-07, git tag `8.0.1`, commit `030e2079457412221087f520445e9f2a709faad6`).
+- **Configuration contract**: Upstream 8.0.1 supports `[tool.complexipy]` with kebab-case configuration keys:
+  `paths`, `max-complexity-allowed`, `no-ignore`, and `report-ignored`.
+- **Enforcement semantics**:
+  - `--no-ignore` forces analysis of functions carrying inline suppression markers (`# complexipy: ignore` or `# noqa: complexipy`).
+  - Cognitive complexity threshold fails only when a function's complexity exceeds the configured threshold (`> max_complexity_allowed`). The required maximum is strictly 5.
+- **Untouched-tree baseline scan**:
+  ```bash
+  complexipy . --max-complexity-allowed 5 --no-ignore --output-format json
+  ```
+  Exited with status code 1.
+- **Baseline distribution across 1,312 functions**:
+  `0:976, 1:115, 2:82, 3:26, 4:31, 5:21, 6:15, 7:7, 8:8, 9:7, 10:4, 11:6, 12:1, 13:3, 14:1, 15:3, 16:1, 17:2, 18:1, 19:1, 20:1`.
+  Exactly 61 functions exceeded the allowed maximum of 5, with the worst cognitive complexity score being 20.
+  The full list of 61 baseline hotspots was preserved in `/home/dev/work/polymarket-complexipy-gate-20260909/baseline-complexipy.json`.
+
+### Remediation Ledger
+
+All 61 original baseline complexity hotspots were remediated to cognitive complexity <= 5 without changing public API signatures or behavior:
+
+| File | Function / Method | Baseline | Remediated | Status |
+|---|---|---|---|---|
+| `scripts/verify.py` | `_environment_for_gate` | 20 | 4 | Remediated |
+| `src/polymarket_insider_tracker/alerter/formatter.py` | `format_detection_alert` | 19 | 5 | Remediated |
+| `scripts/verify.py` | `run_verification` | 18 | 5 | Remediated |
+| `src/polymarket_insider_tracker/profiler/funding.py` | `trace` | 17 | 5 | Remediated |
+| `src/polymarket_insider_tracker/pipeline.py` | `_score_and_alert` | 17 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/publisher.py` | `_deserialize_trade_event` | 16 | 4 | Remediated |
+| `scripts/runtime_services.py` | `execute_phase` | 15 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/websocket.py` | `_handle_message` | 15 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/websocket.py` | `start` | 15 | 4 | Remediated |
+| `scripts/verify.py` | `_redacted_url` | 14 | 5 | Remediated |
+| `scripts/runtime_services.py` | `_redacted_url` | 13 | 5 | Remediated |
+| `src/polymarket_insider_tracker/detector/size_anomaly.py` | `analyze` | 13 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/health.py` | `get_health_report` | 13 | 5 | Remediated |
+| `src/polymarket_insider_tracker/detector/scorer.py` | `calculate_weighted_score` | 12 | 5 | Remediated |
+| `scripts/runtime_services.py` | `validate_loopback_database_url` | 11 | 5 | Remediated |
+| `src/polymarket_insider_tracker/detector/sniper.py` | `_process_clustering_results` | 11 | 4 | Remediated |
+| `src/polymarket_insider_tracker/detector/sniper.py` | `_calculate_cluster_stats` | 11 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/metadata_sync.py` | `_sync_all_markets` | 11 | 5 | Remediated |
+| `src/polymarket_insider_tracker/pipeline.py` | `_build_alert_channels` | 11 | 4 | Remediated |
+| `src/polymarket_insider_tracker/alerter/formatter.py` | `_format_blocks` | 11 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/models.py` | `derive_category` | 10 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/publisher.py` | `read_pending` | 10 | 4 | Remediated |
+| `src/polymarket_insider_tracker/profiler/funding.py` | `_get_transfer_logs` | 10 | 5 | Remediated |
+| `tests/detector/test_sniper.py` | `test_sniper_detector_clusters_fast_trades` | 10 | 5 | Remediated |
+| `scripts/verify.py` | `main` | 9 | 3 | Remediated |
+| `src/polymarket_insider_tracker/detector/fresh_wallet.py` | `analyze_batch` | 9 | 4 | Remediated |
+| `src/polymarket_insider_tracker/detector/size_anomaly.py` | `analyze_batch` | 9 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/clob_client.py` | `get_markets` | 9 | 3 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/metadata_sync.py` | `_sync_loop` | 9 | 4 | Remediated |
+| `src/polymarket_insider_tracker/alerter/formatter.py` | `_format_inline` | 9 | 5 | Remediated |
+| `src/polymarket_insider_tracker/alerter/history.py` | `get_alerts` | 9 | 5 | Remediated |
+| `scripts/runtime_services.py` | `_redact_text` | 8 | 5 | Remediated |
+| `src/polymarket_insider_tracker/profiler/entities.py` | `get_entity_category` | 8 | 4 | Remediated |
+| `src/polymarket_insider_tracker/detector/size_anomaly.py` | `calculate_confidence` | 8 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/models.py` | `to_dict` | 8 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/clob_client.py` | `with_retry` | 8 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/gamma_client.py` | `_get_with_retry` | 8 | 3 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/publisher.py` | `publish_batch` | 8 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/publisher.py` | `read_events` | 8 | 3 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/websocket.py` | `_listen` | 8 | 4 | Remediated |
+| `scripts/verify.py` | `_redact_secrets` | 7 | 3 | Remediated |
+| `src/polymarket_insider_tracker/storage/repos.py` | `FundingRepository.insert_many` | 7 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/gamma_client.py` | `get_active_market_stats` | 7 | 5 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/health.py` | `_health_check_loop` | 7 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/metadata_sync.py` | `get_markets_by_category` | 7 | 5 | Remediated |
+| `src/polymarket_insider_tracker/pipeline.py` | `_persist_wallet_and_funding` | 7 | 5 | Remediated |
+| `src/polymarket_insider_tracker/profiler/chain.py` | `_execute_with_retry` | 7 | 4 | Remediated |
+| `scripts/verify.py` | `_build_gate_result` | 6 | 3 | Remediated |
+| `scripts/verify.py` | `_first_nonempty_line` | 6 | 3 | Remediated |
+| `scripts/verify.py` | `_query_credentials` | 6 | 4 | Remediated |
+| `src/polymarket_insider_tracker/__main__.py` | `validate_config` | 6 | 5 | Remediated |
+| `src/polymarket_insider_tracker/storage/database_url.py` | `_parse_database_url` | 6 | 4 | Remediated |
+| `src/polymarket_insider_tracker/detector/sniper.py` | `_get_or_create_cluster_id` | 6 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/models.py` | `from_dict` | 6 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/health.py` | `_check_stream_staleness` | 6 | 3 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/health.py` | `_determine_overall_status` | 6 | 5 | Remediated |
+| `src/polymarket_insider_tracker/alerter/channels/discord.py` | `send` | 6 | 5 | Remediated |
+| `src/polymarket_insider_tracker/alerter/channels/telegram.py` | `send` | 6 | 5 | Remediated |
+| `src/polymarket_insider_tracker/profiler/chain.py` | `get_transaction_counts` | 6 | 4 | Remediated |
+| `tests/tooling/test_verify.py` | `test_each_required_gate_failure_fails_closed` | 6 | 4 | Remediated |
+| `src/polymarket_insider_tracker/ingestor/websocket.py` | `_set_state` | 6 | 4 | Remediated |
+
+### Post-remediation distribution
+
+Across all 1,460 functions in `src`, `tests`, `scripts`, `alembic`, and `conftest.py`:
+`0:998, 1:172, 2:126, 3:84, 4:46, 5:34`.
+Functions exceeding maximum allowed cognitive complexity (> 5): **0** (down from 61 baseline). Maximum complexity across the entire repository is 5.
+
+### Verification commands and results
+
+```text
+uv lock --check                                                       exit: 0
+uv run --isolated --locked --all-extras --python 3.11 complexipy
+  src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore  exit: 0
+uv run python scripts/verify.py --profile static                      status: passed (exit 0)
+  lock, format, lint, strict-types, pyright, vulture, complexipy      all gates PASSED
+uv run pytest -q                                                      819 passed, 2 skipped
+```
+
+### Agy first pass implementation provenance
+
+- **Date**: 2026-09-09
+- **Agent**: Agy CLI `1.1.27`
+- **Model**: `gemini-3.8-flash-high`
+- **Role**: `first-pass-implementation`
+- **Parent**: `ff146dccbb37ef90f8784bd3115adf64f206f96d`
+- **Tasks closed**: T068, T069, T070, T071, T072, T073, T074, T075
+- **Tasks pending**: T076–T082 (review, PR, CI validation, approval, merge, post-merge)

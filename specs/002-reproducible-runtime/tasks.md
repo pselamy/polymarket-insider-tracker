@@ -278,10 +278,10 @@ completion is not evidence for this phase; each item below is checked only when 
 - [X] T059 Open the non-draft pull request for `quality/vulture-required-gate` against `main`.
 - [X] T060 Verify that the independent `Vulture dead code check` job and the `Required checks` aggregator pass
   on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.
-- [ ] T061 Patrick's approval of the pull request.
-- [ ] T062 Merge into `main`.
-- [ ] T063 Post-merge: confirm the `main` workflow run is green with the `vulture` job present in the
-  required aggregator, and close this ledger.
+- [X] T061 Patrick's approval of the pull request (#115).
+- [X] T062 Merge into `main` (merge commit `ff146dccbb37ef90f8784bd3115adf64f206f96d`).
+- [X] T063 Post-merge: confirm the `main` workflow run is green with the `vulture` job present in the
+  required aggregator, and close this ledger (run `34286515835`).
 - [X] T064 Agy corrective pass committed as `fc8ae9009b83b53b7e5033527252e005c43c9557` on checkpoint
   `4df55be84ecb506946263e6e145b95dda726f3d9`: extended the Vulture scope to `alembic` and `conftest.py`,
   exposed the Pytest/Alembic entry points through `__all__`, and removed the test type suppression.
@@ -292,3 +292,35 @@ completion is not evidence for this phase; each item below is checked only when 
 - [X] T067 Verify that both push and pull-request workflows pass on reviewed corrective implementation head
   `ac691ab16a57b702d6870842e7479cbaf5b2784f` and record the immutable runs; T060's evidence covers head
   `69654ee` only.
+
+## Phase 11: Required Complexipy Cognitive Complexity Gate
+
+Branch `quality/complexipy-required-gate` from base `ff146dccbb37ef90f8784bd3115adf64f206f96d`. Phase 10
+completion is not evidence for this phase; each item below is checked only when true for this slice.
+
+- [X] T068 Pin and lock `complexipy==8.0.1` in `pyproject.toml` and regenerate `uv.lock` reproducibly.
+- [X] T069 Configure `[tool.complexipy]` in `pyproject.toml` over `src`, `tests`, `scripts`, `alembic`, and
+  `conftest.py` with `max-complexity-allowed = 5`, `no-ignore = true`, covering every tracked repository
+  Python file with no exclusions, baselines, or suppressions.
+- [X] T070 Add `complexipy` as an explicit fail-closed gate after `vulture` in `scripts/verify.py` (`static`
+  and `all` profiles), naming its scope and registering direct gate commands.
+- [X] T071 Add an independent required `complexipy` job (`Complexipy complexity check`) in
+  `.github/workflows/ci.yml` and bind it into the `Required checks` aggregator.
+- [X] T072 Remediate all 61 baseline cognitive complexity hotspots (> 5) across `src`, `tests`, and `scripts`
+  to `<= 5`, preserving public interfaces, behavior, and type cleanliness.
+- [X] T073 Add contract tests in `tests/tooling/test_complexipy.py`, `tests/tooling/test_verify.py`, and
+  `tests/tooling/test_ci_workflow.py` proving scope coverage, suppression comment banning, escape hatch
+  rejection, fail-closed aggregator behavior, and verifier integration.
+- [X] T074 Align README, specification, plan, runtime contract, tasks, and evidence with the Complexipy
+  gate requirements.
+- [X] T075 Agy first pass committed as the reviewable first-pass anchor on top of base
+  `ff146dccbb37ef90f8784bd3115adf64f206f96d`.
+- [ ] T076 Claude Code/fable adversarial review completed on top of the Agy commit.
+- [ ] T077 Codex refute-first review, with every finding resolved or recorded.
+- [ ] T078 Open the non-draft pull request for `quality/complexipy-required-gate` against `main`.
+- [ ] T079 Verify that the independent `Complexipy complexity check` job and the `Required checks` aggregator
+  pass on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.
+- [ ] T080 Patrick's approval of the pull request.
+- [ ] T081 Merge into `main`.
+- [ ] T082 Post-merge: confirm the `main` workflow run is green with the `complexipy` job present in the
+  required aggregator, and close this ledger.

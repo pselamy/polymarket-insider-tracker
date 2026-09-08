@@ -114,6 +114,56 @@ class FundingTracer:
         self._chunk_size_blocks = chunk_size_blocks
         self._max_lookback_blocks = max_lookback_blocks
 
+    async def _execute_trace_hop(
+        self, current_address: str, hop: int, current_origin_type: str
+    ) -> tuple[FundingTransfer | None, str, str, bool]:
+        """Execute one hop of tracing.
+
+        Returns (transfer, origin_address, origin_type, should_stop).
+        """
+        if self.entity_registry.is_terminal(current_address):
+            origin_type = self.entity_registry.classify(current_address).value
+            logger.debug(
+                "Trace terminated at known entity: %s (%s)",
+                current_address,
+                origin_type,
+            )
+            return None, current_address, origin_type, True
+
+        transfer = await self.get_first_usdc_transfer(current_address)
+        if transfer is None:
+            logger.debug("No USDC transfer found for %s at hop %d", current_address, hop)
+            return None, current_address, current_origin_type, True
+
+        origin_address = transfer.from_address
+        if self.entity_registry.is_terminal(origin_address):
+            origin_type = self.entity_registry.classify(origin_address).value
+            logger.debug("Trace found terminal entity: %s (%s)", origin_address, origin_type)
+            return transfer, origin_address, origin_type, True
+
+        return transfer, origin_address, current_origin_type, False
+
+    async def _trace_loop(
+        self, start_address: str, max_hops: int
+    ) -> tuple[list[FundingTransfer], str, str]:
+        chain: list[FundingTransfer] = []
+        current = start_address
+        origin = start_address
+        origin_type = "unknown"
+
+        for hop in range(max_hops):
+            transfer, origin, origin_type, stop = await self._execute_trace_hop(
+                current, hop, origin_type
+            )
+            if not transfer:
+                break
+            chain.append(transfer)
+            current = transfer.from_address
+            if stop:
+                break
+
+        return chain, origin, origin_type
+
     async def trace(
         self,
         address: str,
@@ -133,48 +183,9 @@ class FundingTracer:
         """
         effective_max_hops = max_hops if max_hops is not None else self.max_hops
         normalized_address = address.lower()
-
-        chain: list[FundingTransfer] = []
-        current_address = normalized_address
-        origin_address = normalized_address
-        origin_type = "unknown"
-
-        for hop in range(effective_max_hops):
-            # Check if current address is a known entity
-            if self.entity_registry.is_terminal(current_address):
-                origin_address = current_address
-                origin_type = self.entity_registry.classify(current_address).value
-                logger.debug(
-                    "Trace terminated at known entity: %s (%s)",
-                    current_address,
-                    origin_type,
-                )
-                break
-
-            # Get first USDC transfer into this address
-            transfer = await self.get_first_usdc_transfer(current_address)
-            if transfer is None:
-                logger.debug(
-                    "No USDC transfer found for %s at hop %d",
-                    current_address,
-                    hop,
-                )
-                origin_address = current_address
-                break
-
-            chain.append(transfer)
-            origin_address = transfer.from_address
-            current_address = transfer.from_address
-
-            # Check if the source is a known entity
-            if self.entity_registry.is_terminal(origin_address):
-                origin_type = self.entity_registry.classify(origin_address).value
-                logger.debug(
-                    "Trace found terminal entity: %s (%s)",
-                    origin_address,
-                    origin_type,
-                )
-                break
+        chain, origin_address, origin_type = await self._trace_loop(
+            normalized_address, effective_max_hops
+        )
 
         return FundingChain(
             target_address=normalized_address,
@@ -294,48 +305,76 @@ class FundingTracer:
         if start_block > end_block:
             return []
 
+        return await self._scan_log_chunks(
+            contract_address, topics, start_block, end_block, to_address, limit
+        )
+
+    async def _fetch_chunk_with_handling(
+        self,
+        contract_address: str,
+        topics: list[Any],
+        chunk_start: int,
+        chunk_end: int,
+        to_address: str,
+    ) -> tuple[list[Any] | None, bool]:
+        """Fetch logs for a chunk, returning (logs, should_stop)."""
+        try:
+            logs = await self._fetch_logs_chunk(
+                contract_address=contract_address,
+                topics=topics,
+                from_block=chunk_start,
+                to_block=chunk_end,
+            )
+            return logs, False
+        except Exception as e:
+            if _is_pruned_history_error(e):
+                logger.info(
+                    "eth_getLogs chunk %d-%d outside archive horizon for %s; stopping trace",
+                    chunk_start,
+                    chunk_end,
+                    to_address,
+                )
+                return None, True
+            logger.warning(
+                "eth_getLogs chunk %d-%d failed for %s: %s",
+                chunk_start,
+                chunk_end,
+                to_address,
+                e,
+            )
+            return None, False
+
+    def _append_chunk_logs(
+        self, results: list[dict[str, Any]], chunk_logs: list[Any] | None, limit: int
+    ) -> bool:
+        if not chunk_logs:
+            return False
+        for log in chunk_logs:
+            results.append(dict(log))
+            if len(results) >= limit:
+                return True
+        return False
+
+    async def _scan_log_chunks(
+        self,
+        contract_address: str,
+        topics: list[Any],
+        start_block: int,
+        end_block: int,
+        to_address: str,
+        limit: int,
+    ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         chunk_size = max(1, self._chunk_size_blocks)
         chunk_start = start_block
 
         while chunk_start <= end_block:
             chunk_end = min(chunk_start + chunk_size - 1, end_block)
-            try:
-                chunk_logs = await self._fetch_logs_chunk(
-                    contract_address=contract_address,
-                    topics=topics,
-                    from_block=chunk_start,
-                    to_block=chunk_end,
-                )
-            except Exception as e:
-                if _is_pruned_history_error(e):
-                    # The provider has dropped this slice of history. Walking
-                    # further back will hit the same wall on every chunk;
-                    # stop now and return what we already have.
-                    logger.info(
-                        "eth_getLogs chunk %d-%d outside archive horizon for %s; stopping trace",
-                        chunk_start,
-                        chunk_end,
-                        to_address,
-                    )
-                    break
-                logger.warning(
-                    "eth_getLogs chunk %d-%d failed for %s: %s",
-                    chunk_start,
-                    chunk_end,
-                    to_address,
-                    e,
-                )
-                # Skip this window and keep walking — partial data is better
-                # than aborting the whole trace on a single flaky chunk.
-                chunk_start = chunk_end + 1
-                continue
-
-            for log in chunk_logs:
-                results.append(dict(log))
-                if len(results) >= limit:
-                    return results
-
+            chunk_logs, should_stop = await self._fetch_chunk_with_handling(
+                contract_address, topics, chunk_start, chunk_end, to_address
+            )
+            if should_stop or self._append_chunk_logs(results, chunk_logs, limit):
+                break
             chunk_start = chunk_end + 1
 
         return results

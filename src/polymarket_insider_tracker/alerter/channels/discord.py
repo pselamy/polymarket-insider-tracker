@@ -66,6 +66,42 @@ class DiscordChannel:
 
             self._request_times.append(now)
 
+    async def _post_payload(
+        self,
+        payload: dict[str, object],
+        attempt: int,
+    ) -> bool | None:
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    self.webhook_url,
+                    json=payload,
+                )
+
+                if response.status_code == 204:
+                    logger.info("Discord alert delivered successfully")
+                    return True
+
+                if response.status_code == 429:
+                    retry_after = response.json().get("retry_after", 1.0)
+                    logger.warning(f"Discord rate limited, retry after {retry_after}s")
+                    await asyncio.sleep(retry_after)
+                    return False
+
+                logger.error(f"Discord webhook failed: {response.status_code} {response.text}")
+
+        except httpx.TimeoutException:
+            logger.warning(f"Discord webhook timeout (attempt {attempt + 1})")
+        except httpx.HTTPError as e:
+            logger.error(f"Discord webhook error: {e}")
+
+        return None
+
+    async def _backoff(self, attempt: int) -> None:
+        if attempt < self.max_retries - 1:
+            delay = self.retry_delay * (2**attempt)
+            await asyncio.sleep(delay)
+
     async def send(self, alert: FormattedAlert) -> bool:
         """Send alert to Discord webhook.
 
@@ -77,40 +113,17 @@ class DiscordChannel:
         """
         await self._wait_for_rate_limit()
 
-        payload = {
+        payload: dict[str, object] = {
             "embeds": [alert.discord_embed],
         }
 
         for attempt in range(self.max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(
-                        self.webhook_url,
-                        json=payload,
-                    )
-
-                    if response.status_code == 204:
-                        logger.info("Discord alert delivered successfully")
-                        return True
-
-                    if response.status_code == 429:
-                        # Rate limited by Discord
-                        retry_after = response.json().get("retry_after", 1.0)
-                        logger.warning(f"Discord rate limited, retry after {retry_after}s")
-                        await asyncio.sleep(retry_after)
-                        continue
-
-                    logger.error(f"Discord webhook failed: {response.status_code} {response.text}")
-
-            except httpx.TimeoutException:
-                logger.warning(f"Discord webhook timeout (attempt {attempt + 1})")
-            except httpx.HTTPError as e:
-                logger.error(f"Discord webhook error: {e}")
-
-            # Exponential backoff
-            if attempt < self.max_retries - 1:
-                delay = self.retry_delay * (2**attempt)
-                await asyncio.sleep(delay)
+            result = await self._post_payload(payload, attempt)
+            if result is True:
+                return True
+            if result is False:
+                continue
+            await self._backoff(attempt)
 
         logger.error("Discord delivery failed after all retries")
         return False

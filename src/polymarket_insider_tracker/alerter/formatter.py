@@ -7,7 +7,7 @@ actionable alert messages optimized for Discord, Telegram, and plain text.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.detector.models import RiskAssessment
@@ -174,6 +174,45 @@ class AlertFormatter:
 
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_wallet_age_str(signal: object | None) -> str:
+        if signal is None:
+            return ""
+        age_hours = getattr(getattr(signal, "wallet_profile", None), "age_hours", None)
+        if age_hours is None:
+            return ""
+        if age_hours < 1:
+            return f" (Age: {int(age_hours * 60)}m)"
+        return f" (Age: {age_hours:.0f}h)"
+
+    @staticmethod
+    def _format_telegram_wallet_age_str(signal: object | None) -> str:
+        if signal is None:
+            return ""
+        age_hours = getattr(getattr(signal, "wallet_profile", None), "age_hours", None)
+        if age_hours is None:
+            return ""
+        if age_hours < 1:
+            return f" \\(Age: {int(age_hours * 60)}m\\)"
+        return f" \\(Age: {age_hours:.0f}h\\)"
+
+    @staticmethod
+    def _build_confidence_field(assessment: RiskAssessment) -> dict[str, object] | None:
+        confidences: list[str] = []
+        if assessment.fresh_wallet_signal:
+            confidences.append(f"Fresh Wallet: {assessment.fresh_wallet_signal.confidence:.0%}")
+        if assessment.size_anomaly_signal:
+            confidences.append(f"Size Anomaly: {assessment.size_anomaly_signal.confidence:.0%}")
+        if not confidences:
+            return None
+        return {"name": "Confidence", "value": " | ".join(confidences), "inline": False}
+
+    @staticmethod
+    def _build_discord_market_field(trade: Any, links: dict[str, str]) -> dict[str, object]:
+        market_title = trade.event_title or trade.market_slug or "Unknown Market"
+        market_value = f"[{market_title}]({links['market']})" if "market" in links else market_title
+        return {"name": "Market", "value": market_value, "inline": False}
+
     def _build_discord_embed(
         self,
         assessment: RiskAssessment,
@@ -185,16 +224,7 @@ class AlertFormatter:
         """Build Discord-optimized embed format."""
         trade = assessment.trade_event
         color = get_risk_color(assessment.weighted_score)
-
-        # Get wallet age if available
-        wallet_age_str = ""
-        if assessment.fresh_wallet_signal:
-            age_hours = assessment.fresh_wallet_signal.wallet_profile.age_hours
-            if age_hours is not None:
-                if age_hours < 1:
-                    wallet_age_str = f" (Age: {int(age_hours * 60)}m)"
-                else:
-                    wallet_age_str = f" (Age: {age_hours:.0f}h)"
+        wallet_age_str = self._format_wallet_age_str(assessment.fresh_wallet_signal)
 
         fields: list[dict[str, object]] = [
             {
@@ -207,51 +237,24 @@ class AlertFormatter:
                 "value": f"{assessment.weighted_score:.2f} ({risk_level})",
                 "inline": True,
             },
+            self._build_discord_market_field(trade, links),
+            {
+                "name": "Trade",
+                "value": (
+                    f"{trade.side} {trade.outcome} @ ${trade.price:.3f} | "
+                    f"{format_usdc(trade.notional_value)}"
+                ),
+                "inline": False,
+            },
         ]
 
-        # Market field
-        market_title = trade.event_title or trade.market_slug or "Unknown Market"
-        market_value = market_title
-        if "market" in links:
-            market_value = f"[{market_title}]({links['market']})"
-        fields.append({"name": "Market", "value": market_value, "inline": False})
-
-        # Trade details
-        trade_detail = (
-            f"{trade.side} {trade.outcome} @ ${trade.price:.3f} | "
-            f"{format_usdc(trade.notional_value)}"
-        )
-        fields.append({"name": "Trade", "value": trade_detail, "inline": False})
-
-        # Signals (if any)
         if signals:
-            fields.append(
-                {
-                    "name": "Signals",
-                    "value": ", ".join(signals),
-                    "inline": False,
-                }
-            )
+            fields.append({"name": "Signals", "value": ", ".join(signals), "inline": False})
 
-        # Add detailed info for detailed verbosity
         if self.verbosity == "detailed":
-            # Add confidence breakdown
-            confidences: list[str] = []
-            if assessment.fresh_wallet_signal:
-                conf = assessment.fresh_wallet_signal.confidence
-                confidences.append(f"Fresh Wallet: {conf:.0%}")
-            if assessment.size_anomaly_signal:
-                conf = assessment.size_anomaly_signal.confidence
-                confidences.append(f"Size Anomaly: {conf:.0%}")
-
-            if confidences:
-                fields.append(
-                    {
-                        "name": "Confidence",
-                        "value": " | ".join(confidences),
-                        "inline": False,
-                    }
-                )
+            conf_field = self._build_confidence_field(assessment)
+            if conf_field is not None:
+                fields.append(conf_field)
 
         embed: dict[str, object] = {
             "title": "🚨 Suspicious Activity Detected",
@@ -260,11 +263,30 @@ class AlertFormatter:
             "footer": {"text": "Polymarket Insider Tracker"},
         }
 
-        # Add wallet link as URL if available
         if "wallet" in links:
             embed["url"] = links["wallet"]
 
         return embed
+
+    def _build_telegram_market_line(self, trade: object, links: dict[str, str]) -> str:
+        market_title = (
+            getattr(trade, "event_title", None)
+            or getattr(trade, "market_slug", None)
+            or "Unknown Market"
+        )
+        escaped_title = self._escape_telegram_markdown(str(market_title))
+        if "market" in links:
+            return f"*Market:* [{escaped_title}]({links['market']})"
+        return f"*Market:* {escaped_title}"
+
+    @staticmethod
+    def _build_telegram_link_lines(links: dict[str, str]) -> list[str]:
+        lines: list[str] = []
+        if "wallet" in links:
+            lines.append(f"[View Wallet]({links['wallet']})")
+        if "market" in links:
+            lines.append(f"[View Market]({links['market']})")
+        return lines
 
     def _build_telegram_markdown(
         self,
@@ -276,52 +298,30 @@ class AlertFormatter:
     ) -> str:
         """Build Telegram-optimized markdown format."""
         trade = assessment.trade_event
-
-        lines = ["🚨 *Suspicious Activity Detected*", ""]
-
-        # Wallet with link
-        wallet_line = f"*Wallet:* `{wallet_short}`"
-        if assessment.fresh_wallet_signal:
-            age_hours = assessment.fresh_wallet_signal.wallet_profile.age_hours
-            if age_hours is not None:
-                if age_hours < 1:
-                    wallet_line += f" \\(Age: {int(age_hours * 60)}m\\)"
-                else:
-                    wallet_line += f" \\(Age: {age_hours:.0f}h\\)"
-        lines.append(wallet_line)
-
-        # Risk score — every numeric literal here must be escaped because
-        # MarkdownV2 treats `.` as a special character and rejects unescaped
-        # ones with `Bad Request: can't parse entities`.
+        wallet_suffix = self._format_telegram_wallet_age_str(assessment.fresh_wallet_signal)
         score_str = self._escape_telegram_markdown(f"{assessment.weighted_score:.2f}")
-        lines.append(f"*Risk Score:* {score_str} \\({risk_level}\\)")
-
-        # Market
-        market_title = trade.event_title or trade.market_slug or "Unknown Market"
-        market_title_escaped = self._escape_telegram_markdown(market_title)
-        if "market" in links:
-            lines.append(f"*Market:* [{market_title_escaped}]({links['market']})")
-        else:
-            lines.append(f"*Market:* {market_title_escaped}")
-
-        # Trade details
         usdc_value = self._escape_telegram_markdown(format_usdc(trade.notional_value))
         price_str = self._escape_telegram_markdown(f"{trade.price:.3f}")
         side_escaped = self._escape_telegram_markdown(trade.side)
         outcome_escaped = self._escape_telegram_markdown(trade.outcome)
-        lines.append(f"*Trade:* {side_escaped} {outcome_escaped} @ \\${price_str} \\| {usdc_value}")
 
-        # Signals
+        lines = [
+            "🚨 *Suspicious Activity Detected*",
+            "",
+            f"*Wallet:* `{wallet_short}`{wallet_suffix}",
+            f"*Risk Score:* {score_str} \\({risk_level}\\)",
+            self._build_telegram_market_line(trade, links),
+            f"*Trade:* {side_escaped} {outcome_escaped} @ \\${price_str} \\| {usdc_value}",
+        ]
+
         if signals:
             signals_escaped = [self._escape_telegram_markdown(s) for s in signals]
             lines.append(f"*Signals:* {', '.join(signals_escaped)}")
 
-        # Links
-        lines.append("")
-        if "wallet" in links:
-            lines.append(f"[View Wallet]({links['wallet']})")
-        if "market" in links:
-            lines.append(f"[View Market]({links['market']})")
+        link_lines = self._build_telegram_link_lines(links)
+        if link_lines:
+            lines.append("")
+            lines.extend(link_lines)
 
         return "\n".join(lines)
 
@@ -351,6 +351,15 @@ class AlertFormatter:
             text = text.replace(char, f"\\{char}")
         return text
 
+    @staticmethod
+    def _build_plain_links(links: dict[str, str]) -> list[str]:
+        lines: list[str] = []
+        if "wallet" in links:
+            lines.append(f"Wallet: {links['wallet']}")
+        if "market" in links:
+            lines.append(f"Market: {links['market']}")
+        return lines
+
     def _build_plain_text(
         self,
         assessment: RiskAssessment,
@@ -361,46 +370,25 @@ class AlertFormatter:
     ) -> str:
         """Build plain text format for generic channels."""
         trade = assessment.trade_event
+        age_str = self._format_wallet_age_str(assessment.fresh_wallet_signal)
+        market_title = trade.event_title or trade.market_slug or "Unknown Market"
 
         lines = [
             "SUSPICIOUS ACTIVITY DETECTED",
             "=" * 30,
             "",
+            f"Wallet: {wallet_short}{age_str}",
+            f"Risk Score: {assessment.weighted_score:.2f} ({risk_level})",
+            f"Market: {market_title}",
+            f"Trade: {trade.side} {trade.outcome} @ ${trade.price:.3f} | {format_usdc(trade.notional_value)}",
         ]
 
-        # Wallet info
-        wallet_line = f"Wallet: {wallet_short}"
-        if assessment.fresh_wallet_signal:
-            age_hours = assessment.fresh_wallet_signal.wallet_profile.age_hours
-            if age_hours is not None:
-                if age_hours < 1:
-                    wallet_line += f" (Age: {int(age_hours * 60)}m)"
-                else:
-                    wallet_line += f" (Age: {age_hours:.0f}h)"
-        lines.append(wallet_line)
-
-        # Risk
-        lines.append(f"Risk Score: {assessment.weighted_score:.2f} ({risk_level})")
-
-        # Market
-        market_title = trade.event_title or trade.market_slug or "Unknown Market"
-        lines.append(f"Market: {market_title}")
-
-        # Trade
-        lines.append(
-            f"Trade: {trade.side} {trade.outcome} @ ${trade.price:.3f} | "
-            f"{format_usdc(trade.notional_value)}"
-        )
-
-        # Signals
         if signals:
             lines.append(f"Signals: {', '.join(signals)}")
 
-        # Links
-        lines.append("")
-        if "wallet" in links:
-            lines.append(f"Wallet: {links['wallet']}")
-        if "market" in links:
-            lines.append(f"Market: {links['market']}")
+        link_lines = self._build_plain_links(links)
+        if link_lines:
+            lines.append("")
+            lines.extend(link_lines)
 
         return "\n".join(lines)
