@@ -498,29 +498,31 @@ def _filesystem_claude_skills(root: Path) -> list[str]:
     return []
 
 
+def _git_tracked_claude_skills(root: Path, findings: list[str]) -> list[str]:
+    """Return index entries under .claude/skills; fail closed when git cannot answer."""
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--", ".claude/skills"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        findings.append(
+            "repository hygiene: git is unavailable, so tracked .claude/skills entries "
+            "cannot be verified"
+        )
+        return []
+    if proc.returncode != 0:
+        findings.append(f"repository hygiene: git ls-files failed with exit code {proc.returncode}")
+        return []
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
 def _check_hygiene(root: Path, findings: list[str]) -> None:
-    """Ensure noncanonical surfaces such as tracked .claude/skills are prohibited."""
-    git_surface = root / ".git"
-    tracked_entries: list[str] = []
-    if git_surface.exists():
-        try:
-            proc = subprocess.run(
-                ["git", "-C", str(root), "ls-files", "--", ".claude/skills"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if proc.returncode == 0:
-                tracked_entries = [
-                    line.strip() for line in proc.stdout.splitlines() if line.strip()
-                ]
-            else:
-                findings.append(
-                    f"repository hygiene: git ls-files failed with exit code {proc.returncode}"
-                )
-                return
-        except OSError:
-            tracked_entries = _filesystem_claude_skills(root)
+    """Prohibit tracked .claude/skills; ignored local .claude state is never a finding."""
+    if (root / ".git").exists():
+        tracked_entries = _git_tracked_claude_skills(root, findings)
     else:
         tracked_entries = _filesystem_claude_skills(root)
 

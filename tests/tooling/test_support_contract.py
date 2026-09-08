@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,10 @@ CHECKER = Path(__file__).parents[2] / "scripts" / "check_support_contract.py"
 REPOSITORY_ROOT = Path(__file__).parents[2]
 POSTGRES_DIGEST = "a" * 64
 REDIS_DIGEST = "b" * 64
+# Repository-locating variables a surrounding git hook would export into the test process.
+GIT_REPOSITORY_ENV = frozenset(
+    {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_COMMON_DIR"}
+)
 
 
 def _write(root: Path, relative_path: str, content: str) -> None:
@@ -210,13 +215,28 @@ def _valid_repository(root: Path) -> None:
     )
 
 
-def _run(root: Path) -> subprocess.CompletedProcess[str]:
+def _run(root: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(CHECKER), "--root", str(root)],
         check=False,
         capture_output=True,
         text=True,
+        env=env,
     )
+
+
+def _git(root: Path, *args: str) -> None:
+    """Run git in ``root`` without global/system config, signing keys, hooks, or hook state."""
+    env = {key: value for key, value in os.environ.items() if key not in GIT_REPOSITORY_ENV}
+    env.update(
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_AUTHOR_NAME="Test User",
+        GIT_AUTHOR_EMAIL="test@example.com",
+        GIT_COMMITTER_NAME="Test User",
+        GIT_COMMITTER_EMAIL="test@example.com",
+    )
+    subprocess.run(["git", *args], cwd=root, env=env, check=True, capture_output=True, text=True)
 
 
 def test_valid_repository_contract_passes(tmp_path: Path) -> None:
@@ -261,30 +281,9 @@ def test_fixture_with_claude_skills_fails_contract(tmp_path: Path) -> None:
 
 def test_git_checkout_rejects_tracked_claude_skills(tmp_path: Path) -> None:
     _valid_repository(tmp_path)
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    _write(
-        tmp_path,
-        ".claude/skills/sample-skill/SKILL.md",
-        "# Sample skill\n",
-    )
-    subprocess.run(
-        ["git", "add", ".claude/skills"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
+    _git(tmp_path, "init")
+    _write(tmp_path, ".claude/skills/sample-skill/SKILL.md", "# Sample skill\n")
+    _git(tmp_path, "add", ".claude/skills")
 
     result = _run(tmp_path)
 
@@ -297,43 +296,33 @@ def test_git_checkout_rejects_tracked_claude_skills(tmp_path: Path) -> None:
 def test_git_checkout_allows_ignored_local_claude_state(tmp_path: Path) -> None:
     _valid_repository(tmp_path)
     _write(tmp_path, ".gitignore", ".claude/\n")
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@example.com"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "add", "."],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=tmp_path,
-        check=True,
-        capture_output=True,
-    )
+    _git(tmp_path, "init")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "init")
 
     # Contributor has local ignored .claude state on disk
-    _write(
-        tmp_path,
-        ".claude/skills/local-scratch/SKILL.md",
-        "# Local scratch skill\n",
-    )
+    _write(tmp_path, ".claude/skills/local-scratch/SKILL.md", "# Local scratch skill\n")
 
     result = _run(tmp_path)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "support contract passed" in result.stdout.lower()
+    assert "local-scratch" not in result.stdout
+
+
+def test_git_checkout_without_git_executable_fails_closed(tmp_path: Path) -> None:
+    _valid_repository(tmp_path)
+    _git(tmp_path, "init")
+    _write(tmp_path, ".claude/skills/local-scratch/SKILL.md", "# Local scratch skill\n")
+    empty_bin = tmp_path / "empty-bin"
+    empty_bin.mkdir()
+
+    result = _run(tmp_path, env={**os.environ, "PATH": str(empty_bin)})
+
+    assert result.returncode == 1
+    assert "repository hygiene: git is unavailable" in result.stdout
+    assert "cannot be verified" in result.stdout
+    assert "local-scratch" not in result.stdout
 
 
 def test_tracked_quickstart_loads_environment_and_reflects_implementation() -> None:
