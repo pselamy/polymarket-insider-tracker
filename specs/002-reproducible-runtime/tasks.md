@@ -273,7 +273,7 @@ completion is not evidence for this phase; each item below is checked only when 
   job and aggregator tests to the real workflow and verifier; fixed trailing-blank-line diff errors; updated
   the data model, changelog, and this ledger. Commit hashes are recorded in
   `evidence/verification.md` (Phase 10).
-- [ ] T058 Codex refute-first review of the fable-corrected branch, with every finding resolved or recorded.
+- [X] T058 Codex refute-first review of the fable-corrected branch, with every finding resolved or recorded.
 - [ ] T059 Open the non-draft pull request for `quality/vulture-required-gate` against `main`.
 - [ ] T060 Verify that the independent `Vulture dead code check` job and the `Required checks` aggregator pass
   on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.

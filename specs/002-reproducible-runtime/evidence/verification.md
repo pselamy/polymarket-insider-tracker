@@ -500,3 +500,40 @@ the orchestrator and the CI service job.
 | `efd42073aa8f7ddecbf9373731479b811fa06758` | Claude Code/fable review fixes listed above |
 
 This provenance entry is committed separately from the fix commit it records and does not embed its own hash.
+
+### Codex refute-first review of the fable-corrected tree
+
+Codex independently reviewed immutable fable head
+`3e6a4bdde17373f7c5955f5886f604dbe0213b76` and found no unresolved blocker. The review covered the
+complete base-to-head diff, every production deletion, the Pydantic validator rewrite, the canonical
+verifier and direct-command contract, the real CI workflow and fail-closed aggregator tests, dependency
+and lock metadata, active documentation, and the factual task state. The unfiltered policy was also
+checked mechanically: no Vulture confidence override, ignored name/decorator, allowlist, baseline,
+suppression, or path exclusion is present in the implementation.
+
+Independent reproduction on macOS arm64 with uv 0.11.26 and CPython 3.13.14 produced:
+
+```text
+git diff --check a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f..HEAD      exit: 0
+actionlint .github/workflows/ci.yml                                   exit: 0
+uv lock --check                                                       exit: 0
+uv run python scripts/verify.py --profile static                      status: passed
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts --config /dev/null                                exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts                                                   exit: 0
+uv run --isolated --locked --all-extras --python 3.11 python
+  scripts/verify.py --profile compatibility --json                    status: passed
+uv run --isolated --locked --all-extras --python 3.12 python
+  scripts/verify.py --profile compatibility --json                    status: passed
+uv run --isolated --locked --all-extras --python 3.13 python
+  scripts/verify.py --profile compatibility --json                    status: passed
+uv run pytest -q                                                      803 passed, 2 skipped
+uv run --env-file .env.example python scripts/verify.py
+  --profile services                                                  status: passed
+```
+
+The live service run reached PostgreSQL and Redis, then exercised the disposable Alembic sequence
+`002_risk_assessments -> 001_initial -> 002_risk_assessments`, completed an async query, dropped its
+temporary database, and left no `pit_verify_%` database behind. Pull request, GitHub CI, approval, merge,
+and post-merge evidence are not claimed here; T059–T063 remain open.
