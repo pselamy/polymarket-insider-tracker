@@ -237,6 +237,105 @@ def test_repository_support_contract_is_complete() -> None:
     )
 
 
+def test_fixture_with_claude_skills_fails_contract(tmp_path: Path) -> None:
+    _valid_repository(tmp_path)
+    _write(
+        tmp_path,
+        ".claude/skills/priority-issue-resolution/SKILL.md",
+        """
+        ---
+        name: priority-issue-resolution
+        description: Prohibited skill
+        ---
+        # Prohibited
+        """,
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "repository hygiene" in result.stdout.lower()
+    assert "tracked .claude/skills" in result.stdout.lower()
+    assert ".claude/skills/priority-issue-resolution/SKILL.md" in result.stdout
+
+
+def test_git_checkout_rejects_tracked_claude_skills(tmp_path: Path) -> None:
+    _valid_repository(tmp_path)
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    _write(
+        tmp_path,
+        ".claude/skills/sample-skill/SKILL.md",
+        "# Sample skill\n",
+    )
+    subprocess.run(
+        ["git", "add", ".claude/skills"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 1
+    assert "repository hygiene" in result.stdout.lower()
+    assert "tracked .claude/skills" in result.stdout.lower()
+    assert ".claude/skills/sample-skill/SKILL.md" in result.stdout
+
+
+def test_git_checkout_allows_ignored_local_claude_state(tmp_path: Path) -> None:
+    _valid_repository(tmp_path)
+    _write(tmp_path, ".gitignore", ".claude/\n")
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "add", "."],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    # Contributor has local ignored .claude state on disk
+    _write(
+        tmp_path,
+        ".claude/skills/local-scratch/SKILL.md",
+        "# Local scratch skill\n",
+    )
+
+    result = _run(tmp_path)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "support contract passed" in result.stdout.lower()
+
+
 def test_tracked_quickstart_loads_environment_and_reflects_implementation() -> None:
     quickstart = (REPOSITORY_ROOT / "specs/002-reproducible-runtime/quickstart.md").read_text(
         encoding="utf-8"

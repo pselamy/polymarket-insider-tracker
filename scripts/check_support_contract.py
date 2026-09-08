@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import re
+import subprocess
 import sys
 import tomllib
 from collections.abc import Mapping, Sequence
@@ -482,9 +483,58 @@ def _check_verifier(root: Path, findings: list[str]) -> None:
         )
 
 
+def _filesystem_claude_skills(root: Path) -> list[str]:
+    """Collect .claude/skills paths from the filesystem for non-git fixture roots."""
+    claude_skills = root / ".claude" / "skills"
+    if claude_skills.is_file():
+        return [str(claude_skills.relative_to(root).as_posix())]
+    if claude_skills.is_dir():
+        entries = [
+            str(path.relative_to(root).as_posix())
+            for path in claude_skills.rglob("*")
+            if path.is_file()
+        ]
+        return entries if entries else [str(claude_skills.relative_to(root).as_posix())]
+    return []
+
+
+def _check_hygiene(root: Path, findings: list[str]) -> None:
+    """Ensure noncanonical surfaces such as tracked .claude/skills are prohibited."""
+    git_surface = root / ".git"
+    tracked_entries: list[str] = []
+    if git_surface.exists():
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(root), "ls-files", "--", ".claude/skills"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if proc.returncode == 0:
+                tracked_entries = [
+                    line.strip() for line in proc.stdout.splitlines() if line.strip()
+                ]
+            else:
+                findings.append(
+                    f"repository hygiene: git ls-files failed with exit code {proc.returncode}"
+                )
+                return
+        except OSError:
+            tracked_entries = _filesystem_claude_skills(root)
+    else:
+        tracked_entries = _filesystem_claude_skills(root)
+
+    for entry in sorted(tracked_entries):
+        findings.append(
+            f"repository hygiene: tracked .claude/skills entries are prohibited: {entry}"
+        )
+
+
 def find_contradictions(root: Path) -> list[str]:
     """Return every deterministic support-contract contradiction under ``root``."""
+    root = root.resolve()
     findings: list[str] = []
+    _check_hygiene(root, findings)
     _check_project(root, findings)
     _check_lock(root, findings)
     postgres, redis = _check_workflow(root, findings)
