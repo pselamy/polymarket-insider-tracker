@@ -9,10 +9,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
+from redis.typing import EncodableT, FieldT
 
 from .models import TradeEvent
 
@@ -186,10 +187,11 @@ class EventPublisher:
             The entry ID assigned by Redis.
         """
         data = _serialize_trade_event(event)
-        # redis-py typing expects broader dict type than dict[str, str]
+        # redis-py's mutable dict parameter is invariant even though each string is encodable.
+        redis_fields = cast(dict[FieldT, EncodableT], data)
         entry_id = await self._redis.xadd(
             self._stream_name,
-            data,  # type: ignore[arg-type]
+            redis_fields,
             maxlen=self._max_len,
         )
         # entry_id may be bytes or str
@@ -214,8 +216,9 @@ class EventPublisher:
         pipe = self._redis.pipeline()
         for event in events:
             data = _serialize_trade_event(event)
-            # redis-py typing expects broader dict type than dict[str, str]
-            pipe.xadd(self._stream_name, data, maxlen=self._max_len)  # type: ignore[arg-type]
+            # redis-py's mutable dict parameter is invariant even though each string is encodable.
+            redis_fields = cast(dict[FieldT, EncodableT], data)
+            pipe.xadd(self._stream_name, redis_fields, maxlen=self._max_len)
 
         results = await pipe.execute()
 

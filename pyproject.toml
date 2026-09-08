@@ -94,6 +94,7 @@ module = ["py_clob_client.*", "web3.*", "redis.*", "sklearn.*", "prometheus_clie
 ignore_missing_imports = true
 
 [tool.pyright]
+enableTypeIgnoreComments = false
 include = ["src/polymarket_insider_tracker"]
 pythonVersion = "3.11"
 stubPath = "typings"
