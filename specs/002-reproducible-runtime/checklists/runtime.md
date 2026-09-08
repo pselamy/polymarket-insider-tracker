@@ -10,6 +10,8 @@ requirements are complete, clear, consistent, and measurable before implementati
 **Marker Semantics**: `[x]` means the criterion has been reviewed and satisfied for requirements quality. It does not mean implementation work is complete.
 **Implementation Gate**: Patrick approved the recommended slice-002 plan and its four analysis remediations
 on 2026-09-07, explicitly authorizing implementation while these reviewer-owned markers remain unchanged.
+**Supersession**: The bespoke support-contract checker was removed on 2026-09-08. The criteria below now
+name native and behavioral evidence; all 0/35 reviewer marker states remain unchanged.
 
 ## Support Boundary Completeness
 
@@ -30,7 +32,7 @@ on 2026-09-07, explicitly authorizing implementation while these reviewer-owned 
 - [ ] CHK009 Is the canonical `DATABASE_URL` driver spelling defined for both asynchronous engine creation and synchronous Alembic execution? [Clarity, Spec §FR-004; Research §Decision 4]
 - [ ] CHK010 Are legacy bare PostgreSQL and asyncpg URL behaviors, warnings, and migration instructions defined without silently changing non-driver URL components? [Coverage, Plan §Design Decisions 2]
 - [ ] CHK011 Are invalid or unsupported database URL outcomes actionable while explicitly prohibiting credential disclosure? [Security, Spec §FR-012; Data Model §Database URL Input]
-- [ ] CHK012 Is it clear that no second implicit URL in `alembic.ini` or a stale environment-variable alias may override the canonical setting? [Consistency, Contract §Support-Contract Checker]
+- [ ] CHK012 Is it clear that no second implicit URL in `alembic.ini` or a stale environment-variable alias may override the canonical setting? [Consistency, Spec §FR-004–FR-005; Plan §Design Decisions 2]
 
 ## Migration Safety and Recovery
 
@@ -49,7 +51,7 @@ on 2026-09-07, explicitly authorizing implementation while these reviewer-owned 
 
 ## CI and Required-Gate Semantics
 
-- [ ] CHK022 Are format, lint, strict type, deterministic test, migration, service, lock, support-contract, and compatibility gates all assigned to blocking Linux evidence? [Completeness, Spec §FR-008–FR-011]
+- [ ] CHK022 Are format, lint, strict type, deterministic test, migration, service, lock, and compatibility gates all assigned to blocking Linux evidence? [Completeness, Spec §FR-008–FR-011]
 - [ ] CHK023 Is the advisory status of Apple automation explicit while full Apple service evidence remains a release obligation? [Clarity, Spec §Assumptions; Research §Decision 8]
 - [ ] CHK024 Are `continue-on-error`, ignored command failures, and unused service containers explicitly disallowed for required evidence? [Consistency, Spec §FR-008, §FR-010]
 - [ ] CHK025 Is coverage upload correctly separated from the required test result so an upload outage cannot falsify product-gate status? [Boundary, Plan §Design Decisions 4]
@@ -59,10 +61,10 @@ on 2026-09-07, explicitly authorizing implementation while these reviewer-owned 
 - [ ] CHK026 Does the quick-start requirement include dependency installation, service readiness, migration validation, and aggregate gates in executable order? [Coverage, Spec §FR-006; Quickstart §Clean Foundation Path]
 - [ ] CHK027 Is the five-minute metric scoped to begin after prerequisites and service images are available while still including locked Python dependency installation? [Clarity, Spec §SC-006; Quickstart §Prerequisites]
 - [ ] CHK028 Are external market, chain, and notification calls explicitly excluded from this foundation proof without implying the later monitoring E2E obligation is satisfied? [Boundary, Spec §FR-006; Plan §Constitution Check]
-- [ ] CHK029 Are all cross-file surfaces enumerated for the zero-contradiction support check, including their intentional exceptions? [Traceability, Spec §SC-007; Contract §Support-Contract Checker]
+- [ ] CHK029 Is each runtime declaration owned by a native source and backed by executable evidence or explicit review-time policy? [Traceability, Spec §SC-007; Contract §Configuration Ownership; Data Model §Ownership and evidence]
 - [ ] CHK030 Are clean-environment prerequisites and unsupported-environment failures described so a contributor can distinguish setup error from product readiness? [Scenario Coverage, Spec §User Story 1, §User Story 3]
 - [ ] CHK031 Is Linux support bounded by a named Ubuntu 24.04 x86_64 reference environment without implying certification of every distribution, libc, or architecture? [Clarity, Plan §Design Decisions 1; Research §Decision 11]
-- [ ] CHK032 Are the uv version contract, full-SHA action pins, minimal workflow permissions, and service-image digests specified as reviewable reproducibility requirements rather than implementation conventions? [Completeness, Research §Decision 10; Contract §Support-Contract Checker]
+- [ ] CHK032 Are the uv version contract, full-SHA action pins, minimal workflow permissions, and service-image digests specified as reviewable reproducibility requirements rather than implementation conventions? [Completeness, Research §Decision 10; Data Model §Ownership and evidence]
 - [ ] CHK033 Must local Compose and Linux CI use the same immutable PostgreSQL 15 and Redis 7 image identities so service evidence is comparable? [Consistency, Data Model §Support Contract]
 - [ ] CHK034 Are incompatible asyncpg-specific query parameters rejected before engine creation with an actionable redacted migration error? [Exception Coverage, Spec §FR-004]
 - [ ] CHK035 Can blocking Linux workflow evidence be produced on a feature-branch push before pull-request preparation, with superseded runs cancelled? [Process Coverage, Research §Decision 12]
