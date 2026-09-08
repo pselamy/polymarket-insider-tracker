@@ -288,6 +288,6 @@ completion is not evidence for this phase; each item below is checked only when 
 - [X] T065 Claude Code/fable adversarial review of the corrective commit `fc8ae90`, with fixes committed on
   top of it unamended as `2a909a6619ba8091ef8ed85e96f5a64ea7f979db` and the review recorded in
   `evidence/verification.md`.
-- [ ] T066 Codex refute-first re-review of the fable-corrected corrective head.
+- [X] T066 Codex refute-first re-review of the fable-corrected corrective head.
 - [ ] T067 Verify that the pull-request workflow passes on the final corrective head and record the
   immutable run; T060's evidence covers head `69654ee` only.

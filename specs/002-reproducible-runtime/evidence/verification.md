@@ -662,9 +662,9 @@ conftest.py` exits 0 with and without `--config /dev/null`. Findings and disposi
 2. **Corrective section unprovenanced (blocker)**: the "Agy corrective implementation pass" section named
    no date or commit and pointed open work at `T061–T063`, which do not cover the corrective-head CI run
    or re-reviews. The section now records its date, commit, and parent; the ledger gained `T064`
-   (Agy corrective commit, done), `T065` (this review), `T066` (Codex re-review), and `T067` (CI on the
-   final corrective head, noting that `T060` covers head `69654ee` only). `T065–T067` and `T061–T063` are
-   open.
+   (Agy corrective commit, done), `T065` (this review, completed by the provenance commit), `T066` (Codex
+   re-review), and `T067` (CI on the final corrective head, noting that `T060` covers head `69654ee` only).
+   `T066–T067` and `T061–T063` are open.
 3. **`__all__` exports verified as real framework structure**: `alembic.script.ScriptDirectory`
    loads both revisions with every exported name defined; `alembic upgrade head --sql` and
    `alembic downgrade head:base --sql` each emit the full 17-statement DDL sequence in offline mode; root
@@ -736,3 +736,43 @@ repository-setting change was performed; `T066–T067` and `T061–T063` remain 
 | `2a909a6619ba8091ef8ed85e96f5a64ea7f979db` | Claude Code/fable review fixes listed above |
 
 This provenance entry is committed separately from the fix commit it records and does not embed its own hash.
+
+### Codex re-review of the complete-scope correction
+
+**Date**: 2026-09-08 · **Reviewed**: Fable head
+`2ad6ac164333723514ec812006aa1f700f41e4cd` (sole parent
+`2a909a6619ba8091ef8ed85e96f5a64ea7f979db`) and the complete additive chain back to corrective base
+`4df55be84ecb506946263e6e145b95dda726f3d9`.
+
+Codex independently inspected the full corrective diff and found no unresolved blocker. The review confirmed
+that all 85 tracked `*.py` files match exactly one of the five explicit scope entries; the real pyproject,
+verifier tuple, verifier help, and independent CI job agree on the same ordered command; the root Pytest and
+both Alembic revision `__all__` declarations export only names consumed by those frameworks; and the real
+aggregator script still fails closed for each blocking job's failed, cancelled, and skipped results. The
+earlier three-path evidence is restored as immutable history, while the wider command appears only in the
+dated corrective sections. No Vulture escape hatch or type suppression is present in the implementation or
+changed contract tests.
+
+Independent reproduction on macOS arm64 with uv 0.11.26 and CPython 3.13.14 produced:
+
+```text
+git diff --check 4df55be84ecb506946263e6e145b95dda726f3d9..2ad6ac1    exit: 0
+actionlint .github/workflows/ci.yml                                   exit: 0
+uv lock --check                                                       exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py --config /dev/null            exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py                               exit: 0
+uv run ruff check alembic conftest.py                                 exit: 0
+uv run --isolated --locked --all-extras --python 3.11
+  pyright tests/tooling                                               0 errors, 0 warnings
+uv run pytest tests/tooling/ -q                                       51 passed
+complexipy tests/tooling --max-complexity-allowed 10 --failed         none over budget
+uv run --env-file .env.example python scripts/verify.py --profile all status: passed
+```
+
+The `all` profile passed lock, Black, Ruff, strict mypy, strict Pyright, complete-scope Vulture, imports,
+805 tests with 2 platform/opt-in skips, live PostgreSQL and Redis probes, and the disposable Alembic cycle.
+The temporary migration database was cleaned up. Corrective-head GitHub CI is not claimed in this section;
+T067 remains open until an immutable run completes. Approval, merge, and post-merge tasks T061–T063 also
+remain open.
