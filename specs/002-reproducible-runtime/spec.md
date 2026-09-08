@@ -166,9 +166,9 @@ and automated checks; verify that they name one consistent support matrix and re
 - **SC-006**: After prerequisites and service images are available, a contributor can reach successful
   local configuration, database, cache, and migration validation from a clean checkout in under 5 minutes
   using only tracked instructions.
-- **SC-007**: A deterministic support-contract check over project metadata, lock state, automation, README,
-  contributor commands, and `.env.example` reports zero version, command, database-setting, or prerequisite
-  contradictions.
+- **SC-007**: Runtime support is declared in native project metadata and exercised by locked installation,
+  the complete Python compatibility matrix, and real service verification. No bespoke checker reparses
+  source files or README prose as a second configuration authority.
 
 ## Assumptions
 

@@ -75,9 +75,6 @@ Runner = Callable[[Gate], CommandExecution]
 
 GATES: Mapping[str, Gate] = {
     "lock": Gate("lock", ("uv", "lock", "--check")),
-    "support-contract": Gate(
-        "support-contract", (sys.executable, "scripts/check_support_contract.py")
-    ),
     "format": Gate(
         "format", (sys.executable, "-m", "ruff", "format", "--check", "src", "tests", "scripts")
     ),
@@ -121,7 +118,7 @@ GATES: Mapping[str, Gate] = {
 }
 
 BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
-    "static": ("lock", "support-contract", "format", "lint", "strict-types"),
+    "static": ("lock", "format", "lint", "strict-types"),
     "compatibility": ("lock", "imports", "tests"),
     "services": ("services", "migrations"),
 }
@@ -153,7 +150,6 @@ _URL_PATTERN = re.compile(
 # Direct equivalents of every aggregate gate, kept literal so contributors can copy them verbatim.
 DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ("lock", "uv lock --check"),
-    ("support-contract", "uv run python scripts/check_support_contract.py"),
     ("format", "uv run ruff format --check src tests scripts"),
     ("lint", "uv run ruff check src tests scripts"),
     ("strict-types", "uv run --isolated --locked --all-extras --python 3.11 mypy"),

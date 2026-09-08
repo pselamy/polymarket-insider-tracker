@@ -1,5 +1,10 @@
 # Tasks: Reproducible Supported Runtime
 
+> **Superseded mechanism (2026-09-08):** The completed tasks below accurately record the original
+> implementation, but the bespoke cross-file support checker and its fixture suite were later removed.
+> Runtime declarations now remain with their native owners and are exercised by lock, compatibility,
+> service, and focused verifier gates. See Phase 8.
+
 **Input**: Design documents from `specs/002-reproducible-runtime/`
 
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`,
@@ -104,8 +109,8 @@ ignored required step.
 **Goal**: Metadata, lock state, automation, examples, and public instructions expose one finite support
 boundary and give actionable failures outside it.
 
-**Independent Test**: Run `uv run python scripts/check_support_contract.py`, confirm zero contradictions,
-and prove Python 3.10 and 3.14 are rejected by locked project resolution.
+**Independent Test**: Prove Python 3.10 and 3.14 are rejected by project metadata, then run locked
+installation and the complete 3.11/3.12/3.13 compatibility matrix.
 
 ### Tests for User Story 3
 
@@ -219,3 +224,9 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
 - [X] T039 Align runtime-service Redis URL validation with the application's exact `redis://` scheme contract and reject verifier-only schemes with regression coverage per FR-006 and SC-007 (adversarial finding)
 - [X] T040 Isolate the deterministic pytest gate from both inherited application variables and implicit repository `.env` discovery, then prove the documented `.env`-loaded aggregate path remains offline and under five minutes per FR-011, SC-002, and the runtime contract's Profiles section (adversarial finding)
 - [X] T041 Align the Gate Definition redaction policy and Gate Result identifier in `data-model.md` with the implemented/runtime-contract schema, guarded by a repository documentation assertion per SC-007 (convergence finding)
+
+## Phase 8: Repository Hygiene Supersession
+
+- [X] T042 Remove the bespoke cross-file support checker and its checker-only fixture suite; remove the
+  gate from aggregate verification; retain runtime truth in native metadata, lock, CI, service probes,
+  focused verifier tests, and contributor documentation.

@@ -152,8 +152,8 @@ profile proves the remaining Apple path.
 
 ## Decision 9: Preserve exact gate semantics in tests and CI
 
-**Decision**: Table-driven verifier tests force each gate to fail and require a nonzero aggregate result;
-the support-contract test also rejects `continue-on-error` on required jobs and version/command drift.
+**Decision**: Table-driven verifier tests force each gate to fail and require a nonzero aggregate result.
+Workflow review and actual required-job execution establish CI topology rather than a source-code parser.
 
 **Rationale**: A green workflow file is not proof that a required command can block. Failure-path tests
 make gate propagation deterministic without committing deliberately broken source.

@@ -67,7 +67,7 @@ An ordered collection of required gates.
 
 | Profile | Gates | Service requirement |
 |---|---|---|
-| `static` | lock, support-contract, format, lint, strict-types | None |
+| `static` | lock, format, lint, strict-types | None |
 | `compatibility` | lock, dependency/import smoke, deterministic tests | None |
 | `services` | `services` probe gate, then independent `migrations` gate | Loopback PostgreSQL and Redis |
 | `all` | static + compatibility + services | Loopback PostgreSQL and Redis |
@@ -79,7 +79,7 @@ multiple composition paths.
 
 | Field | Type | Rule |
 |---|---|---|
-| `id` | stable enum | `lock`, `support-contract`, `format`, `lint`, `strict-types`, `imports`, `tests`, `services`, `migrations` |
+| `id` | stable enum | `lock`, `format`, `lint`, `strict-types`, `imports`, `tests`, `services`, `migrations` |
 | `command` | argument tuple | Executed without an interpolating shell |
 | `needs_services` | boolean | True only for service or migration gates |
 | `redaction_policy` | stable enum | `configured-secrets`; captured output is scrubbed against every configured URL and secret value before rendering |

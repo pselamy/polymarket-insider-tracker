@@ -37,7 +37,6 @@ def test_profile_membership_and_ordering_are_exact() -> None:
 
     assert module.gate_ids_for_profile("static") == (
         "lock",
-        "support-contract",
         "format",
         "lint",
         "strict-types",
@@ -51,7 +50,6 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
 
     assert module.gate_ids_for_profile("all") == (
         "lock",
-        "support-contract",
         "format",
         "lint",
         "strict-types",
@@ -90,7 +88,6 @@ def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
     module = _load_module()
 
     for gate_id in (
-        "support-contract",
         "format",
         "lint",
         "imports",
@@ -141,7 +138,6 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
     "failed_gate",
     [
         "lock",
-        "support-contract",
         "format",
         "lint",
         "strict-types",
@@ -302,7 +298,6 @@ def test_help_lists_every_direct_gate_command() -> None:
         "uv run --isolated --locked --all-extras --python 3.11 mypy",
         "uv run pytest",
         "uv run --env-file .env alembic upgrade head",
-        "uv run python scripts/check_support_contract.py",
     ):
         assert command in result.stdout
 
