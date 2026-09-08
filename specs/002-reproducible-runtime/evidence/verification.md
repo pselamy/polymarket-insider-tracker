@@ -726,4 +726,13 @@ The service profile failed at the probe: the PostgreSQL listener on `127.0.0.1:5
 stack (password authentication failed for user `tracker`), Redis on `6379` refused the connection, and the
 Docker socket denied access to this user. Live service and migration evidence for the corrective head is
 therefore not claimed here and is left to the CI `services` job. No pull request, push, review, merge, or
-repository-setting change was performed; `T065–T067` and `T061–T063` remain open until true.
+repository-setting change was performed; `T066–T067` and `T061–T063` remain open until true.
+
+#### Provenance
+
+| Commit | Purpose |
+|---|---|
+| `fc8ae9009b83b53b7e5033527252e005c43c9557` | Agy corrective pass (reviewed, unamended) |
+| `2a909a6619ba8091ef8ed85e96f5a64ea7f979db` | Claude Code/fable review fixes listed above |
+
+This provenance entry is committed separately from the fix commit it records and does not embed its own hash.
