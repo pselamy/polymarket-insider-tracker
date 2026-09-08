@@ -152,6 +152,11 @@ class TestPolygonClient:
         client._primary_healthy = False
         assert client.select_web3() is fallback
 
+        client_without_fallback = PolygonClient("https://polygon-rpc.com")
+        sole_client = client_without_fallback._w3
+        client_without_fallback._primary_healthy = False
+        assert client_without_fallback.select_web3() is sole_client
+
     @pytest.mark.asyncio
     async def test_get_cached_miss(self, mock_redis: AsyncMock) -> None:
         """Test cache miss."""

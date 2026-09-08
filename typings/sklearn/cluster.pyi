@@ -1,7 +1,7 @@
 from typing import Self
 
-from numpy import intp
-from numpy.typing import ArrayLike, NDArray
+from numpy import float64, intp
+from numpy.typing import NDArray
 
 class DBSCAN:
     labels_: NDArray[intp]
@@ -15,7 +15,5 @@ class DBSCAN:
     ) -> None: ...
     def fit(
         self,
-        X: ArrayLike,
-        y: object | None = None,
-        sample_weight: ArrayLike | None = None,
+        X: NDArray[float64],
     ) -> Self: ...
