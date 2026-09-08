@@ -776,3 +776,32 @@ The `all` profile passed lock, Black, Ruff, strict mypy, strict Pyright, complet
 The temporary migration database was cleaned up. Corrective-head GitHub CI is not claimed in this section;
 T067 remains open until an immutable run completes. Approval, merge, and post-merge tasks T061–T063 also
 remain open.
+
+### Corrective implementation PR CI checkpoint
+
+**Date**: 2026-09-08 · **Verified head**: `ac691ab16a57b702d6870842e7479cbaf5b2784f`.
+
+Both CI trigger paths completed successfully on the exact reviewed corrective implementation head
+`ac691ab16a57b702d6870842e7479cbaf5b2784f`: push run
+[`34284040682`](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682) and pull-request
+run [`34284046393`](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393).
+
+| Job | Push conclusion / immutable job | Pull-request conclusion / immutable job |
+|---|---|---|
+| Static required checks | success / [102255322301](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322301) | success / [102255340785](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340785) |
+| PostgreSQL and Redis required checks | success / [102255322462](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322462) | success / [102255340835](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340835) |
+| Vulture dead code check | success / [102255322545](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322545) | success / [102255340480](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340480) |
+| Python 3.11 compatibility | success / [102255322566](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322566) | success / [102255340990](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340990) |
+| Python 3.12 compatibility | success / [102255322585](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322585) | success / [102255340890](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340890) |
+| Python 3.13 compatibility | success / [102255322576](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322576) | success / [102255341119](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255341119) |
+| Apple Silicon advisory compatibility | success / [102255322604](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255322604) | success / [102255340914](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255340914) |
+| Required checks | success / [102255537603](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284040682/job/102255537603) | success / [102255559933](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34284046393/job/102255559933) |
+
+The protected `main` branch still used strict required-status checks with `Required checks` as its required
+context. Both instances passed only after the static, Vulture, compatibility, and service predecessors
+succeeded. At this checkpoint PR #115 was open, non-draft, mergeable, and `CLEAN`; `main` remained at exact
+base `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f`, no review decision was present, and no merge occurred.
+T067 is complete. Patrick's approval, merge, and post-merge confirmation remain pending (T061–T063).
+
+This evidence checkpoint is committed separately from the implementation head it records and does not embed
+its own hash. Its final-head CI status is reported on PR #115.

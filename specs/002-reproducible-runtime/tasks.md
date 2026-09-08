@@ -289,5 +289,6 @@ completion is not evidence for this phase; each item below is checked only when 
   top of it unamended as `2a909a6619ba8091ef8ed85e96f5a64ea7f979db` and the review recorded in
   `evidence/verification.md`.
 - [X] T066 Codex refute-first re-review of the fable-corrected corrective head.
-- [ ] T067 Verify that the pull-request workflow passes on the final corrective head and record the
-  immutable run; T060's evidence covers head `69654ee` only.
+- [X] T067 Verify that both push and pull-request workflows pass on reviewed corrective implementation head
+  `ac691ab16a57b702d6870842e7479cbaf5b2784f` and record the immutable runs; T060's evidence covers head
+  `69654ee` only.
