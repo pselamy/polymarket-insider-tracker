@@ -115,6 +115,9 @@ GATES: Mapping[str, Gate] = {
             "--python",
             "3.11",
             "vulture",
+            "src",
+            "tests",
+            "scripts",
         ),
     ),
     "imports": Gate(
@@ -184,7 +187,7 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
     (
         "vulture",
-        "uv run --isolated --locked --all-extras --python 3.11 vulture",
+        "uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts",
     ),
     (
         "imports",

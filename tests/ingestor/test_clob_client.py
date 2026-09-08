@@ -147,7 +147,7 @@ class TestClobClient:
 
     def test_health_check_failure(self, mock_base_client: MagicMock) -> None:
         """Test health check returns False on error."""
-        mock_base_client.get_ok.side_effect = Exception("Connection failed")
+        mock_base_client.get_ok.configure_mock(side_effect=Exception("Connection failed"))
 
         client = ClobClient()
         result = client.health_check()
@@ -217,16 +217,18 @@ class TestClobClient:
 
     def test_get_markets_pagination(self, mock_base_client: MagicMock) -> None:
         """Test that pagination is handled correctly."""
-        mock_base_client.get_simplified_markets.side_effect = [
-            {
-                "data": [{"condition_id": "0x1"}],
-                "next_cursor": "cursor2",
-            },
-            {
-                "data": [{"condition_id": "0x2"}],
-                "next_cursor": "LTE=",
-            },
-        ]
+        mock_base_client.get_simplified_markets.configure_mock(
+            side_effect=[
+                {
+                    "data": [{"condition_id": "0x1"}],
+                    "next_cursor": "cursor2",
+                },
+                {
+                    "data": [{"condition_id": "0x2"}],
+                    "next_cursor": "LTE=",
+                },
+            ]
+        )
 
         client = ClobClient()
         markets = client.get_markets()
@@ -259,7 +261,7 @@ class TestClobClient:
         retry the operation. After all retries are exhausted, it raises
         RetryError wrapping the original exception.
         """
-        mock_base_client.get_market.side_effect = Exception("Not found")
+        mock_base_client.get_market.configure_mock(side_effect=Exception("Not found"))
 
         client = ClobClient()
 
@@ -332,7 +334,7 @@ class TestClobClient:
 
     def test_get_midpoint_error(self, mock_base_client: MagicMock) -> None:
         """Test midpoint returns None on error."""
-        mock_base_client.get_midpoint.side_effect = Exception("API error")
+        mock_base_client.get_midpoint.configure_mock(side_effect=Exception("API error"))
 
         client = ClobClient()
         result = client.get_midpoint("token123")

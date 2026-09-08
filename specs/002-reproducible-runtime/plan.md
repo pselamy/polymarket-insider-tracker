@@ -155,9 +155,11 @@ modules. No new service, package, or migration is needed.
 - Unit tests inject a fake command runner and exercise one failure per required gate. There is no
   production flag that fabricates success or weakens a gate.
 - Keep `strict-types` as the existing mypy gate, keep `pyright` immediately after it, and add a separate
-  `vulture` dead-code gate immediately after `pyright`. The exact Vulture command names the locked Python 3.11
-  environment (`uv run --isolated --locked --all-extras --python 3.11 vulture`), scanning `src`, `tests`, and
-  `scripts` with standard 60% confidence and no baseline or allowlist file.
+  `vulture` dead-code gate immediately after `pyright`. The exact Vulture command uses the locked Python 3.11
+  environment and names its scope on the command line
+  (`uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts`). Vulture runs at its
+  default confidence with no baseline, allowlist, `ignore_names`, `ignore_decorators`, path exclusion, or
+  inline suppression; framework-consumed names are made visible through real code and tests.
 - The service profile invokes separately identifiable `services` and `migrations` gates through
   `scripts/runtime_services.py --phase probe` and `--phase migrations`; the helper defaults to `all` for
   contributors. The probe performs an async SQLAlchemy query and Redis `PING`. The migration phase refuses
@@ -176,6 +178,9 @@ modules. No new service, package, or migration is needed.
 - Pin PostgreSQL 15 and Redis 7 service images by reviewed multi-architecture digest in both Compose and
   CI so local and automated evidence use the same immutable image identities.
 - Add a stable final required job that fails unless every blocking predecessor succeeds (including `vulture`).
+  Contract tests read the real workflow file, bind the `vulture` job's command to the verifier's gate
+  definition, and execute the real aggregator script under GitHub's Bash options for every non-success
+  predecessor result, so the workflow cannot drift from the verifier or the fail-closed contract silently.
 - Run the same blocking workflow on feature-branch pushes, with concurrency cancellation for stale runs,
   so immutable Linux evidence exists before the constitution permits pull-request preparation.
 - Run the compatibility profile on GitHub's arm64 `macos-14` runner as an advisory job. Full Apple

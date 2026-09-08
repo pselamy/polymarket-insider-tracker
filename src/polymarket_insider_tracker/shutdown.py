@@ -56,7 +56,7 @@ class GracefulShutdown:
         - Configurable shutdown timeout
         - Async context manager support
         - Cleanup callback registration
-        - Force exit on second signal or timeout
+        - Force exit on second signal
 
     Example:
         ```python

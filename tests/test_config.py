@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from pydantic import ValidationError
 
 from polymarket_insider_tracker.config import (
     DatabaseSettings,
+    DetectorSettings,
     DiscordSettings,
     PolygonSettings,
     PolymarketSettings,
@@ -24,15 +26,78 @@ from polymarket_insider_tracker.config import (
 from polymarket_insider_tracker.storage.database_url import DatabaseUrlMigrationWarning
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+    from pydantic_settings import BaseSettings
+
+# Every settings group and the environment-variable prefix it documents.
+SETTINGS_GROUPS: tuple[tuple[type[BaseSettings], str], ...] = (
+    (DatabaseSettings, ""),
+    (RedisSettings, ""),
+    (PolygonSettings, "POLYGON_"),
+    (PolymarketSettings, "POLYMARKET_"),
+    (DiscordSettings, "DISCORD_"),
+    (TelegramSettings, "TELEGRAM_"),
+    (DetectorSettings, "DETECTOR_"),
+    (Settings, ""),
+)
 
 
 @pytest.fixture(autouse=True)
-def clear_cache() -> Iterator[None]:
-    """Clear settings cache before and after each test."""
+def clear_cache() -> Iterator[Callable[[], None]]:
+    """Reset the settings singleton around every test and expose the reset for explicit use."""
     clear_settings_cache()
-    yield
+    yield clear_settings_cache
     clear_settings_cache()
+
+
+class TestSharedDotenvContract:
+    """Every settings group must read the one documented `.env` file the same way."""
+
+    @pytest.mark.parametrize(("settings_class", "env_prefix"), SETTINGS_GROUPS)
+    def test_group_loads_the_shared_dotenv_and_ignores_unrelated_keys(
+        self, settings_class: type[BaseSettings], env_prefix: str
+    ) -> None:
+        """Pydantic consumes `model_config` by name; pin the loading policy it reads."""
+        loading_policy = settings_class.model_config
+
+        assert loading_policy["env_file"] == ".env"
+        assert loading_policy["env_file_encoding"] == "utf-8"
+        assert loading_policy["extra"] == "ignore"
+        assert loading_policy["env_prefix"] == env_prefix
+
+    def test_database_settings_hide_credential_bearing_input_in_errors(self) -> None:
+        """A rejected DATABASE_URL must not be echoed back with its credential."""
+        assert DatabaseSettings.model_config["hide_input_in_errors"] is True
+
+    def test_one_dotenv_serves_every_group(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Keys owned by other groups in the shared `.env` must be ignored, not rejected."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text(
+            "DATABASE_URL=postgresql+psycopg://tracker:secret@localhost:5432/research\n"
+            "REDIS_URL=redis://localhost:6379\n"
+            "POLYGON_RPC_URL=https://polygon.invalid\n"
+            "POLYMARKET_WS_URL=wss://polymarket.invalid/ws\n"
+            "DISCORD_WEBHOOK_URL=https://discord.invalid/webhook\n"
+            "TELEGRAM_BOT_TOKEN=token\n"
+            "DETECTOR_ALERT_THRESHOLD=0.9\n"
+            "LOG_LEVEL=DEBUG\n",
+            encoding="utf-8",
+        )
+        scrubbed_environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in {"DATABASE_URL", "REDIS_URL", "LOG_LEVEL"}
+            and not key.startswith(
+                ("POLYGON_", "POLYMARKET_", "DISCORD_", "TELEGRAM_", "DETECTOR_")
+            )
+        }
+        with patch.dict(os.environ, scrubbed_environment, clear=True):
+            loaded = [settings_class() for settings_class, _ in SETTINGS_GROUPS]
+
+        assert len(loaded) == len(SETTINGS_GROUPS)
 
 
 class TestDatabaseSettings:
@@ -342,7 +407,7 @@ class TestGetSettings:
             settings2 = get_settings()
             assert settings1 is settings2
 
-    def test_clear_cache_allows_reload(self) -> None:
+    def test_clear_cache_allows_reload(self, clear_cache: Callable[[], None]) -> None:
         """Test clear_settings_cache allows reloading settings."""
         with patch.dict(
             os.environ,
@@ -354,7 +419,7 @@ class TestGetSettings:
             settings1 = get_settings()
             assert settings1.log_level == "INFO"
 
-        clear_settings_cache()
+        clear_cache()
 
         with patch.dict(
             os.environ,

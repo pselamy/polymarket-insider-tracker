@@ -29,7 +29,7 @@ jobs:
         run: uv python install 3.11
       - name: Sync locked dependencies
         run: uv sync --locked --all-extras --python 3.11
-      - name: Run static profile with mypy and Pyright
+      - name: Run static profile with mypy, Pyright, and Vulture
         run: uv run python scripts/verify.py --profile static
 
   compatibility:
@@ -139,7 +139,7 @@ jobs:
       - name: Sync locked dependencies
         run: uv sync --locked --all-extras --python 3.11
       - name: Run Vulture dead-code verification
-        run: uv run --isolated --locked --all-extras --python 3.11 vulture
+        run: uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
 
   required:
     name: Required checks

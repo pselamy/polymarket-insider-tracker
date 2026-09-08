@@ -142,8 +142,10 @@ and automated checks; verify that they name one consistent support matrix and re
   `src/polymarket_insider_tracker` package at the Python 3.11 compatibility floor. It MUST NOT use a
   baseline, diff-only mode, blanket suppression, broad exclusion, or downgraded diagnostics.
 - **FR-016**: Vulture MUST remain an independent, exactly pinned and locked dead-code checker across `src`,
-  `tests`, and `scripts` at the Python 3.11 compatibility floor. It MUST NOT use a baseline, allowlist/whitelist
-  files, confidence relaxation below 60%, broad exclusion, or non-blocking status.
+  `tests`, and `scripts` at the Python 3.11 compatibility floor, running at Vulture's default confidence. It
+  MUST NOT use a baseline, whitelist/allowlist file, `ignore_names`, `ignore_decorators`, path exclusion,
+  inline suppression, minimum-confidence threshold, or non-blocking status. Names that frameworks consume by
+  convention MUST be made visible through real code and tests rather than exempted.
 
 ### Key Entities
 

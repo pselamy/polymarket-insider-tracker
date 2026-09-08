@@ -201,7 +201,7 @@ class TestTradeStreamHandler:
         self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
     ) -> None:
         """Test that callback errors don't crash the handler."""
-        on_trade_mock.side_effect = ValueError("Callback error")
+        on_trade_mock.configure_mock(side_effect=ValueError("Callback error"))
 
         message = json.dumps(
             {

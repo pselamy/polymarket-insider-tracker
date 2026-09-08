@@ -399,36 +399,95 @@ so convergence made no further mutation.
 The check-run annotation API returned zero annotations for all seven jobs. This run supersedes the
 expected red-test checkpoint run at `f2d0ff7` and is the authoritative convergence implementation proof.
 
-## Phase 10: Vulture Dead-Code Gate Evidence
+## Phase 10: Required Vulture Dead-Code Gate
 
 **Date**: 2026-09-08
 
-**Direct Vulture Command**:
+**Base**: `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f` · **Agy first pass**:
+`c596aa74dd87f4eff2cc22a30de5a5d6e17640c8`, preserved unamended as the reviewable anchor.
+
+**Environment**: Linux 6.8 x86_64, uv 0.11.21, verifier launched by CPython 3.13.14. Floor-pinned gates
+(mypy, Pyright, Vulture) ran in the locked isolated Python 3.11 environment.
+
+### Claude Code/fable adversarial review of the Agy first pass
+
+Bare Vulture over the base tree with no configuration reported 51 findings. The Agy tree removed the
+genuine dead code but hid the remaining 36 findings behind `min_confidence = 60`,
+`ignore_decorators = ["@field_validator", "@pytest.fixture"]`, and
+`ignore_names = ["model_config", "side_effect"]`. Findings and dispositions:
+
+1. **Filtered scan (blocker)**: all three settings removed; `[tool.vulture]` now names only `paths`. The
+   36 exposed findings were resolved through real structure: the four `@field_validator` methods became
+   module-level functions attached with `Annotated[..., AfterValidator(...)]`; 21 `mock.side_effect = value`
+   attribute stores became `configure_mock(side_effect=value)`; the nine `model_config` declarations are
+   read by a contract test that pins the shared `.env` loading policy per settings group, backed by a
+   behavioral test loading one shared `.env` through every group; the session autouse fixture now yields
+   its isolated directory and `tests/test_harness_isolation.py` proves the runtime-contract isolation
+   guarantee; the config cache fixture yields the reset used by the cache-reload test.
+2. **Scope not named on the command (blocker)**: the verifier gate, `--help`, CI job, README, plan, and
+   contract now run `vulture src tests scripts`, mirroring the Pyright explicit-scope precedent.
+3. **Workflow simulation (blocker)**: the fail-closed test re-typed the aggregator script. Replaced by
+   `tests/tooling/test_ci_workflow.py`, which parses the real `ci.yml`, binds the `vulture` job's command to
+   `GATES["vulture"].command_text` and `DIRECT_GATE_COMMANDS`, asserts `if: always()` and the exact `needs`
+   order, and executes the real aggregator `run:` script under GitHub's `bash --noprofile --norc -eo
+   pipefail` for every blocking job × {failure, cancelled, skipped} plus the all-success case.
+4. **`git diff --check` (blocker)**: trailing blank lines in this file and `tasks.md` removed.
+5. **Deletions re-evaluated**: every Agy removal had no caller, test, export consumer, or documentation
+   reference in history. `DatabaseManager.init_schema*`, `GracefulShutdown(exit_on_timeout=)`,
+   `ShutdownTimeoutError`, and `RiskAssessmentRepository.get_by_assessment_id` were public surface, so the
+   `CHANGELOG.md` gained a `Removed` section with migration notes; the shutdown docstring no longer claims
+   force-exit on timeout, which was never implemented.
+6. **Weak guard test**: the `traced_at` test now asserts an aware UTC timestamp bounded by the test clock.
+7. **Undeclared test dependency**: `yaml` was imported through a transitive pre-commit dependency;
+   `pyyaml>=6.0.0` is now declared in the dev extra (lock changed only in metadata entries).
+8. **Documentation drift**: `data-model.md` profile table and gate identifier enum lacked `vulture`; FR-016,
+   plan, contract, README, and the task ledger now state the unfiltered default-confidence contract; the
+   static CI step name names Vulture; the Phase 10 ledger records Agy, fable, Codex, PR, CI, approval,
+   merge, and post-merge states factually.
+
+### Commands and results on the corrected tree
 
 ```text
-uv run --isolated --locked --all-extras --python 3.11 vulture
-exit: 0 (0 dead-code findings across src, tests, and scripts)
-```
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts --config /dev/null
+exit: 0 (no configuration file, default confidence, no ignore mechanism)
 
-**Verifier Static Profile**:
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
+exit: 0
 
-```text
 uv run python scripts/verify.py --profile static
-lock: passed
-format: passed
-lint: passed
-strict-types: passed
-pyright: passed
+lock: passed; format: passed; lint: passed
+strict-types: passed (Success: no issues found in 41 source files)
+pyright: passed (0 errors, 0 warnings, 0 informations)
 vulture: passed
-status: passed
-exit: 0
+status: passed; duration: 7.12s; exit: 0
+
+uv run python scripts/verify.py --profile compatibility
+lock: passed; imports: passed
+tests: 803 passed, 2 skipped, 16 warnings in 11.38s
+status: passed; exit: 0
+
+uv run --isolated --locked --all-extras --python 3.11 python scripts/verify.py --profile compatibility --json
+status: passed; exit: 0
+uv run --isolated --locked --all-extras --python 3.12 python scripts/verify.py --profile compatibility --json
+status: passed; exit: 0
+
+uv lock --check                       exit: 0
+actionlint .github/workflows/ci.yml   exit: 0
+git diff --check                      exit: 0
 ```
 
-**Deterministic Pytest Suite**:
+The two skips are the platform-specific Windows signal-handler case and the opt-in real-service integration
+case. The 16 warnings are the pre-existing WebSockets deprecation, legacy database-URL migration warnings
+exercised by tests, and the mocked-coroutine resource warning.
 
-```text
-uv run pytest
-781 passed, 2 skipped
-exit: 0
-```
+**Advisory complexity scan** (`complexipy --max-complexity-allowed 10 --failed` on changed behavior-heavy
+files): every changed function is within budget. `scripts/verify.py` `run_verification` (15) and
+`render_human` (11) exceed the budget but are unchanged by this slice; refactoring them is out of scope.
 
+**Service profile on this host**: `uv run --env-file .env.example python scripts/verify.py --profile services`
+exited `1`. The PostgreSQL listener on `127.0.0.1:5432` is not the Compose stack (password authentication
+failed for user `tracker`), Redis on `6379` refused the connection, and the Docker socket denied access to
+this user. Service and migration evidence for this slice is therefore not claimed locally and is left to
+the orchestrator and the CI service job.
+
+**Not performed**: no pull request, push, merge, or repository-setting change. Items T058–T063 remain open.

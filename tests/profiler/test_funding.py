@@ -938,10 +938,14 @@ class TestFundingChainModel:
         )
         assert chain.funding_depth == 3
 
-    def test_traced_at_default(self) -> None:
-        """Test traced_at default value is populated."""
+    def test_traced_at_defaults_to_an_aware_utc_timestamp(self) -> None:
+        """A trace records when it ran, in UTC, so chains remain comparable across hosts."""
+        before = datetime.now(UTC)
         chain = FundingChain(target_address=TEST_WALLET)
-        assert chain.traced_at is not None
+        after = datetime.now(UTC)
+
+        assert chain.traced_at.tzinfo is UTC
+        assert before <= chain.traced_at <= after
 
 
 class TestConstants:

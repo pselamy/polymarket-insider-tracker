@@ -215,7 +215,7 @@ class TestWalletAnalyzerAnalyze:
             balance_wei=Decimal("1000000000000000000"),
             first_transaction=None,
         )
-        mock_client.get_token_balance.side_effect = Exception("Token query failed")
+        mock_client.get_token_balance.configure_mock(side_effect=Exception("Token query failed"))
 
         analyzer = WalletAnalyzer(mock_client)
         profile = await analyzer.analyze(VALID_ADDRESS)
@@ -328,20 +328,22 @@ class TestWalletAnalyzerBatch:
     @pytest.mark.asyncio
     async def test_analyze_batch(self, mock_client: AsyncMock) -> None:
         """Test batch analysis."""
-        mock_client.get_wallet_info.side_effect = [
-            WalletInfo(
-                address=VALID_ADDRESS.lower(),
-                transaction_count=2,
-                balance_wei=Decimal("1000"),
-                first_transaction=None,
-            ),
-            WalletInfo(
-                address=VALID_ADDRESS_2.lower(),
-                transaction_count=100,
-                balance_wei=Decimal("2000"),
-                first_transaction=None,
-            ),
-        ]
+        mock_client.get_wallet_info.configure_mock(
+            side_effect=[
+                WalletInfo(
+                    address=VALID_ADDRESS.lower(),
+                    transaction_count=2,
+                    balance_wei=Decimal("1000"),
+                    first_transaction=None,
+                ),
+                WalletInfo(
+                    address=VALID_ADDRESS_2.lower(),
+                    transaction_count=100,
+                    balance_wei=Decimal("2000"),
+                    first_transaction=None,
+                ),
+            ]
+        )
 
         analyzer = WalletAnalyzer(mock_client)
         profiles = await analyzer.analyze_batch([VALID_ADDRESS, VALID_ADDRESS_2])
@@ -353,15 +355,17 @@ class TestWalletAnalyzerBatch:
     @pytest.mark.asyncio
     async def test_analyze_batch_handles_errors(self, mock_client: AsyncMock) -> None:
         """Test batch analysis handles individual failures."""
-        mock_client.get_wallet_info.side_effect = [
-            WalletInfo(
-                address=VALID_ADDRESS.lower(),
-                transaction_count=2,
-                balance_wei=Decimal("1000"),
-                first_transaction=None,
-            ),
-            Exception("RPC error"),
-        ]
+        mock_client.get_wallet_info.configure_mock(
+            side_effect=[
+                WalletInfo(
+                    address=VALID_ADDRESS.lower(),
+                    transaction_count=2,
+                    balance_wei=Decimal("1000"),
+                    first_transaction=None,
+                ),
+                Exception("RPC error"),
+            ]
+        )
 
         analyzer = WalletAnalyzer(mock_client)
         profiles = await analyzer.analyze_batch([VALID_ADDRESS, VALID_ADDRESS_2])
@@ -372,20 +376,22 @@ class TestWalletAnalyzerBatch:
     @pytest.mark.asyncio
     async def test_get_fresh_wallets(self, mock_client: AsyncMock) -> None:
         """Test filtering to only fresh wallets."""
-        mock_client.get_wallet_info.side_effect = [
-            WalletInfo(
-                address=VALID_ADDRESS.lower(),
-                transaction_count=2,
-                balance_wei=Decimal("1000"),
-                first_transaction=None,
-            ),
-            WalletInfo(
-                address=VALID_ADDRESS_2.lower(),
-                transaction_count=100,
-                balance_wei=Decimal("2000"),
-                first_transaction=None,
-            ),
-        ]
+        mock_client.get_wallet_info.configure_mock(
+            side_effect=[
+                WalletInfo(
+                    address=VALID_ADDRESS.lower(),
+                    transaction_count=2,
+                    balance_wei=Decimal("1000"),
+                    first_transaction=None,
+                ),
+                WalletInfo(
+                    address=VALID_ADDRESS_2.lower(),
+                    transaction_count=100,
+                    balance_wei=Decimal("2000"),
+                    first_transaction=None,
+                ),
+            ]
+        )
 
         analyzer = WalletAnalyzer(mock_client)
         fresh = await analyzer.get_fresh_wallets([VALID_ADDRESS, VALID_ADDRESS_2])

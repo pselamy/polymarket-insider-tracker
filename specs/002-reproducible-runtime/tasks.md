@@ -247,14 +247,37 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
 - [X] T048 Complete the required immutable Agy and Claude Code/fable reviews, resolve all findings, open
   the non-draft pull request, and verify its blocking GitHub checks without merging it.
 
-## Phase 10: Vulture Dead-Code Gate
+## Phase 10: Required Vulture Dead-Code Gate
+
+Branch `quality/vulture-required-gate` from base `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f`. Phase 9
+completion is not evidence for this phase; each item below is checked only when true for this slice.
 
 - [X] T049 Pin and lock `vulture==2.16` in `pyproject.toml` and regenerate `uv.lock` reproducibly.
-- [X] T050 Configure Vulture without a baseline, allowlist, or confidence relaxation, scanning `src`, `tests`, and `scripts`.
-- [X] T051 Add Vulture as an explicit fail-closed gate in `scripts/verify.py` (`static` and `all` profiles).
-- [X] T052 Add Vulture as an independent required job in `.github/workflows/ci.yml` and wire into `required` checks aggregator.
-- [X] T053 Resolve every genuine dead-code finding revealed by Vulture without breaking live behavior or tests.
-- [X] T054 Add automated tests covering Vulture gate command, static profile inclusion, CI job presence, and fail-closed required check behavior.
-- [X] T055 Align README, specification, plan, runtime contract, quickstart, and tasks with the Vulture gate requirements.
-- [ ] T056 Open the non-draft pull request and verify that the independent Vulture CI job and Required checks aggregator pass.
-
+- [X] T050 Configure Vulture over `src`, `tests`, and `scripts` at its default confidence with no baseline,
+  allowlist, `ignore_names`, `ignore_decorators`, path exclusion, inline suppression, or confidence threshold.
+- [X] T051 Add `vulture` as an explicit fail-closed gate after `pyright` in `scripts/verify.py` (`static` and
+  `all` profiles), naming its scope on the command line.
+- [X] T052 Add an independent required `vulture` job in `.github/workflows/ci.yml` and bind it into the
+  `Required checks` aggregator.
+- [X] T053 Resolve every default-confidence Vulture finding through genuine dead-code removal or real
+  code/test structure, preserving live behavior and recording removed public surface in `CHANGELOG.md`.
+- [X] T054 Add tests proving local gate membership/order, per-gate failure propagation, the CI job's command
+  binding to the verifier gate, aggregator dependency/order, and fail-closed handling of every non-success
+  predecessor result by executing the real aggregator script.
+- [X] T055 Align README, specification, plan, data model, runtime contract, quickstart, and tasks with the
+  Vulture gate requirements.
+- [X] T056 Agy first pass committed as `c596aa74dd87f4eff2cc22a30de5a5d6e17640c8` and preserved unamended as
+  the reviewable first-pass anchor.
+- [X] T057 Claude Code/fable adversarial review completed on top of the Agy commit: removed `min_confidence`,
+  `ignore_decorators`, and `ignore_names`; made the bare scan clean through real structure; bound the CI
+  job and aggregator tests to the real workflow and verifier; fixed trailing-blank-line diff errors; updated
+  the data model, changelog, and this ledger. Commit hashes are recorded in
+  `evidence/verification.md` (Phase 10).
+- [ ] T058 Codex refute-first review of the fable-corrected branch, with every finding resolved or recorded.
+- [ ] T059 Open the non-draft pull request for `quality/vulture-required-gate` against `main`.
+- [ ] T060 Verify that the independent `Vulture dead code check` job and the `Required checks` aggregator pass
+  on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.
+- [ ] T061 Patrick's approval of the pull request.
+- [ ] T062 Merge into `main`.
+- [ ] T063 Post-merge: confirm the `main` workflow run is green with the `vulture` job present in the
+  required aggregator, and close this ledger.

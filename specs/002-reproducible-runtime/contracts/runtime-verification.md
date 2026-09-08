@@ -35,11 +35,15 @@ third-party APIs the production package consumes; it is not a substitute for che
 The independent `vulture` gate runs after `pyright` and before runtime imports:
 
 ```text
-uv run --isolated --locked --all-extras --python 3.11 vulture
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
 ```
 
-`pyproject.toml` configures Vulture `2.16` for Python 3.11, scanning `src`, `tests`, and `scripts` with
-standard 60% confidence and no baseline or allowlist file.
+`pyproject.toml` pins Vulture `2.16` and names the `src`, `tests`, and `scripts` scope; the command repeats
+those paths so its scope is visible and fail-closed at invocation. Vulture runs at its default confidence with
+no baseline, allowlist, `ignore_names`, `ignore_decorators`, path exclusion, inline suppression, or
+minimum-confidence setting. Names that frameworks consume by convention (Pydantic `model_config`,
+`unittest.mock` `side_effect`, autouse fixtures) are made visible through real code and tests, not exempted.
+The independent CI `vulture` job runs this exact command and is bound to it by contract tests.
 
 The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`
 before starting pytest. The test harness also runs from an isolated temporary working directory so Pydantic
