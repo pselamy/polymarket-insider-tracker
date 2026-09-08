@@ -242,7 +242,7 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
   or weakened first-party types; retain strict mypy and Ruff.
 - [X] T046 Add focused verifier, protocol-boundary, and runtime behavior-guard tests and align the active
   README, specification, plan, data model, quickstart, and runtime contract.
-- [ ] T047 Run the complete local static, compatibility, service, and aggregate verifier profiles on the
+- [X] T047 Run the complete local static, compatibility, service, and aggregate verifier profiles on the
   final candidate and record their results in the pull request.
-- [ ] T048 Complete the required immutable Agy and Claude Code/fable reviews, resolve all findings, open
-  the non-draft pull request, and verify its blocking GitHub checks without merging it.
+- [X] T048 Complete the required immutable Agy and Claude Code/fable reviews on clean detached checkouts,
+  resolve all findings, and obtain an explicit final SHIP verdict with no remaining findings.
