@@ -10,7 +10,6 @@ class OrderSummary:
     price: str | None = None
     size: str | None = None
 
-@dataclass
 class OrderBookSummary:
     market: str | None = None
     asset_id: str | None = None

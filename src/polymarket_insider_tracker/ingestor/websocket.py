@@ -295,6 +295,7 @@ class TradeStreamHandler:
                     # Attempt reconnection
                     await self._reconnect_loop()
 
+                    # A running reconnect loop returns only after assigning a live connection.
                     if not self._running:
                         break
 
