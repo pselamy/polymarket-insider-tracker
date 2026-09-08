@@ -61,7 +61,7 @@ failure per gate and verify that the aggregate check reports failure.
 **Acceptance Scenarios**:
 
 1. **Given** the proposed branch, **When** all required local checks run, **Then** format, lint, strict
-   type checking, tests, migrations, and documentation checks all pass with no ignored required failure.
+   type checking, tests, service probes, and migrations all pass with no ignored required failure.
 2. **Given** a deliberate type error, formatting error, test failure, or migration failure, **When** the
    corresponding automated check runs, **Then** the pull request is blocked.
 3. **Given** any supported Python version, **When** the compatibility suite runs, **Then** installation
