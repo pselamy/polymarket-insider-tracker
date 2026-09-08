@@ -32,7 +32,13 @@ CANONICAL_VULTURE_COMMAND = (
     + " ".join(CANONICAL_VULTURE_SCOPE)
 )
 CANONICAL_COMPLEXIPY_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
-CANONICAL_COMPLEXIPY_COMMAND = "uv run --isolated --locked --all-extras --python 3.11 complexipy"
+# The command names its scope and policy explicitly so a cwd `.complexipy.toml`, which upstream
+# reads in preference to `[tool.complexipy]`, cannot silently relax the gate.
+CANONICAL_COMPLEXIPY_COMMAND = (
+    "uv run --isolated --locked --all-extras --python 3.11 complexipy "
+    + " ".join(CANONICAL_COMPLEXIPY_SCOPE)
+    + " --max-complexity-allowed 5 --no-ignore"
+)
 NON_SUCCESS_RESULTS = ("failure", "cancelled", "skipped")
 NEEDS_RESULT_EXPRESSION = re.compile(r"^\$\{\{ needs\.(?P<job>[A-Za-z0-9_-]+)\.result \}\}$")
 # GitHub runs `run:` steps on Linux with `bash --noprofile --norc -eo pipefail {0}`.

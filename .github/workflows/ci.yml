@@ -158,7 +158,7 @@ jobs:
       - name: Sync locked dependencies
         run: uv sync --locked --all-extras --python 3.11
       - name: Run Complexipy complexity check
-        run: uv run --isolated --locked --all-extras --python 3.11 complexipy
+        run: uv run --isolated --locked --all-extras --python 3.11 complexipy src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore
 
   required:
     name: Required checks

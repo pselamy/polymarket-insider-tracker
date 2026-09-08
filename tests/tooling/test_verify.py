@@ -104,15 +104,19 @@ def test_complexipy_gate_is_configured_and_matches_canonical_policy() -> None:
         "--python",
         "3.11",
         "complexipy",
+        *canonical_scope,
+        "--max-complexity-allowed",
+        "5",
+        "--no-ignore",
     )
     with (MODULE_PATH.parents[1] / "pyproject.toml").open("rb") as handle:
         pyproject = tomllib.load(handle)
     assert tuple(pyproject["tool"]["complexipy"]["paths"]) == canonical_scope
     assert pyproject["tool"]["complexipy"]["max-complexity-allowed"] == 5
     assert pyproject["tool"]["complexipy"]["no-ignore"] is True
-    assert (
-        dict(module.DIRECT_GATE_COMMANDS)["complexipy"]
-        == "uv run --isolated --locked --all-extras --python 3.11 complexipy"
+    assert dict(module.DIRECT_GATE_COMMANDS)["complexipy"] == (
+        "uv run --isolated --locked --all-extras --python 3.11 complexipy "
+        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore"
     )
 
 

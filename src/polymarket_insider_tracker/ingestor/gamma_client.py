@@ -88,28 +88,15 @@ def _parse_page_items(page: list[object], results: dict[str, GammaMarketStats]) 
             results[parsed.condition_id] = parsed
 
 
-def _update_streak_and_items(
-    page: list[object],
-    page_limit: int,
-    empty_streak: int,
-    results: dict[str, GammaMarketStats],
-) -> int:
-    if not page:
-        return empty_streak + 1
-    _parse_page_items(page, results)
-    return 1 if len(page) < page_limit else 0
+def _aggregate_pages(pages: list[list[object]]) -> dict[str, GammaMarketStats]:
+    """Merge every fetched page into one mapping keyed by condition id.
 
-
-def _aggregate_pages(
-    pages: list[list[object]],
-    page_limit: int,
-) -> dict[str, GammaMarketStats]:
+    Every page is already fetched by the time this runs, so no page is
+    skipped: a failed or empty page never hides a later page that succeeded.
+    """
     results: dict[str, GammaMarketStats] = {}
-    empty_streak = 0
     for page in pages:
-        empty_streak = _update_streak_and_items(page, page_limit, empty_streak, results)
-        if empty_streak >= 2:
-            break
+        _parse_page_items(page, results)
     return results
 
 
@@ -243,6 +230,6 @@ class GammaClient:
         ) as client:
             pages = await self._fetch_all_pages(client)
 
-        results = _aggregate_pages(pages, self._page_limit)
+        results = _aggregate_pages(pages)
         logger.info("gamma sync: fetched stats for %d active markets", len(results))
         return results

@@ -136,9 +136,10 @@ def _parse_stream_entry(
     entry_id: bytes | str,
     data: dict[bytes | str, bytes | str],
     *,
-    context: str = "entry",
+    context: str,
+    skip_empty: bool,
 ) -> StreamEntry | None:
-    if not data:
+    if skip_empty and not data:
         return None
     entry_id_str = _decode_entry_id(entry_id)
     try:
@@ -151,22 +152,31 @@ def _parse_stream_entry(
 
 def _collect_entries_from_stream(
     stream_entries: list[tuple[bytes | str, dict[bytes | str, bytes | str]]],
+    *,
     context: str,
+    skip_empty: bool,
 ) -> list[StreamEntry]:
     entries: list[StreamEntry] = []
     for entry_id, data in stream_entries:
-        entry = _parse_stream_entry(entry_id, data, context=context)
+        entry = _parse_stream_entry(entry_id, data, context=context, skip_empty=skip_empty)
         if entry is not None:
             entries.append(entry)
     return entries
 
 
-def _parse_stream_results(results: Any, *, context: str = "entry") -> list[StreamEntry]:
+def _parse_stream_results(results: Any, *, context: str, skip_empty: bool) -> list[StreamEntry]:
+    """Flatten ``XREADGROUP`` results into entries.
+
+    ``skip_empty`` drops entries whose data is empty; pending re-reads return
+    such entries for messages that were already acknowledged or trimmed.
+    """
     if not results:
         return []
     entries: list[StreamEntry] = []
     for _stream_name, stream_entries in results:
-        entries.extend(_collect_entries_from_stream(stream_entries, context))
+        entries.extend(
+            _collect_entries_from_stream(stream_entries, context=context, skip_empty=skip_empty)
+        )
     return entries
 
 
@@ -348,7 +358,7 @@ class EventPublisher:
             count=count,
             block=block_ms,
         )
-        return _parse_stream_results(results, context="entry")
+        return _parse_stream_results(results, context="entry", skip_empty=False)
 
     async def read_pending(
         self,
@@ -377,7 +387,7 @@ class EventPublisher:
             {self._stream_name: "0"},
             count=count,
         )
-        return _parse_stream_results(results, context="pending entry")
+        return _parse_stream_results(results, context="pending entry", skip_empty=True)
 
     async def ack(self, group_name: str, *entry_ids: str) -> int:
         """Acknowledge that entries have been processed.

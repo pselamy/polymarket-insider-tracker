@@ -354,13 +354,16 @@ class FundingRepository:
         return FundingTransferDTO.from_model(model) if model else None
 
     async def insert(self, dto: FundingTransferDTO) -> FundingTransferDTO:
-        """Insert a single funding transfer.
+        """Insert a new funding transfer.
 
         Args:
             dto: Funding transfer data.
 
         Returns:
             Inserted FundingTransferDTO.
+
+        Raises:
+            IntegrityError if tx_hash already exists.
         """
         model = FundingTransferModel(
             from_address=dto.from_address.lower(),
@@ -377,8 +380,9 @@ class FundingRepository:
 
     @staticmethod
     def _is_duplicate_funding_error(e: Exception) -> bool:
-        err_str = str(e).lower()
-        return "unique constraint" in err_str or "duplicate key" in err_str
+        """Match the SQLite and PostgreSQL unique-violation messages for ``tx_hash``."""
+        message = str(e)
+        return "UNIQUE constraint" in message or "duplicate key" in message.lower()
 
     async def _try_insert_single(self, dto: FundingTransferDTO) -> bool:
         try:

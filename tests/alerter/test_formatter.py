@@ -600,3 +600,112 @@ class TestEdgeCases:
         signals = get_triggered_signals(assessment)
         assert "Large Position" in signals
         assert "Niche Market" not in signals
+
+
+class TestWalletAgeSuffix:
+    """The wallet age suffix is shared by every body and escaped only for Telegram."""
+
+    def test_plain_text_shows_whole_hours(self, high_risk_assessment: RiskAssessment) -> None:
+        result = AlertFormatter().format(high_risk_assessment)
+        assert "Wallet: 0x1234...5678 (Age: 2h)" in result.plain_text
+
+    def test_telegram_escapes_the_age_parentheses(
+        self, high_risk_assessment: RiskAssessment
+    ) -> None:
+        markdown = AlertFormatter().format(high_risk_assessment).telegram_markdown
+        assert "`0x1234...5678` \\(Age: 2h\\)" in markdown
+        assert "(Age: 2h)" not in markdown
+
+    def test_no_age_without_a_fresh_wallet_signal(
+        self, low_risk_assessment: RiskAssessment
+    ) -> None:
+        result = AlertFormatter().format(low_risk_assessment)
+        assert "Age:" not in result.plain_text
+        assert "Age:" not in result.telegram_markdown
+        assert "Age:" not in str(result.discord_embed)
+
+    def test_no_age_when_the_profile_age_is_unknown(self, sample_trade: TradeEvent) -> None:
+        profile = WalletProfile(
+            address=sample_trade.wallet_address,
+            nonce=0,
+            first_seen=None,
+            age_hours=None,
+            is_fresh=True,
+            total_tx_count=0,
+            matic_balance=Decimal(0),
+            usdc_balance=Decimal(0),
+        )
+        signal = FreshWalletSignal(
+            trade_event=sample_trade, wallet_profile=profile, confidence=0.5, factors={}
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=signal,
+            size_anomaly_signal=None,
+            signals_triggered=1,
+            weighted_score=0.5,
+            should_alert=True,
+        )
+
+        result = AlertFormatter().format(assessment)
+
+        assert "Wallet: 0x1234...5678\n" in result.plain_text
+        assert "`0x1234...5678`\n" in result.telegram_markdown
+
+
+class TestLinkSection:
+    """Links always sit in their own block, separated from the body by one blank line."""
+
+    def test_plain_text_links_follow_a_blank_line(
+        self, high_risk_assessment: RiskAssessment
+    ) -> None:
+        plain = AlertFormatter().format(high_risk_assessment).plain_text
+        assert plain.endswith(
+            "\n\nWallet: https://polygonscan.com/address/"
+            "0x1234567890abcdef1234567890abcdef12345678\n"
+            "Market: https://polymarket.com/event/will-x-happen"
+        )
+
+    def test_telegram_links_follow_a_blank_line(self, high_risk_assessment: RiskAssessment) -> None:
+        markdown = AlertFormatter().format(high_risk_assessment).telegram_markdown
+        assert markdown.endswith(
+            "\n\n[View Wallet](https://polygonscan.com/address/"
+            "0x1234567890abcdef1234567890abcdef12345678)\n"
+            "[View Market](https://polymarket.com/event/will-x-happen)"
+        )
+
+    def test_market_link_is_omitted_without_a_slug(self, sample_trade: TradeEvent) -> None:
+        trade = TradeEvent(
+            market_id=sample_trade.market_id,
+            trade_id=sample_trade.trade_id,
+            wallet_address=sample_trade.wallet_address,
+            side=sample_trade.side,
+            outcome=sample_trade.outcome,
+            outcome_index=sample_trade.outcome_index,
+            price=sample_trade.price,
+            size=sample_trade.size,
+            timestamp=sample_trade.timestamp,
+            asset_id=sample_trade.asset_id,
+            market_slug="",
+            event_title="Title only",
+        )
+        assessment = RiskAssessment(
+            trade_event=trade,
+            wallet_address=trade.wallet_address,
+            market_id=trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=None,
+            signals_triggered=0,
+            weighted_score=0.25,
+            should_alert=False,
+        )
+
+        result = AlertFormatter().format(assessment)
+
+        assert result.plain_text.endswith(
+            "\n\nWallet: https://polygonscan.com/address/" + trade.wallet_address
+        )
+        assert "[View Market]" not in result.telegram_markdown
+        assert "*Market:* Title only" in result.telegram_markdown

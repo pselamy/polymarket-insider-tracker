@@ -43,6 +43,9 @@ from polymarket_insider_tracker.storage.repos import (
 if TYPE_CHECKING:
     from typing import Any
 
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from polymarket_insider_tracker.alerter.models import FormattedAlert
     from polymarket_insider_tracker.detector.models import (
         FreshWalletSignal,
         RiskAssessment,
@@ -459,7 +462,7 @@ class Pipeline:
         except Exception as e:
             logger.warning("Failed to persist wallet/funding data for %s: %s", address, e)
 
-    async def _persist_funding_transfers(self, session: Any, address: str) -> int:
+    async def _persist_funding_transfers(self, session: AsyncSession, address: str) -> int:
         if not self._funding_tracer:
             return 0
         chain = await self._funding_tracer.trace(address)
@@ -508,7 +511,9 @@ class Pipeline:
             and self._alert_dispatcher is not None
         )
 
-    async def _dispatch_alert(self, formatted_alert: Any, assessment: RiskAssessment) -> None:
+    async def _dispatch_alert(
+        self, formatted_alert: FormattedAlert, assessment: RiskAssessment
+    ) -> None:
         assert self._alert_dispatcher is not None
         result = await self._alert_dispatcher.dispatch(formatted_alert)
         if result.all_succeeded:

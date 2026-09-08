@@ -7,10 +7,11 @@ actionable alert messages optimized for Discord, Telegram, and plain text.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 
 from polymarket_insider_tracker.alerter.models import FormattedAlert
-from polymarket_insider_tracker.detector.models import RiskAssessment
+from polymarket_insider_tracker.detector.models import FreshWalletSignal, RiskAssessment
+from polymarket_insider_tracker.ingestor.models import TradeEvent
 
 # Polymarket URLs
 POLYMARKET_MARKET_URL = "https://polymarket.com/event/{slug}"
@@ -175,26 +176,16 @@ class AlertFormatter:
         return "\n".join(lines)
 
     @staticmethod
-    def _format_wallet_age_str(signal: object | None) -> str:
+    def _format_wallet_age_str(signal: FreshWalletSignal | None) -> str:
+        """Return the wallet-age suffix, or an empty string when the age is unknown."""
         if signal is None:
             return ""
-        age_hours = getattr(getattr(signal, "wallet_profile", None), "age_hours", None)
+        age_hours = signal.wallet_profile.age_hours
         if age_hours is None:
             return ""
         if age_hours < 1:
             return f" (Age: {int(age_hours * 60)}m)"
         return f" (Age: {age_hours:.0f}h)"
-
-    @staticmethod
-    def _format_telegram_wallet_age_str(signal: object | None) -> str:
-        if signal is None:
-            return ""
-        age_hours = getattr(getattr(signal, "wallet_profile", None), "age_hours", None)
-        if age_hours is None:
-            return ""
-        if age_hours < 1:
-            return f" \\(Age: {int(age_hours * 60)}m\\)"
-        return f" \\(Age: {age_hours:.0f}h\\)"
 
     @staticmethod
     def _build_confidence_field(assessment: RiskAssessment) -> dict[str, object] | None:
@@ -208,7 +199,7 @@ class AlertFormatter:
         return {"name": "Confidence", "value": " | ".join(confidences), "inline": False}
 
     @staticmethod
-    def _build_discord_market_field(trade: Any, links: dict[str, str]) -> dict[str, object]:
+    def _build_discord_market_field(trade: TradeEvent, links: dict[str, str]) -> dict[str, object]:
         market_title = trade.event_title or trade.market_slug or "Unknown Market"
         market_value = f"[{market_title}]({links['market']})" if "market" in links else market_title
         return {"name": "Market", "value": market_value, "inline": False}
@@ -268,13 +259,9 @@ class AlertFormatter:
 
         return embed
 
-    def _build_telegram_market_line(self, trade: object, links: dict[str, str]) -> str:
-        market_title = (
-            getattr(trade, "event_title", None)
-            or getattr(trade, "market_slug", None)
-            or "Unknown Market"
-        )
-        escaped_title = self._escape_telegram_markdown(str(market_title))
+    def _build_telegram_market_line(self, trade: TradeEvent, links: dict[str, str]) -> str:
+        market_title = trade.event_title or trade.market_slug or "Unknown Market"
+        escaped_title = self._escape_telegram_markdown(market_title)
         if "market" in links:
             return f"*Market:* [{escaped_title}]({links['market']})"
         return f"*Market:* {escaped_title}"
@@ -298,7 +285,10 @@ class AlertFormatter:
     ) -> str:
         """Build Telegram-optimized markdown format."""
         trade = assessment.trade_event
-        wallet_suffix = self._format_telegram_wallet_age_str(assessment.fresh_wallet_signal)
+        # The age suffix carries parentheses, which MarkdownV2 requires escaped.
+        wallet_suffix = self._escape_telegram_markdown(
+            self._format_wallet_age_str(assessment.fresh_wallet_signal)
+        )
         score_str = self._escape_telegram_markdown(f"{assessment.weighted_score:.2f}")
         usdc_value = self._escape_telegram_markdown(format_usdc(trade.notional_value))
         price_str = self._escape_telegram_markdown(f"{trade.price:.3f}")
@@ -318,10 +308,8 @@ class AlertFormatter:
             signals_escaped = [self._escape_telegram_markdown(s) for s in signals]
             lines.append(f"*Signals:* {', '.join(signals_escaped)}")
 
-        link_lines = self._build_telegram_link_lines(links)
-        if link_lines:
-            lines.append("")
-            lines.extend(link_lines)
+        lines.append("")
+        lines.extend(self._build_telegram_link_lines(links))
 
         return "\n".join(lines)
 
@@ -386,9 +374,7 @@ class AlertFormatter:
         if signals:
             lines.append(f"Signals: {', '.join(signals)}")
 
-        link_lines = self._build_plain_links(links)
-        if link_lines:
-            lines.append("")
-            lines.extend(link_lines)
+        lines.append("")
+        lines.extend(self._build_plain_links(links))
 
         return "\n".join(lines)

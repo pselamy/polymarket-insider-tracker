@@ -532,3 +532,85 @@ class TestCleanupOldAlerts:
 
         assert removed == 2
         mock_redis.zremrangebyscore.assert_called_once()
+
+
+def _stored_record(alert_id: str, wallet: str, market: str) -> str:
+    record = AlertRecord(
+        alert_id=alert_id,
+        wallet_address=wallet,
+        market_id=market,
+        risk_score=0.5,
+        signals_triggered=[],
+        channels_attempted=[],
+        channels_succeeded=[],
+        dedup_key=f"{wallet}:{market}:2026010112",
+    )
+    return json.dumps(record.to_dict())
+
+
+class TestGetAlertsFilters:
+    """Index selection and post-filtering of fetched records."""
+
+    @pytest.mark.asyncio
+    async def test_market_filter_uses_market_index_and_drops_mismatches(
+        self, mock_redis: MagicMock
+    ) -> None:
+        stored = {
+            "alert:record:a-1": _stored_record("a-1", "0xw", "m1"),
+            "alert:record:a-2": _stored_record("a-2", "0xw", "m2"),
+        }
+        mock_redis.zrangebyscore = AsyncMock(return_value=[b"a-1", "a-2"])
+        mock_redis.get = AsyncMock(side_effect=stored.get)
+        history = AlertHistory(mock_redis)
+
+        results = await history.get_alerts(
+            start=datetime.now(UTC) - timedelta(hours=24),
+            end=datetime.now(UTC),
+            market="m1",
+        )
+
+        assert mock_redis.zrangebyscore.call_args[0][0] == "alert:index:market:m1"
+        assert [record.alert_id for record in results] == ["a-1"]
+
+    @pytest.mark.asyncio
+    async def test_wallet_filter_wins_over_market_and_missing_records_are_skipped(
+        self, mock_redis: MagicMock
+    ) -> None:
+        stored = {
+            "alert:record:a-1": _stored_record("a-1", "0xw", "m1"),
+            "alert:record:a-3": _stored_record("a-3", "0xother", "m1"),
+        }
+        mock_redis.zrangebyscore = AsyncMock(return_value=["a-1", "gone", "a-3"])
+        mock_redis.get = AsyncMock(side_effect=stored.get)
+        history = AlertHistory(mock_redis)
+
+        results = await history.get_alerts(
+            start=datetime.now(UTC) - timedelta(hours=24),
+            end=datetime.now(UTC),
+            wallet="0xw",
+            market="m1",
+        )
+
+        assert mock_redis.zrangebyscore.call_args[0][0] == "alert:index:wallet:0xw"
+        assert [record.alert_id for record in results] == ["a-1"]
+
+    @pytest.mark.asyncio
+    async def test_no_filter_uses_the_time_index_and_bounds_by_limit(
+        self, mock_redis: MagicMock
+    ) -> None:
+        stored = {
+            "alert:record:a-1": _stored_record("a-1", "0xw", "m1"),
+            "alert:record:a-2": _stored_record("a-2", "0xv", "m2"),
+        }
+        mock_redis.zrangebyscore = AsyncMock(return_value=["a-1", "a-2"])
+        mock_redis.get = AsyncMock(side_effect=stored.get)
+        history = AlertHistory(mock_redis)
+        start = datetime(2026, 1, 1, tzinfo=UTC)
+        end = datetime(2026, 1, 2, tzinfo=UTC)
+
+        results = await history.get_alerts(start=start, end=end, limit=7)
+
+        args, kwargs = mock_redis.zrangebyscore.call_args
+        assert args == ("alert:index:time", start.timestamp(), end.timestamp())
+        assert kwargs == {"start": 0, "num": 7}
+        assert [record.alert_id for record in results] == ["a-1", "a-2"]

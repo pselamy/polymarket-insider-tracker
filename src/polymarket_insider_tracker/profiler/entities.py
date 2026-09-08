@@ -207,30 +207,25 @@ class EntityRegistry:
         }
         return entity_type in contract_types
 
-    _CATEGORY_MAP: dict[EntityType, str] | None = None
-
-    @classmethod
-    def _get_category_map(cls) -> dict[EntityType, str]:
-        if cls._CATEGORY_MAP is not None:
-            return cls._CATEGORY_MAP
-        mapping: dict[EntityType, str] = {
-            EntityType.CONTRACT: "contract",
-            EntityType.TOKEN_USDC: "token",
-            EntityType.TOKEN_USDT: "token",
-            EntityType.TOKEN_WETH: "token",
-            EntityType.TOKEN_WMATIC: "token",
-            EntityType.DEFI_AAVE: "defi",
-            EntityType.DEFI_COMPOUND: "defi",
-            EntityType.DEFI_OTHER: "defi",
-        }
-        for et in cls.CEX_ENTITY_TYPES:
-            mapping[et] = "cex"
-        for et in cls.BRIDGE_ENTITY_TYPES:
-            mapping[et] = "bridge"
-        for et in cls.DEX_ENTITY_TYPES:
-            mapping[et] = "dex"
-        cls._CATEGORY_MAP = mapping
-        return mapping
+    # Human-readable category per entity type; the three role sets are disjoint.
+    _CATEGORY_MAP: dict[EntityType, str] = (
+        dict.fromkeys(CEX_ENTITY_TYPES, "cex")
+        | dict.fromkeys(BRIDGE_ENTITY_TYPES, "bridge")
+        | dict.fromkeys(DEX_ENTITY_TYPES, "dex")
+        | dict.fromkeys(
+            (
+                EntityType.TOKEN_USDC,
+                EntityType.TOKEN_USDT,
+                EntityType.TOKEN_WETH,
+                EntityType.TOKEN_WMATIC,
+            ),
+            "token",
+        )
+        | dict.fromkeys(
+            (EntityType.DEFI_AAVE, EntityType.DEFI_COMPOUND, EntityType.DEFI_OTHER), "defi"
+        )
+        | {EntityType.CONTRACT: "contract"}
+    )
 
     def get_entity_category(self, address: str) -> str:
         """Get a human-readable category for an address.
@@ -242,7 +237,7 @@ class EntityRegistry:
             Category string: "cex", "bridge", "dex", "token", "defi", "contract", or "unknown".
         """
         entity_type = self.classify(address)
-        return self._get_category_map().get(entity_type, "unknown")
+        return self._CATEGORY_MAP.get(entity_type, "unknown")
 
     def add_entity(self, address: str, entity_type: EntityType) -> None:
         """Add or update an entity in the registry.

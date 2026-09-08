@@ -12,13 +12,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 
 from redis.asyncio import Redis
 
 from .clob_client import ClobClient
 from .gamma_client import GammaClient, GammaClientError, GammaMarketStats
-from .models import MarketMetadata
+from .models import Market, MarketMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +255,7 @@ class MarketMetadataSync:
             return {}
 
     async def _enrich_and_cache_market(
-        self, market: Any, gamma_stats: dict[str, GammaMarketStats]
+        self, market: Market, gamma_stats: dict[str, GammaMarketStats]
     ) -> bool:
         metadata = MarketMetadata.from_market(market)
         stats = gamma_stats.get(metadata.condition_id)
@@ -272,7 +272,7 @@ class MarketMetadataSync:
         return enriched
 
     async def _cache_markets_batch(
-        self, markets: list[Any], gamma_stats: dict[str, GammaMarketStats]
+        self, markets: list[Market], gamma_stats: dict[str, GammaMarketStats]
     ) -> tuple[int, int]:
         cached_count = 0
         enriched_count = 0

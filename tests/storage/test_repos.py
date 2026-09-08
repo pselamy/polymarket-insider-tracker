@@ -494,3 +494,29 @@ class TestDTOs:
         assert dto.wallet_a == "0xaaa"
         assert dto.relationship_type == "funded_by"
         assert dto.confidence == Decimal("0.95")
+
+
+class TestFundingDuplicateDetection:
+    """``insert_many`` skips only the unique-violation messages SQLite and PostgreSQL emit."""
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "UNIQUE constraint failed: funding_transfers.tx_hash",
+            'duplicate key value violates unique constraint "funding_transfers_tx_hash_key"',
+            "Duplicate Key value violates a constraint",
+        ],
+    )
+    def test_unique_violations_are_duplicates(self, message: str) -> None:
+        assert FundingRepository._is_duplicate_funding_error(RuntimeError(message)) is True
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "connection reset by peer",
+            "NOT NULL constraint failed: funding_transfers.tx_hash",
+            "",
+        ],
+    )
+    def test_other_errors_are_not_duplicates(self, message: str) -> None:
+        assert FundingRepository._is_duplicate_funding_error(RuntimeError(message)) is False

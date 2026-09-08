@@ -315,7 +315,10 @@ completion is not evidence for this phase; each item below is checked only when 
   gate requirements.
 - [X] T075 Agy first pass committed as the reviewable first-pass anchor on top of base
   `ff146dccbb37ef90f8784bd3115adf64f206f96d`.
-- [ ] T076 Claude Code/fable adversarial review completed on top of the Agy commit.
+- [X] T076 Claude Code/fable adversarial review of the Agy commit `71cc478`, with fixes committed on top
+  of it unamended as one corrective commit and the review recorded in `evidence/verification.md`
+  (contract test self-detection, explicit-flag canonical command, corrected hotspot ledger, restored
+  behaviour parity with focused tests).
 - [ ] T077 Codex refute-first review, with every finding resolved or recorded.
 - [ ] T078 Open the non-draft pull request for `quality/complexipy-required-gate` against `main`.
 - [ ] T079 Verify that the independent `Complexipy complexity check` job and the `Required checks` aggregator

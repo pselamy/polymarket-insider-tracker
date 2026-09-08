@@ -290,8 +290,11 @@ class SizeAnomalyDetector:
         if confidence > 0:
             factors["niche_multiplier"] = 1.5
             return confidence * 1.5
-        factors["niche_base"] = 0.2
-        return 0.2
+        # Niche but no other signal: give a small base confidence.
+        if confidence == 0:
+            factors["niche_base"] = 0.2
+            return 0.2
+        return confidence
 
     def calculate_confidence(
         self,

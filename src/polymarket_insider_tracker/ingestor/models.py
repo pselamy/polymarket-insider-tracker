@@ -501,7 +501,7 @@ class MarketMetadata:
         if not val:
             return default
         try:
-            return datetime.fromisoformat(str(val))
+            return datetime.fromisoformat(val)
         except (ValueError, AttributeError):
             return default
 
