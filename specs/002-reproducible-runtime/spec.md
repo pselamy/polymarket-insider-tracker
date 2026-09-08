@@ -61,7 +61,7 @@ failure per gate and verify that the aggregate check reports failure.
 **Acceptance Scenarios**:
 
 1. **Given** the proposed branch, **When** all required local checks run, **Then** format, lint, strict
-   type checking, tests, migrations, and documentation checks all pass with no ignored required failure.
+   type checking, tests, service probes, and migrations all pass with no ignored required failure.
 2. **Given** a deliberate type error, formatting error, test failure, or migration failure, **When** the
    corresponding automated check runs, **Then** the pull request is blocked.
 3. **Given** any supported Python version, **When** the compatibility suite runs, **Then** installation
@@ -166,9 +166,9 @@ and automated checks; verify that they name one consistent support matrix and re
 - **SC-006**: After prerequisites and service images are available, a contributor can reach successful
   local configuration, database, cache, and migration validation from a clean checkout in under 5 minutes
   using only tracked instructions.
-- **SC-007**: A deterministic support-contract check over project metadata, lock state, automation, README,
-  contributor commands, and `.env.example` reports zero version, command, database-setting, or prerequisite
-  contradictions.
+- **SC-007**: Runtime support is declared in native project metadata and exercised by locked installation,
+  the complete Python compatibility matrix, and real service verification. No bespoke checker reparses
+  source files or README prose as a second configuration authority.
 
 ## Assumptions
 

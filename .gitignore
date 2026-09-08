@@ -116,3 +116,4 @@ Thumbs.db
 # Local development
 *.local
 .direnv/
+.claude/skills/

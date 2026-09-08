@@ -1,5 +1,10 @@
 # Verification Evidence: Reproducible Supported Runtime
 
+> **Historical note (2026-09-08):** This file records the commands and outputs used to approve the
+> original slice. References below to the cross-file support checker are historical evidence, not a
+> current contributor command. The checker was subsequently removed in favor of native configuration
+> ownership plus lock, compatibility, service, and focused verifier gates.
+
 All commands were run from the repository root. Output recorded here is deliberately redacted: database
 credentials and the generated disposable-database identifier are omitted.
 

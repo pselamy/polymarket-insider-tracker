@@ -10,7 +10,7 @@
 Make Python 3.11, 3.12, and 3.13 reproducible on Linux and Apple Silicon by closing the
 dependency contract, standardizing PostgreSQL access on one Psycopg 3 URL usable by both synchronous
 Alembic and the asynchronous application, and regenerating the universal uv lock. Add a typed,
-testable verification entry point that composes support-contract, formatting, lint, strict type,
+testable verification entry point that composes lock freshness, formatting, lint, strict type,
 deterministic test, service-connectivity, and disposable-database migration gates. CI uses that same
 entry point for a blocking Linux matrix and service job plus an advisory Apple Silicon job.
 
@@ -23,8 +23,8 @@ extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Ruf
 
 **Storage**: PostgreSQL 15 and Redis 7; no persisted schema change in this slice
 
-**Testing**: pytest and pytest-asyncio; table-driven unit tests for verification behavior and support
-contracts; real PostgreSQL/Redis integration tests for connectivity and migrations
+**Testing**: pytest and pytest-asyncio; table-driven unit tests for verification behavior; real
+PostgreSQL/Redis integration tests for connectivity and migrations
 
 **Target Platform**: Linux support verified on the blocking Ubuntu 24.04 x86_64 reference runner for
 Python 3.11/3.12/3.13; Apple Silicon macOS as a supported contributor/release platform, with `macos-14`
@@ -89,7 +89,6 @@ alembic/env.py                       # synchronous migration entry point
 .github/workflows/ci.yml             # blocking Linux + advisory Apple matrix
 README.md                            # supported setup and aggregate commands
 scripts/
-├── check_support_contract.py        # deterministic cross-file contract check
 ├── runtime_services.py              # safe real-service and disposable migration proof
 └── verify.py                        # aggregate verification entry point
 src/polymarket_insider_tracker/
@@ -100,7 +99,6 @@ tests/
 ├── integration/
 │   └── test_runtime_services.py     # real PostgreSQL/Redis and migration smoke
 ├── tooling/
-│   ├── test_support_contract.py
 │   └── test_verify.py
 ├── test_config.py
 ├── ingestor/
@@ -124,8 +122,9 @@ modules. No new service, package, or migration is needed.
 - Declare `[tool.uv] required-version = ">=0.11,<0.12"`; CI installs a reviewed exact uv 0.11 release,
   while the repository contract rejects unsupported uv versions.
 - Keep Ruff and mypy configured for Python 3.11 because it is the minimum accepted syntax/API level.
-- Make the support-contract checker compare the canonical range and version set across `pyproject.toml`,
-  `uv.lock`, CI, README, `.env.example`, and verification profiles.
+- Keep each runtime declaration in its native authority: package support in `pyproject.toml`, resolved
+  support in `uv.lock`, executable platform evidence in CI, and contributor guidance in `README.md`.
+  Validate those surfaces through their real consumers instead of reparsing them in a bespoke checker.
 - Treat Ubuntu 24.04 x86_64 as the blocking Linux reference environment. Documentation may state Linux
   support but MUST NOT imply that every distribution, libc, or architecture is separately certified.
 - Treat Python 3.14+ as unsupported until a later spec adds it after the complete locked matrix passes.

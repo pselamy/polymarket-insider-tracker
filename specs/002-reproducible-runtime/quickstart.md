@@ -30,7 +30,7 @@ Expected result:
 - PostgreSQL and Redis answer real probes;
 - migrations reach head, downgrade one revision in a disposable database, return to head, and clean up;
 - an asynchronous query succeeds through the same canonical database URL;
-- support-contract, format, lint, strict type, and deterministic test gates all pass;
+- lock, format, lint, strict type, and deterministic test gates all pass;
 - the aggregate process exits `0` without contacting external market, chain, or notification services.
 
 The normal application database named in `.env` is never downgraded or dropped.

@@ -12,12 +12,12 @@ uv run python scripts/verify.py --profile PROFILE [--json]
 
 | Profile | Required gates | Intended caller |
 |---|---|---|
-| `static` | lock freshness, support-contract consistency, format, lint, strict mypy | Contributor and Linux quality job |
+| `static` | lock freshness, format, lint, strict mypy | Contributor and Linux quality job |
 | `compatibility` | lock freshness, dependency/import smoke, full deterministic pytest suite | Linux version matrix and advisory Apple job |
 | `services` | `services` connectivity/async-query gate, then independent `migrations` disposable-cycle gate | Linux service job and local release evidence |
 | `all` | Every gate above, without duplicate execution | Contributor pre-review/release evidence |
 
-Individual Ruff, mypy, pytest, Alembic, and support-contract commands remain directly runnable and are
+Individual Ruff, mypy, pytest, and Alembic commands remain directly runnable and are
 listed by `--help`; the aggregate entry point does not hide their output.
 
 The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`
@@ -103,24 +103,12 @@ When `--json` is present, stdout contains exactly one object:
 Diagnostics that would invalidate JSON are sent to stderr. Field ordering is stable for reproducible test
 snapshots, but consumers MUST use field names rather than ordering.
 
-## Support-Contract Checker
+## Configuration Ownership
 
-`scripts/check_support_contract.py` is both a directly runnable gate and a component of `verify.py`.
-It deterministically examines these tracked surfaces:
-
-- `pyproject.toml`: Python and uv ranges, SQLAlchemy async extra, Psycopg driver, Ruff and mypy baseline
-- `uv.lock`: identical Python range and resolved required dependencies
-- `.github/workflows/ci.yml`: blocking Linux 3.11/3.12/3.13 set, service job, advisory arm64 Apple job,
-  exact uv install, feature-branch push evidence with concurrency cancellation, minimal explicit permissions,
-  full-SHA action pins, immutable service images, and no ignored required gate
-- `README.md`: finite version/platform promise with Ubuntu 24.04 x86_64 named as the Linux reference,
-  canonical commands, canonical database URL, timing scope
-- `.env.example`: local PostgreSQL/Redis values compatible with Docker Compose
-- `docker-compose.yml`: PostgreSQL 15 and Redis 7 pinned by the same reviewed multi-architecture digests as CI
-- `alembic.ini` and `alembic/env.py`: no second driver/default URL contract
-
-The checker exits `1` with every contradiction listed. It MUST NOT rewrite files or accept a baseline of
-known contradictions.
+Runtime support has no cross-file checker. `pyproject.toml` owns the supported Python and uv ranges,
+`uv.lock` owns the resolved dependency set, CI owns the executable platform matrix, and `README.md` is
+contributor guidance. The lock, compatibility, and service gates validate those declarations through the
+tools that consume them. Repository code MUST NOT parse these files or prose to create a second authority.
 
 Legacy asyncpg URLs are accepted only when their query parameters are portable to Psycopg. An incompatible
 driver-specific option fails before engine creation and names the offending key without printing the URL or
