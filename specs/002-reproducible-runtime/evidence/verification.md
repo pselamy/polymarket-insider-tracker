@@ -425,7 +425,7 @@ genuine dead code but hid the remaining 36 findings behind `min_confidence = 60`
    its isolated directory and `tests/test_harness_isolation.py` proves the runtime-contract isolation
    guarantee; the config cache fixture yields the reset used by the cache-reload test.
 2. **Scope not named on the command (blocker)**: the verifier gate, `--help`, CI job, README, plan, and
-   contract now run `vulture src tests scripts`, mirroring the Pyright explicit-scope precedent.
+   contract now run `vulture src tests scripts alembic conftest.py`, mirroring the Pyright explicit-scope precedent.
 3. **Workflow simulation (blocker)**: the fail-closed test re-typed the aggregator script. Replaced by
    `tests/tooling/test_ci_workflow.py`, which parses the real `ci.yml`, binds the `vulture` job's command to
    `GATES["vulture"].command_text` and `DIRECT_GATE_COMMANDS`, asserts `if: always()` and the exact `needs`
@@ -448,10 +448,10 @@ genuine dead code but hid the remaining 36 findings behind `min_confidence = 60`
 ### Commands and results on the corrected tree
 
 ```text
-uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts --config /dev/null
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py --config /dev/null
 exit: 0 (no configuration file, default confidence, no ignore mechanism)
 
-uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
 exit: 0
 
 uv run python scripts/verify.py --profile static
@@ -564,3 +564,74 @@ The protected `main` branch remained strict and required the `Required checks` c
 after its four blocking predecessors (`static`, `vulture`, `compatibility`, and `services`) succeeded. At
 this checkpoint the PR was open, non-draft, mergeable, and reported `CLEAN`; it had no review decision and
 was not merged. Patrick's approval, merge, and post-merge confirmation remain pending (T061–T063).
+
+### Agy corrective implementation pass
+
+A fresh corrective pass was implemented on `quality/vulture-required-gate` starting from immutable checkpoint
+`4df55be84ecb506946263e6e145b95dda726f3d9` to resolve two independently reproduced blockers:
+
+1. **Tracked repository Python files omitted from Vulture scope (blocker)**:
+   The Vulture gate claimed complete repository dead-code coverage but scanned only `src`, `tests`, and
+   `scripts`. Exactly four tracked repository-owned Python files were omitted: root `conftest.py`,
+   `alembic/env.py`, and the two migration revisions under `alembic/versions/`
+   (`20260104_0000_initial_schema.py` and `20260522_1130_risk_assessments.py`).
+   The bare scan `vulture conftest.py alembic --config /dev/null` reported 14 Pytest/Alembic convention-based
+   entry points (2 in `conftest.py` and 6 in each migration revision).
+2. **Type suppression in CI contract tests (blocker)**:
+   `tests/tooling/test_ci_workflow.py` contained `# type: ignore[union-attr]`, violating the
+   suppression-free repository contract.
+
+#### Findings and dispositions
+
+1. **Canonical explicit scope extended everywhere to `src tests scripts alembic conftest.py`**:
+   The explicit five-path scope was applied to `pyproject.toml` `[tool.vulture].paths`,
+   `scripts/verify.py` `GATES["vulture"]` command tuple, `DIRECT_GATE_COMMANDS`, `--help` epilog,
+   `.github/workflows/ci.yml` `vulture` job step, `README.md`, and all Spec Kit Phase 10 artifacts
+   (`spec.md` FR-016, `plan.md`, `contracts/runtime-verification.md`, `tasks.md`, and this file).
+   No loose glob pattern is used.
+2. **Framework-consumed entry points made visible through real Python structure**:
+   Explicit `__all__` exports were added in root `conftest.py` (`event_loop_policy`, `pytest_plugins`),
+   `alembic/versions/20260104_0000_initial_schema.py` (`branch_labels`, `depends_on`, `down_revision`,
+   `downgrade`, `revision`, `upgrade`), and `alembic/versions/20260522_1130_risk_assessments.py`
+   (`branch_labels`, `depends_on`, `down_revision`, `downgrade`, `revision`, `upgrade`).
+   `alembic/env.py` was verified clean under Vulture (0 findings) as its runner functions are invoked
+   directly at module level. No baseline, allowlist, ignore name/decorator, confidence threshold,
+   exclusion, inline suppression, noqa, or grandfathering mechanism was used. Both the bare
+   `--config /dev/null` scan and the configured scan over all five paths exit 0 with zero findings.
+3. **Type suppression removed**:
+   Replaced `# type: ignore[union-attr]` in `tests/tooling/test_ci_workflow.py` with an ordinary
+   `_matched_job` helper function containing an explicit regex match assertion. Strict typing and
+   readability are preserved with zero type suppressions.
+4. **Drift-catching tests added**:
+   - `test_vulture_scope_matches_between_ci_pyproject_and_verifier`: verifies that `pyproject.toml`,
+     `verify.py` gate tuple, direct command help, and the CI workflow all share the exact canonical
+     scope and order (`src tests scripts alembic conftest.py`).
+   - `test_all_tracked_python_files_are_covered_by_vulture_scope`: dynamically queries `git ls-files "*.py"`
+     and asserts that 100% of tracked repository-owned Python files are covered by the explicit scope,
+     and every scope entry covers at least one tracked file.
+   - `test_vulture_job_is_independent_and_runs_the_canonical_gate_command` and fail-closed aggregator
+     tests in `test_ci_workflow.py` verify that the independent job and protected aggregator remain
+     fail-closed.
+5. **Task ledger and review state kept factual**:
+   PR #115 and earlier CI run `34273501118` remain recorded. Rerun CI on the corrective head,
+   re-reviews, approval, merge, and post-merge confirmation remain pending (T061–T063 open).
+
+#### Verification commands and results
+
+```text
+git diff --check                                                      exit: 0
+actionlint .github/workflows/ci.yml                                   not available locally
+uv lock --check                                                       exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py --config /dev/null            exit: 0
+uv run --isolated --locked --all-extras --python 3.11 vulture
+  src tests scripts alembic conftest.py                               exit: 0
+uv run python scripts/verify.py --profile static                      status: passed (exit 0)
+uv run python scripts/verify.py --profile compatibility               status: passed (exit 0, 805 passed, 2 skipped)
+uv run --isolated --locked --all-extras --python 3.11 python
+  scripts/verify.py --profile compatibility --json                    status: passed (exit 0)
+uv run --isolated --locked --all-extras --python 3.12 python
+  scripts/verify.py --profile compatibility --json                    status: passed (exit 0)
+uv run --isolated --locked --all-extras --python 3.13 python
+  scripts/verify.py --profile compatibility --json                    status: passed (exit 0)
+```

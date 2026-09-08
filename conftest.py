@@ -2,6 +2,8 @@
 
 import pytest
 
+__all__ = ["event_loop_policy", "pytest_plugins"]
+
 # Configure pytest-asyncio
 pytest_plugins = ["pytest_asyncio"]
 

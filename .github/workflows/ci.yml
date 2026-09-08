@@ -139,7 +139,7 @@ jobs:
       - name: Sync locked dependencies
         run: uv sync --locked --all-extras --python 3.11
       - name: Run Vulture dead-code verification
-        run: uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
+        run: uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
 
   required:
     name: Required checks

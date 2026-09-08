@@ -55,14 +55,18 @@ def _required_step() -> dict[str, Any]:
     return step
 
 
+def _matched_job(expression: str) -> str:
+    match = NEEDS_RESULT_EXPRESSION.match(expression)
+    assert match is not None, f"{expression} is not bound to a needs.<job>.result expression"
+    return match.group("job")
+
+
 def _run_required_script(results: Mapping[str, str]) -> int:
     """Execute the real aggregator script with simulated predecessor results."""
     step = _required_step()
     environment = {"PATH": os.environ["PATH"]}
     for name, expression in step["env"].items():
-        match = NEEDS_RESULT_EXPRESSION.match(expression)
-        assert match is not None, f"{name} is not bound to a needs.<job>.result expression"
-        environment[name] = results[match.group("job")]
+        environment[name] = results[_matched_job(expression)]
     completed = subprocess.run(
         [*GITHUB_BASH, step["run"]],
         check=False,
@@ -91,6 +95,9 @@ def test_static_job_runs_the_verifier_static_profile_that_includes_vulture() -> 
     )
 
 
+CANONICAL_VULTURE_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+
+
 def test_vulture_job_is_independent_and_runs_the_canonical_gate_command() -> None:
     verifier = _verifier()
     job = _workflow()["jobs"]["vulture"]
@@ -99,7 +106,7 @@ def test_vulture_job_is_independent_and_runs_the_canonical_gate_command() -> Non
     assert "needs" not in job and "if" not in job, "the Vulture job must not be gated by others"
     assert run_steps[-1] == verifier.GATES["vulture"].command_text
     assert run_steps[-1] == dict(verifier.DIRECT_GATE_COMMANDS)["vulture"]
-    assert run_steps[-1].endswith("vulture src tests scripts")
+    assert run_steps[-1].endswith("vulture " + " ".join(CANONICAL_VULTURE_SCOPE))
     assert "uv sync --locked --all-extras --python 3.11" in run_steps
     setup_uv_steps = [
         step for step in job["steps"] if "astral-sh/setup-uv@" in step.get("uses", "")
@@ -108,16 +115,36 @@ def test_vulture_job_is_independent_and_runs_the_canonical_gate_command() -> Non
     assert setup_uv_steps[0]["with"]["cache-suffix"] == "vulture-3.11"
 
 
+def test_vulture_scope_matches_between_ci_pyproject_and_verifier() -> None:
+    import tomllib
+
+    verifier = _verifier()
+    with (REPOSITORY_ROOT / "pyproject.toml").open("rb") as handle:
+        pyproject_data = tomllib.load(handle)
+
+    pyproject_paths = tuple(pyproject_data["tool"]["vulture"]["paths"])
+    verifier_command = verifier.GATES["vulture"].command
+    vulture_index = verifier_command.index("vulture")
+    verifier_scope = verifier_command[vulture_index + 1 :]
+    direct_command = dict(verifier.DIRECT_GATE_COMMANDS)["vulture"]
+    ci_step = _run_steps(_workflow()["jobs"]["vulture"])[-1]
+
+    assert pyproject_paths == CANONICAL_VULTURE_SCOPE
+    assert verifier_scope == CANONICAL_VULTURE_SCOPE
+    assert (
+        direct_command
+        == f"uv run --isolated --locked --all-extras --python 3.11 vulture {' '.join(CANONICAL_VULTURE_SCOPE)}"
+    )
+    assert ci_step == direct_command
+
+
 def test_required_aggregator_always_runs_and_binds_every_blocking_job_in_order() -> None:
     required = _workflow()["jobs"]["required"]
     step = _required_step()
 
     assert required["if"] == "always()"
     assert tuple(required["needs"]) == BLOCKING_JOBS
-    bound_jobs = [
-        NEEDS_RESULT_EXPRESSION.match(expression).group("job")  # type: ignore[union-attr]
-        for expression in step["env"].values()
-    ]
+    bound_jobs = [_matched_job(expression) for expression in step["env"].values()]
     assert tuple(bound_jobs) == BLOCKING_JOBS
     for variable in step["env"]:
         assert f'test "${variable}" = success' in step["run"]

@@ -118,6 +118,8 @@ GATES: Mapping[str, Gate] = {
             "src",
             "tests",
             "scripts",
+            "alembic",
+            "conftest.py",
         ),
     ),
     "imports": Gate(
@@ -187,7 +189,8 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
     (
         "vulture",
-        "uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts",
+        "uv run --isolated --locked --all-extras --python 3.11 vulture "
+        "src tests scripts alembic conftest.py",
     ),
     (
         "imports",

@@ -253,7 +253,7 @@ Branch `quality/vulture-required-gate` from base `a0c0d9945a3a38cec965e09a1ed2d5
 completion is not evidence for this phase; each item below is checked only when true for this slice.
 
 - [X] T049 Pin and lock `vulture==2.16` in `pyproject.toml` and regenerate `uv.lock` reproducibly.
-- [X] T050 Configure Vulture over `src`, `tests`, and `scripts` at its default confidence with no baseline,
+- [X] T050 Configure Vulture over `src`, `tests`, `scripts`, `alembic`, and `conftest.py` at its default confidence with no baseline,
   allowlist, `ignore_names`, `ignore_decorators`, path exclusion, inline suppression, or confidence threshold.
 - [X] T051 Add `vulture` as an explicit fail-closed gate after `pyright` in `scripts/verify.py` (`static` and
   `all` profiles), naming its scope on the command line.

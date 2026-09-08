@@ -65,7 +65,10 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
 
 
 def test_vulture_gate_is_unfiltered_and_names_its_complete_scope() -> None:
+    import tomllib
+
     module = _load_module()
+    canonical_scope = ("src", "tests", "scripts", "alembic", "conftest.py")
 
     assert module.GATES["vulture"].command == (
         "uv",
@@ -76,10 +79,48 @@ def test_vulture_gate_is_unfiltered_and_names_its_complete_scope() -> None:
         "--python",
         "3.11",
         "vulture",
-        "src",
-        "tests",
-        "scripts",
+        *canonical_scope,
     )
+    with (MODULE_PATH.parents[1] / "pyproject.toml").open("rb") as handle:
+        pyproject = tomllib.load(handle)
+    assert tuple(pyproject["tool"]["vulture"]["paths"]) == canonical_scope
+    assert (
+        dict(module.DIRECT_GATE_COMMANDS)["vulture"]
+        == f"uv run --isolated --locked --all-extras --python 3.11 vulture {' '.join(canonical_scope)}"
+    )
+
+
+def test_all_tracked_python_files_are_covered_by_vulture_scope() -> None:
+    module = _load_module()
+    vulture_command = module.GATES["vulture"].command
+    vulture_index = vulture_command.index("vulture")
+    canonical_scope = vulture_command[vulture_index + 1 :]
+    root = MODULE_PATH.parents[1]
+
+    completed = subprocess.run(
+        ["git", "ls-files", "*.py"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    tracked_files = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    assert tracked_files, "expected tracked python files in repository"
+
+    covered_by_scope: dict[str, list[str]] = {entry: [] for entry in canonical_scope}
+    for file_path in tracked_files:
+        matched_entries = [
+            entry
+            for entry in canonical_scope
+            if file_path == entry or file_path.startswith(f"{entry}/")
+        ]
+        assert (
+            len(matched_entries) == 1
+        ), f"tracked file {file_path} must match exactly one scope entry, got {matched_entries}"
+        covered_by_scope[matched_entries[0]].append(file_path)
+
+    for entry, matched in covered_by_scope.items():
+        assert matched, f"scope entry {entry} covers no tracked files"
 
 
 def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
@@ -352,7 +393,8 @@ def test_help_lists_every_direct_gate_command() -> None:
         "uv run --isolated --locked --all-extras --python 3.11 mypy",
         "uv run --isolated --locked --all-extras --python 3.11 "
         "pyright src/polymarket_insider_tracker",
-        "uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts",
+        "uv run --isolated --locked --all-extras --python 3.11 vulture "
+        "src tests scripts alembic conftest.py",
         "uv run pytest",
         "uv run --env-file .env alembic upgrade head",
     ):

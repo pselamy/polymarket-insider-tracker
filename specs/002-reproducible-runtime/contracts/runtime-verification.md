@@ -35,10 +35,10 @@ third-party APIs the production package consumes; it is not a substitute for che
 The independent `vulture` gate runs after `pyright` and before runtime imports:
 
 ```text
-uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts
+uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
 ```
 
-`pyproject.toml` pins Vulture `2.16` and names the `src`, `tests`, and `scripts` scope; the command repeats
+`pyproject.toml` pins Vulture `2.16` and names the `src`, `tests`, `scripts`, `alembic`, and `conftest.py` scope; the command repeats
 those paths so its scope is visible and fail-closed at invocation. Vulture runs at its default confidence with
 no baseline, allowlist, `ignore_names`, `ignore_decorators`, path exclusion, inline suppression, or
 minimum-confidence setting. Names that frameworks consume by convention (Pydantic `model_config`,

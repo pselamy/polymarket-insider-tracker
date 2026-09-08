@@ -105,7 +105,7 @@ typeCheckingMode = "strict"
 # Vulture runs at its default confidence with no baseline, allowlist, ignore list, decorator
 # exemption, or path exclusion; framework-consumed names are made visible through real code and tests.
 [tool.vulture]
-paths = ["src", "tests", "scripts"]
+paths = ["src", "tests", "scripts", "alembic", "conftest.py"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
