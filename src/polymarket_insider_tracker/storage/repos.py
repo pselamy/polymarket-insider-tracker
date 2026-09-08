@@ -444,7 +444,7 @@ class RelationshipRepository:
             List of related wallet addresses.
         """
         relationships = await self.get_relationships(wallet, relationship_type)
-        related = set()
+        related: set[str] = set()
         normalized = wallet.lower()
         for rel in relationships:
             if rel.wallet_a == normalized:

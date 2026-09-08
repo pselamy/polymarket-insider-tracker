@@ -13,6 +13,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from typing import cast
 
 import httpx
 
@@ -114,12 +115,13 @@ class GammaClient:
             try:
                 resp = await client.get(path, params=params)
                 resp.raise_for_status()
-                payload = resp.json()
+                payload: object = resp.json()
                 if not isinstance(payload, list):
                     raise GammaClientError(
                         f"Unexpected gamma response shape for {path}: {type(payload).__name__}"
                     )
-                return payload
+                items = cast(list[object], payload)
+                return [cast(dict[str, object], item) for item in items if isinstance(item, dict)]
             except (httpx.HTTPError, ValueError) as exc:
                 last_exc = exc
                 logger.warning(
@@ -190,8 +192,6 @@ class GammaClient:
                 continue
             empty_streak = 0
             for raw in page:
-                if not isinstance(raw, dict):
-                    continue
                 parsed = _parse_market(raw)
                 if parsed is not None:
                     results[parsed.condition_id] = parsed

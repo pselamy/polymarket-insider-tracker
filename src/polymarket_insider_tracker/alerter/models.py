@@ -23,4 +23,4 @@ class FormattedAlert:
     discord_embed: dict[str, object]
     telegram_markdown: str
     plain_text: str
-    links: dict[str, str] = field(default_factory=dict)
+    links: dict[str, str] = field(default_factory=dict[str, str])

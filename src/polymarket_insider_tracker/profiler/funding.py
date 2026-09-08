@@ -353,7 +353,7 @@ class FundingTracer:
         w3 = self._select_w3()
 
         if isinstance(to_block, str):
-            await self.polygon_client._rate_limiter.acquire()
+            await self.polygon_client.acquire_rate_limit()
             head = int(await w3.eth.block_number)
             end = head
         else:
@@ -378,7 +378,7 @@ class FundingTracer:
         to_block: int,
     ) -> list[Any]:
         """Issue a single bounded ``eth_getLogs`` call."""
-        await self.polygon_client._rate_limiter.acquire()
+        await self.polygon_client.acquire_rate_limit()
         w3 = self._select_w3()
         # Note: web3 typing is overly restrictive for block params
         return await w3.eth.get_logs(
@@ -392,9 +392,7 @@ class FundingTracer:
 
     def _select_w3(self) -> AsyncWeb3[AsyncHTTPProvider]:
         """Pick primary or fallback web3 instance based on health."""
-        if self.polygon_client._primary_healthy:
-            return self.polygon_client._w3
-        return self.polygon_client._w3_fallback or self.polygon_client._w3
+        return self.polygon_client.select_web3()
 
     async def _log_to_funding_transfer(
         self,

@@ -40,6 +40,7 @@ def test_profile_membership_and_ordering_are_exact() -> None:
         "format",
         "lint",
         "strict-types",
+        "pyright",
     )
     assert module.gate_ids_for_profile("compatibility") == ("lock", "imports", "tests")
     assert module.gate_ids_for_profile("services") == ("services", "migrations")
@@ -53,6 +54,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
         "format",
         "lint",
         "strict-types",
+        "pyright",
         "imports",
         "tests",
         "services",
@@ -72,6 +74,22 @@ def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
         "--python",
         "3.11",
         "mypy",
+    )
+
+
+def test_pyright_gate_is_strict_and_covers_the_complete_first_party_package() -> None:
+    module = _load_module()
+
+    assert module.GATES["pyright"].command == (
+        "uv",
+        "run",
+        "--isolated",
+        "--locked",
+        "--all-extras",
+        "--python",
+        "3.11",
+        "pyright",
+        "src/polymarket_insider_tracker",
     )
 
 
@@ -153,6 +171,7 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
         "format",
         "lint",
         "strict-types",
+        "pyright",
         "imports",
         "tests",
         "services",
@@ -229,6 +248,7 @@ def test_first_failure_output_includes_not_run_gates() -> None:
     assert "[FAIL] format (exit 1, 0.20s): deliberate failure" in rendered
     assert "[SKIP] lint: not run after format failed" in rendered
     assert "[SKIP] strict-types: not run after format failed" in rendered
+    assert "[SKIP] pyright: not run after format failed" in rendered
     assert "first failed gate: format" in rendered
 
 
@@ -308,6 +328,8 @@ def test_help_lists_every_direct_gate_command() -> None:
         "uv run black --check .",
         "uv run ruff check src tests scripts",
         "uv run --isolated --locked --all-extras --python 3.11 mypy",
+        "uv run --isolated --locked --all-extras --python 3.11 "
+        "pyright src/polymarket_insider_tracker",
         "uv run pytest",
         "uv run --env-file .env alembic upgrade head",
     ):

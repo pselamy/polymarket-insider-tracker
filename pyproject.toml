@@ -30,6 +30,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
+    "pyright==1.1.411",
     "pre-commit>=3.0.0",
     "aiosqlite>=0.19.0",
 ]
@@ -91,6 +92,12 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["py_clob_client.*", "web3.*", "redis.*", "sklearn.*", "prometheus_client.*"]
 ignore_missing_imports = true
+
+[tool.pyright]
+include = ["src/polymarket_insider_tracker"]
+pythonVersion = "3.11"
+stubPath = "typings"
+typeCheckingMode = "strict"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

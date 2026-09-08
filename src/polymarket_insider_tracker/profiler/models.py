@@ -186,7 +186,7 @@ class FundingChain:
     """
 
     target_address: str
-    chain: list[FundingTransfer] = field(default_factory=list)
+    chain: list[FundingTransfer] = field(default_factory=list[FundingTransfer])
     origin_address: str = ""
     origin_type: str = "unknown"
     hop_count: int = 0

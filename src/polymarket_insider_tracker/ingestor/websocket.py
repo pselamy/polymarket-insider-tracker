@@ -7,7 +7,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as ws_connect
@@ -190,7 +190,7 @@ class TradeStreamHandler:
                 and "transactionHash" in payload
                 and "proxyWallet" in payload
             ):
-                trade = TradeEvent.from_websocket_message(payload)
+                trade = TradeEvent.from_websocket_message(cast(dict[str, Any], payload))
 
                 self._stats.trades_received += 1
                 self._stats.last_trade_time = time.time()
@@ -295,7 +295,7 @@ class TradeStreamHandler:
                     # Attempt reconnection
                     await self._reconnect_loop()
 
-                    if not self._running or self._ws is None:
+                    if not self._running:
                         break
 
         finally:

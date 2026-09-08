@@ -59,7 +59,7 @@ class HealthReport:
     """Comprehensive health report for all streams."""
 
     status: HealthStatus
-    streams: dict[str, StreamHealth] = field(default_factory=dict)
+    streams: dict[str, StreamHealth] = field(default_factory=dict[str, StreamHealth])
     total_events_received: int = 0
     total_events_per_second: float = 0.0
     uptime_seconds: float = 0.0

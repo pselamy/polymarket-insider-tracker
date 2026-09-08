@@ -93,7 +93,7 @@ def _generate_dedup_key(wallet_address: str, market_id: str, hour: datetime) -> 
 
 def _get_signals_from_assessment(assessment: RiskAssessment) -> list[str]:
     """Extract triggered signal names from assessment."""
-    signals = []
+    signals: list[str] = []
     if assessment.fresh_wallet_signal:
         signals.append("fresh_wallet")
     if assessment.size_anomaly_signal:
@@ -323,7 +323,7 @@ class AlertHistory:
             return []
 
         # Fetch all records
-        records = []
+        records: list[AlertRecord] = []
         for alert_id in alert_ids:
             if isinstance(alert_id, bytes):
                 alert_id = alert_id.decode()

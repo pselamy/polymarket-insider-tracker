@@ -196,6 +196,16 @@ class PolygonClient:
             return True
         return False
 
+    async def acquire_rate_limit(self) -> None:
+        """Acquire one shared Polygon RPC request slot."""
+        await self._rate_limiter.acquire()
+
+    def select_web3(self) -> AsyncWeb3[AsyncHTTPProvider]:
+        """Return the currently healthy primary or fallback Web3 client."""
+        if self._primary_healthy:
+            return self._w3
+        return self._w3_fallback or self._w3
+
     async def _execute_with_retry(
         self,
         func_name: str,
