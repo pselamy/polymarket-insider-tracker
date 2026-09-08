@@ -110,8 +110,8 @@ ignored required step.
 **Goal**: Metadata, lock state, automation, examples, and public instructions expose one finite support
 boundary and give actionable failures outside it.
 
-**Independent Test**: Prove Python 3.10 and 3.14 are rejected by project metadata, then run locked
-installation and the complete 3.11/3.12/3.13 compatibility matrix.
+**Independent Test**: Run `uv run python scripts/check_support_contract.py`, confirm zero contradictions,
+and prove Python 3.10 and 3.14 are rejected by locked project resolution.
 
 ### Tests for User Story 3
 

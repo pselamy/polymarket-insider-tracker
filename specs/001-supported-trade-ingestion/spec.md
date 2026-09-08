@@ -175,9 +175,9 @@ verify the documented result, warning, or actionable failure.
 - **SC-005**: The live-safe smoke check reports the correct pass/fail result for seven named cases: a
   valid wallet-bearing response, a valid empty response, throttling, timeout, malformed row, incompatible
   top-level schema, and possible page saturation. It retains no wallet identifiers in its evidence output.
-- **SC-006**: A deterministic contract check over README, `.env.example`, CLI help/configuration summary,
-  architecture text, troubleshooting, and the tracked skill reports zero conflicting source hosts,
-  protocols, credential claims, coverage modes, or freshness descriptions.
+- **SC-006**: Deterministic ingestion and live-safe smoke tests establish source hosts, protocols,
+  credential behavior, coverage modes, and freshness semantics. Contributor documentation describes
+  those tested behaviors without being reparsed by a bespoke contract checker.
 - **SC-007**: A timestamped feasibility report records at least three bounded live samples and reports
   row rate, in-window ratio, oldest/newest timestamps, page saturation, ordering, provider lag, response
   caching, and distance from the published rate limit; any unresolved loss condition blocks approval.

@@ -169,9 +169,9 @@ persisted assessment fields, sample output, README, example environment, and the
   equals trade notional divided by that volume within 0.0001; unknown inputs are never serialized as measured zero.
 - **SC-003**: Across all unknown-age fixture and pipeline outputs, zero statements claim or imply that the
   wallet is under 48 hours old.
-- **SC-004**: A deterministic capability-contract check over README, `.env.example`, CLI help/summary,
-  sample alert, architecture text, changelog, docstrings, and the tracked skill reports zero claims that
-  sniper clustering, funding-based risk scoring, book-depth scoring, or backtesting are operational.
+- **SC-004**: Deterministic capability tests establish which detectors and scoring inputs are operational
+  and ensure unsupported capabilities remain absent from runtime output. Contributor documentation states
+  those tested capabilities without being reparsed by a bespoke contract checker.
 - **SC-005**: Default and overridden threshold examples reconstruct to the persisted result within 0.01 and
   display the exact effective threshold in 100% of cases.
 - **SC-006**: The deterministic end-to-end scenario preserves the same trade notional, wallet transaction
