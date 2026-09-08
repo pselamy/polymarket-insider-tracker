@@ -227,6 +227,6 @@ Task T018: Fix src/polymarket_insider_tracker/profiler/funding.py typing
 
 ## Phase 8: Repository Hygiene Supersession
 
-- [X] T042 Remove the bespoke cross-file support checker and its checker-only fixture suite; remove the
-  gate from aggregate verification; retain runtime truth in native metadata, lock, CI, service probes,
-  focused verifier tests, and contributor documentation.
+- [X] T042 Remove the bespoke cross-file support checker, its synthetic repository fixtures, and its two
+  prose assertions; remove the gate from aggregate verification; retain runtime truth in native metadata,
+  lock, CI, service probes, focused verifier tests, and contributor documentation.

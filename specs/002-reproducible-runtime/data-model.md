@@ -21,18 +21,18 @@ Represents the repository-wide compatibility promise.
 | `lock_authority` | string | Checked-in `uv.lock` |
 | `service_images` | ordered tuple | PostgreSQL 15 and Redis 7 references pinned by matching multi-architecture digests in Compose and CI |
 
-### Validation
+### Ownership and evidence
 
-- Every declared Python set MUST equal `python_minors`; open-ended or partial sets fail.
-- The running uv version MUST satisfy `uv_specifier`, and the CI installer version MUST be exact.
-- Ruff/mypy may target the lowest supported minor and MUST be documented as syntax/type baselines rather
-  than treated as incomplete matrices.
-- Linux documentation MUST name the reference environment and MUST NOT imply certification of every Linux
-  distribution, libc, or architecture.
-- Third-party workflow actions MUST use reviewed full commit SHAs, workflow permissions MUST be explicit
-  and minimal, and local/CI service image digests MUST match.
-- Documentation, environment examples, CI, and command contracts MUST name the canonical database scheme.
-- A credential value is never part of diagnostic or serialized contract output.
+- `pyproject.toml` declares the supported Python and uv ranges; uv enforces those declarations while
+  resolving and checking `uv.lock`.
+- The CI matrix provides executable evidence for Python 3.11, 3.12, and 3.13. Ruff and mypy target the
+  lowest supported minor as their syntax and type baseline.
+- The named Linux reference environment, reviewed action SHAs, minimal workflow permissions, and matching
+  service-image digests are review-time reproducibility policy. Repository code does not reparse workflow
+  or documentation text to enforce them.
+- Database URL behavior is exercised by configuration, storage, and migration tests. `README.md` and
+  `.env.example` remain contributor guidance rather than machine-parsed contract inputs.
+- Credential values are never part of diagnostic or serialized verification output.
 
 ## Database URL Input
 
