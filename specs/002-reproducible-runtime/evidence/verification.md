@@ -491,3 +491,12 @@ this user. Service and migration evidence for this slice is therefore not claime
 the orchestrator and the CI service job.
 
 **Not performed**: no pull request, push, merge, or repository-setting change. Items T058–T063 remain open.
+
+### Provenance
+
+| Commit | Purpose |
+|---|---|
+| `c596aa74dd87f4eff2cc22a30de5a5d6e17640c8` | Agy first pass (reviewed, unamended) |
+| `efd42073aa8f7ddecbf9373731479b811fa06758` | Claude Code/fable review fixes listed above |
+
+This provenance entry is committed separately from the fix commit it records and does not embed its own hash.
