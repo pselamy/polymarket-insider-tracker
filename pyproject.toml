@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "black==26.5.1",
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
@@ -43,6 +44,11 @@ required-version = ">=0.11,<0.12"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+# Black is the repository's formatting authority; Ruff remains the lint and import-rule engine.
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -61,7 +67,7 @@ select = [
     "SIM",    # flake8-simplify
 ]
 ignore = [
-    "E501",   # line too long (handled by formatter)
+    "E501",   # line too long (handled by Black)
 ]
 
 [tool.ruff.lint.isort]

@@ -337,9 +337,7 @@ class HealthMonitor:
         HEALTH_STATUS.set(
             1.0
             if overall_status == HealthStatus.HEALTHY
-            else 0.5
-            if overall_status == HealthStatus.DEGRADED
-            else 0.0
+            else 0.5 if overall_status == HealthStatus.DEGRADED else 0.0
         )
 
         uptime = 0.0

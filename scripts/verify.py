@@ -75,9 +75,7 @@ Runner = Callable[[Gate], CommandExecution]
 
 GATES: Mapping[str, Gate] = {
     "lock": Gate("lock", ("uv", "lock", "--check")),
-    "format": Gate(
-        "format", (sys.executable, "-m", "ruff", "format", "--check", "src", "tests", "scripts")
-    ),
+    "format": Gate("format", (sys.executable, "-m", "black", "--check", ".")),
     "lint": Gate("lint", (sys.executable, "-m", "ruff", "check", "src", "tests", "scripts")),
     "strict-types": Gate(
         "strict-types",
@@ -150,7 +148,7 @@ _URL_PATTERN = re.compile(
 # Direct equivalents of every aggregate gate, kept literal so contributors can copy them verbatim.
 DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ("lock", "uv lock --check"),
-    ("format", "uv run ruff format --check src tests scripts"),
+    ("format", "uv run black --check ."),
     ("lint", "uv run ruff check src tests scripts"),
     ("strict-types", "uv run --isolated --locked --all-extras --python 3.11 mypy"),
     (
