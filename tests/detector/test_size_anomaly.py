@@ -2,7 +2,6 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -14,8 +13,8 @@ from polymarket_insider_tracker.detector.size_anomaly import (
     NICHE_PRONE_CATEGORIES,
     SizeAnomalyDetector,
 )
-from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
+from tests.fakes.metadata import FakeMetadataSync
 
 # ============================================================================
 # Fixtures
@@ -23,9 +22,9 @@ from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, Tr
 
 
 @pytest.fixture
-def mock_metadata_sync() -> AsyncMock:
-    """Create a mock MarketMetadataSync."""
-    return AsyncMock(spec=MarketMetadataSync)
+def fake_metadata_sync() -> FakeMetadataSync:
+    """Create a FakeMetadataSync."""
+    return FakeMetadataSync()
 
 
 @pytest.fixture
@@ -237,18 +236,18 @@ class TestSizeAnomalySignal:
 class TestSizeAnomalyDetectorInit:
     """Tests for SizeAnomalyDetector initialization."""
 
-    def test_default_initialization(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_default_initialization(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test detector initializes with default values."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         assert detector._volume_threshold == DEFAULT_VOLUME_THRESHOLD
         assert detector._book_threshold == DEFAULT_BOOK_THRESHOLD
         assert detector._niche_volume_threshold == DEFAULT_NICHE_VOLUME_THRESHOLD
 
-    def test_custom_thresholds(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_custom_thresholds(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test detector with custom thresholds."""
         detector = SizeAnomalyDetector(
-            mock_metadata_sync,
+            fake_metadata_sync,
             volume_threshold=0.05,
             book_threshold=0.10,
             niche_volume_threshold=Decimal("100000"),
@@ -267,31 +266,31 @@ class TestSizeAnomalyDetectorInit:
 class TestVolumeImpactCalculation:
     """Tests for volume impact calculation."""
 
-    def test_volume_impact_calculation(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_volume_impact_calculation(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test correct volume impact calculation."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade size $1000, daily volume $50000 = 2% impact
         impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("50000"))
         assert impact == pytest.approx(0.02)
 
-    def test_volume_impact_none_volume(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_volume_impact_none_volume(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test volume impact returns 0 when volume is None."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         impact = detector._calculate_volume_impact(Decimal("1000"), None)
         assert impact == 0.0
 
-    def test_volume_impact_zero_volume(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_volume_impact_zero_volume(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test volume impact returns 0 when volume is zero."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("0"))
         assert impact == 0.0
 
-    def test_volume_impact_negative_volume(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_volume_impact_negative_volume(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test volume impact returns 0 when volume is negative."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("-1000"))
         assert impact == 0.0
@@ -305,24 +304,24 @@ class TestVolumeImpactCalculation:
 class TestBookImpactCalculation:
     """Tests for order book impact calculation."""
 
-    def test_book_impact_calculation(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_book_impact_calculation(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test correct book impact calculation."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade size $5000, book depth $50000 = 10% impact
         impact = detector._calculate_book_impact(Decimal("5000"), Decimal("50000"))
         assert impact == pytest.approx(0.10)
 
-    def test_book_impact_none_depth(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_book_impact_none_depth(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test book impact returns 0 when depth is None."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         impact = detector._calculate_book_impact(Decimal("5000"), None)
         assert impact == 0.0
 
-    def test_book_impact_zero_depth(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_book_impact_zero_depth(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test book impact returns 0 when depth is zero."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         impact = detector._calculate_book_impact(Decimal("5000"), Decimal("0"))
         assert impact == 0.0
@@ -337,30 +336,30 @@ class TestNicheMarketDetection:
     """Tests for niche market detection."""
 
     def test_niche_market_low_volume(
-        self, mock_metadata_sync: AsyncMock, sample_metadata: MarketMetadata
+        self, fake_metadata_sync: FakeMetadataSync, sample_metadata: MarketMetadata
     ) -> None:
         """Test market is niche when volume below threshold."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Volume $40k < $50k threshold
         is_niche = detector._is_niche_market(sample_metadata, Decimal("40000"))
         assert is_niche is True
 
     def test_not_niche_high_volume(
-        self, mock_metadata_sync: AsyncMock, sample_metadata: MarketMetadata
+        self, fake_metadata_sync: FakeMetadataSync, sample_metadata: MarketMetadata
     ) -> None:
         """Test market is not niche when volume above threshold."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Volume $100k > $50k threshold
         is_niche = detector._is_niche_market(sample_metadata, Decimal("100000"))
         assert is_niche is False
 
     def test_niche_market_unknown_volume_niche_category(
-        self, mock_metadata_sync: AsyncMock, sample_token: Token
+        self, fake_metadata_sync: FakeMetadataSync, sample_token: Token
     ) -> None:
         """Test market is niche when volume unknown and category is niche-prone."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         for category in NICHE_PRONE_CATEGORIES:
             metadata = MarketMetadata(
@@ -374,10 +373,10 @@ class TestNicheMarketDetection:
             assert is_niche is True, f"Category {category} should be niche"
 
     def test_not_niche_unknown_volume_mainstream_category(
-        self, mock_metadata_sync: AsyncMock, sample_token: Token
+        self, fake_metadata_sync: FakeMetadataSync, sample_token: Token
     ) -> None:
         """Test market is not niche when volume unknown but category is mainstream."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         mainstream_categories = ["politics", "sports", "crypto", "entertainment"]
         for category in mainstream_categories:
@@ -400,9 +399,9 @@ class TestNicheMarketDetection:
 class TestConfidenceScoring:
     """Tests for confidence score calculation."""
 
-    def test_confidence_volume_impact_only(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_confidence_volume_impact_only(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence with only volume impact."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Volume impact 3x threshold = max score 0.5
         confidence, factors = detector.calculate_confidence(
@@ -415,9 +414,9 @@ class TestConfidenceScoring:
         assert "volume_impact" in factors
         assert factors["volume_impact"] == pytest.approx(0.5)
 
-    def test_confidence_book_impact_only(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_confidence_book_impact_only(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence with only book impact."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Book impact 3x threshold = max score 0.3
         confidence, factors = detector.calculate_confidence(
@@ -430,9 +429,9 @@ class TestConfidenceScoring:
         assert "book_impact" in factors
         assert factors["book_impact"] == pytest.approx(0.3)
 
-    def test_confidence_combined_impacts(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_confidence_combined_impacts(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence with both volume and book impact."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Both at 3x threshold = 0.5 + 0.3 = 0.8
         confidence, factors = detector.calculate_confidence(
@@ -445,9 +444,9 @@ class TestConfidenceScoring:
         assert "volume_impact" in factors
         assert "book_impact" in factors
 
-    def test_confidence_niche_multiplier(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_confidence_niche_multiplier(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test niche multiplier increases confidence."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Volume impact 2x threshold = 0.33, with 1.5x niche = 0.5
         confidence, factors = detector.calculate_confidence(
@@ -460,9 +459,9 @@ class TestConfidenceScoring:
         assert "niche_multiplier" in factors
         assert factors["niche_multiplier"] == 1.5
 
-    def test_confidence_niche_only_base(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_confidence_niche_only_base(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test niche market with no other signals gives base confidence."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # No threshold exceeded, but is niche
         confidence, factors = detector.calculate_confidence(
@@ -475,9 +474,9 @@ class TestConfidenceScoring:
         assert "niche_base" in factors
         assert factors["niche_base"] == 0.2
 
-    def test_confidence_clamped_to_max(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_confidence_clamped_to_max(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence is clamped to 1.0."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # High impacts with niche multiplier would exceed 1.0
         confidence, factors = detector.calculate_confidence(
@@ -488,9 +487,9 @@ class TestConfidenceScoring:
 
         assert confidence == 1.0
 
-    def test_confidence_zero_no_signals(self, mock_metadata_sync: AsyncMock) -> None:
+    def test_confidence_zero_no_signals(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence is zero with no signals."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         confidence, factors = detector.calculate_confidence(
             volume_impact=0.01,  # Below threshold
@@ -513,13 +512,13 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_high_volume_impact(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_trade: TradeEvent,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects high volume impact trade."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.set_default(sample_metadata)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade notional = 6500, volume = 65000, impact = 10% > 2% threshold
         signal = await detector.analyze(
@@ -534,13 +533,13 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_high_book_impact(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_trade: TradeEvent,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects high book impact trade."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.set_default(sample_metadata)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade notional = 6500, book depth = 32500, impact = 20% > 5% threshold
         signal = await detector.analyze(
@@ -555,13 +554,13 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_niche_market(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_trade: TradeEvent,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects niche market trade."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.set_default(sample_metadata)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Low volume market (science category with volume unknown)
         signal = await detector.analyze(sample_trade)
@@ -573,12 +572,12 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_niche_only_below_min_trade_size_skipped(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Niche-only trades below the min trade size are suppressed."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.set_default(sample_metadata)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         tiny_trade = TradeEvent(
             market_id="market_abc123",
@@ -600,12 +599,12 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_niche_only_at_min_trade_size_emits(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Niche-only trades at or above the min trade size still emit."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.set_default(sample_metadata)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         ok_trade = TradeEvent(
             market_id="market_abc123",
@@ -629,12 +628,12 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_niche_min_trade_size_does_not_block_real_anomalies(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_metadata: MarketMetadata,
     ) -> None:
         """A trade that exceeds volume/book thresholds is never blocked by the niche guard."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.set_default(sample_metadata)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         small_but_high_impact_trade = TradeEvent(
             market_id="market_abc123",
@@ -658,7 +657,7 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_no_anomaly(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_token: Token,
     ) -> None:
         """Test analyze returns None for normal trade."""
@@ -670,7 +669,7 @@ class TestAnalyzeMethod:
             tokens=(sample_token,),
             category="politics",
         )
-        mock_metadata_sync.get_market.return_value = metadata
+        fake_metadata_sync.set_default(metadata)
 
         trade = TradeEvent(
             market_id="market_politics",
@@ -685,7 +684,7 @@ class TestAnalyzeMethod:
             asset_id="token_pol",
         )
 
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # High volume, large book depth = low impact
         signal = await detector.analyze(
@@ -699,12 +698,12 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_creates_minimal_metadata_on_missing(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_trade: TradeEvent,
     ) -> None:
         """Test analyze creates minimal metadata when market not found."""
-        mock_metadata_sync.get_market.return_value = None
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.set_default(None)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Should still work with minimal metadata (category="other" which is niche)
         signal = await detector.analyze(sample_trade)
@@ -716,12 +715,12 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_handles_metadata_exception(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_trade: TradeEvent,
     ) -> None:
         """Test analyze handles exception when fetching metadata."""
-        mock_metadata_sync.get_market.configure_mock(side_effect=Exception("Redis error"))
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        fake_metadata_sync.add_error(Exception("Redis error"))
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Should still work with minimal metadata
         signal = await detector.analyze(sample_trade)
@@ -732,7 +731,7 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_low_confidence_filtered(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_token: Token,
     ) -> None:
         """Test analyze returns None when confidence is below 0.1."""
@@ -744,7 +743,7 @@ class TestAnalyzeMethod:
             tokens=(sample_token,),
             category="sports",
         )
-        mock_metadata_sync.get_market.return_value = metadata
+        fake_metadata_sync.set_default(metadata)
 
         trade = TradeEvent(
             market_id="market_sports",
@@ -759,7 +758,7 @@ class TestAnalyzeMethod:
             asset_id="token_sports",
         )
 
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # High volume but below threshold impacts
         signal = await detector.analyze(
@@ -782,11 +781,11 @@ class TestBatchAnalysis:
     @pytest.mark.asyncio
     async def test_analyze_batch_returns_signals(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test batch analysis returns signals for anomalous trades."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
+        fake_metadata_sync.set_default(sample_metadata)
 
         trades = [
             TradeEvent(
@@ -804,7 +803,7 @@ class TestBatchAnalysis:
             for i in range(3)
         ]
 
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
         signals = await detector.analyze_batch(trades)
 
         # All trades are in niche category with unknown volume
@@ -813,11 +812,11 @@ class TestBatchAnalysis:
     @pytest.mark.asyncio
     async def test_analyze_batch_with_volume_data(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test batch analysis uses provided volume data."""
-        mock_metadata_sync.get_market.return_value = sample_metadata
+        fake_metadata_sync.set_default(sample_metadata)
 
         trades = [
             TradeEvent(
@@ -834,7 +833,7 @@ class TestBatchAnalysis:
             )
         ]
 
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # $5000 trade / $50000 volume = 10% impact
         signals = await detector.analyze_batch(
@@ -848,16 +847,12 @@ class TestBatchAnalysis:
     @pytest.mark.asyncio
     async def test_analyze_batch_handles_errors(
         self,
-        mock_metadata_sync: AsyncMock,
+        fake_metadata_sync: FakeMetadataSync,
     ) -> None:
         """Test batch analysis handles individual trade errors."""
         # First call succeeds, second fails
-        mock_metadata_sync.get_market.configure_mock(
-            side_effect=[
-                Exception("Error"),
-                None,
-            ]
-        )
+        fake_metadata_sync.add_error(Exception("Error"))
+        fake_metadata_sync.set_default(None)
 
         trades = [
             TradeEvent(
@@ -875,16 +870,16 @@ class TestBatchAnalysis:
             for i in range(2)
         ]
 
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
         signals = await detector.analyze_batch(trades)
 
         # Both should still produce signals (with minimal metadata fallback)
         assert len(signals) == 2
 
     @pytest.mark.asyncio
-    async def test_analyze_batch_empty_list(self, mock_metadata_sync: AsyncMock) -> None:
+    async def test_analyze_batch_empty_list(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test batch analysis with empty list."""
-        detector = SizeAnomalyDetector(mock_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync)
         signals = await detector.analyze_batch([])
 
         assert signals == []

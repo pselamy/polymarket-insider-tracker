@@ -3,12 +3,10 @@
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any, cast
 
 import pytest
 
-from polymarket_insider_tracker.ingestor.clob_client import ClobClient
-from polymarket_insider_tracker.ingestor.gamma_client import GammaClient
 from polymarket_insider_tracker.ingestor.metadata_sync import (
     DEFAULT_CACHE_TTL_SECONDS,
     DEFAULT_REDIS_KEY_PREFIX,
@@ -24,6 +22,45 @@ from polymarket_insider_tracker.ingestor.models import (
     Token,
     derive_category,
 )
+from tests.fakes.redis import FakeRedis
+
+
+class FakeClobClient:
+    """Fake CLOB client providing market lookup."""
+
+    def __init__(
+        self, markets: list[Market] | None = None, raise_error: Exception | None = None
+    ) -> None:
+        self._markets = markets or []
+        self._raise_error = raise_error
+
+    def get_markets(self, only_active: bool = True) -> list[Market]:
+        _ = only_active
+        if self._raise_error is not None:
+            raise self._raise_error
+        return list(self._markets)
+
+    def get_market(self, condition_id: str) -> Market | None:
+        if self._raise_error is not None:
+            raise self._raise_error
+        return next((m for m in self._markets if m.condition_id == condition_id), None)
+
+
+class FakeGammaClient:
+    """Fake Gamma client providing market volume stats."""
+
+    def __init__(
+        self,
+        stats: dict[str, Any] | None = None,
+        raise_error: Exception | None = None,
+    ) -> None:
+        self._stats = stats or {}
+        self._raise_error = raise_error
+
+    async def get_active_market_stats(self) -> dict[str, Any]:
+        if self._raise_error is not None:
+            raise self._raise_error
+        return dict(self._stats)
 
 
 # Test fixtures
@@ -54,35 +91,21 @@ def sample_metadata(sample_market: Market) -> MarketMetadata:
 
 
 @pytest.fixture
-def mock_redis() -> AsyncMock:
-    """Create a mock Redis client."""
-    redis = AsyncMock()
-    redis.get = AsyncMock(return_value=None)
-    redis.setex = AsyncMock()
-    redis.delete = AsyncMock(return_value=1)
-    redis.scan = AsyncMock(return_value=(0, []))
-    return redis
+def fake_redis() -> FakeRedis:
+    """Create a working fake Redis client."""
+    return FakeRedis()
 
 
 @pytest.fixture
-def mock_clob(sample_market: Market) -> MagicMock:
-    """Create a mock CLOB client."""
-    clob = MagicMock(spec=ClobClient)
-    clob.get_markets = MagicMock(return_value=[sample_market])
-    clob.get_market = MagicMock(return_value=sample_market)
-    return clob
+def fake_clob(sample_market: Market) -> FakeClobClient:
+    """Create a fake CLOB client."""
+    return FakeClobClient([sample_market])
 
 
 @pytest.fixture
-def mock_gamma() -> MagicMock:
-    """Create a mock GammaClient that returns empty volume stats.
-
-    Without this, MarketMetadataSync would instantiate a default
-    GammaClient and hit the real gamma-api over HTTP during unit tests.
-    """
-    gamma = MagicMock(spec=GammaClient)
-    gamma.get_active_market_stats = AsyncMock(return_value={})
-    return gamma
+def fake_gamma() -> FakeGammaClient:
+    """Create a fake GammaClient that returns empty volume stats."""
+    return FakeGammaClient()
 
 
 class TestDeriveCategory:
@@ -208,9 +231,15 @@ class TestSyncStats:
 class TestMarketMetadataSync:
     """Tests for the MarketMetadataSync class."""
 
-    def test_init(self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock) -> None:
+    def test_init(
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
+    ) -> None:
         """Test initialization."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
 
         assert sync.state == SyncState.STOPPED
         assert sync.stats.total_syncs == 0
@@ -219,13 +248,13 @@ class TestMarketMetadataSync:
         assert sync._key_prefix == DEFAULT_REDIS_KEY_PREFIX
 
     def test_init_custom_config(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test initialization with custom config."""
         sync = MarketMetadataSync(
-            redis=mock_redis,
-            clob_client=mock_clob,
-            gamma_client=mock_gamma,
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
             sync_interval_seconds=60,
             cache_ttl_seconds=120,
             key_prefix="custom:",
@@ -237,10 +266,14 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_start_stop(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test starting and stopping the sync service."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
 
         # Start
         await sync.start()
@@ -254,28 +287,32 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_start_performs_initial_sync(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test that start performs an initial sync."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
 
         await sync.start()
 
-        # Should have called get_markets
-        mock_clob.get_markets.assert_called_once_with(True)
-
         # Should have cached the market
-        mock_redis.setex.assert_called()
+        cached = await fake_redis.get(f"{DEFAULT_REDIS_KEY_PREFIX}cond123")
+        assert cached is not None
 
         await sync.stop()
 
     @pytest.mark.asyncio
-    async def test_start_failure(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
-    ) -> None:
+    async def test_start_failure(self, fake_redis: FakeRedis, fake_gamma: FakeGammaClient) -> None:
         """Test start failure handling."""
-        mock_clob.get_markets.configure_mock(side_effect=Exception("API error"))
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        failing_clob = FakeClobClient(raise_error=Exception("API error"))
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, failing_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
 
         with pytest.raises(MetadataSyncError, match="initial sync failed"):
             await sync.start()
@@ -286,59 +323,68 @@ class TestMarketMetadataSync:
     @pytest.mark.asyncio
     async def test_get_market_cache_hit(
         self,
-        mock_redis: AsyncMock,
-        mock_clob: MagicMock,
-        mock_gamma: MagicMock,
+        fake_redis: FakeRedis,
+        fake_gamma: FakeGammaClient,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test get_market with cache hit."""
         # Setup cache hit
         cached_data = json.dumps(sample_metadata.to_dict())
-        mock_redis.get = AsyncMock(return_value=cached_data)
+        await fake_redis.set(f"{DEFAULT_REDIS_KEY_PREFIX}cond123", cached_data)
 
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        empty_clob = FakeClobClient([])
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, empty_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
         await sync.start()
 
         result = await sync.get_market("cond123")
 
         assert result is not None
         assert result.condition_id == "cond123"
-        # Should not have called API
-        mock_clob.get_market.assert_not_called()
 
         await sync.stop()
 
     @pytest.mark.asyncio
     async def test_get_market_cache_miss(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self,
+        fake_redis: FakeRedis,
+        sample_market: Market,
+        fake_gamma: FakeGammaClient,
     ) -> None:
         """Test get_market with cache miss."""
-        # Setup cache miss
-        mock_redis.get = AsyncMock(return_value=None)
-
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
-        await sync.start()
+        fake_clob = FakeClobClient([sample_market])
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
+        # Clear cache first to ensure cache miss
+        await fake_redis.delete(f"{DEFAULT_REDIS_KEY_PREFIX}cond123")
 
         result = await sync.get_market("cond123")
 
         assert result is not None
         assert result.condition_id == "cond123"
-        # Should have called API
-        mock_clob.get_market.assert_called_with("cond123")
         # Should have cached the result
-        assert mock_redis.setex.call_count >= 2  # Initial sync + cache miss
+        cached = await fake_redis.get(f"{DEFAULT_REDIS_KEY_PREFIX}cond123")
+        assert cached is not None
 
         await sync.stop()
 
     @pytest.mark.asyncio
     async def test_get_market_not_found(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_gamma: FakeGammaClient
     ) -> None:
         """Test get_market when market doesn't exist."""
-        mock_redis.get = AsyncMock(return_value=None)
-        mock_clob.get_market.return_value = None
-
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        empty_clob = FakeClobClient([])
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, empty_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
         await sync.start()
 
         result = await sync.get_market("nonexistent")
@@ -349,25 +395,34 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_invalidate_market(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test cache invalidation."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
         await sync.start()
 
         result = await sync.invalidate_market("cond123")
 
         assert result is True
-        mock_redis.delete.assert_called_with(f"{DEFAULT_REDIS_KEY_PREFIX}cond123")
+        cached = await fake_redis.get(f"{DEFAULT_REDIS_KEY_PREFIX}cond123")
+        assert cached is None
 
         await sync.stop()
 
     @pytest.mark.asyncio
     async def test_force_sync(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test forced sync."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
         await sync.start()
 
         # Initial sync
@@ -383,7 +438,7 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_state_change_callback(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test state change callback."""
         states: list[SyncState] = []
@@ -392,9 +447,9 @@ class TestMarketMetadataSync:
             states.append(state)
 
         sync = MarketMetadataSync(
-            redis=mock_redis,
-            clob_client=mock_clob,
-            gamma_client=mock_gamma,
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
             on_state_change=on_state_change,
         )
 
@@ -409,7 +464,7 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_sync_complete_callback(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test sync complete callback."""
         sync_stats: list[SyncStats] = []
@@ -418,9 +473,9 @@ class TestMarketMetadataSync:
             sync_stats.append(stats)
 
         sync = MarketMetadataSync(
-            redis=mock_redis,
-            clob_client=mock_clob,
-            gamma_client=mock_gamma,
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
             on_sync_complete=on_sync_complete,
         )
 
@@ -435,22 +490,20 @@ class TestMarketMetadataSync:
     @pytest.mark.asyncio
     async def test_get_markets_by_category(
         self,
-        mock_redis: AsyncMock,
-        mock_clob: MagicMock,
-        mock_gamma: MagicMock,
+        fake_redis: FakeRedis,
+        fake_clob: FakeClobClient,
+        fake_gamma: FakeGammaClient,
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test getting markets by category."""
-        # Setup scan to return keys
         key = f"{DEFAULT_REDIS_KEY_PREFIX}cond123"
-        mock_redis.scan = AsyncMock(return_value=(0, [key]))
+        await fake_redis.set(key, json.dumps(sample_metadata.to_dict()))
 
-        # Setup get to return cached data
-        cached_data = json.dumps(sample_metadata.to_dict())
-        mock_redis.get = AsyncMock(return_value=cached_data)
-
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
-        # Don't start to avoid initial sync complexity
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
         sync._state = SyncState.IDLE
 
         results = await sync.get_markets_by_category("crypto")
@@ -460,10 +513,14 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_cannot_start_twice(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test that starting twice doesn't double-start."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
 
         await sync.start()
         await sync.start()  # Should be a no-op
@@ -474,10 +531,14 @@ class TestMarketMetadataSync:
 
     @pytest.mark.asyncio
     async def test_stop_when_stopped(
-        self, mock_redis: AsyncMock, mock_clob: MagicMock, mock_gamma: MagicMock
+        self, fake_redis: FakeRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
     ) -> None:
         """Test stopping when already stopped."""
-        sync = MarketMetadataSync(redis=mock_redis, clob_client=mock_clob, gamma_client=mock_gamma)
+        sync = MarketMetadataSync(
+            redis=cast(Any, fake_redis),
+            clob_client=cast(Any, fake_clob),
+            gamma_client=cast(Any, fake_gamma),
+        )
 
         await sync.stop()  # Should be a no-op
 

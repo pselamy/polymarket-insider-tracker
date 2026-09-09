@@ -206,11 +206,29 @@ modules. No new service, package, or migration is needed.
 - Explain that existing bare/asyncpg URLs are accepted temporarily and normalized, while new setups use
   the Psycopg 3 spelling. This is the compatibility path required by the constitution.
 
+### 6. Test Quality: Working Fakes Over Mocks
+
+- **Scope & Baseline Inventory**: 22 test files importing `unittest.mock`, 301 mock constructors, and 52 interaction assertions.
+- **Migration Strategy**: Replace all interaction mocks with domain-specific lightweight working fakes and real values.
+- **Forbidden Patterns**: Generic CallableFake/Mock framework, return_value/side_effect configurators, `__getattr__` dynamic fake trees, automatically generated call/await assertions, replacing strong expectations with no assertions, deleting coverage scenarios, new skips/xfails, threshold increases, gate exclusions/suppressions, broad Any/object type escapes.
+- **Domain Fakes**:
+  - `FakeRedis`: In-memory implementation of key/value, hash, set, sorted-set, and stream operations required by the repository, with TTL tracking. Tested against real Redis in shared contracts under the `services` profile.
+  - `FakePolygonClient`: Concrete client returning real `Transaction` and `WalletInfo` domain models.
+  - `FakeClobClient`: Concrete client returning real `Market` and `Orderbook` models.
+  - `FakeGammaClient`: Concrete client returning real `GammaMarketStats` models.
+  - `FakeDispatcher`: Concrete dispatcher recording sent alerts for state inspection.
+  - `FakeHistory`: Concrete alert history tracking delivery state.
+  - Transport hooks: `httpx.MockTransport` / custom transport with real responses for HTTP boundaries.
+  - SQLite: Real in-memory SQLite database sessions for storage repositories.
+- **Regression Enforcement**: An AST-based test scanning `tests/` to guarantee zero `unittest.mock` imports or usage.
+- **Quality Gates**: All fakes and migrated tests must pass Black, Ruff, strict mypy/Pyright, default-confidence Vulture, and Complexipy <= 5 on functions and modules.
+
 ## Phase Outputs
 
 - [research.md](research.md): resolved driver, dependency, lock, CI, and safety decisions
 - [data-model.md](data-model.md): non-persistent support, gate, result, and service-evidence concepts
 - [contracts/runtime-verification.md](contracts/runtime-verification.md): executable command contract
+- [contracts/test-quality.md](contracts/test-quality.md): working fakes over mocks contract
 - [quickstart.md](quickstart.md): post-implementation clean-checkout validation sequence
 
 ## Post-Design Constitution Re-check
@@ -223,3 +241,4 @@ monitoring E2E proof preserves slice ownership.
 ## Complexity Tracking
 
 No constitution violation requires justification.
+

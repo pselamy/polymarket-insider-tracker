@@ -1,10 +1,13 @@
 """Tests for ClobClient wrapper."""
 
 import time
-from unittest.mock import MagicMock, patch
+from collections.abc import Iterator
+from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
+import polymarket_insider_tracker.ingestor.clob_client as clob_module
 from polymarket_insider_tracker.ingestor.clob_client import (
     ClobClient,
     RateLimiter,
@@ -108,138 +111,65 @@ class TestWithRetry:
         assert call_count == 1
 
 
-class TestClobClient:
-    """Tests for ClobClient wrapper."""
+@dataclass
+class FakeClobLevel:
+    price: str
+    size: str
 
-    @pytest.fixture
-    def mock_base_client(self) -> MagicMock:
-        """Create a mock base CLOB client."""
-        with patch("polymarket_insider_tracker.ingestor.clob_client.BaseClobClient") as mock:
-            yield mock.return_value
 
-    def test_init_defaults(self, mock_base_client: MagicMock) -> None:  # noqa: ARG002
-        """Test client initialization with defaults."""
-        client = ClobClient()
+@dataclass
+class FakeClobOrderbook:
+    market: str
+    asset_id: str
+    tick_size: str
+    bids: list[FakeClobLevel] | None
+    asks: list[FakeClobLevel] | None
 
-        assert client._host == "https://clob.polymarket.com"
-        assert client._max_retries == 3
 
-    def test_init_with_env_api_key(self, mock_base_client: MagicMock) -> None:  # noqa: ARG002
-        """Test client reads API key from environment."""
-        with patch.dict("os.environ", {"POLYMARKET_API_KEY": "test-key"}):
-            client = ClobClient()
-            assert client._api_key == "test-key"
+class FakeBaseClobClient:
+    """Working in-memory fake for py-clob-client BaseClobClient."""
 
-    def test_init_with_explicit_api_key(self, mock_base_client: MagicMock) -> None:  # noqa: ARG002
-        """Test client uses explicitly provided API key."""
-        client = ClobClient(api_key="explicit-key")
-        assert client._api_key == "explicit-key"
+    def __init__(self, host: str | None = None) -> None:
+        self.host = host
+        self.fail_health: bool = False
+        self.fail_market: bool = False
+        self.fail_midpoint: bool = False
+        self.simplified_markets_pages: list[dict[str, Any]] = []
+        self.call_count_simplified: int = 0
+        self.health_call_count: int = 0
 
-    def test_health_check_success(self, mock_base_client: MagicMock) -> None:
-        """Test health check returns True when API responds OK."""
-        mock_base_client.get_ok.return_value = "OK"
+    def get_ok(self) -> str:
+        self.health_call_count += 1
+        if self.fail_health:
+            raise RuntimeError("Connection failed")
+        return "OK"
 
-        client = ClobClient()
-        result = client.health_check()
+    def get_server_time(self) -> int:
+        return 1704067200000
 
-        assert result is True
-        mock_base_client.get_ok.assert_called_once()
-
-    def test_health_check_failure(self, mock_base_client: MagicMock) -> None:
-        """Test health check returns False on error."""
-        mock_base_client.get_ok.configure_mock(side_effect=Exception("Connection failed"))
-
-        client = ClobClient()
-        result = client.health_check()
-
-        assert result is False
-
-    def test_get_server_time(self, mock_base_client: MagicMock) -> None:
-        """Test getting server time."""
-        mock_base_client.get_server_time.return_value = 1704067200000
-
-        client = ClobClient()
-        result = client.get_server_time()
-
-        assert result == 1704067200000
-
-    def test_get_markets(self, mock_base_client: MagicMock) -> None:
-        """Test fetching markets."""
-        mock_base_client.get_simplified_markets.return_value = {
+    def get_simplified_markets(self, cursor: str | None = None) -> dict[str, Any]:
+        _ = cursor
+        self.call_count_simplified += 1
+        if self.simplified_markets_pages:
+            idx = min(self.call_count_simplified - 1, len(self.simplified_markets_pages) - 1)
+            return self.simplified_markets_pages[idx]
+        return {
             "data": [
                 {
                     "condition_id": "0x123",
                     "question": "Test market?",
                     "tokens": [],
                     "closed": False,
-                },
+                }
             ],
             "next_cursor": "LTE=",
         }
 
-        client = ClobClient()
-        markets = client.get_markets()
-
-        assert len(markets) == 1
-        assert isinstance(markets[0], Market)
-        assert markets[0].condition_id == "0x123"
-
-    def test_get_markets_filters_closed(self, mock_base_client: MagicMock) -> None:
-        """Test that closed markets are filtered when active_only=True."""
-        mock_base_client.get_simplified_markets.return_value = {
-            "data": [
-                {"condition_id": "0x1", "closed": False},
-                {"condition_id": "0x2", "closed": True},
-            ],
-            "next_cursor": "LTE=",
-        }
-
-        client = ClobClient()
-        markets = client.get_markets(active_only=True)
-
-        assert len(markets) == 1
-        assert markets[0].condition_id == "0x1"
-
-    def test_get_markets_includes_closed(self, mock_base_client: MagicMock) -> None:
-        """Test that closed markets are included when active_only=False."""
-        mock_base_client.get_simplified_markets.return_value = {
-            "data": [
-                {"condition_id": "0x1", "closed": False},
-                {"condition_id": "0x2", "closed": True},
-            ],
-            "next_cursor": "LTE=",
-        }
-
-        client = ClobClient()
-        markets = client.get_markets(active_only=False)
-
-        assert len(markets) == 2
-
-    def test_get_markets_pagination(self, mock_base_client: MagicMock) -> None:
-        """Test that pagination is handled correctly."""
-        mock_base_client.get_simplified_markets.configure_mock(
-            side_effect=[
-                {
-                    "data": [{"condition_id": "0x1"}],
-                    "next_cursor": "cursor2",
-                },
-                {
-                    "data": [{"condition_id": "0x2"}],
-                    "next_cursor": "LTE=",
-                },
-            ]
-        )
-
-        client = ClobClient()
-        markets = client.get_markets()
-
-        assert len(markets) == 2
-        assert mock_base_client.get_simplified_markets.call_count == 2
-
-    def test_get_market(self, mock_base_client: MagicMock) -> None:
-        """Test fetching a single market."""
-        mock_base_client.get_market.return_value = {
-            "condition_id": "0xabc",
+    def get_market(self, condition_id: str) -> dict[str, Any]:
+        if self.fail_market:
+            raise RuntimeError("Not found")
+        return {
+            "condition_id": condition_id,
             "question": "Will it happen?",
             "tokens": [
                 {"token_id": "t1", "outcome": "Yes"},
@@ -247,116 +177,202 @@ class TestClobClient:
             ],
         }
 
+    def get_order_book(self, token_id: str) -> FakeClobOrderbook:
+        return FakeClobOrderbook(
+            market="0xmarket",
+            asset_id=token_id,
+            tick_size="0.01",
+            bids=[FakeClobLevel(price="0.50", size="100")],
+            asks=[FakeClobLevel(price="0.52", size="150")],
+        )
+
+    def get_order_books(self, token_ids: list[str]) -> list[FakeClobOrderbook]:
+        return [
+            FakeClobOrderbook(market=f"m{i}", asset_id=t, tick_size="0.01", bids=[], asks=[])
+            for i, t in enumerate(token_ids, 1)
+        ]
+
+    def get_midpoint(self, token_id: str) -> dict[str, str]:
+        _ = token_id
+        if self.fail_midpoint:
+            raise RuntimeError("API error")
+        return {"mid": "0.55"}
+
+    def get_price(self, token_id: str, side: str = "BUY") -> dict[str, str]:
+        _ = token_id
+        return {"price": "0.53" if side == "BUY" else "0.51"}
+
+
+class TestClobClient:
+    """Tests for ClobClient wrapper."""
+
+    @pytest.fixture
+    def fake_base_client(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeBaseClobClient]:
+        """Create and monkeypatch working base CLOB client fake."""
+        fake = FakeBaseClobClient()
+        monkeypatch.setattr(clob_module, "BaseClobClient", lambda _host: fake)
+        yield fake
+
+    def test_init_defaults(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test client initialization with defaults."""
+        _ = fake_base_client
+        client = ClobClient()
+        assert client._host == "https://clob.polymarket.com"
+        assert client._max_retries == 3
+
+    def test_init_with_env_api_key(
+        self, fake_base_client: FakeBaseClobClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test client reads API key from environment."""
+        _ = fake_base_client
+        monkeypatch.setenv("POLYMARKET_API_KEY", "test-key")
+        client = ClobClient()
+        assert client._api_key == "test-key"
+
+    def test_init_with_explicit_api_key(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test client uses explicitly provided API key."""
+        _ = fake_base_client
+        client = ClobClient(api_key="explicit-key")
+        assert client._api_key == "explicit-key"
+
+    def test_health_check_success(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test health check returns True when API responds OK."""
+        client = ClobClient()
+        result = client.health_check()
+        assert result is True
+        assert fake_base_client.health_call_count == 1
+
+    def test_health_check_failure(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test health check returns False on error."""
+        fake_base_client.fail_health = True
+        client = ClobClient()
+        result = client.health_check()
+        assert result is False
+
+    def test_get_server_time(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test getting server time."""
+        _ = fake_base_client
+        client = ClobClient()
+        result = client.get_server_time()
+        assert result == 1704067200000
+
+    def test_get_markets(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test fetching markets."""
+        _ = fake_base_client
+        client = ClobClient()
+        markets = client.get_markets()
+        assert len(markets) == 1
+        assert isinstance(markets[0], Market)
+        assert markets[0].condition_id == "0x123"
+
+    def test_get_markets_filters_closed(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test that closed markets are filtered when active_only=True."""
+        fake_base_client.simplified_markets_pages = [
+            {
+                "data": [
+                    {"condition_id": "0x1", "closed": False},
+                    {"condition_id": "0x2", "closed": True},
+                ],
+                "next_cursor": "LTE=",
+            }
+        ]
+        client = ClobClient()
+        markets = client.get_markets(active_only=True)
+        assert len(markets) == 1
+        assert markets[0].condition_id == "0x1"
+
+    def test_get_markets_includes_closed(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test that closed markets are included when active_only=False."""
+        fake_base_client.simplified_markets_pages = [
+            {
+                "data": [
+                    {"condition_id": "0x1", "closed": False},
+                    {"condition_id": "0x2", "closed": True},
+                ],
+                "next_cursor": "LTE=",
+            }
+        ]
+        client = ClobClient()
+        markets = client.get_markets(active_only=False)
+        assert len(markets) == 2
+
+    def test_get_markets_pagination(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test that pagination is handled correctly."""
+        fake_base_client.simplified_markets_pages = [
+            {
+                "data": [{"condition_id": "0x1"}],
+                "next_cursor": "cursor2",
+            },
+            {
+                "data": [{"condition_id": "0x2"}],
+                "next_cursor": "LTE=",
+            },
+        ]
+        client = ClobClient()
+        markets = client.get_markets()
+        assert len(markets) == 2
+        assert fake_base_client.call_count_simplified == 2
+
+    def test_get_market(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test fetching a single market."""
+        _ = fake_base_client
         client = ClobClient()
         market = client.get_market("0xabc")
-
         assert isinstance(market, Market)
         assert market.condition_id == "0xabc"
         assert len(market.tokens) == 2
 
-    def test_get_market_not_found(self, mock_base_client: MagicMock) -> None:
-        """Test error handling when market not found.
-
-        When the underlying API call fails, the @with_retry decorator will
-        retry the operation. After all retries are exhausted, it raises
-        RetryError wrapping the original exception.
-        """
-        mock_base_client.get_market.configure_mock(side_effect=Exception("Not found"))
-
+    def test_get_market_not_found(self, fake_base_client: FakeBaseClobClient) -> None:
+        """Test error handling when market not found."""
+        fake_base_client.fail_market = True
         client = ClobClient()
-
         with pytest.raises(RetryError) as exc_info:
             client.get_market("0xnotfound")
-
-        # The RetryError wraps the original exception
         assert "get_market" in str(exc_info.value)
         assert exc_info.value.last_exception is not None
 
-    def test_get_orderbook(self, mock_base_client: MagicMock) -> None:
+    def test_get_orderbook(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test fetching an orderbook."""
-        mock_bid = MagicMock()
-        mock_bid.price = "0.50"
-        mock_bid.size = "100"
-
-        mock_ask = MagicMock()
-        mock_ask.price = "0.52"
-        mock_ask.size = "150"
-
-        mock_orderbook = MagicMock()
-        mock_orderbook.market = "0xmarket"
-        mock_orderbook.asset_id = "token123"
-        mock_orderbook.tick_size = "0.01"
-        mock_orderbook.bids = [mock_bid]
-        mock_orderbook.asks = [mock_ask]
-
-        mock_base_client.get_order_book.return_value = mock_orderbook
-
+        _ = fake_base_client
         client = ClobClient()
         orderbook = client.get_orderbook("token123")
-
         assert isinstance(orderbook, Orderbook)
         assert orderbook.asset_id == "token123"
         assert len(orderbook.bids) == 1
         assert len(orderbook.asks) == 1
 
-    def test_get_orderbooks(self, mock_base_client: MagicMock) -> None:
+    def test_get_orderbooks(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test fetching multiple orderbooks."""
-        mock_ob1 = MagicMock()
-        mock_ob1.market = "m1"
-        mock_ob1.asset_id = "t1"
-        mock_ob1.tick_size = "0.01"
-        mock_ob1.bids = []
-        mock_ob1.asks = []
-
-        mock_ob2 = MagicMock()
-        mock_ob2.market = "m2"
-        mock_ob2.asset_id = "t2"
-        mock_ob2.tick_size = "0.01"
-        mock_ob2.bids = []
-        mock_ob2.asks = []
-
-        mock_base_client.get_order_books.return_value = [mock_ob1, mock_ob2]
-
+        _ = fake_base_client
         client = ClobClient()
         orderbooks = client.get_orderbooks(["t1", "t2"])
-
         assert len(orderbooks) == 2
         assert all(isinstance(ob, Orderbook) for ob in orderbooks)
 
-    def test_get_midpoint(self, mock_base_client: MagicMock) -> None:
+    def test_get_midpoint(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test fetching midpoint price."""
-        mock_base_client.get_midpoint.return_value = {"mid": "0.55"}
-
+        _ = fake_base_client
         client = ClobClient()
         result = client.get_midpoint("token123")
-
         assert result == "0.55"
 
-    def test_get_midpoint_error(self, mock_base_client: MagicMock) -> None:
+    def test_get_midpoint_error(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test midpoint returns None on error."""
-        mock_base_client.get_midpoint.configure_mock(side_effect=Exception("API error"))
-
+        fake_base_client.fail_midpoint = True
         client = ClobClient()
         result = client.get_midpoint("token123")
-
         assert result is None
 
-    def test_get_price_buy(self, mock_base_client: MagicMock) -> None:
+    def test_get_price_buy(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test fetching buy price."""
-        mock_base_client.get_price.return_value = {"price": "0.53"}
-
+        _ = fake_base_client
         client = ClobClient()
         result = client.get_price("token123", side="BUY")
-
         assert result == "0.53"
-        mock_base_client.get_price.assert_called_with("token123", side="BUY")
 
-    def test_get_price_sell(self, mock_base_client: MagicMock) -> None:
+    def test_get_price_sell(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test fetching sell price."""
-        mock_base_client.get_price.return_value = {"price": "0.51"}
-
+        _ = fake_base_client
         client = ClobClient()
         result = client.get_price("token123", side="SELL")
-
         assert result == "0.51"
-        mock_base_client.get_price.assert_called_with("token123", side="SELL")

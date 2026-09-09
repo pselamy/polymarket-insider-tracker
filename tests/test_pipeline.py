@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,52 +14,26 @@ from polymarket_insider_tracker.detector.scorer import SignalBundle
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.profiler.models import WalletProfile
+from tests.fakes.pipeline import (
+    ErrorDetector,
+    FakeAlertDispatcher,
+    FakeAlertFormatter,
+    FakeFreshWalletDetector,
+    FakeRiskScorer,
+    FakeSizeAnomalyDetector,
+    SlowDetector,
+    make_test_settings,
+)
 
 
 @pytest.fixture
-def mock_settings():
-    """Create mock settings for testing."""
-    # Create nested mock objects
-    redis = MagicMock()
-    redis.url = "redis://localhost:6379"
-
-    database = MagicMock()
-    database.url = "postgresql+asyncpg://user:pass@localhost/db"
-
-    polygon = MagicMock()
-    polygon.rpc_url = "https://polygon-rpc.com"
-    polygon.fallback_rpc_url = None
-
-    polymarket = MagicMock()
-    polymarket.ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
-    polymarket.api_key = None
-
-    discord = MagicMock()
-    discord.enabled = False
-    discord.webhook_url = None
-
-    telegram = MagicMock()
-    telegram.enabled = False
-    telegram.bot_token = None
-    telegram.chat_id = None
-
-    detector = MagicMock()
-    detector.persist_assessments = False
-
-    settings = MagicMock(spec=Settings)
-    settings.redis = redis
-    settings.database = database
-    settings.polygon = polygon
-    settings.polymarket = polymarket
-    settings.discord = discord
-    settings.telegram = telegram
-    settings.detector = detector
-    settings.dry_run = True
-    return settings
+def test_settings() -> Settings:
+    """Create concrete test settings."""
+    return make_test_settings()
 
 
 @pytest.fixture
-def sample_trade_event():
+def sample_trade_event() -> TradeEvent:
     """Create a sample trade event for testing."""
     return TradeEvent(
         trade_id="0x" + "a" * 64,
@@ -79,7 +52,7 @@ def sample_trade_event():
 
 
 @pytest.fixture
-def sample_wallet_profile():
+def sample_wallet_profile() -> WalletProfile:
     """Create a sample wallet profile for testing."""
     return WalletProfile(
         address="0x" + "b" * 40,
@@ -97,14 +70,14 @@ def sample_wallet_profile():
 class TestPipelineState:
     """Tests for pipeline state management."""
 
-    def test_initial_state_is_stopped(self, mock_settings):
+    def test_initial_state_is_stopped(self, test_settings: Settings) -> None:
         """Pipeline should start in stopped state."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
         assert pipeline.state == PipelineState.STOPPED
 
-    def test_is_running_property(self, mock_settings):
+    def test_is_running_property(self, test_settings: Settings) -> None:
         """is_running property should reflect state."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
         assert not pipeline.is_running
 
         pipeline._state = PipelineState.RUNNING
@@ -114,9 +87,9 @@ class TestPipelineState:
 class TestPipelineStats:
     """Tests for pipeline statistics."""
 
-    def test_initial_stats(self, mock_settings):
+    def test_initial_stats(self, test_settings: Settings) -> None:
         """Pipeline should have zero stats initially."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
         stats = pipeline.stats
 
         assert stats.started_at is None
@@ -129,84 +102,84 @@ class TestPipelineStats:
 class TestPipelineInitialization:
     """Tests for pipeline initialization."""
 
-    def test_dry_run_from_settings(self, mock_settings):
+    def test_dry_run_from_settings(self) -> None:
         """Pipeline should use dry_run from settings by default."""
-        mock_settings.dry_run = True
-        pipeline = Pipeline(mock_settings)
-        assert pipeline._dry_run is True
+        settings_true = make_test_settings(dry_run=True)
+        pipeline_true = Pipeline(settings_true)
+        assert pipeline_true._dry_run is True
 
-        mock_settings.dry_run = False
-        pipeline = Pipeline(mock_settings)
-        assert pipeline._dry_run is False
+        settings_false = make_test_settings(dry_run=False)
+        pipeline_false = Pipeline(settings_false)
+        assert pipeline_false._dry_run is False
 
-    def test_dry_run_override(self, mock_settings):
+    def test_dry_run_override(self) -> None:
         """Pipeline should allow overriding dry_run."""
-        mock_settings.dry_run = False
-        pipeline = Pipeline(mock_settings, dry_run=True)
+        settings = make_test_settings(dry_run=False)
+        pipeline = Pipeline(settings, dry_run=True)
         assert pipeline._dry_run is True
 
-    def test_uses_get_settings_when_none_provided(self):
+    def test_uses_get_settings_when_none_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Pipeline should call get_settings if no settings provided."""
-        with patch("polymarket_insider_tracker.pipeline.get_settings") as mock_get:
-            mock_get.return_value = MagicMock(spec=Settings)
-            mock_get.return_value.dry_run = False
-            Pipeline()
-            mock_get.assert_called_once()
+        test_s = make_test_settings(dry_run=False)
+        called = False
+
+        def fake_get_settings() -> Settings:
+            nonlocal called
+            called = True
+            return test_s
+
+        monkeypatch.setattr("polymarket_insider_tracker.pipeline.get_settings", fake_get_settings)
+        pipeline = Pipeline()
+        assert called is True
+        assert pipeline._settings is test_s
 
 
 class TestBuildAlertChannels:
     """Tests for alert channel building."""
 
-    def test_no_channels_when_none_enabled(self, mock_settings):
+    def test_no_channels_when_none_enabled(self) -> None:
         """Should return empty list when no channels enabled."""
-        mock_settings.discord.enabled = False
-        mock_settings.telegram.enabled = False
-
-        pipeline = Pipeline(mock_settings)
+        settings = make_test_settings(discord_enabled=False, telegram_enabled=False)
+        pipeline = Pipeline(settings)
         channels = pipeline._build_alert_channels()
 
         assert channels == []
 
-    def test_discord_channel_when_enabled(self, mock_settings):
+    def test_discord_channel_when_enabled(self) -> None:
         """Should add Discord channel when enabled."""
-        mock_settings.discord.enabled = True
-        mock_settings.discord.webhook_url = MagicMock()
-        mock_settings.discord.webhook_url.get_secret_value.return_value = (
-            "https://discord.com/webhook"
+        settings = make_test_settings(
+            discord_enabled=True,
+            discord_webhook_url="https://discord.com/webhook",
         )
-
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(settings)
         channels = pipeline._build_alert_channels()
 
         assert len(channels) == 1
         assert channels[0].name == "discord"
 
-    def test_telegram_channel_when_enabled(self, mock_settings):
+    def test_telegram_channel_when_enabled(self) -> None:
         """Should add Telegram channel when enabled."""
-        mock_settings.telegram.enabled = True
-        mock_settings.telegram.bot_token = MagicMock()
-        mock_settings.telegram.bot_token.get_secret_value.return_value = "bot_token"
-        mock_settings.telegram.chat_id = "chat_123"
-
-        pipeline = Pipeline(mock_settings)
+        settings = make_test_settings(
+            telegram_enabled=True,
+            telegram_bot_token="bot_token",
+            telegram_chat_id="chat_123",
+        )
+        pipeline = Pipeline(settings)
         channels = pipeline._build_alert_channels()
 
         assert len(channels) == 1
         assert channels[0].name == "telegram"
 
-    def test_both_channels_when_both_enabled(self, mock_settings):
+    def test_both_channels_when_both_enabled(self) -> None:
         """Should add both channels when both enabled."""
-        mock_settings.discord.enabled = True
-        mock_settings.discord.webhook_url = MagicMock()
-        mock_settings.discord.webhook_url.get_secret_value.return_value = (
-            "https://discord.com/webhook"
+        settings = make_test_settings(
+            discord_enabled=True,
+            discord_webhook_url="https://discord.com/webhook",
+            telegram_enabled=True,
+            telegram_bot_token="bot_token",
+            telegram_chat_id="chat_123",
         )
-        mock_settings.telegram.enabled = True
-        mock_settings.telegram.bot_token = MagicMock()
-        mock_settings.telegram.bot_token.get_secret_value.return_value = "bot_token"
-        mock_settings.telegram.chat_id = "chat_123"
-
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(settings)
         channels = pipeline._build_alert_channels()
 
         assert len(channels) == 2
@@ -216,11 +189,13 @@ class TestOnTrade:
     """Tests for trade event processing."""
 
     @pytest.mark.asyncio
-    async def test_on_trade_increments_stats(self, mock_settings, sample_trade_event):
+    async def test_on_trade_increments_stats(
+        self, test_settings: Settings, sample_trade_event: TradeEvent
+    ) -> None:
         """Processing a trade should increment stats."""
-        pipeline = Pipeline(mock_settings)
-        pipeline._fresh_wallet_detector = AsyncMock(return_value=None)
-        pipeline._size_anomaly_detector = AsyncMock(return_value=None)
+        pipeline = Pipeline(test_settings)
+        pipeline._fresh_wallet_detector = FakeFreshWalletDetector(None)  # type: ignore[assignment]
+        pipeline._size_anomaly_detector = FakeSizeAnomalyDetector(None)  # type: ignore[assignment]
 
         await pipeline._on_trade(sample_trade_event)
 
@@ -228,19 +203,13 @@ class TestOnTrade:
         assert pipeline.stats.last_trade_time is not None
 
     @pytest.mark.asyncio
-    async def test_on_trade_runs_detectors_in_parallel(self, mock_settings, sample_trade_event):
+    async def test_on_trade_runs_detectors_in_parallel(
+        self, test_settings: Settings, sample_trade_event: TradeEvent
+    ) -> None:
         """Detectors should run in parallel."""
-        pipeline = Pipeline(mock_settings)
-        pipeline._fresh_wallet_detector = AsyncMock()
-        pipeline._size_anomaly_detector = AsyncMock()
-
-        # Make detectors take some time
-        async def slow_detect(*_args):
-            await asyncio.sleep(0.1)
-            return None
-
-        pipeline._fresh_wallet_detector.analyze = slow_detect
-        pipeline._size_anomaly_detector.analyze = slow_detect
+        pipeline = Pipeline(test_settings)
+        pipeline._fresh_wallet_detector = SlowDetector(delay=0.1)  # type: ignore[assignment]
+        pipeline._size_anomaly_detector = SlowDetector(delay=0.1)  # type: ignore[assignment]
 
         start = asyncio.get_event_loop().time()
         await pipeline._on_trade(sample_trade_event)
@@ -250,13 +219,13 @@ class TestOnTrade:
         assert elapsed < 0.15
 
     @pytest.mark.asyncio
-    async def test_on_trade_handles_detector_errors(self, mock_settings, sample_trade_event):
+    async def test_on_trade_handles_detector_errors(
+        self, test_settings: Settings, sample_trade_event: TradeEvent
+    ) -> None:
         """Should handle detector errors gracefully."""
-        pipeline = Pipeline(mock_settings)
-        pipeline._fresh_wallet_detector = MagicMock()
-        pipeline._fresh_wallet_detector.analyze = AsyncMock(side_effect=Exception("Detector error"))
-        pipeline._size_anomaly_detector = MagicMock()
-        pipeline._size_anomaly_detector.analyze = AsyncMock(return_value=None)
+        pipeline = Pipeline(test_settings)
+        pipeline._fresh_wallet_detector = ErrorDetector(Exception("Detector error"))  # type: ignore[assignment]
+        pipeline._size_anomaly_detector = FakeSizeAnomalyDetector(None)  # type: ignore[assignment]
 
         # Should not raise
         await pipeline._on_trade(sample_trade_event)
@@ -266,12 +235,14 @@ class TestOnTrade:
 
     @pytest.mark.asyncio
     async def test_on_trade_calls_score_and_alert_when_signals(
-        self, mock_settings, sample_trade_event, sample_wallet_profile
-    ):
+        self,
+        test_settings: Settings,
+        sample_trade_event: TradeEvent,
+        sample_wallet_profile: WalletProfile,
+    ) -> None:
         """Should call score_and_alert when signals are detected."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
 
-        # Create a signal
         fresh_signal = FreshWalletSignal(
             trade_event=sample_trade_event,
             wallet_profile=sample_wallet_profile,
@@ -279,20 +250,20 @@ class TestOnTrade:
             factors={"base": 0.5, "brand_new": 0.2},
         )
 
-        pipeline._fresh_wallet_detector = MagicMock()
-        pipeline._fresh_wallet_detector.analyze = AsyncMock(return_value=fresh_signal)
-        pipeline._size_anomaly_detector = MagicMock()
-        pipeline._size_anomaly_detector.analyze = AsyncMock(return_value=None)
+        pipeline._fresh_wallet_detector = FakeFreshWalletDetector(fresh_signal)  # type: ignore[assignment]
+        pipeline._size_anomaly_detector = FakeSizeAnomalyDetector(None)  # type: ignore[assignment]
 
-        # Mock score_and_alert
-        pipeline._score_and_alert = AsyncMock()
+        recorded_bundles: list[SignalBundle] = []
+
+        async def fake_score_and_alert(bundle: SignalBundle) -> None:
+            recorded_bundles.append(bundle)
+
+        pipeline._score_and_alert = fake_score_and_alert  # type: ignore[method-assign]
 
         await pipeline._on_trade(sample_trade_event)
 
-        # Should call score_and_alert with the bundle
-        pipeline._score_and_alert.assert_called_once()
-        bundle = pipeline._score_and_alert.call_args[0][0]
-        assert bundle.fresh_wallet_signal == fresh_signal
+        assert len(recorded_bundles) == 1
+        assert recorded_bundles[0].fresh_wallet_signal == fresh_signal
         assert pipeline.stats.signals_generated == 1
 
 
@@ -301,24 +272,18 @@ class TestScoreAndAlert:
 
     @pytest.mark.asyncio
     async def test_dry_run_skips_dispatch(
-        self, mock_settings, sample_trade_event, sample_wallet_profile
-    ):
+        self,
+        sample_trade_event: TradeEvent,
+        sample_wallet_profile: WalletProfile,
+    ) -> None:
         """Dry run should skip actual alert dispatch."""
-        mock_settings.dry_run = True
-        pipeline = Pipeline(mock_settings)
+        settings = make_test_settings(dry_run=True)
+        pipeline = Pipeline(settings)
 
-        # Create mock components
-        pipeline._risk_scorer = MagicMock()
-        pipeline._risk_scorer.assess = AsyncMock(
-            return_value=MagicMock(
-                should_alert=True,
-                wallet_address="0x" + "b" * 40,
-                weighted_score=0.85,
-            )
-        )
-        pipeline._alert_formatter = MagicMock()
-        pipeline._alert_dispatcher = MagicMock()
-        pipeline._alert_dispatcher.dispatch = AsyncMock()
+        pipeline._risk_scorer = FakeRiskScorer(should_alert=True, weighted_score=0.85)  # type: ignore[assignment]
+        pipeline._alert_formatter = FakeAlertFormatter()  # type: ignore[assignment]
+        dispatcher = FakeAlertDispatcher()
+        pipeline._alert_dispatcher = dispatcher  # type: ignore[assignment]
 
         bundle = SignalBundle(
             trade_event=sample_trade_event,
@@ -333,48 +298,45 @@ class TestScoreAndAlert:
         await pipeline._score_and_alert(bundle)
 
         # Dispatcher should NOT be called in dry run
-        pipeline._alert_dispatcher.dispatch.assert_not_called()
+        assert len(dispatcher.dispatched) == 0
 
     @pytest.mark.asyncio
-    async def test_no_alert_when_below_threshold(self, mock_settings, sample_trade_event):
+    async def test_no_alert_when_below_threshold(
+        self, test_settings: Settings, sample_trade_event: TradeEvent
+    ) -> None:
         """Should not alert when below threshold."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
 
-        # Create mock components
-        pipeline._risk_scorer = MagicMock()
-        pipeline._risk_scorer.assess = AsyncMock(
-            return_value=MagicMock(
-                should_alert=False,
-                weighted_score=0.4,
-            )
-        )
-        pipeline._alert_formatter = MagicMock()
-        pipeline._alert_dispatcher = MagicMock()
+        pipeline._risk_scorer = FakeRiskScorer(should_alert=False, weighted_score=0.4)  # type: ignore[assignment]
+        formatter = FakeAlertFormatter()
+        pipeline._alert_formatter = formatter  # type: ignore[assignment]
+        dispatcher = FakeAlertDispatcher()
+        pipeline._alert_dispatcher = dispatcher  # type: ignore[assignment]
 
         bundle = SignalBundle(trade_event=sample_trade_event)
 
         await pipeline._score_and_alert(bundle)
 
         # Formatter should NOT be called
-        pipeline._alert_formatter.format.assert_not_called()
+        assert len(formatter.calls) == 0
 
 
 class TestPipelineLifecycle:
     """Tests for pipeline lifecycle methods."""
 
     @pytest.mark.asyncio
-    async def test_cannot_start_when_not_stopped(self, mock_settings):
+    async def test_cannot_start_when_not_stopped(self, test_settings: Settings) -> None:
         """Should raise error when starting non-stopped pipeline."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
         pipeline._state = PipelineState.RUNNING
 
         with pytest.raises(RuntimeError, match="Cannot start pipeline"):
             await pipeline.start()
 
     @pytest.mark.asyncio
-    async def test_stop_when_already_stopped(self, mock_settings):
+    async def test_stop_when_already_stopped(self, test_settings: Settings) -> None:
         """Stop should be no-op when already stopped."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
         assert pipeline.state == PipelineState.STOPPED
 
         # Should not raise
@@ -386,13 +348,25 @@ class TestPipelineContextManager:
     """Tests for async context manager."""
 
     @pytest.mark.asyncio
-    async def test_context_manager_calls_start_and_stop(self, mock_settings):
+    async def test_context_manager_calls_start_and_stop(self, test_settings: Settings) -> None:
         """Context manager should call start and stop."""
-        pipeline = Pipeline(mock_settings)
-        pipeline.start = AsyncMock()
-        pipeline.stop = AsyncMock()
+        pipeline = Pipeline(test_settings)
+        started = False
+        stopped = False
+
+        async def fake_start() -> None:
+            nonlocal started
+            started = True
+
+        async def fake_stop() -> None:
+            nonlocal stopped
+            stopped = True
+
+        pipeline.start = fake_start  # type: ignore[method-assign]
+        pipeline.stop = fake_stop  # type: ignore[method-assign]
 
         async with pipeline:
-            pipeline.start.assert_called_once()
+            assert started is True
+            assert stopped is False
 
-        pipeline.stop.assert_called_once()
+        assert stopped is True

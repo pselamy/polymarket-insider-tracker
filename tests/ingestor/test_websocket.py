@@ -1,9 +1,11 @@
 """Tests for WebSocket trade stream handler."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
+from typing import Any, cast
 
 import pytest
 
@@ -13,6 +15,56 @@ from polymarket_insider_tracker.ingestor.websocket import (
     StreamStats,
     TradeStreamHandler,
 )
+
+
+class RecordingTradeCallback:
+    """Fake callback for trade events."""
+
+    def __init__(self, raise_error: Exception | None = None) -> None:
+        self.trades: list[TradeEvent] = []
+        self.called: bool = False
+        self._raise_error = raise_error
+
+    async def __call__(self, trade: TradeEvent) -> None:
+        self.called = True
+        self.trades.append(trade)
+        if self._raise_error is not None:
+            raise self._raise_error
+
+
+class RecordingStateCallback:
+    """Fake callback for connection state changes."""
+
+    def __init__(self) -> None:
+        self.states: list[ConnectionState] = []
+        self.called: bool = False
+
+    async def __call__(self, state: ConnectionState) -> None:
+        self.called = True
+        self.states.append(state)
+
+
+class FakeWebSocket:
+    """Fake WebSocket connection recording sent messages and yielding stream messages."""
+
+    def __init__(self, messages: list[str] | None = None) -> None:
+        self.messages = list(messages or [])
+        self.sent_messages: list[str] = []
+        self.closed: bool = False
+
+    async def send(self, message: str) -> None:
+        self.sent_messages.append(message)
+
+    async def close(self) -> None:
+        self.closed = True
+
+    def __aiter__(self) -> FakeWebSocket:
+        return self
+
+    async def __anext__(self) -> str:
+        if self.closed or not self.messages:
+            raise StopAsyncIteration
+        return self.messages.pop(0)
 
 
 class TestStreamStats:
@@ -33,48 +85,50 @@ class TestTradeStreamHandler:
     """Tests for TradeStreamHandler."""
 
     @pytest.fixture
-    def on_trade_mock(self) -> AsyncMock:
-        """Create mock trade callback."""
-        return AsyncMock()
+    def on_trade_recorder(self) -> RecordingTradeCallback:
+        """Create trade callback recorder."""
+        return RecordingTradeCallback()
 
     @pytest.fixture
-    def on_state_change_mock(self) -> AsyncMock:
-        """Create mock state change callback."""
-        return AsyncMock()
+    def on_state_recorder(self) -> RecordingStateCallback:
+        """Create state change callback recorder."""
+        return RecordingStateCallback()
 
     @pytest.fixture
     def handler(
-        self, on_trade_mock: AsyncMock, on_state_change_mock: AsyncMock
+        self,
+        on_trade_recorder: RecordingTradeCallback,
+        on_state_recorder: RecordingStateCallback,
     ) -> TradeStreamHandler:
-        """Create handler with mocks."""
+        """Create handler with recorders."""
         return TradeStreamHandler(
-            on_trade=on_trade_mock,
-            on_state_change=on_state_change_mock,
-            initial_reconnect_delay=0.01,  # Fast reconnect for tests
+            on_trade=on_trade_recorder,
+            on_state_change=on_state_recorder,
+            initial_reconnect_delay=0.01,
             max_reconnect_delay=0.1,
         )
 
-    def test_init_defaults(self, on_trade_mock: AsyncMock) -> None:
+    def test_init_defaults(self, on_trade_recorder: RecordingTradeCallback) -> None:
         """Test handler initialization with defaults."""
-        handler = TradeStreamHandler(on_trade=on_trade_mock)
+        handler = TradeStreamHandler(on_trade=on_trade_recorder)
 
         assert handler.state == ConnectionState.DISCONNECTED
         assert handler.stats.trades_received == 0
         assert handler._host == "wss://ws-live-data.polymarket.com"
 
-    def test_init_custom_host(self, on_trade_mock: AsyncMock) -> None:
+    def test_init_custom_host(self, on_trade_recorder: RecordingTradeCallback) -> None:
         """Test handler with custom host."""
         handler = TradeStreamHandler(
-            on_trade=on_trade_mock,
+            on_trade=on_trade_recorder,
             host="wss://custom.example.com",
         )
 
         assert handler._host == "wss://custom.example.com"
 
-    def test_init_with_event_filter(self, on_trade_mock: AsyncMock) -> None:
+    def test_init_with_event_filter(self, on_trade_recorder: RecordingTradeCallback) -> None:
         """Test handler with event filter."""
         handler = TradeStreamHandler(
-            on_trade=on_trade_mock,
+            on_trade=on_trade_recorder,
             event_filter="presidential-election-2024",
         )
 
@@ -89,20 +143,24 @@ class TestTradeStreamHandler:
             "subscriptions": [{"topic": "activity", "type": "trades"}],
         }
 
-    def test_build_subscription_message_with_event_filter(self, on_trade_mock: AsyncMock) -> None:
+    def test_build_subscription_message_with_event_filter(
+        self, on_trade_recorder: RecordingTradeCallback
+    ) -> None:
         """Test building subscription message with event filter."""
         handler = TradeStreamHandler(
-            on_trade=on_trade_mock,
+            on_trade=on_trade_recorder,
             event_filter="test-event",
         )
         msg = handler._build_subscription_message()
 
         assert msg["subscriptions"][0]["filters"] == json.dumps({"event_slug": "test-event"})
 
-    def test_build_subscription_message_with_market_filter(self, on_trade_mock: AsyncMock) -> None:
+    def test_build_subscription_message_with_market_filter(
+        self, on_trade_recorder: RecordingTradeCallback
+    ) -> None:
         """Test building subscription message with market filter."""
         handler = TradeStreamHandler(
-            on_trade=on_trade_mock,
+            on_trade=on_trade_recorder,
             market_filter="test-market",
         )
         msg = handler._build_subscription_message()
@@ -111,7 +169,7 @@ class TestTradeStreamHandler:
 
     @pytest.mark.asyncio
     async def test_handle_message_trade(
-        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
+        self, handler: TradeStreamHandler, on_trade_recorder: RecordingTradeCallback
     ) -> None:
         """Test handling a valid trade message (payload-based routing)."""
         message = json.dumps(
@@ -133,8 +191,9 @@ class TestTradeStreamHandler:
 
         await handler._handle_message(message)
 
-        on_trade_mock.assert_called_once()
-        trade: TradeEvent = on_trade_mock.call_args[0][0]
+        assert on_trade_recorder.called
+        assert len(on_trade_recorder.trades) == 1
+        trade: TradeEvent = on_trade_recorder.trades[0]
         assert trade.market_id == "0xmarket"
         assert trade.side == "BUY"
         assert trade.price == Decimal("0.65")
@@ -142,7 +201,7 @@ class TestTradeStreamHandler:
 
     @pytest.mark.asyncio
     async def test_handle_message_non_trade(
-        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
+        self, handler: TradeStreamHandler, on_trade_recorder: RecordingTradeCallback
     ) -> None:
         """Test handling a non-trade message (no transactionHash/proxyWallet)."""
         message = json.dumps(
@@ -154,12 +213,12 @@ class TestTradeStreamHandler:
 
         await handler._handle_message(message)
 
-        on_trade_mock.assert_not_called()
+        assert not on_trade_recorder.called
         assert handler.stats.trades_received == 0
 
     @pytest.mark.asyncio
     async def test_handle_message_payload_missing_proxy_wallet(
-        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
+        self, handler: TradeStreamHandler, on_trade_recorder: RecordingTradeCallback
     ) -> None:
         """Ratchet: payload with transactionHash but no proxyWallet is not a trade."""
         message = json.dumps(
@@ -171,37 +230,36 @@ class TestTradeStreamHandler:
 
         await handler._handle_message(message)
 
-        on_trade_mock.assert_not_called()
+        assert not on_trade_recorder.called
         assert handler.stats.trades_received == 0
 
     @pytest.mark.asyncio
     async def test_handle_message_no_payload_key(
-        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
+        self, handler: TradeStreamHandler, on_trade_recorder: RecordingTradeCallback
     ) -> None:
         """Ratchet: message without payload key is ignored."""
         message = json.dumps({"connection_id": "abc", "status": "ok"})
 
         await handler._handle_message(message)
 
-        on_trade_mock.assert_not_called()
+        assert not on_trade_recorder.called
         assert handler.stats.trades_received == 0
 
     @pytest.mark.asyncio
     async def test_handle_message_invalid_json(
-        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
+        self, handler: TradeStreamHandler, on_trade_recorder: RecordingTradeCallback
     ) -> None:
         """Test handling invalid JSON message."""
         await handler._handle_message("not valid json")
 
-        on_trade_mock.assert_not_called()
+        assert not on_trade_recorder.called
         assert handler.stats.trades_received == 0
 
     @pytest.mark.asyncio
-    async def test_handle_message_callback_error(
-        self, handler: TradeStreamHandler, on_trade_mock: AsyncMock
-    ) -> None:
+    async def test_handle_message_callback_error(self) -> None:
         """Test that callback errors don't crash the handler."""
-        on_trade_mock.configure_mock(side_effect=ValueError("Callback error"))
+        recorder = RecordingTradeCallback(raise_error=ValueError("Callback error"))
+        handler = TradeStreamHandler(on_trade=recorder)
 
         message = json.dumps(
             {
@@ -221,28 +279,30 @@ class TestTradeStreamHandler:
         await handler._handle_message(message)
 
         # Trade was still counted
+        assert recorder.called
         assert handler.stats.trades_received == 1
 
     @pytest.mark.asyncio
     async def test_set_state_calls_callback(
-        self, handler: TradeStreamHandler, on_state_change_mock: AsyncMock
+        self, handler: TradeStreamHandler, on_state_recorder: RecordingStateCallback
     ) -> None:
         """Test that state changes trigger callback."""
         await handler._set_state(ConnectionState.CONNECTING)
 
-        on_state_change_mock.assert_called_once_with(ConnectionState.CONNECTING)
+        assert on_state_recorder.called
+        assert on_state_recorder.states == [ConnectionState.CONNECTING]
         assert handler.state == ConnectionState.CONNECTING
 
     @pytest.mark.asyncio
     async def test_set_state_same_state_no_callback(
-        self, handler: TradeStreamHandler, on_state_change_mock: AsyncMock
+        self, handler: TradeStreamHandler, on_state_recorder: RecordingStateCallback
     ) -> None:
         """Test that same state doesn't trigger callback."""
         handler._state = ConnectionState.CONNECTED
 
         await handler._set_state(ConnectionState.CONNECTED)
 
-        on_state_change_mock.assert_not_called()
+        assert not on_state_recorder.called
 
     @pytest.mark.asyncio
     async def test_stop_when_not_running(self, handler: TradeStreamHandler) -> None:
@@ -254,60 +314,71 @@ class TestTradeStreamHandler:
     async def test_connect_sends_subscription(
         self,
         handler: TradeStreamHandler,
-        on_state_change_mock: AsyncMock,  # noqa: ARG002
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test that connection sends subscription message."""
-        mock_ws = AsyncMock()
-        mock_ws.send = AsyncMock()
+        fake_ws = FakeWebSocket()
 
-        with patch(
+        async def fake_ws_connect(*_args: Any, **_kwargs: Any) -> FakeWebSocket:
+            return fake_ws
+
+        monkeypatch.setattr(
             "polymarket_insider_tracker.ingestor.websocket.ws_connect",
-            AsyncMock(return_value=mock_ws),
-        ):
-            ws = await handler._connect()
+            fake_ws_connect,
+        )
 
-            assert ws is mock_ws
-            mock_ws.send.assert_called_once()
+        ws = await handler._connect()
 
-            # Verify subscription message includes action: subscribe
-            sent_msg = json.loads(mock_ws.send.call_args[0][0])
-            assert sent_msg["action"] == "subscribe"
-            assert "subscriptions" in sent_msg
-            assert sent_msg["subscriptions"][0]["topic"] == "activity"
-            assert sent_msg["subscriptions"][0]["type"] == "trades"
+        assert ws is fake_ws
+        assert len(fake_ws.sent_messages) == 1
+
+        # Verify subscription message includes action: subscribe
+        sent_msg = json.loads(fake_ws.sent_messages[0])
+        assert sent_msg["action"] == "subscribe"
+        assert "subscriptions" in sent_msg
+        assert sent_msg["subscriptions"][0]["topic"] == "activity"
+        assert sent_msg["subscriptions"][0]["type"] == "trades"
 
     @pytest.mark.asyncio
     async def test_running_reconnect_returns_with_a_live_connection(
-        self, handler: TradeStreamHandler
+        self, handler: TradeStreamHandler, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A reconnect that leaves the handler running must assign its connection."""
-        mock_ws = AsyncMock()
-        handler._running = True
-        handler._connect = AsyncMock(return_value=mock_ws)
+        fake_ws = FakeWebSocket()
 
-        with patch("polymarket_insider_tracker.ingestor.websocket.asyncio.sleep", AsyncMock()):
-            await handler._reconnect_loop()
+        async def fake_connect() -> FakeWebSocket:
+            return fake_ws
+
+        async def fake_sleep(_delay: float) -> None:
+            pass
+
+        handler._running = True
+        monkeypatch.setattr(handler, "_connect", fake_connect)
+        monkeypatch.setattr(
+            "polymarket_insider_tracker.ingestor.websocket.asyncio.sleep", fake_sleep
+        )
+
+        await handler._reconnect_loop()
 
         assert handler._running is True
-        assert handler._ws is mock_ws
+        assert handler._ws is fake_ws
 
     @pytest.mark.asyncio
     async def test_cleanup_closes_websocket(self, handler: TradeStreamHandler) -> None:
         """Test that cleanup closes the WebSocket."""
-        mock_ws = AsyncMock()
-        mock_ws.close = AsyncMock()
-        handler._ws = mock_ws
+        fake_ws = FakeWebSocket()
+        handler._ws = cast(Any, fake_ws)
 
         await handler._cleanup()
 
-        mock_ws.close.assert_called_once()
+        assert fake_ws.closed is True
         assert handler._ws is None
         assert handler.state == ConnectionState.DISCONNECTED
 
     @pytest.mark.asyncio
-    async def test_context_manager(self, on_trade_mock: AsyncMock) -> None:
+    async def test_context_manager(self, on_trade_recorder: RecordingTradeCallback) -> None:
         """Test async context manager."""
-        handler = TradeStreamHandler(on_trade=on_trade_mock)
+        handler = TradeStreamHandler(on_trade=on_trade_recorder)
 
         async with handler:
             pass
@@ -317,13 +388,10 @@ class TestTradeStreamHandler:
 
 
 class TestTradeStreamHandlerIntegration:
-    """Integration tests for TradeStreamHandler.
-
-    These tests verify the full message flow with mocked WebSocket.
-    """
+    """Integration tests for TradeStreamHandler."""
 
     @pytest.mark.asyncio
-    async def test_start_and_receive_trades(self) -> None:
+    async def test_start_and_receive_trades(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test starting handler and receiving trades."""
         received_trades: list[TradeEvent] = []
 
@@ -352,43 +420,34 @@ class TestTradeStreamHandlerIntegration:
             }
         )
 
-        # Create a proper async iterable mock WebSocket
-        class MockWebSocket:
-            """Mock WebSocket that yields one message then stops."""
+        class StoppingFakeWebSocket(FakeWebSocket):
+            """Fake WebSocket that yields one message then stops handler."""
 
-            def __init__(self, handler: TradeStreamHandler, message: str):
-                self.handler = handler
-                self.message = message
-                self.sent = False
-
-            async def send(self, _msg: str) -> None:
-                pass
-
-            async def close(self) -> None:
-                pass
-
-            def __aiter__(self):
-                return self
+            def __init__(self, target_handler: TradeStreamHandler, msg: str) -> None:
+                super().__init__([msg])
+                self._handler = target_handler
 
             async def __anext__(self) -> str:
-                if not self.sent:
-                    self.sent = True
-                    return self.message
-                # Stop the handler and raise StopAsyncIteration
-                await self.handler.stop()
+                if self.messages:
+                    return self.messages.pop(0)
+                await self._handler.stop()
                 raise StopAsyncIteration
 
-        mock_ws = MockWebSocket(handler, trade_message)
+        stopping_ws = StoppingFakeWebSocket(handler, trade_message)
 
-        with patch(
+        async def fake_ws_connect(*_args: Any, **_kwargs: Any) -> FakeWebSocket:
+            return stopping_ws
+
+        monkeypatch.setattr(
             "polymarket_insider_tracker.ingestor.websocket.ws_connect",
-            AsyncMock(return_value=mock_ws),
-        ):
-            # Run with timeout to prevent hanging
-            try:
-                await asyncio.wait_for(handler.start(), timeout=1.0)
-            except TimeoutError:
-                await handler.stop()
+            fake_ws_connect,
+        )
+
+        # Run with timeout to prevent hanging
+        try:
+            await asyncio.wait_for(handler.start(), timeout=1.0)
+        except TimeoutError:
+            await handler.stop()
 
         # Verify trade was received
         assert len(received_trades) == 1

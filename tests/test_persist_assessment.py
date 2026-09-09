@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -23,6 +23,13 @@ from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import Base, RiskAssessmentModel
+from tests.fakes.pipeline import (
+    BrokenDatabaseManager,
+    FakeAlertDispatcher,
+    FakeAlertFormatter,
+    FakeRiskScorer,
+    make_test_settings,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -30,16 +37,9 @@ from polymarket_insider_tracker.storage.models import Base, RiskAssessmentModel
 
 
 @pytest.fixture
-def mock_settings():
-    """Settings stub with the attributes Pipeline reaches for at runtime."""
-    detector = MagicMock()
-    detector.persist_assessments = True
-    detector.alert_threshold = 0.8
-
-    settings = MagicMock(spec=Settings)
-    settings.detector = detector
-    settings.dry_run = False
-    return settings
+def test_settings() -> Settings:
+    """Concrete Settings instance for testing."""
+    return make_test_settings(persist_assessments=True, alert_threshold=0.8)
 
 
 @pytest.fixture
@@ -98,30 +98,21 @@ def _make_assessment(trade: TradeEvent, *, should_alert: bool, score: float) -> 
 
 
 def _build_pipeline(
-    mock_settings,
+    settings: Settings,
     *,
-    db_manager=None,
+    db_manager: Any = None,
     assessment: RiskAssessment,
-    dispatcher: MagicMock | None = None,
-) -> Pipeline:
-    """Construct a Pipeline with the minimum collaborators wired in."""
-    pipeline = Pipeline(mock_settings)
+    dispatcher: FakeAlertDispatcher | None = None,
+) -> tuple[Pipeline, FakeAlertDispatcher]:
+    """Construct a Pipeline with concrete fakes wired in."""
+    pipeline = Pipeline(settings)
     pipeline._db_manager = db_manager
-
-    pipeline._risk_scorer = MagicMock()
-    pipeline._risk_scorer.assess = AsyncMock(return_value=assessment)
-
-    pipeline._alert_formatter = MagicMock()
-    pipeline._alert_formatter.format = MagicMock(return_value=MagicMock())
-
-    if dispatcher is None:
-        dispatcher = MagicMock()
-        dispatcher.dispatch = AsyncMock(
-            return_value=MagicMock(all_succeeded=True, success_count=1, failure_count=0)
-        )
-    pipeline._alert_dispatcher = dispatcher
+    pipeline._risk_scorer = FakeRiskScorer(assessment)  # type: ignore[assignment]
+    pipeline._alert_formatter = FakeAlertFormatter()  # type: ignore[assignment]
+    alert_dispatcher = dispatcher if dispatcher is not None else FakeAlertDispatcher()
+    pipeline._alert_dispatcher = alert_dispatcher  # type: ignore[assignment]
     pipeline._dry_run = False
-    return pipeline
+    return pipeline, alert_dispatcher
 
 
 # ---------------------------------------------------------------------------
@@ -132,11 +123,17 @@ def _build_pipeline(
 class TestPersistAssessment:
     @pytest.mark.asyncio
     async def test_below_threshold_assessment_is_persisted(
-        self, mock_settings, db_manager, sample_trade, async_engine
-    ):
+        self,
+        test_settings: Settings,
+        db_manager: DatabaseManager,
+        sample_trade: TradeEvent,
+        async_engine: Any,
+    ) -> None:
         """Assessments with should_alert=False must still hit the DB; no dispatch."""
         assessment = _make_assessment(sample_trade, should_alert=False, score=0.45)
-        pipeline = _build_pipeline(mock_settings, db_manager=db_manager, assessment=assessment)
+        pipeline, dispatcher = _build_pipeline(
+            test_settings, db_manager=db_manager, assessment=assessment
+        )
 
         await pipeline._score_and_alert(SignalBundle(trade_event=sample_trade))
 
@@ -151,25 +148,26 @@ class TestPersistAssessment:
             assert row.wallet_address == sample_trade.wallet_address.lower()
 
         # No alert dispatched for sub-threshold assessments
-        pipeline._alert_dispatcher.dispatch.assert_not_called()
+        assert len(dispatcher.dispatched) == 0
         assert pipeline.stats.alerts_sent == 0
 
     @pytest.mark.asyncio
-    async def test_persistence_failure_does_not_block_dispatch(self, mock_settings, sample_trade):
+    async def test_persistence_failure_does_not_block_dispatch(
+        self, test_settings: Settings, sample_trade: TradeEvent
+    ) -> None:
         """If repo.insert blows up, the alert pipeline still ships the alert."""
         assessment = _make_assessment(sample_trade, should_alert=True, score=0.92)
 
-        # db_manager whose get_async_session raises -> _persist_assessment swallows it
-        broken_db = MagicMock()
-        broken_db.get_async_session = MagicMock(side_effect=RuntimeError("DB connection failed"))
-
-        pipeline = _build_pipeline(mock_settings, db_manager=broken_db, assessment=assessment)
+        broken_db = BrokenDatabaseManager()
+        pipeline, dispatcher = _build_pipeline(
+            test_settings, db_manager=broken_db, assessment=assessment
+        )
 
         await pipeline._score_and_alert(SignalBundle(trade_event=sample_trade))
 
         # DB write was attempted and failed silently
-        broken_db.get_async_session.assert_called_once()
+        assert broken_db.calls == 1
 
         # Dispatcher still ran and the stats counter incremented
-        pipeline._alert_dispatcher.dispatch.assert_awaited_once()
+        assert len(dispatcher.dispatched) == 1
         assert pipeline.stats.alerts_sent == 1

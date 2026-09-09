@@ -87,12 +87,13 @@ Primary external references:
 | G-031 | Blocker | Source coverage | The public trades query is newest-first and bounded to 10,000 rows per reachable page range. A 2026-09-06 live-safe probe returned the full 10,000 rows even for a five-second requested window; only 83 taker-only or 259 all-participant rows were inside that exact window, and some rows fell outside documented `start`/`end` bounds. Without saturation and boundary detection, polling can silently lose trades or trust ineffective filters. | Official pagination contract plus bounded live-safe aggregate probe; no wallet data retained | Slice 001 |
 | G-032 | High | Detection coverage | The public trades query defaults to `takerOnly=true`; the product has no explicit decision on monitoring only takers versus all publicly returned participants. A bounded probe with `takerOnly=false` showed multiple wallet rows per transaction, which are distinct research observations rather than simple transport duplicates. | Official parameter contract plus bounded aggregate probe | Slice 001, with detection semantics documented by slice 004 |
 | G-033 | High | Storage contract | Slices 003 and 004 both require new delivery dispositions, evidence availability, and reproducibility fields in persisted assessments. Without one owned target schema, independent plans will create migration churn and incompatible records. | Specs 003 FR-012 and 004 FR-003; current risk-assessment schema | Slice 003 owns the target record/migration; slice 004 contributes required evidence fields before planning |
+| G-034 | High | Test quality | Baseline test suite relies on `unittest.mock` across 22 test files with 301 constructors and 52 interaction assertions, coupling tests to implementation details rather than observable behavior. | Test inventory, baseline audit, `fakes-followup-plan.md` | **Closed by slice 002**: user-authorized mocks-to-fakes migration replacing mocks with lightweight working fakes, shared real/fake contracts, real values, and an AST-based anti-mock regression gate. |
 
 ## Proposed Slice Map
 
 | Execution order | Specification | Owns | Explicitly does not own |
 |---|---|---|---|
-| 1 | `002-reproducible-runtime` | G-007–G-012 and G-013a | Product behavior beyond setup, migrations, and required checks |
+| 1 | `002-reproducible-runtime` | G-007–G-012, G-013a, and G-034 | Product behavior beyond setup, migrations, required checks, and test-double quality |
 | 2 | `001-supported-trade-ingestion` | G-001–G-006, G-013b, G-029a, G-030b, G-031, and G-032 | Scoring changes; authenticated/private feeds; trading |
 | 3 | `003-safe-observable-operation` | G-014–G-021, G-030a, and G-033 | New detector algorithms; real notification smoke tests |
 | 4 | `004-truthful-detection-contract` | G-022–G-028 and G-029b; consumes G-017/G-032/G-033 outcomes | New uncalibrated scoring signals; backtesting; trading recommendations |

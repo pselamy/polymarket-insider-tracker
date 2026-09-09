@@ -1320,3 +1320,13 @@ approval, or merge was introduced.
 - **Task closed**: T083
 - **Tasks pending**: T080–T082
 - **Not performed**: no merge, rebase, squash, amend, approval, or post-merge action
+
+### PR116 closure and post-merge verification
+
+- **Patrick approval**: Patrick approved reviewed head `3e3375a`.
+- **Merge**: Merge completed at `2026-09-09T01:30:42Z`, commit `7a4f11cd645dd21b049db3649747bb4e03b652e2` into `main`.
+- **Tree equality**: Approved and merged trees both equal `fca6220513027eba30f478deab10191d6547bb22`.
+- **Main CI run**: Root independently verified all 9 jobs in main CI run `34299489433` successful, including Complexipy, Required checks, compatibility, and services:
+  https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34299489433.
+- **Tasks closed**: T080, T081, T082.
+

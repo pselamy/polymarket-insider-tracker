@@ -328,12 +328,31 @@ completion is not evidence for this phase; each item below is checked only when 
   pass on implementation head `b69ff382972d7e0f9bfe49ce52f8d8862e413c1b`; immutable push run
   `34293412134`, pull-request run `34293638475`, and per-job conclusions are recorded in
   `evidence/verification.md`.
-- [ ] T080 Patrick's approval of the pull request.
-- [ ] T081 Merge into `main`.
-- [ ] T082 Post-merge: confirm the `main` workflow run is green with the `complexipy` job present in the
-  required aggregator, and close this ledger.
+- [X] T080 Patrick's approval of the pull request (Patrick approved reviewed head `3e3375a`).
+- [X] T081 Merge into `main` (merge commit `7a4f11cd645dd21b049db3649747bb4e03b652e2` at `2026-09-09T01:30:42Z`; tree `fca6220513027eba30f478deab10191d6547bb22`).
+- [X] T082 Post-merge: confirm the `main` workflow run is green with the `complexipy` job present in the
+  required aggregator, and close this ledger (root verified all 9 jobs successful in run `34299489433`:
+  https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34299489433).
 - [X] T083 Correct post-PR adversarial findings without amending the ordered agent commits: isolate
   duplicate funding inserts with transaction savepoints and structured `IntegrityError` identifiers;
   preserve the scorer's base IEEE-754 addition order at the alert threshold; and close Complexipy's
   automatic-snapshot, cwd-exclusion, and omitted-module-control-flow escape hatches with real red-to-green
   regression tests, aligned contracts, and appended evidence.
+
+## Phase 12: Mocks-to-Fakes Test Quality Migration
+
+Branch `quality/fakes-over-mocks` from base `7a4f11cd645dd21b049db3649747bb4e03b652e2`. Inventory: 22 test files
+importing `unittest.mock`, 301 mock constructors, and 52 interaction assertions.
+
+- [X] T084 Capture baseline test collection (862 tests collected, 860 passed, 2 skipped) and coverage (91% line coverage) to establish invariant mapping before migration.
+- [ ] T085 Add AST-based regression test in `tests/tooling/test_test_quality.py` that fails if any test file imports or aliases `unittest.mock` without self-triggering or banning monkeypatch/transports.
+- [ ] T086 Build reusable in-memory `FakeRedis` implementing working string, hash, set, sorted set, stream, and expiration semantics, and add shared behavioral contract tests against real Redis in `tests/integration/test_redis_contract.py`.
+- [ ] T087 Migrate `tests/test_config.py` from `unittest.mock.patch` to `pytest.monkeypatch` and real model instances.
+- [ ] T088 Migrate `tests/ingestor/` test files (`test_clob_client.py`, `test_gamma_client.py`, `test_health.py`, `test_metadata_sync.py`, `test_models.py`, `test_publisher.py`, `test_websocket.py`) to concrete working fakes, `httpx` transport hooks, real response objects, and observable state assertions.
+- [ ] T089 Migrate `tests/profiler/` test files (`test_analyzer.py`, `test_chain.py`, `test_funding.py`) to working blockchain/client fakes and real Web3/model objects.
+- [ ] T090 Migrate `tests/detector/` test files (`test_fresh_wallet.py`, `test_scorer.py`, `test_size_anomaly.py`, `test_sniper.py`) to real signal inputs, working Redis fakes, and output assertions.
+- [ ] T091 Migrate `tests/alerter/` test files (`test_dispatcher.py`, `test_history.py`) to working webhook transport fakes, in-memory history/storage, and observable delivery state assertions.
+- [ ] T092 Migrate storage and pipeline test files (`tests/storage/test_repos.py`, `tests/test_pipeline.py`, `tests/test_pipeline_persistence.py`, `tests/test_persist_assessment.py`, `tests/test_shutdown.py`, `tests/test_main.py`) to SQLite-backed repositories, working fakes, and lifecycle assertions.
+- [ ] T093 Verify zero test files import `unittest.mock`, all 862 baseline tests pass, coverage is preserved, and all quality gates pass (Black, Ruff, strict mypy/Pyright, Vulture, Complexipy <= 5).
+- [ ] T094 Document evidence and create immutable first-pass commit for Fable on branch `quality/fakes-over-mocks`.
+
