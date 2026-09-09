@@ -1440,3 +1440,22 @@ No original behavior scenario was intentionally removed.
 The baseline dry-run/dedup ordering issue remains owned by slice 003 (G-018); this
 test-double migration does not claim to repair it. Final independent review of the
 corrective commit remains pending before PR publication. No push or merge has occurred.
+
+### Independent root acceptance of `e8077f6`
+
+Root independently retrieved and read corrective commit
+`e8077f6c90cd192bbc883e804a6056cb206d4228` in a separate Apple Silicon review checkout.
+All 12 verifier gates passed on Python 3.13 with real PostgreSQL 15 and Redis 7;
+isolated compatibility profiles also passed on Python 3.11 and 3.12. Root verified
+strict branch protection still requires `Required checks` and `Complexipy complexity check`.
+
+A second independent reviewer returned **SHIP**. Mutation checks confirmed the
+strengthened alert-history test rejects each of three implementations that ignore
+the start bound, end bound, or result limit. Root returned **SHIP** after reading
+the final correction diff and these actual test results. T096 is complete.
+
+Root evidence files are retained under the coordination workspace `outputs/` as
+`fakes-root-all-e8077f6.json`, `fakes-root-311-e8077f6.json`, and
+`fakes-root-312-e8077f6.json`. This acceptance append and T096 update change only
+documentation. PR creation, GitHub checks, and eventual merge are separate events;
+T097 remains unchecked until the PR exists. No merge is authorized by this review.

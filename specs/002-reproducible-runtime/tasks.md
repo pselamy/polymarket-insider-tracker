@@ -391,7 +391,10 @@ Claude Fable's corrective pass is the commit that follows it; Codex reviews inde
 - [X] T095 Claude Fable adversarial review and corrective commit on top of the checkpoint (this phase's
   commit), with the SHIP/REVISE verdict and behavior-preservation map recorded outside the repository in the
   follow-up evidence directory and summarized in `evidence/verification.md`.
-- [ ] T096 Codex independent artifact read, verification rerun, and adversarial review.
+- [X] T096 Codex independent artifact read, verification rerun, and adversarial review. Root
+  accepted corrective commit `e8077f6` after a separate all-profile run on Python 3.13 with
+  PostgreSQL 15/Redis 7 and isolated Python 3.11/3.12 compatibility runs; a second independent
+  reviewer returned SHIP and confirmed the history test kills all three bound/limit mutants.
 - [ ] T097 Open one pull request after convergence; never merge without Patrick's approval.
 - [X] T098 Resolve Codex findings after immutable Fable `ae4e180`: policy alias/dynamic imports,
   Redis SCAN and cleanup, CLOB BookParams fidelity, deterministic settings, real funding path
