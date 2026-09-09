@@ -323,9 +323,11 @@ completion is not evidence for this phase; each item below is checked only when 
   closed an upstream `ignore-complexity = true` exit-status escape, added the missing Complexipy verifier
   failure/help contracts, and completed the full local static, compatibility, service, aggregate, and
   configuration-independent analyzer verification recorded in `evidence/verification.md`.
-- [ ] T078 Open the non-draft pull request for `quality/complexipy-required-gate` against `main`.
-- [ ] T079 Verify that the independent `Complexipy complexity check` job and the `Required checks` aggregator
-  pass on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.
+- [X] T078 Open non-draft pull request #116 for `quality/complexipy-required-gate` against `main`.
+- [X] T079 Verify that the independent `Complexipy complexity check` job and the `Required checks` aggregator
+  pass on implementation head `b69ff382972d7e0f9bfe49ce52f8d8862e413c1b`; immutable push run
+  `34293412134`, pull-request run `34293638475`, and per-job conclusions are recorded in
+  `evidence/verification.md`.
 - [ ] T080 Patrick's approval of the pull request.
 - [ ] T081 Merge into `main`.
 - [ ] T082 Post-merge: confirm the `main` workflow run is green with the `complexipy` job present in the

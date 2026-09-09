@@ -1195,3 +1195,54 @@ distribution is `0:1019, 1:183, 2:122, 3:84, 4:44, 5:34`.
 - **Tasks pending**: T078–T082
 - **Not performed**: no push, pull request, merge, rebase, squash, amend, approval, or post-merge
   action at this checkpoint
+
+### Phase 11 — Pull request and implementation-head CI checkpoint
+
+Non-draft pull request [#116](https://github.com/pselamy/polymarket-insider-tracker/pull/116)
+was opened from `quality/complexipy-required-gate` to `main` with base
+`ff146dccbb37ef90f8784bd3115adf64f206f96d` and implementation head
+`b69ff382972d7e0f9bfe49ce52f8d8862e413c1b`. GitHub reported the pull request
+`CLEAN`, open, and awaiting human review; no merge was attempted.
+
+Both workflow events completed successfully on that exact head:
+
+- **Push run `34293412134`** — success:
+  <https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34293412134>
+  - Static required checks — success (`102284699619`)
+  - Vulture dead code check — success (`102284699594`)
+  - Complexipy complexity check — success (`102284699527`)
+  - Python 3.11 compatibility — success (`102284699628`)
+  - Python 3.12 compatibility — success (`102284699587`)
+  - Python 3.13 compatibility — success (`102284699613`)
+  - PostgreSQL and Redis required checks — success (`102284699287`)
+  - Required checks — success (`102284880872`)
+  - Apple Silicon advisory compatibility — success (`102284699552`, advisory)
+- **Pull-request run `34293638475`** — success:
+  <https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34293638475>
+  - Static required checks — success (`102285391927`)
+  - Vulture dead code check — success (`102285392237`)
+  - Complexipy complexity check — success (`102285392283`)
+  - Python 3.11 compatibility — success (`102285392424`)
+  - Python 3.12 compatibility — success (`102285392193`)
+  - Python 3.13 compatibility — success (`102285392350`)
+  - PostgreSQL and Redis required checks — success (`102285392208`)
+  - Required checks — success (`102285552624`)
+  - Apple Silicon advisory compatibility — success (`102285392220`, advisory)
+
+Branch protection was inspected with the repository owner's authenticated identity. Before this slice,
+strict `main` protection required only the GitHub Actions `Required checks` context. It now requires both
+`Required checks` and the independent `Complexipy complexity check`, each bound to GitHub Actions app id
+`15368`, while preserving `strict: true`, admin enforcement, disabled force pushes, and disabled deletions.
+
+This documentation-only checkpoint records already-completed implementation-head CI. Its own final head
+must also remain green before handoff; that later observation belongs in the pull-request description so
+the evidence commit does not recursively claim a run that can exist only after itself.
+
+#### Provenance
+
+- **Date**: 2026-09-09 on `dev@selamy-core` (2026-09-08 America/New_York)
+- **Agent**: OpenAI Codex
+- **Role**: `pull-request-ci-evidence`
+- **Tasks closed**: T078–T079
+- **Tasks pending**: T080–T082
+- **Not performed**: no merge, rebase, squash, amend, approval, or post-merge action
