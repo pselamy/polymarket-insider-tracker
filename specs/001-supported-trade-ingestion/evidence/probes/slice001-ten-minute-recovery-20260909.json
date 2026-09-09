@@ -1,0 +1,48 @@
+{
+  "captured_at": "2026-09-09T19:58:58.764984+00:00",
+  "endpoint": "https://data-api.polymarket.com/trades",
+  "pages": [
+    {
+      "duplicate_or_overlap_identities": 0,
+      "elapsed_ms": 1058.7,
+      "eligible_rows_at_or_before_end": 9940,
+      "http_status": 200,
+      "new_composite_identities": 9940,
+      "newest_eligible_timestamp": 1788983935,
+      "oldest_eligible_timestamp": 1788983716,
+      "page": 1,
+      "reached_ten_minute_target": false,
+      "requested_end": 1788983936,
+      "returned_rows": 10000,
+      "rows_newer_than_requested_end": 60,
+      "span_seconds": 219
+    },
+    {
+      "duplicate_or_overlap_identities": 43,
+      "elapsed_ms": 1154.0,
+      "eligible_rows_at_or_before_end": 43,
+      "http_status": 200,
+      "new_composite_identities": 0,
+      "newest_eligible_timestamp": 1788983716,
+      "oldest_eligible_timestamp": 1788983716,
+      "page": 2,
+      "reached_ten_minute_target": false,
+      "requested_end": 1788983716,
+      "returned_rows": 10000,
+      "rows_newer_than_requested_end": 9957,
+      "span_seconds": 0
+    }
+  ],
+  "reached_target": false,
+  "request_budget_percent_of_200_per_10s": 1.0,
+  "request_count": 2,
+  "retained_raw_rows": false,
+  "retained_wallet_identifiers": false,
+  "stalled": true,
+  "target_window": {
+    "end": 1788983936,
+    "seconds": 600,
+    "start": 1788983336
+  },
+  "unique_composite_identities_seen": 9876
+}

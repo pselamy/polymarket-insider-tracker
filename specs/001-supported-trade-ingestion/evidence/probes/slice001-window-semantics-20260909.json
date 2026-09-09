@@ -1,0 +1,46 @@
+{
+  "captured_at": "2026-09-09T19:51:11.149362+00:00",
+  "endpoint": "https://data-api.polymarket.com/trades",
+  "request_count": 2,
+  "results": [
+    {
+      "elapsed_ms": 1024.3,
+      "http_status": 200,
+      "in_window_exact_duplicate_rows": 0,
+      "in_window_missing_required_fields": {
+        "outcome": 3
+      },
+      "in_window_rows": 290,
+      "in_window_rows_per_second": 29.0,
+      "in_window_unique_transactions": 290,
+      "max_observations_per_transaction": 1,
+      "oldest_returned_before_window": true,
+      "requested_window_seconds": 10,
+      "taker_only": true,
+      "total_rows_returned": 10000,
+      "transactions_with_multiple_wallets": 0
+    },
+    {
+      "elapsed_ms": 956.2,
+      "http_status": 200,
+      "in_window_exact_duplicate_rows": 2,
+      "in_window_missing_required_fields": {
+        "outcome": 6
+      },
+      "in_window_rows": 763,
+      "in_window_rows_per_second": 76.3,
+      "in_window_unique_transactions": 290,
+      "max_observations_per_transaction": 18,
+      "oldest_returned_before_window": true,
+      "requested_window_seconds": 10,
+      "taker_only": false,
+      "total_rows_returned": 10000,
+      "transactions_with_multiple_wallets": 290
+    }
+  ],
+  "retained_wallet_identifiers": false,
+  "window": {
+    "end": 1788983469,
+    "start": 1788983459
+  }
+}
