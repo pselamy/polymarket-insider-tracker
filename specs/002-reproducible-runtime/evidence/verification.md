@@ -1375,3 +1375,68 @@ approval, or merge was introduced.
     three service gates.
 - **Not performed**: no push, pull request, merge, rebase, squash, or amend; the Agy checkpoint is intact.
 - **Pending**: Codex independent review (T096).
+
+### Codex corrections after Fable `ae4e180` (2026-09-09)
+
+The Fable commit `ae4e180b365a25d229bd3126b54baade60178c8b` and Agy checkpoint remain
+immutable. Codex independently inspected the actual artifact and resolved these findings:
+
+- Seven alias/literal dynamic-import spellings bypassed the no-mocks source policy. New
+  fixtures reproduced seven failures before binding-aware detection was added. Inert string
+  literals and functional HTTP transports remain allowed; no file is exempted.
+- Shared Redis tests assumed one SCAN response contained every matching key. They now consume
+  the complete cursor iteration. Real-client setup has bounded socket timeouts and closes on
+  every exception, including cancellation; namespace cleanup closes the client even when
+  deletion fails. Three focused failure regressions exercise this resource lifecycle.
+- The CLOB batch fake converted `BookParams` to its repr instead of returning token IDs. Two
+  strengthened batch cases failed before the fake adopted the actual SDK parameter type and
+  single-book implementation. Ordered, repeated and empty token batches now preserve IDs and bids.
+- The settings helper leaked environment variables and ignored aliases beyond detector options.
+  An adversarial environment test failed before every group supplied its explicit aliases,
+  defaults, absent credentials and `_env_file=None`. It now proves inherited configuration and
+  a local dotenv cannot enable notification destinations or alter test settings.
+- Funding batch success and hop overrides still replaced internal tracing with canned results.
+  They now follow real transfer-index paths to a known CEX, proving both default and overridden
+  termination. The exceptional batch case injects a failure by address and executes the real
+  tracer for successful addresses; it has no call-order response ladder.
+- Alert-history range/limit assertions had insufficient data to detect lost bounds. The test now
+  seeds records before, at, inside and after the range, with more eligible records than the limit,
+  and verifies exact ordered results for bounded and limited queries.
+- Removed the remaining new ABI-name `noqa` and narrowed the written interaction rule to its
+  actual lifecycle-delegation and deliberate failure-injection exceptions.
+- The one-line production health-check fix has an additional regression through real
+  `AsyncWeb3`, its real `AsyncEth` dispatch/formatting, and an `AsyncBaseProvider` that serves a
+  JSON-RPC block number. The test does not replace `_execute_with_retry`. This repairs an
+  existing method/property mismatch exposed by faithful doubles; it adds no product capability.
+
+Independent Linux verification on the corrected tree:
+
+| Check | Observed result |
+|---|---|
+| Full Python 3.11 `scripts/verify.py --profile all` | All 12 gates passed in 31.73s, including Black, Ruff, strict mypy/Pyright, Vulture, full function/module Complexipy <=5, tests, service probes, Redis contract and migrations |
+| Full deterministic suite | 909 passed, 2 existing platform skips, 15 warnings |
+| Python 3.11, 3.12 and 3.13 compatibility profiles | Each passed with 909 passed and 2 existing platform skips |
+| Python 3.13 services profile | All three gates passed against disposable pinned PostgreSQL 15 and Redis 7 |
+| Shared Redis contract | 21 passed: nine identical scenarios against fake and real backends, plus three resource-cleanup regressions |
+| Combined statement/branch coverage | 91%; 4098 statements, 321 missed, 768 branches, 89 partial; baseline was 329 missed and 93 partial |
+| `git diff --check` and CodeGraph sync | Passed; generated index stays locally excluded |
+| Disposable-service cleanup | Both task-owned containers removed; migration temporary database cleanup succeeded |
+
+The Linux evidence used the exact repository images:
+`postgres:15@sha256:9b1d34adbce1dd07ee6e94b4a2cf698884b89bd44a6c9c12f5da8f3acbfe4957`
+and `redis:7@sha256:71da9275c5f3fcb97d0fa0c8c5b36cc995327265420f17a04bfd544f458059f7`,
+bound only to loopback ports 55441 and 56383. Contrary to Fable's capability assumption,
+`dev` could use the existing Docker installation through its configured noninteractive sudo
+access, so real PostgreSQL and Redis 7 evidence was obtained before any push.
+
+Logs are retained in `/home/dev/work/polymarket-fakes-followup-20260909/`:
+`all-live-3.11.log`, `services-3.13.log`, `compatibility-3.11.log`,
+`compatibility-3.12.log`, `compatibility-3.13.log`, `codex-coverage.log`,
+`codex-policy-red.log`, `codex-clob-red.log`, `codex-settings-red.log`, and
+`codex-focused.log`. The earlier baseline-ID statement describes Fable's checkpoint;
+Codex parameterized the existing order-book batch test into three retained scenarios.
+No original behavior scenario was intentionally removed.
+
+The baseline dry-run/dedup ordering issue remains owned by slice 003 (G-018); this
+test-double migration does not claim to repair it. Final independent review of the
+corrective commit remains pending before PR publication. No push or merge has occurred.

@@ -5,10 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Sequence
-from typing import Any
 
 from fakeredis import FakeAsyncRedis
-from pydantic import SecretStr
 
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel, AlertDispatcher
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
@@ -53,31 +51,41 @@ def make_test_settings(
     telegram_chat_id: str | None = None,
 ) -> Settings:
     """Create a fully validated ``Settings`` value without reading the environment."""
-    discord_kwargs: dict[str, Any] = {"enabled": discord_enabled}
-    if discord_webhook_url is not None:
-        discord_kwargs["DISCORD_WEBHOOK_URL"] = SecretStr(discord_webhook_url)
-
-    telegram_kwargs: dict[str, Any] = {"enabled": telegram_enabled}
-    if telegram_bot_token is not None:
-        telegram_kwargs["TELEGRAM_BOT_TOKEN"] = SecretStr(telegram_bot_token)
-    if telegram_chat_id is not None:
-        telegram_kwargs["TELEGRAM_CHAT_ID"] = telegram_chat_id
-
     return Settings(
-        redis=RedisSettings(url="redis://localhost:6379/0"),
-        database=DatabaseSettings(DATABASE_URL="postgresql+psycopg://user:pass@localhost:5432/db"),
-        polygon=PolygonSettings(POLYGON_RPC_URL="https://polygon-rpc.com"),
-        polymarket=PolymarketSettings(
-            ws_url="wss://ws-subscriptions-clob.polymarket.com/ws/market"
+        _env_file=None,
+        redis=RedisSettings(_env_file=None, REDIS_URL="redis://localhost:6379/0"),
+        database=DatabaseSettings(
+            _env_file=None, DATABASE_URL="postgresql+psycopg://user:pass@localhost:5432/db"
         ),
-        discord=DiscordSettings(**discord_kwargs),
-        telegram=TelegramSettings(**telegram_kwargs),
+        polygon=PolygonSettings(
+            _env_file=None,
+            POLYGON_RPC_URL="https://polygon-rpc.com",
+            POLYGON_FALLBACK_RPC_URL=None,
+        ),
+        polymarket=PolymarketSettings(
+            _env_file=None,
+            POLYMARKET_WS_URL="wss://ws-subscriptions-clob.polymarket.com/ws/market",
+            POLYMARKET_API_KEY=None,
+        ),
+        discord=DiscordSettings(
+            _env_file=None,
+            DISCORD_WEBHOOK_URL=discord_webhook_url if discord_enabled else None,
+        ),
+        telegram=TelegramSettings(
+            _env_file=None,
+            TELEGRAM_BOT_TOKEN=telegram_bot_token if telegram_enabled else None,
+            TELEGRAM_CHAT_ID=telegram_chat_id if telegram_enabled else None,
+        ),
         # Detector fields are declared by alias with ``extra="ignore"``; the field names
         # themselves would be silently dropped, so the aliases must be used here.
         detector=DetectorSettings(
+            _env_file=None,
             DETECTOR_PERSIST_ASSESSMENTS=persist_assessments,
             DETECTOR_ALERT_THRESHOLD=alert_threshold,
+            DETECTOR_DEDUP_WINDOW_SECONDS=3600,
         ),
+        LOG_LEVEL="INFO",
+        HEALTH_PORT=8080,
         DRY_RUN=dry_run,
     )
 

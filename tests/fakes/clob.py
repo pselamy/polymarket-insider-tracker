@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from py_clob_client.clob_types import OrderBookSummary, OrderSummary
+from py_clob_client.clob_types import BookParams, OrderBookSummary, OrderSummary
 
 TERMINAL_CURSOR = "LTE="
 
@@ -74,14 +74,8 @@ class FakeBaseClobClient:
             asks=[OrderSummary(price="0.52", size="150")],
         )
 
-    @staticmethod
-    def get_order_books(params: list[Any]) -> list[OrderBookSummary]:
-        return [
-            OrderBookSummary(
-                market=f"m{index}", asset_id=str(param), tick_size="0.01", bids=[], asks=[]
-            )
-            for index, param in enumerate(params, 1)
-        ]
+    def get_order_books(self, params: list[BookParams]) -> list[OrderBookSummary]:
+        return [self.get_order_book(param.token_id) for param in params]
 
     def get_midpoint(self, token_id: str) -> dict[str, str]:
         _ = token_id

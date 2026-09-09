@@ -20,7 +20,10 @@ boundaries. `unittest.mock` and generic mock frameworks are prohibited.
 5. **Recorded effects are contracts, not spies**: a channel keeps delivered payloads, a webhook
    server keeps its requests, a log index keeps queried block windows. Those are the externally
    observable outputs of the product. Counting them is valid when the count is the contract
-   (retries, deliveries, RPC chunking); nothing records calls to product-internal methods.
+   (retries, deliveries, RPC chunking). The context-manager delegation test narrowly checks its
+   public promise to start and stop the pipeline; ordinary success-path tests use the real
+   components. Address-keyed trace failure injection exercises the batch error path that lower
+   RPC layers otherwise absorb, without changing successful traces or depending on call order.
 
 ## 2. Prohibited
 

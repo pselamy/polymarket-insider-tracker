@@ -7,7 +7,9 @@ from decimal import Decimal
 import pytest
 from fakeredis import FakeAsyncRedis
 from redis.asyncio import Redis
+from web3 import AsyncWeb3
 from web3.eth import AsyncEth
+from web3.providers import AsyncBaseProvider
 
 from polymarket_insider_tracker.profiler.chain import (
     DEFAULT_CACHE_TTL_SECONDS,
@@ -34,6 +36,28 @@ class RecordingRateLimiter(RateLimiter):
     async def acquire(self, tokens: float = 1.0) -> None:
         _ = tokens
         self.acquired += 1
+
+
+class BlockNumberProvider(AsyncBaseProvider):
+    """A JSON-RPC boundary that lets real Web3 dispatch and decode block numbers."""
+
+    async def make_request(self, method, params):
+        assert method == "eth_blockNumber"
+        assert params == () or params == []
+        return {"jsonrpc": "2.0", "id": 1, "result": "0x2faf080"}
+
+
+async def test_health_check_uses_real_web3_rpc_method(fake_redis: FakeAsyncRedis) -> None:
+    client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+    client._w3 = AsyncWeb3(BlockNumberProvider(), middleware=[])
+
+    assert await client.health_check() is True
+
+
+async def test_block_number_provider_returns_json_rpc_wire_value() -> None:
+    response = await BlockNumberProvider().make_request("eth_blockNumber", [])
+
+    assert response == {"jsonrpc": "2.0", "id": 1, "result": "0x2faf080"}
 
 
 # A real client bound to a closed loopback port: every command fails with a connection error.

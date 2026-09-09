@@ -248,13 +248,17 @@ class TestClobClient:
         assert len(orderbook.bids) == 1
         assert len(orderbook.asks) == 1
 
-    def test_get_orderbooks(self, fake_base_client: FakeBaseClobClient) -> None:
+    @pytest.mark.parametrize("token_ids", [["t1", "t2"], ["t2", "t1", "t2"], []])
+    def test_get_orderbooks(self, fake_base_client: FakeBaseClobClient, token_ids) -> None:
         """Test fetching multiple orderbooks."""
         _ = fake_base_client
         client = ClobClient()
-        orderbooks = client.get_orderbooks(["t1", "t2"])
-        assert len(orderbooks) == 2
+        orderbooks = client.get_orderbooks(token_ids)
+        assert [orderbook.asset_id for orderbook in orderbooks] == token_ids
         assert all(isinstance(ob, Orderbook) for ob in orderbooks)
+        assert [orderbook.bids for orderbook in orderbooks] == [
+            client.get_orderbook(token_id).bids for token_id in token_ids
+        ]
 
     def test_get_midpoint(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test fetching midpoint price."""

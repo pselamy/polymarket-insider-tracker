@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import uuid
+from asyncio import CancelledError
 from collections.abc import AsyncIterator
 from pathlib import Path
 from types import ModuleType
@@ -24,7 +25,6 @@ from types import ModuleType
 import pytest
 from fakeredis import FakeAsyncRedis
 from redis.asyncio import Redis
-from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import ResponseError
 
 RUNTIME_SERVICES_PATH = Path(__file__).parents[2] / "scripts" / "runtime_services.py"
@@ -48,12 +48,12 @@ async def _connect_real_redis() -> Redis:
     url = _runtime_services().validate_loopback_redis_url(
         os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
     )
-    client = Redis.from_url(url)
+    client = Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
     try:
         assert await client.ping() is True
-    except RedisConnectionError as exc:
+    except BaseException:
         await client.aclose()
-        pytest.fail(f"RUN_SERVICE_TESTS=1 selected a real Redis that is unreachable: {exc!s}")
+        raise
     return client
 
 
@@ -72,6 +72,14 @@ class ContractRedis:
         async for key in self.client.scan_iter(match=f"{self.prefix}*"):
             await self.client.delete(key)
 
+    async def close(self) -> None:
+        try:
+            await self.cleanup()
+            remaining = [key async for key in self.client.scan_iter(match=f"{self.prefix}*")]
+            assert remaining == []
+        finally:
+            await self.client.aclose()
+
 
 @pytest.fixture(params=IMPLEMENTATIONS)
 async def contract(request: pytest.FixtureRequest) -> AsyncIterator[ContractRedis]:
@@ -81,10 +89,50 @@ async def contract(request: pytest.FixtureRequest) -> AsyncIterator[ContractRedi
     try:
         yield scoped
     finally:
-        await scoped.cleanup()
-        remaining = [key async for key in client.scan_iter(match=f"{scoped.prefix}*")]
-        await client.aclose()
-        assert remaining == []
+        await scoped.close()
+
+
+class FailedHandshakeRedis(FakeAsyncRedis):
+    """Inject a setup failure and expose whether the client was closed afterwards."""
+
+    def __init__(self, failure: BaseException) -> None:
+        super().__init__()
+        self.failure = failure
+        self.closed = False
+
+    async def ping(self):
+        raise self.failure
+
+    async def aclose(self, close_connection_pool=None) -> None:
+        await super().aclose(close_connection_pool=close_connection_pool)
+        self.closed = True
+
+
+@pytest.mark.parametrize("failure", [ResponseError("rejected"), CancelledError()])
+async def test_failed_real_client_setup_always_closes(monkeypatch, failure) -> None:
+    client = FailedHandshakeRedis(failure)
+    monkeypatch.setenv("REDIS_URL", LOCAL_REDIS_URL)
+    monkeypatch.setattr(Redis, "from_url", lambda _url, **_options: client)
+
+    with pytest.raises(type(failure)):
+        await _connect_real_redis()
+
+    assert client.closed is True
+
+
+class FailedCleanupContract(ContractRedis):
+    async def cleanup(self) -> None:
+        raise ResponseError("cleanup unavailable")
+
+
+async def test_failed_namespace_cleanup_still_closes_client() -> None:
+    client = FailedHandshakeRedis(ResponseError("unused handshake"))
+    scoped = FailedCleanupContract(client, "fake")
+
+    with pytest.raises(ResponseError, match="cleanup unavailable"):
+        await scoped.close()
+
+    assert client.closed is True
 
 
 async def test_string_values_round_trip_as_bytes(contract: ContractRedis) -> None:
@@ -250,6 +298,5 @@ async def test_scan_matches_only_the_requested_pattern(contract: ContractRedis) 
         contract.key("market:one").encode(),
         contract.key("market:two").encode(),
     ]
-    cursor, page = await redis.scan(0, match=contract.key("other"), count=10)
-    assert isinstance(cursor, int)
-    assert page == [contract.key("other").encode()]
+    others = [key async for key in redis.scan_iter(match=contract.key("other"), count=1)]
+    assert others == [contract.key("other").encode()]

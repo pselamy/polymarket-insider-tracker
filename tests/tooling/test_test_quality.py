@@ -39,29 +39,77 @@ def _import_from_violations(node: ast.ImportFrom) -> list[str]:
     return []
 
 
-def _attribute_violations(node: ast.Attribute) -> list[str]:
-    if node.attr == "mock" and isinstance(node.value, ast.Name) and node.value.id == "unittest":
+def _import_alias_binding(alias: ast.alias) -> tuple[str, str]:
+    module = alias.name if alias.asname else alias.name.split(".")[0]
+    return alias.asname or module, module
+
+
+def _import_bindings(node: ast.AST) -> dict[str, str]:
+    if isinstance(node, ast.Import):
+        return dict(map(_import_alias_binding, node.names))
+    if isinstance(node, ast.ImportFrom):
+        return _absolute_subimport_bindings(node)
+    return {}
+
+
+def _absolute_subimport_bindings(node: ast.ImportFrom) -> dict[str, str]:
+    if node.level:
+        return {}
+    return {alias.asname or alias.name: f"{node.module}.{alias.name}" for alias in node.names}
+
+
+def _qualified_name(node: ast.AST, bindings: dict[str, str]) -> str:
+    if isinstance(node, ast.Name):
+        return bindings.get(node.id, node.id)
+    if isinstance(node, ast.Attribute):
+        return f"{_qualified_name(node.value, bindings)}.{node.attr}"
+    return ""
+
+
+def _attribute_violations(node: ast.Attribute, bindings: dict[str, str]) -> list[str]:
+    if _qualified_name(node, bindings) == "unittest.mock":
         return ["unittest.mock attribute access"]
     return []
 
 
-def _node_violations(node: ast.AST) -> list[str]:
+def _module_argument(node: ast.Call) -> ast.AST | None:
+    if node.args:
+        return node.args[0]
+    return next((argument.value for argument in node.keywords if argument.arg == "name"), None)
+
+
+def _dynamic_import_violations(node: ast.Call, bindings: dict[str, str]) -> list[str]:
+    importers = ("importlib.import_module", "__import__", "builtins.__import__")
+    if _qualified_name(node.func, bindings) not in importers:
+        return []
+    argument = _module_argument(node)
+    if not isinstance(argument, ast.Constant) or not isinstance(argument.value, str):
+        return []
+    return [f"dynamic import {argument.value}"] if _is_forbidden_module(argument.value) else []
+
+
+def _node_violations(node: ast.AST, bindings: dict[str, str]) -> list[str]:
     if isinstance(node, ast.Import):
         return _import_violations(node)
     if isinstance(node, ast.ImportFrom):
         return _import_from_violations(node)
     if isinstance(node, ast.Attribute):
-        return _attribute_violations(node)
+        return _attribute_violations(node, bindings)
+    if isinstance(node, ast.Call):
+        return _dynamic_import_violations(node, bindings)
     return []
 
 
 def find_mock_usage(source: str, filename: str) -> list[tuple[int, str]]:
     """Return ``(line, description)`` for every forbidden mock usage in ``source``."""
     tree = ast.parse(source, filename=filename)
+    bindings: dict[str, str] = {}
+    for node in ast.walk(tree):
+        bindings.update(_import_bindings(node))
     findings: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         line = getattr(node, "lineno", 0)
-        findings.extend((line, message) for message in _node_violations(node))
+        findings.extend((line, message) for message in _node_violations(node, bindings))
     return findings
 
 
@@ -106,6 +154,13 @@ def test_policy_scans_its_own_file_without_self_triggering() -> None:
         "from mock import MagicMock",
         "import unittest\nunittest.mock.patch('target')",
         "import unittest\nspy = unittest.mock.MagicMock()",
+        "import unittest as ut\nspy = ut.mock.AsyncMock()",
+        "import importlib\nimportlib.import_module('unittest.mock')",
+        "import importlib as il\nil.import_module('mock')",
+        "from importlib import import_module as load\nload('unittest.mock')",
+        "import importlib\nimportlib.import_module(name='unittest.mock')",
+        "__import__('unittest.mock')",
+        "import builtins as bi\nbi.__import__('mock')",
     ],
     ids=lambda source: source.replace("\n", "; "),
 )
@@ -123,7 +178,7 @@ def test_policy_rejects_every_mock_spelling(source: str) -> None:
         "import unittest\n\nclass Suite(unittest.TestCase):\n    pass",
         "import mockingbird\nfrom mockups import sketch",
         "mock_data = {'mock': True}\nunittest = object()\nvalue = unittest.name",
-        "import importlib\nimportlib.import_module('unittest.mock')",
+        "import importlib\nimportlib.import_module('json')",
     ],
     ids=lambda source: source.replace("\n", "; ")[:60],
 )

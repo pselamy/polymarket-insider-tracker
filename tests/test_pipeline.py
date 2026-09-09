@@ -150,6 +150,36 @@ class TestPipelineInitialization:
         assert settings.detector.alert_threshold == 0.4
         assert settings.detector.persist_assessments is False
 
+    def test_settings_helper_ignores_environment_and_dotenv(self, monkeypatch, tmp_path) -> None:
+        expected = make_test_settings().model_dump()
+        overrides = {
+            "DATABASE_URL": "postgresql+psycopg://other:synthetic@untrusted.invalid/db",
+            "REDIS_URL": "redis://untrusted.invalid:6379",
+            "POLYGON_RPC_URL": "https://untrusted.invalid",
+            "POLYGON_FALLBACK_RPC_URL": "https://fallback.invalid",
+            "POLYMARKET_WS_URL": "wss://untrusted.invalid",
+            "POLYMARKET_API_KEY": "synthetic-api-key",
+            "DISCORD_WEBHOOK_URL": "https://untrusted.invalid/webhook",
+            "TELEGRAM_BOT_TOKEN": "synthetic-bot-token",
+            "TELEGRAM_CHAT_ID": "synthetic-chat",
+            "DETECTOR_ALERT_THRESHOLD": "0.1",
+            "DETECTOR_DEDUP_WINDOW_SECONDS": "17",
+            "DETECTOR_PERSIST_ASSESSMENTS": "false",
+            "LOG_LEVEL": "ERROR",
+            "HEALTH_PORT": "9090",
+            "DRY_RUN": "true",
+        }
+        for name, value in overrides.items():
+            monkeypatch.setenv(name, value)
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".env").write_text("REDIS_URL=redis://dotenv.invalid:6379\n")
+
+        settings = make_test_settings()
+
+        assert settings.model_dump() == expected
+        assert settings.discord.enabled is False
+        assert settings.telegram.enabled is False
+
     def test_uses_get_settings_when_none_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Pipeline should load settings through get_settings when none are provided."""
         loaded = make_test_settings(dry_run=True)

@@ -84,7 +84,7 @@ class FakeContractFunctions:
     def __init__(self, balance: int) -> None:
         self._balance = balance
 
-    def balanceOf(self, address: str) -> FakeContractFunction:  # noqa: N802 - web3 ABI name
+    def balanceOf(self, address: str) -> FakeContractFunction:
         _ = address
         return FakeContractFunction(self._balance)
 

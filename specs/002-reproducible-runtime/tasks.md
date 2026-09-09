@@ -393,3 +393,8 @@ Claude Fable's corrective pass is the commit that follows it; Codex reviews inde
   follow-up evidence directory and summarized in `evidence/verification.md`.
 - [ ] T096 Codex independent artifact read, verification rerun, and adversarial review.
 - [ ] T097 Open one pull request after convergence; never merge without Patrick's approval.
+- [X] T098 Resolve Codex findings after immutable Fable `ae4e180`: policy alias/dynamic imports,
+  Redis SCAN and cleanup, CLOB BookParams fidelity, deterministic settings, real funding path
+  assertions, history range/limit coverage, and actual Web3 provider health-check regression.
+  Independently verify all 12 gates, 909 tests, Python 3.11–3.13 compatibility, shared Redis 7
+  contracts, real PostgreSQL 15 probes/migration cycle and cleanup; append exact evidence.

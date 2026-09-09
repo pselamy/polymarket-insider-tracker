@@ -72,6 +72,16 @@ def _transfer_to(
     )
 
 
+def _tracer_for_path(wallets: list[str]) -> FundingTracer:
+    logs = TransferLogIndex()
+    for index, (target, source) in enumerate(zip(wallets, wallets[1:], strict=False)):
+        logs.add_transfer(
+            USDC_BRIDGED,
+            _transfer_to(target, source, block_number=CHAIN_HEAD - index, seed=index),
+        )
+    return _tracer(logs)
+
+
 @pytest.fixture
 def entity_registry() -> EntityRegistry:
     """Create an EntityRegistry with default entities."""
@@ -194,12 +204,15 @@ class TestFundingTracerTrace:
         assert result.hop_count == 3
         assert result.origin_type == "unknown"
 
-    async def test_trace_override_max_hops(self, funding_tracer: FundingTracer) -> None:
+    async def test_trace_override_max_hops(self) -> None:
         """Test trace can override default max_hops."""
-        result = await funding_tracer.trace(TEST_WALLET, max_hops=1)
+        tracer = _tracer_for_path([TEST_WALLET, TEST_SOURCE, BINANCE_HOT_WALLET])
+        result = await tracer.trace(TEST_WALLET, max_hops=1)
 
-        assert result.hop_count == 0
+        assert result.hop_count == 1
+        assert result.origin_address == TEST_SOURCE
         assert result.origin_type == "unknown"
+        assert (await tracer.trace(TEST_WALLET)).is_cex_origin is True
 
 
 class TestGetFirstUsdcTransfer:
@@ -461,61 +474,42 @@ class TestGetFundingChainsBatch:
     @pytest.mark.asyncio
     async def test_batch_traces_multiple_addresses(
         self,
-        funding_tracer: FundingTracer,
     ) -> None:
         """Test batch tracing multiple addresses."""
-        addresses = [f"0x{i:040x}" for i in range(3)]
+        tracer = _tracer_for_path([TEST_WALLET, TEST_SOURCE, BINANCE_HOT_WALLET])
+        results = await tracer.get_funding_chains_batch([TEST_WALLET, TEST_SOURCE])
 
-        async def fake_trace(
-            addr: str,
-            *,
-            max_hops: int | None = None,
-        ) -> FundingChain:
-            _ = max_hops
-            return FundingChain(
-                target_address=addr.lower(),
-                origin_type="unknown",
-            )
-
-        funding_tracer.trace = fake_trace
-
-        results = await funding_tracer.get_funding_chains_batch(addresses)
-
-        assert len(results) == 3
-        for addr in addresses:
-            assert addr.lower() in results
+        assert set(results) == {TEST_WALLET, TEST_SOURCE}
+        assert results[TEST_WALLET].hop_count == 2
+        assert results[TEST_SOURCE].hop_count == 1
+        assert results[TEST_WALLET].origin_address == BINANCE_HOT_WALLET
+        assert results[TEST_SOURCE].origin_address == BINANCE_HOT_WALLET
 
     @pytest.mark.asyncio
     async def test_batch_handles_exceptions(
         self,
-        funding_tracer: FundingTracer,
     ) -> None:
         """Test batch handles exceptions gracefully."""
-        addresses = ["0x" + "11" * 20, "0x" + "22" * 20]
-        call_count = 0
+        tracer = _tracer_for_path([TEST_SOURCE, BINANCE_HOT_WALLET])
+        real_trace = tracer.trace
 
-        async def fake_trace(
+        async def fail_for_one_address(
             addr: str,
             *,
             max_hops: int | None = None,
         ) -> FundingChain:
-            nonlocal call_count
-            _ = max_hops
-            call_count += 1
-            if call_count == 1:
+            if addr == TEST_WALLET:
                 raise ValueError("Test error")
-            return FundingChain(
-                target_address=addr.lower(),
-                origin_type="cex_binance",
-            )
+            return await real_trace(addr, max_hops=max_hops)
 
-        funding_tracer.trace = fake_trace
+        tracer.trace = fail_for_one_address
 
-        results = await funding_tracer.get_funding_chains_batch(addresses)
+        results = await tracer.get_funding_chains_batch([TEST_SOURCE, TEST_WALLET])
 
         assert len(results) == 2
-        assert results[addresses[0].lower()].origin_type == "error"
-        assert results[addresses[1].lower()].origin_type == "cex_binance"
+        assert results[TEST_WALLET].origin_type == "error"
+        assert results[TEST_SOURCE].origin_type == "cex_binance"
+        assert results[TEST_SOURCE].hop_count == 1
 
     @pytest.mark.asyncio
     async def test_batch_empty_list(
@@ -529,21 +523,19 @@ class TestGetFundingChainsBatch:
     @pytest.mark.asyncio
     async def test_batch_respects_max_hops_override(
         self,
-        funding_tracer: FundingTracer,
     ) -> None:
-        """Test batch passes max_hops to individual traces."""
-        addresses = ["0x" + "11" * 20]
-        captured_max_hops: list[int | None] = []
+        """The batch override reaches a known origin beyond the default hop budget."""
+        wallets = [TEST_WALLET, TEST_SOURCE, "0x" + "11" * 20, "0x" + "22" * 20]
+        tracer = _tracer_for_path([*wallets, BINANCE_HOT_WALLET])
 
-        async def fake_trace(addr: str, max_hops: int | None = None) -> FundingChain:
-            captured_max_hops.append(max_hops)
-            return FundingChain(target_address=addr.lower())
+        ordinary = await tracer.get_funding_chains_batch([TEST_WALLET])
+        extended = await tracer.get_funding_chains_batch([TEST_WALLET], max_hops=5)
 
-        funding_tracer.trace = fake_trace
-
-        await funding_tracer.get_funding_chains_batch(addresses, max_hops=5)
-
-        assert captured_max_hops == [5]
+        assert ordinary[TEST_WALLET].hop_count == 3
+        assert ordinary[TEST_WALLET].origin_type == "unknown"
+        assert extended[TEST_WALLET].hop_count == 4
+        assert extended[TEST_WALLET].origin_address == BINANCE_HOT_WALLET
+        assert extended[TEST_WALLET].is_cex_origin is True
 
 
 class TestGetSuspiciousnessScore:

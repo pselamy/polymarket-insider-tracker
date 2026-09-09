@@ -589,11 +589,15 @@ class TestGetAlertsFilters:
         history = AlertHistory(fake_redis)
         start = datetime(2026, 1, 1, tzinfo=UTC)
         end = datetime(2026, 1, 2, tzinfo=UTC)
-        ts = (start + timedelta(hours=1)).timestamp()
-        await fake_redis.set("alert:record:a-1", _stored_record("a-1", "0xw", "m1"))
-        await fake_redis.set("alert:record:a-2", _stored_record("a-2", "0xv", "m2"))
-        await fake_redis.zadd("alert:index:time", {"a-1": ts, "a-2": ts})
+        offsets = {"before": -1, "a-1": 0, "a-2": 1, "a-3": 2, "end": 24, "after": 25}
+        for alert_id, hour in offsets.items():
+            await fake_redis.set(f"alert:record:{alert_id}", _stored_record(alert_id, "0xw", "m1"))
+            await fake_redis.zadd(
+                "alert:index:time", {alert_id: (start + timedelta(hours=hour)).timestamp()}
+            )
 
-        results = await history.get_alerts(start=start, end=end, limit=7)
+        limited = await history.get_alerts(start=start, end=end, limit=2)
+        bounded = await history.get_alerts(start=start, end=end, limit=10)
 
-        assert [record.alert_id for record in results] == ["a-1", "a-2"]
+        assert [record.alert_id for record in limited] == ["a-1", "a-2"]
+        assert [record.alert_id for record in bounded] == ["a-1", "a-2", "a-3", "end"]
