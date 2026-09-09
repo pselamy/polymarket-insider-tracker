@@ -49,6 +49,15 @@ from the copied example configuration. The `static` and `compatibility` profiles
 configuration. `uv run python scripts/verify.py --help` lists the directly runnable command behind
 every gate.
 
+The directly runnable Complexipy contract is:
+
+```bash
+uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
+```
+
+It checks function and module-level control flow and explicitly neutralizes inline ignores,
+report-only success, automatic snapshots, snapshot creation, cwd-config exclusions, and cwd diff modes.
+
 See [contracts/runtime-verification.md](contracts/runtime-verification.md) for exact gate membership,
 output, exit status, and migration safety behavior.
 

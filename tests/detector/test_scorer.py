@@ -1,5 +1,6 @@
 """Tests for composite risk scorer."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock
@@ -494,6 +495,31 @@ class TestAssessMethod:
         assert assessment.should_alert is False
         assert assessment.signals_triggered == 0
         assert assessment.weighted_score == 0.0
+
+    @pytest.mark.asyncio
+    async def test_assess_preserves_base_addition_order_at_alert_boundary(
+        self,
+        mock_redis: AsyncMock,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+    ) -> None:
+        """Floating-point grouping must not turn a below-threshold score into an alert."""
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=replace(fresh_wallet_signal, confidence=0.7),
+            size_anomaly_signal=replace(
+                size_anomaly_signal,
+                confidence=0.6444444444444445,
+                is_niche_market=True,
+            ),
+        )
+
+        assessment = await RiskScorer(mock_redis).assess(bundle)
+
+        assert assessment.weighted_score == 0.7999999999999999
+        assert assessment.should_alert is False
+        mock_redis.set.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_assess_deduplication(

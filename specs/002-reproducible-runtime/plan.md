@@ -158,10 +158,13 @@ modules. No new service, package, or migration is needed.
   immediately after `pyright`, and add a separate `complexipy` cognitive complexity gate immediately after
   `vulture`. The exact Complexipy command uses the locked Python 3.11 environment and names its scope on
   the command line
-  (`uv run --isolated --locked --all-extras --python 3.11 complexipy src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false`),
-  covering every tracked repository Python file. Complexipy enforces a maximum cognitive complexity of 5
-  with `--no-ignore` enabled and the report-only exit mode explicitly disabled; no inline ignore comments,
-  escape hatches, baselines, or exclusions are permitted.
+  (`uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true`),
+  covering functions and module-level control flow in every tracked repository Python file. Complexipy
+  enforces a maximum cognitive complexity of 5 with inline ignores, report-only mode, automatic snapshot
+  use/creation, and cwd-config exclusions explicitly neutralized; no ignore comments, escape hatches,
+  baselines, grandfathering, diff modes, or real path exclusions are permitted. The launcher validates
+  the exact visible arguments, resolves the scope to absolute paths, and invokes the pinned CLI from a
+  fresh configuration-free working directory.
 - The service profile invokes separately identifiable `services` and `migrations` gates through
   `scripts/runtime_services.py --phase probe` and `--phase migrations`; the helper defaults to `all` for
   contributors. The probe performs an async SQLAlchemy query and Redis `PING`. The migration phase refuses

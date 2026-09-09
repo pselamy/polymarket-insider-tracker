@@ -50,17 +50,20 @@ The independent CI `vulture` job runs this exact command and is bound to it by c
 The independent `complexipy` gate runs after `vulture` and before runtime imports:
 
 ```text
-uv run --isolated --locked --all-extras --python 3.11 complexipy src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false
+uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
 ```
 
 `pyproject.toml` pins Complexipy `8.0.1` and configures `[tool.complexipy]` over `src`, `tests`, `scripts`,
 `alembic`, and `conftest.py`, which together hold every tracked repository Python file. The global maximum cognitive
-complexity is set to 5 with `--no-ignore` enabled. The command repeats those paths and options so its scope and
-enforcement are visible and fail-closed at invocation. A contract test proves every tracked `*.py` file is covered
-by exactly one scope entry, and that inline suppression comments (`# complexipy: ignore`, `# noqa: complexipy`) or
-escape-hatch configurations are rejected. The explicit `--ignore-complexity=false` neutralizes the upstream
-report-only exit mode even if a higher-priority working-directory config attempts to enable it. The independent CI
-`complexipy` job runs this exact command and is bound to it by contract tests.
+complexity is 5 for functions and module-level control flow. The command repeats the scope and every fail-closed
+option at invocation. Contract tests prove every tracked `*.py` file is covered exactly once; reject inline
+suppression comments and tracked external config/snapshot files; and execute the pinned analyzer against
+score-6 function, module, suppression, cwd-exclusion, and automatic-snapshot fixtures. Explicit false/true
+overrides neutralize report-only mode, snapshot creation/use, cwd-config exclusion lists, and disabled
+module analysis. The launcher validates those exact visible arguments, resolves only the scope paths to
+absolutes, and invokes the pinned CLI from a fresh temporary working directory, so cwd `[diff]` settings
+cannot replace threshold enforcement with diff success. `--exclude=.` matches no repository path. The
+independent CI `complexipy` job runs this exact command and is bound to it by contract tests.
 
 The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`
 before starting pytest. The test harness also runs from an isolated temporary working directory so Pydantic

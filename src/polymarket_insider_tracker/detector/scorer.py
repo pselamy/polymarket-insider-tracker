@@ -194,11 +194,14 @@ class RiskScorer:
         if signal is None:
             return 0.0, 0
         weight = self._weights.get("size_anomaly", 0.0)
-        score = signal.confidence * weight
-        if signal.is_niche_market:
-            niche_weight = self._weights.get("niche_market", 0.0)
-            score += signal.confidence * niche_weight
-        return score, 1
+        return signal.confidence * weight, 1
+
+    def _score_niche_market(self, bundle: SignalBundle) -> float:
+        signal = bundle.size_anomaly_signal
+        if signal is None or not signal.is_niche_market:
+            return 0.0
+        niche_weight = self._weights.get("niche_market", 0.0)
+        return signal.confidence * niche_weight
 
     @staticmethod
     def _apply_multi_signal_bonus(score: float, count: int) -> float:
@@ -223,8 +226,10 @@ class RiskScorer:
         size_score, size_count = self._score_size_anomaly(bundle)
         signals_triggered = fresh_count + size_count
 
-        raw_score = fresh_score + size_score
-        score = self._apply_multi_signal_bonus(raw_score, signals_triggered)
+        score = fresh_score
+        score += size_score
+        score += self._score_niche_market(bundle)
+        score = self._apply_multi_signal_bonus(score, signals_triggered)
         return min(score, 1.0), signals_triggered
 
     async def _check_and_set_dedup(

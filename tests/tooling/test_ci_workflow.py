@@ -32,12 +32,13 @@ CANONICAL_VULTURE_COMMAND = (
     + " ".join(CANONICAL_VULTURE_SCOPE)
 )
 CANONICAL_COMPLEXIPY_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
-# The command names its scope and policy explicitly so a cwd `.complexipy.toml`, which upstream
-# reads in preference to `[tool.complexipy]`, cannot silently relax the gate.
+# The command names its scope and policy explicitly so cwd configuration and snapshots cannot
+# silently relax, exclude, or baseline any part of the gate.
 CANONICAL_COMPLEXIPY_COMMAND = (
-    "uv run --isolated --locked --all-extras --python 3.11 complexipy "
+    "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
     + " ".join(CANONICAL_COMPLEXIPY_SCOPE)
     + " --max-complexity-allowed 5 --no-ignore --ignore-complexity=false"
+    + " --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true"
 )
 NON_SUCCESS_RESULTS = ("failure", "cancelled", "skipped")
 NEEDS_RESULT_EXPRESSION = re.compile(r"^\$\{\{ needs\.(?P<job>[A-Za-z0-9_-]+)\.result \}\}$")

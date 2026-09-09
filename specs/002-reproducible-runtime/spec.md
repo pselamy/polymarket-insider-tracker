@@ -149,9 +149,12 @@ and automated checks; verify that they name one consistent support matrix and re
   convention MUST be made visible through real code and tests rather than exempted.
 - **FR-017**: Complexipy MUST remain an independent, exactly pinned and locked cognitive complexity checker across
   `src`, `tests`, `scripts`, `alembic`, and `conftest.py` (every tracked repository Python file) at the Python 3.11
-  compatibility floor, enforcing a strict maximum cognitive complexity of 5 with `--no-ignore` enabled. It
-  MUST NOT use a baseline, diff-only mode, inline suppression comments (`# complexipy: ignore` or `# noqa: complexipy`),
-  path exclusion, relaxed thresholds, or non-blocking status.
+  compatibility floor, enforcing a strict maximum cognitive complexity of 5 across functions and
+  module-level control flow. The invocation MUST explicitly enable `--no-ignore` and module checking,
+  disable report-only mode and snapshot creation/use, and replace cwd-config exclude lists with a
+  non-matching CLI pattern. It MUST NOT use a baseline, grandfathering, diff-only mode, inline suppression
+  comments (`# complexipy: ignore` or `# noqa: complexipy`), real path exclusion, relaxed thresholds, or
+  non-blocking status.
 
 ### Key Entities
 

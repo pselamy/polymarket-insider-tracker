@@ -207,11 +207,17 @@ uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts 
 
 Complexipy runs as its own required CI job and verifier gate over `src`, `tests`, `scripts`, `alembic`, and
 `conftest.py`, which together hold every tracked repository Python file. It enforces a strict maximum cognitive
-complexity of 5 with `--no-ignore` enabled, rejecting inline suppression comments and configuration escape hatches:
+complexity of 5 for functions and module-level control flow. Explicit flags disable inline suppression,
+report-only mode, automatic snapshots, snapshot creation, and cwd-config exclusions:
 
 ```bash
-uv run --isolated --locked --all-extras --python 3.11 complexipy src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false
+uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
 ```
+
+The launcher validates the exact visible arguments, resolves only the five scope paths to absolute paths,
+and invokes the pinned CLI from a fresh temporary working directory. That prevents any repository-working-
+directory TOML—including `[diff]` settings—from changing success semantics. `--exclude=.` is a non-matching
+CLI pattern and does not exclude repository files.
 
 The `compatibility` profile checks locked imports and the deterministic test suite. The `services`
 profile performs real local probes and the disposable migration cycle. Individual commands remain

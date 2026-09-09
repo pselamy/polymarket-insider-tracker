@@ -109,11 +109,12 @@ typeCheckingMode = "strict"
 paths = ["src", "tests", "scripts", "alembic", "conftest.py"]
 
 # Complexipy enforces cognitive complexity <= 5 across all repository-owned Python files.
-# Inline ignores are disabled; all functions are analyzed with zero exemptions.
+# Inline ignores are disabled; functions and module-level control flow are analyzed with zero exemptions.
 [tool.complexipy]
 paths = ["src", "tests", "scripts", "alembic", "conftest.py"]
 max-complexity-allowed = 5
 no-ignore = true
+check-script = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -103,22 +103,29 @@ def test_complexipy_gate_is_configured_and_matches_canonical_policy() -> None:
         "--all-extras",
         "--python",
         "3.11",
-        "complexipy",
+        "python",
+        "scripts/complexipy_gate.py",
         *canonical_scope,
         "--max-complexity-allowed",
         "5",
         "--no-ignore",
         "--ignore-complexity=false",
+        "--snapshot-ignore=true",
+        "--snapshot-create=false",
+        "--exclude=.",
+        "--check-script=true",
     )
     with (MODULE_PATH.parents[1] / "pyproject.toml").open("rb") as handle:
         pyproject = tomllib.load(handle)
     assert tuple(pyproject["tool"]["complexipy"]["paths"]) == canonical_scope
     assert pyproject["tool"]["complexipy"]["max-complexity-allowed"] == 5
     assert pyproject["tool"]["complexipy"]["no-ignore"] is True
+    assert pyproject["tool"]["complexipy"]["check-script"] is True
     assert dict(module.DIRECT_GATE_COMMANDS)["complexipy"] == (
-        "uv run --isolated --locked --all-extras --python 3.11 complexipy "
+        "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
         "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
-        "--ignore-complexity=false"
+        "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
+        "--check-script=true"
     )
 
 
@@ -436,9 +443,10 @@ def test_help_lists_every_direct_gate_command() -> None:
         "pyright src/polymarket_insider_tracker",
         "uv run --isolated --locked --all-extras --python 3.11 vulture "
         "src tests scripts alembic conftest.py",
-        "uv run --isolated --locked --all-extras --python 3.11 complexipy "
+        "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
         "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
-        "--ignore-complexity=false",
+        "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
+        "--check-script=true",
         "uv run pytest",
         "uv run --env-file .env alembic upgrade head",
     ):

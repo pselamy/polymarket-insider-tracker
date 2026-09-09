@@ -801,7 +801,7 @@ The protected `main` branch still used strict required-status checks with `Requi
 context. Both instances passed only after the static, Vulture, compatibility, and service predecessors
 succeeded. At this checkpoint PR #115 was open, non-draft, mergeable, and `CLEAN`; `main` remained at exact
 base `a0c0d9945a3a38cec965e09a1ed2d5eb0c71d67f`, no review decision was present, and no merge occurred.
-T067 is complete. Patrick's approval, merge, and post-merge confirmation are recorded below (T061–T063 closed).
+T067 is complete. Patrick's approval, merge, and post-merge confirmation remain pending (T061–T063).
 
 This evidence checkpoint is committed separately from the implementation head it records and does not embed
 its own hash. Its final-head CI status is reported on PR #115.
@@ -1244,5 +1244,79 @@ the evidence commit does not recursively claim a run that can exist only after i
 - **Agent**: OpenAI Codex
 - **Role**: `pull-request-ci-evidence`
 - **Tasks closed**: T078–T079
+- **Tasks pending**: T080–T082
+- **Not performed**: no merge, rebase, squash, amend, approval, or post-merge action
+
+### Phase 12 — Post-PR adversarial correction and pre-push verification
+
+Codex reviewed the open PR's documentation checkpoint at
+`be22d67397522b6632ae34d5ba37f29d14df5a6a` and reproduced four remaining blockers before
+changing code. The ordered commits already on the branch were left intact.
+
+#### Findings, red evidence, and corrections
+
+1. **Duplicate funding inserts poisoned the transaction (blocker, fixed).** A real SQLite
+   `[unique, duplicate, unique]` batch entered SQLAlchemy's pending-rollback state at the duplicate,
+   so the later unique transfer could not be persisted. Arbitrary exceptions containing duplicate-like
+   text were also swallowed. Each insert now runs inside `begin_nested()`; only SQLAlchemy
+   `IntegrityError` values carrying SQLite's `SQLITE_CONSTRAINT_UNIQUE` or PostgreSQL SQLSTATE
+   `23505` are skipped. Real database regressions prove the batch returns 2, commits, and leaves both
+   unique rows queryable; non-unique integrity failures and unrelated exceptions propagate.
+2. **The scoring refactor changed IEEE-754 addition order (blocker, fixed).** With fresh-wallet
+   confidence `0.7` and niche size-anomaly confidence `0.6444444444444445`, the base order produces
+   `0.7999999999999999` while the grouped refactor produced `0.8`. The latter crossed the alert
+   threshold and wrote a deduplication key. Niche scoring is now a separate term applied in the exact
+   base sequence. The `assess()` regression proves the exact score, no alert, and no Redis write.
+3. **Complexipy still had four configuration bypasses (blocker, fixed).** Real pinned-analyzer controls
+   proved that an automatic `complexipy-snapshot.json`, a cwd exclusion list, omitted module checking,
+   and cwd `[diff] branch = "HEAD"` or `staged = true` settings could each make score-6 code exit 0.
+   The tracked launcher validates the exact visible scope and policy arguments, converts only the five
+   scope entries to absolute paths, and starts Complexipy from a fresh temporary cwd. The canonical
+   policy now includes `--snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true`
+   in addition to the existing threshold, no-ignore, and report-only override. Tracked external
+   Complexipy configs and snapshots are forbidden; `[tool.complexipy]` enables module checking.
+   Subprocess regressions cover both diff forms, snapshots, exclusions, module score 6, function score
+   6, suppression markers, and the score-5 boundary.
+4. **A historical checkpoint had been rewritten (evidence defect, fixed).** The Phase 10 sentence is
+   restored verbatim to its contemporaneous state: `T067 is complete. Patrick's approval, merge, and
+   post-merge confirmation remain pending (T061–T063).` All new observations are appended here.
+
+#### Independent results on the post-review corrected tree
+
+```text
+Focused funding/scorer suites:           52 passed, 1 established warning
+Tooling contracts:                       84 passed
+Static profile (Python 3.11):            PASS (lock, Black, Ruff, mypy, Pyright, Vulture, Complexipy)
+Compatibility profile (Python 3.11):     860 passed, 2 skipped, 16 warnings; PASS
+Compatibility profile (Python 3.12):     860 passed, 2 skipped, 16 warnings; PASS
+Compatibility profile (Python 3.13):     860 passed, 2 skipped, 16 warnings; PASS
+All profile (Python 3.11, live services): all eleven gates PASS; 860 passed, 2 skipped,
+                                          16 warnings; 27.00s
+Service and migration probes:            PostgreSQL query, Redis PING, upgrade/downgrade/re-upgrade,
+                                          async query, and temporary-database cleanup all PASS
+Configuration-free Complexipy scan:      1,587 records; max 5; 0 above 5; module max 4
+actionlint 1.7.12:                        PASS
+git diff --check:                         PASS
+CodeGraph sync/affected:                 index current; no additional test files identified
+```
+
+The configuration-free scan used absolute scope paths and the exact fail-closed policy from a directory
+outside the repository. Its distribution is `0:1096, 1:204, 2:124, 3:84, 4:45, 5:34`; 87 module
+records were included. The compatibility reruns used the host's installed `uv` directory on `PATH`, as
+normal contributor and CI invocations do. The 16 warnings remain the established websocket deprecation,
+database URL migration, and platform-dependent unawaited-mock warnings.
+
+The live `all` profile used fresh digest-pinned PostgreSQL 15 and Redis 7 containers on alternate
+loopback ports. Both containers and their anonymous state were stopped and removed after verification.
+No snapshot, external Complexipy configuration, exclusion, diff-only behavior, rebase, squash, amend,
+approval, or merge was introduced.
+
+#### Provenance
+
+- **Date**: 2026-09-09 on `dev@selamy-core` (2026-09-08 America/New_York)
+- **Agent**: OpenAI Codex
+- **Role**: `post-pr-adversarial-correction`
+- **Reviewed commit**: `be22d67397522b6632ae34d5ba37f29d14df5a6a`
+- **Task closed**: T083
 - **Tasks pending**: T080–T082
 - **Not performed**: no merge, rebase, squash, amend, approval, or post-merge action

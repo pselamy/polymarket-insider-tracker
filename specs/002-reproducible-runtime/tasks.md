@@ -332,3 +332,8 @@ completion is not evidence for this phase; each item below is checked only when 
 - [ ] T081 Merge into `main`.
 - [ ] T082 Post-merge: confirm the `main` workflow run is green with the `complexipy` job present in the
   required aggregator, and close this ledger.
+- [X] T083 Correct post-PR adversarial findings without amending the ordered agent commits: isolate
+  duplicate funding inserts with transaction savepoints and structured `IntegrityError` identifiers;
+  preserve the scorer's base IEEE-754 addition order at the alert threshold; and close Complexipy's
+  automatic-snapshot, cwd-exclusion, and omitted-module-control-flow escape hatches with real red-to-green
+  regression tests, aligned contracts, and appended evidence.

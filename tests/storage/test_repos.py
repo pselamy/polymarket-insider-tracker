@@ -1,9 +1,13 @@
 """Tests for storage repositories."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from polymarket_insider_tracker.storage.models import Base
@@ -323,6 +327,58 @@ class TestFundingRepository:
         await async_session.commit()
         assert count == 3
 
+    @pytest.mark.asyncio
+    async def test_insert_many_skips_duplicate_without_poisoning_transaction(
+        self,
+        async_session: AsyncSession,
+        sample_transfer_dto: FundingTransferDTO,
+    ) -> None:
+        """A duplicate between unique rows is isolated and does not abort the outer transaction."""
+        repo = FundingRepository(async_session)
+        duplicate = replace(sample_transfer_dto, block_number=sample_transfer_dto.block_number + 1)
+        final_unique = replace(
+            sample_transfer_dto,
+            tx_hash="0x" + "c" * 64,
+            block_number=sample_transfer_dto.block_number + 2,
+        )
+
+        count = await repo.insert_many([sample_transfer_dto, duplicate, final_unique])
+        await async_session.commit()
+
+        assert count == 2
+        assert await repo.get_by_tx_hash(sample_transfer_dto.tx_hash) is not None
+        assert await repo.get_by_tx_hash(final_unique.tx_hash) is not None
+
+    @pytest.mark.asyncio
+    async def test_insert_many_does_not_classify_arbitrary_exception_as_duplicate(
+        self,
+        async_session: AsyncSession,
+        sample_transfer_dto: FundingTransferDTO,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Duplicate-looking text on a non-SQLAlchemy error must still propagate."""
+        repo = FundingRepository(async_session)
+        failure = RuntimeError("UNIQUE constraint failed: funding_transfers.tx_hash")
+        monkeypatch.setattr(repo, "insert", AsyncMock(side_effect=failure))
+
+        with pytest.raises(RuntimeError) as raised:
+            await repo.insert_many([sample_transfer_dto])
+
+        assert raised.value is failure
+
+    @pytest.mark.asyncio
+    async def test_insert_many_propagates_non_unique_integrity_error(
+        self,
+        async_session: AsyncSession,
+        sample_transfer_dto: FundingTransferDTO,
+    ) -> None:
+        """A non-unique database constraint failure is not treated as a duplicate."""
+        repo = FundingRepository(async_session)
+        invalid = replace(sample_transfer_dto, token=cast(str, None))
+
+        with pytest.raises(IntegrityError, match="NOT NULL constraint failed"):
+            await repo.insert_many([invalid])
+
 
 # ============================================================================
 # RelationshipRepository Tests
@@ -494,29 +550,3 @@ class TestDTOs:
         assert dto.wallet_a == "0xaaa"
         assert dto.relationship_type == "funded_by"
         assert dto.confidence == Decimal("0.95")
-
-
-class TestFundingDuplicateDetection:
-    """``insert_many`` skips only the unique-violation messages SQLite and PostgreSQL emit."""
-
-    @pytest.mark.parametrize(
-        "message",
-        [
-            "UNIQUE constraint failed: funding_transfers.tx_hash",
-            'duplicate key value violates unique constraint "funding_transfers_tx_hash_key"',
-            "Duplicate Key value violates a constraint",
-        ],
-    )
-    def test_unique_violations_are_duplicates(self, message: str) -> None:
-        assert FundingRepository._is_duplicate_funding_error(RuntimeError(message)) is True
-
-    @pytest.mark.parametrize(
-        "message",
-        [
-            "connection reset by peer",
-            "NOT NULL constraint failed: funding_transfers.tx_hash",
-            "",
-        ],
-    )
-    def test_other_errors_are_not_duplicates(self, message: str) -> None:
-        assert FundingRepository._is_duplicate_funding_error(RuntimeError(message)) is False

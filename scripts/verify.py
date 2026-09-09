@@ -132,7 +132,8 @@ GATES: Mapping[str, Gate] = {
             "--all-extras",
             "--python",
             "3.11",
-            "complexipy",
+            "python",
+            "scripts/complexipy_gate.py",
             "src",
             "tests",
             "scripts",
@@ -142,6 +143,10 @@ GATES: Mapping[str, Gate] = {
             "5",
             "--no-ignore",
             "--ignore-complexity=false",
+            "--snapshot-ignore=true",
+            "--snapshot-create=false",
+            "--exclude=.",
+            "--check-script=true",
         ),
     ),
     "imports": Gate(
@@ -216,9 +221,10 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
     (
         "complexipy",
-        "uv run --isolated --locked --all-extras --python 3.11 complexipy "
+        "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
         "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
-        "--ignore-complexity=false",
+        "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
+        "--check-script=true",
     ),
     (
         "imports",
