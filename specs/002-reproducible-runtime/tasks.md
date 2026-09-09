@@ -395,9 +395,26 @@ Claude Fable's corrective pass is the commit that follows it; Codex reviews inde
   accepted corrective commit `e8077f6` after a separate all-profile run on Python 3.13 with
   PostgreSQL 15/Redis 7 and isolated Python 3.11/3.12 compatibility runs; a second independent
   reviewer returned SHIP and confirmed the history test kills all three bound/limit mutants.
-- [ ] T097 Open one pull request after convergence; never merge without Patrick's approval.
+- [X] T097 Open pull request #117 after convergence; both push `34307927635` and PR
+  `34307929943` passed all nine jobs at reviewed head `408177b` before Patrick approved merging.
 - [X] T098 Resolve Codex findings after immutable Fable `ae4e180`: policy alias/dynamic imports,
   Redis SCAN and cleanup, CLOB BookParams fidelity, deterministic settings, real funding path
   assertions, history range/limit coverage, and actual Web3 provider health-check regression.
   Independently verify all 12 gates, 909 tests, Python 3.11–3.13 compatibility, shared Redis 7
   contracts, real PostgreSQL 15 probes/migration cycle and cleanup; append exact evidence.
+- [X] T099 Patrick approved PR117; squash-merged as `357c350af2f2b4080fbd90cbddfc01900452c5fe`
+  at `2026-09-09T03:52:00Z`. Root confirmed the merged tree equals approved head `408177b`
+  and all nine main-CI jobs passed in run `34308759971`.
+
+## Root Agent Guidance Follow-up (Separate PR)
+
+The AG prefix isolates this documentation ledger from the fakes ledger above.
+
+- [X] AG001 Record the root-guidance contract and implementation plan before authoring the root file.
+- [X] AG002 Add root `AGENTS.md`, grounded in approved policy and executable repository configuration.
+- [X] AG003 Verify relative links and command examples; review policy/implementation distinctions.
+- [X] AG004 Run existing static and compatibility profiles; results are in `evidence/agent-guidance.md`.
+- [X] AG005 Reconcile against merged PR117 and independently review the guidance diff;
+  reviewer returned SHIP and fresh all-profile / Python 3.11–3.12 compatibility passed.
+- [ ] AG006 Open the separate PR and verify required checks at its exact head.
+- [ ] AG007 Obtain Patrick's merge approval, merge, and verify resulting main CI.

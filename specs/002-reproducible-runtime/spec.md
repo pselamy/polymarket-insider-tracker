@@ -241,3 +241,17 @@ fakes and real values guarantee tests assert outcome and state faithfully.
   quality gates; those checks belong to bounded live-safe verification or explicitly authorized release work.
 - This slice executes first even though its numeric feature prefix is `002`, because every later slice
   depends on a reproducible database, dependency set, and blocking local/CI gates.
+
+## Agent Guidance Follow-up
+
+Patrick requested a separate root `AGENTS.md` PR to codify the approved development practices.
+The root file MUST provide a concise, tool-neutral entry point to the constitution, active slice,
+verification commands, safe-effects rules, test-double policy, complexity budget, and review/merge
+gates. It MUST distinguish existing executable enforcement from behavioral requirements and pending
+work. It MUST NOT amend the constitution, expand product scope, or duplicate installed skill payloads.
+The separate mocks-to-fakes migration shipped in PR117; guidance MUST reflect its enforced contract
+without implying unresolved product gaps such as G-018 are fixed.
+
+Acceptance: a contributor can identify the active slice, required verification, prohibited shortcuts,
+and human-owned approvals from the root file; each material rule traces to existing approval or an
+owned specification. See [the guidance contract](contracts/agent-guidance.md).
