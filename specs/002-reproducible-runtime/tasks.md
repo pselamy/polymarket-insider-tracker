@@ -337,3 +337,15 @@ completion is not evidence for this phase; each item below is checked only when 
   preserve the scorer's base IEEE-754 addition order at the alert threshold; and close Complexipy's
   automatic-snapshot, cwd-exclusion, and omitted-module-control-flow escape hatches with real red-to-green
   regression tests, aligned contracts, and appended evidence.
+
+## Root Agent Guidance Follow-up (Separate PR)
+
+The AG prefix isolates this documentation ledger from the concurrently prepared fakes ledger.
+
+- [X] AG001 Record the root-guidance contract and implementation plan before authoring the root file.
+- [X] AG002 Add root `AGENTS.md`, grounded in approved policy and executable repository configuration.
+- [X] AG003 Verify relative links and command examples; review policy/implementation distinctions.
+- [X] AG004 Run existing static and compatibility profiles; results are in `evidence/agent-guidance.md`.
+- [ ] AG005 Reconcile against the final fakes follow-up and independently review the guidance diff.
+- [ ] AG006 Open the separate PR and verify required checks at its exact head.
+- [ ] AG007 Obtain Patrick's merge approval, merge, and verify resulting main CI.

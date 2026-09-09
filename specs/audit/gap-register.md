@@ -126,6 +126,16 @@ pointer MUST NOT be trusted across slices or clones.
   environment coverage, not absence of tests.
 - Trading execution, UI work, monetization, and accusations of actual insider conduct remain outside scope.
 
+## Agent Guidance Follow-up
+
+**AG-G001 — root contributor/agent guidance**: Patrick requested a separate root `AGENTS.md` to
+codify the approved Spec Kit, safety, quality, test-double, and review practices. Owner: Codex;
+scope: slice 002 documentation only. Status: implemented, locally verified, and independently
+reviewed; final fakes reconciliation, publication, and merge remain pending. Acceptance and source mapping are in
+[the guidance contract](../002-reproducible-runtime/contracts/agent-guidance.md); completion evidence
+belongs in `specs/002-reproducible-runtime/evidence/agent-guidance.md`. The mocks-to-fakes migration
+remains a separate work item and is not closed by this document.
+
 ## Audit Limitations
 
 - Provider behavior was checked with short, read-only probes on 2026-09-06; no availability promise
