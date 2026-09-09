@@ -27,8 +27,9 @@ logs at `INFO` (`WARNING` for `degraded`, `ERROR` for `possible-data-loss` and `
 
 - `last_success_at` advances on every HTTP 200 list, including an empty list; `last_trade_at` advances
   only on an accepted observation, so a quiet interval is distinguishable from an outage (FR-010).
-- `provider_lag_seconds` is `local_response_time - newest_accepted_timestamp`; it is `null` until the
-  first accepted observation and is not clamped, so clock skew is visible as a negative value.
+- `provider_lag_seconds` is `local_response_time - newest_cycle_eligible_timestamp`; it is `null` until
+  the first eligible observation and is not clamped, so clock skew is visible as a negative value. It
+  measures timestamp freshness, not first-publication latency.
 - `processing_lag_seconds` measures time spent inside downstream callbacks in the last cycle.
 - `counts` contains every Row Disposition key even when zero, plus `polls`, `recovery_pages`,
   `empty_responses`, and `retries`.
@@ -43,7 +44,7 @@ logs at `INFO` (`WARNING` for `degraded`, `ERROR` for `possible-data-loss` and `
 | `polymarket_ingest_requests_total` | counter | `outcome` (`success`, `transient`, `terminal`) | Every HTTP attempt, retries included |
 | `polymarket_ingest_rows_total` | counter | `disposition` | Every parsed row by Row Disposition |
 | `polymarket_ingest_boundary_timestamp_seconds` | gauge | none | Durable boundary time |
-| `polymarket_ingest_provider_lag_seconds` | gauge | none | Last measured provider lag |
+| `polymarket_ingest_provider_lag_seconds` | gauge | none | Clock-relative newest eligible timestamp lag; not first-publication latency |
 | `polymarket_ingest_page_span_seconds` | gauge | none | Newest minus oldest timestamp in the last page |
 | `polymarket_ingest_loss_events_total` | counter | `reason` | Loss events written |
 | `polymarket_ingest_request_duration_seconds` | histogram | none | HTTP request latency |

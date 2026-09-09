@@ -18,7 +18,7 @@ GET {POLYMARKET_TRADES_URL}?limit=10000&offset={0|10000}&takerOnly={false|true}&
 | `offset` | `0`, or `10000` for the single recovery request | Documented maximum; larger offsets are rejected with HTTP 400 and are never sent |
 | `takerOnly` | `false` for coverage `all`, `true` for `taker-only` | Always sent explicitly; the provider default is never inherited |
 | `start` | `boundary_time - recovery_horizon_seconds`, or `0` on first start | Documented intent only; never trusted as a filter |
-| `end` | `max(previous_end + 1, floor(local_now))` | Strictly increasing per request; makes every URL distinct so a shared cache cannot serve a stale page |
+| `end` | `max(previous_end + 1, floor(local_now))` | Strictly increasing cache key and cycle cutoff; the cycle waits if needed so it is not ahead of the local clock |
 
 Headers: `Accept: application/json` and `User-Agent: polymarket-insider-tracker/<version>`. No
 authentication header is ever sent to this endpoint. Request timeout is 15 seconds.
@@ -58,9 +58,10 @@ field `requests_last_10s` and the metric `polymarket_ingest_requests_total` make
 
 - The provider returns newest-first; the client always sorts ascending by `(timestamp, identity)` and
   never relies on provider order.
-- Rows newer than the requested `end` are accepted as newest data. Rows older than the requested
-  `start` are expected and are classified as padding or as candidates by the boundary contract, never
-  by the request bounds.
+- Rows newer than the requested `end` are `deferred:future-cycle`: they are counted but do not emit,
+  enter identity state, or advance the complete-through boundary. They are reacquired after a later
+  cycle cutoff reaches their timestamp. Rows older than the requested `start` are expected and are
+  classified by the boundary contract rather than trusting the provider-side filter.
 - A row timestamped more than 60 seconds after the local clock is invalid (`future-timestamp`).
 
 ## Row Contract

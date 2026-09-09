@@ -59,9 +59,10 @@ Requirement identifiers in brackets trace each task to `spec.md`.
 **⚠️ CRITICAL**: No user-story behavior starts until these modules have failing tests and implementations.
 
 - [ ] T004 [P] Add failing tests for strict parsing of every identity-bearing field, `side` validation,
-  decimal canonicalization, composite identity equality across `0.50`/`0.5`, distinct identities for
+  decimal canonicalization, mutually exclusive row dispositions, outcome-resolution counters,
+  `deferred:future-cycle` reacquisition, composite identity equality across `0.50`/`0.5`, distinct identities for
   maker and taker rows sharing a transaction hash, exact-repeat identity equality, `outcome` repair from
-  a `MarketMetadata` token matching `asset`, `unrepaired-outcome` when metadata is absent,
+  a `MarketMetadata` token matching `asset`, `unknown` outcome resolution when metadata is absent,
   `future-timestamp`, and wallet-free diagnostics in `tests/ingestor/test_trade_rows.py` [FR-004, FR-005]
 - [ ] T005 Implement `TradeObservation`, `RowDisposition`, `parse_trade_row`, `observation_identity`,
   and the metadata repair helper in `src/polymarket_insider_tracker/ingestor/trade_rows.py` [FR-004, FR-005]
@@ -132,7 +133,7 @@ states and durable records instead of silent loss or replay.
 
 **Independent Test**: Drive timeouts, throttling, terminal statuses, malformed rows, out-of-order and
 equal-second rows, saturation with and without a successful recovery page, restarts inside and beyond
-the horizon, and a graceful stop through the poller and boundary with `fakeredis`; verify bounded retry,
+  the horizon, an inside-horizon checkpoint beyond reachable page depth, and a graceful stop through the poller and boundary with `fakeredis`; verify bounded retry,
 explicit states, recorded loss events, and deterministic catch-up.
 
 ### Tests for User Story 2
@@ -145,11 +146,12 @@ explicit states, recorded loss events, and deterministic catch-up.
 - [ ] T015 [P] [US2] Add failing tests for first start with no emission, restart inside the horizon
   delivering only missed identities, restart beyond the horizon writing `restart-beyond-horizon` and
   emitting nothing, saturation proven by the recovery page, saturation unproven entering
-  `possible-data-loss` with a frozen boundary and provisional continuity, horizon expiry writing
+  `possible-data-loss` with a frozen complete-through boundary and provisional continuity, a row beyond
+  the cycle cutoff deferred then emitted on reacquisition, horizon expiry writing
   `horizon-expired` and re-anchoring, `continuity-mismatch`, graceful stop mid-cycle leaving no partial
   checkpoint, and a callback interrupted after delivery re-delivering at most one observation in
   `tests/ingestor/test_trade_poller.py` and `tests/ingestor/test_observation_boundary.py`
-  [US2 AC2–AC3, FR-006, FR-007, FR-012, FR-017, SC-004]
+  [US2 AC2–AC3, FR-004, FR-006, FR-007, FR-012, FR-017, SC-004]
 
 ### Implementation for User Story 2
 

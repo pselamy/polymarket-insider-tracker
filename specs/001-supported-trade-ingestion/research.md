@@ -65,14 +65,18 @@ transaction), so the provider default would silently drop most wallet evidence.
 ## Decision 3: Every request carries a strictly increasing upper bound as its cache key
 
 **Decision**: Each request sets `end` to `max(previous_end + 1, floor(now))` and `start` to the durable
-boundary time minus the recovery horizon. The client never filters by `end` and never trusts `start`.
+boundary time minus the recovery horizon. `end` is both a distinct cache key and the client-enforced
+cycle cutoff: newer rows are deferred until a later cycle. The client never trusts either bound as a
+provider-side filter.
 
 **Rationale**: Identical URLs were served from a shared cache (`cache-control: public, max-age=300`,
 `cf-cache-status: HIT`, `age` 2 and 4, identical response hashes), while every request with a moving
 `end` was a `MISS`. Rows newer than the requested `end` appeared in every sample, and moving `end`
-backwards as a cursor returned 9,957 rows newer than the requested value; the bounds are therefore not
-applied to the newest-first page. Using the documented parameters keeps the request within the published
-contract while guaranteeing a distinct URL per acquisition cycle.
+backwards as a cursor returned 9,957 rows newer than the requested value. A separate deep-window
+`offset=10000` probe returned 10,000 of 10,000 rows newer than its `end`, confirming that time bounds
+cannot page deeper. Using the documented parameters keeps the request within the published contract
+while producing a distinct URL per acquisition cycle; client deferral prevents those extra rows from
+moving the complete-through boundary prematurely.
 
 **Alternatives considered**:
 
@@ -165,8 +169,9 @@ losing in-flight observations on crash.
 
 - First start (no checkpoint): fetch one page, anchor the boundary at its newest accepted timestamp,
   retain identities inside the horizon, emit nothing, record origin `first-start`.
-- Restart with a checkpoint inside the recovery horizon: acquire with proof; emit only identities not
-  retained; on failed proof after the recovery page, enter `possible-data-loss` with the gap recorded.
+- Restart with a checkpoint inside the recovery horizon: acquire with proof; when reachable, emit only
+  identities not retained; on failed proof after the recovery page, enter `possible-data-loss` with the
+  gap recorded. Being inside the horizon does not itself imply reachability.
 - Restart beyond the horizon, or a frozen boundary that ages beyond the horizon: write a loss event with
   the interval and reason (`restart-beyond-horizon` or `horizon-expired`), re-anchor at the newest proven
   page without emitting pre-anchor rows, and return to `running`. Loss events are visible in status and
@@ -179,7 +184,8 @@ losing in-flight observations on crash.
 only accumulate, a gap that failed proof with two pages cannot be proven later; aging into a recorded
 loss event is the only honest resolution, and it is never silent. The default horizon stays at the
 specification's 10 minutes; the reachable depth is 20,000 rows, which covered 320–440 seconds at
-observed rates, and the evidence file states that limitation.
+observed rates, and the evidence file states that limitation. The horizon is therefore a retention and
+loss-detection bound, not a provider-backed completeness guarantee.
 
 **Alternatives considered**:
 
@@ -220,13 +226,14 @@ seconds of all-participant history, so a five-second cycle consumes about 3% of 
 
 ## Decision 11: Row validation and outcome repair
 
-**Decision**: A row is valid when every identity-bearing field parses (`transactionHash`, `proxyWallet`,
+**Decision**: A row is structurally valid when every identity-bearing field parses (`transactionHash`, `proxyWallet`,
 `conditionId`, `asset`, `side` in `{BUY, SELL}`, decimal `price`, decimal `size`, integer `timestamp`).
 Missing `outcome`/`outcomeIndex` is repaired from the cached market metadata token whose id equals
-`asset`; when metadata is absent the observation is emitted with an empty outcome and counted as
-`unrepaired-outcome`. Invalid rows are counted per missing or malformed field; a bounded number of
+`asset`; when metadata is absent the observation is emitted with an empty outcome and increments the
+`unknown` outcome-resolution count. Invalid rows are counted per missing or malformed field; a bounded number of
 wallet-free diagnostics (row hash, field name) is logged per cycle. Rows more than 60 seconds ahead of
-the local clock are invalid `future-timestamp` rows.
+the local clock are invalid `future-timestamp` rows. A structurally valid row newer than the cycle cutoff
+is `deferred:future-cycle` and cannot emit or advance the durable boundary until reacquired.
 
 **Rationale**: FR-004, US2 acceptance scenario 4, and the probe finding that 3–6 of every 290–763
 in-window rows lacked `outcome`. Metadata is enrichment and must not block ingestion (FR-003).

@@ -47,15 +47,18 @@ Every parsed row receives exactly one disposition. Counts are exposed in status 
 |---|---|---|
 | `emitted` | New identity inside the horizon; delivered downstream | Identity retained |
 | `duplicate` | Identity already retained | None |
-| `padding` | Older than the horizon behind the newest accepted timestamp | None |
-| `repaired-outcome` | Emitted after metadata supplied the outcome | As `emitted` |
-| `unrepaired-outcome` | Emitted with unknown outcome | As `emitted` |
+| `padding` | Older than the horizon behind the newest cycle-eligible timestamp | None |
+| `anchor-history` | Valid row used only to establish a first-start boundary | Identity may be retained; never emitted |
+| `deferred:future-cycle` | Valid row newer than this cycle's requested `end` | Reacquired later; no identity or boundary effect |
 | `invalid:<field>` | Missing or malformed identity-bearing field | Never advances the boundary |
 | `invalid:future-timestamp` | More than 60 s ahead of the local clock | Never advances the boundary |
 | `invalid:schema` | Row is not an object | Never advances the boundary |
 
 An invalid row is described by a bounded, wallet-free diagnostic: the SHA-256 of the raw row JSON and
 the failing field name.
+
+Outcome resolution (`provided`, `repaired`, or `unknown`) is an independent attribute and counter, not
+a second row disposition. This keeps every row in exactly one disposition bucket.
 
 ## Observation Boundary
 
@@ -68,7 +71,7 @@ transactional pipeline.
 | Field | Type | Rule |
 |---|---|---|
 | `schema_version` | integer | `1`; an unknown version is a terminal configuration error |
-| `boundary_time` | integer epoch seconds | Newest accepted timestamp of the last proven page |
+| `boundary_time` | integer epoch seconds | Complete-through timestamp of the last proven page; not merely the newest observed row |
 | `boundary_origin` | enum | `first-start`, `proven`, `re-anchored` |
 | `written_at` | integer epoch seconds | Local clock at write time |
 | `coverage` | enum | `all` or `taker-only`; must match configuration or the boundary is treated as absent |
@@ -97,7 +100,7 @@ Newest first, trimmed to 50 entries. Each entry is JSON:
 ### Boundary proof
 
 ```text
-page       := rows sorted ascending by (timestamp, identity)
+page       := valid rows at or before the cycle cutoff, sorted ascending by (timestamp, identity)
 oldest     := min timestamp over every parsed valid row, padding included
 reach      := oldest < boundary_time
 expected   := { identity in window : score(identity) > oldest }
@@ -112,7 +115,7 @@ boundary does not move.
 
 ```text
 absent ──first page──▶ first-start (boundary = newest, no emission)
-proven page ──▶ proven (boundary = newest accepted, identities trimmed)
+proven page ──▶ proven (boundary = newest cycle-eligible, identities trimmed)
 unproven page ──recovery page proven──▶ proven
 unproven page ──recovery page unproven──▶ frozen (possible-data-loss; provisional boundary in memory)
 frozen ──boundary age > horizon──▶ re-anchored (loss event written, boundary = provisional newest)
@@ -134,12 +137,14 @@ Non-persistent, read from the poller by the pipeline, logs, tests, and later hea
 | `boundary_origin` | enum or null | As in the checkpoint |
 | `last_acquisition_at` | aware datetime or null | Last request start |
 | `last_success_at` | aware datetime or null | Last HTTP 200 with a parseable body, including an empty list |
-| `last_trade_at` | aware datetime or null | Newest accepted provider timestamp |
-| `provider_lag_seconds` | float or null | Local clock at response minus newest accepted timestamp |
+| `last_trade_at` | aware datetime or null | Newest emitted provider timestamp |
+| `latest_seen_at` | aware datetime or null | Newest valid provider timestamp seen, including deferred rows |
+| `provider_lag_seconds` | float or null | Local clock at response minus newest cycle-eligible timestamp; timestamp freshness only, not first-publication latency |
 | `processing_lag_seconds` | float | Time the last cycle spent inside downstream callbacks |
 | `consecutive_failures` | integer | Reset on success |
 | `last_error` | string or null | Redacted, wallet-free |
 | `counts` | mapping | One integer per Row Disposition plus `polls`, `recovery_pages`, `empty_responses`, `retries` |
+| `outcome_counts` | mapping | `provided`, `repaired`, and `unknown` counts, independent of row disposition |
 | `page_rows` | integer | Rows in the last response |
 | `page_span_seconds` | integer | Newest minus oldest timestamp in the last page |
 | `loss_events` | tuple | Up to five most recent loss events |
@@ -188,7 +193,7 @@ wallet, name, pseudonym, or raw row.
 | `row_count`, `valid_rows`, `invalid_rows` | integers | Aggregates |
 | `missing_required_fields` | mapping | Field name to count |
 | `newest_timestamp`, `oldest_timestamp` | integers or null | Provider timestamps |
-| `provider_lag_seconds` | float or null | Local clock minus newest timestamp |
+| `provider_lag_seconds` | float or null | Local clock minus newest timestamp; never labeled first-publication latency |
 | `page_saturated` | boolean | Row count equals the page limit |
 | `cache_control`, `cf_cache_status`, `age` | strings or null | Response headers as received |
 | `response_sha256` | string | Digest of the raw body; the body itself is discarded |

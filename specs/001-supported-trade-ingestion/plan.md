@@ -1,6 +1,6 @@
 # Implementation Plan: Supported Trade Ingestion
 
-**Branch**: `spec/slice-001-plan-remote` (planning) | **Date**: 2026-09-09 | **Spec**: [spec.md](spec.md)
+**Branch**: `spec/slice-001-plan` (planning) | **Date**: 2026-09-09 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `specs/001-supported-trade-ingestion/spec.md`, Decision A1
 approved by Patrick on 2026-09-06, and the feasibility record in
@@ -11,7 +11,7 @@ validates this package.
 
 Replace the obsolete WebSocket trade path with near-real-time polling of the officially documented
 anonymous public trades query, defaulting to all participant observations. Each cycle requests one
-full page with a strictly increasing upper bound that defeats shared caching, orders and validates rows
+full page with a strictly increasing upper bound that creates a distinct cache key, orders and validates rows
 on the client, de-duplicates by a stable composite identity, proves that the page reached the prior
 durable boundary before advancing it, and otherwise uses the provider's single documented recovery page
 or enters a visible possible-data-loss state. Boundary, identity window, and loss events live in Redis
@@ -49,7 +49,8 @@ module; strict mypy and Pyright; Vulture at default confidence; Black and Ruff; 
 make no external call.
 
 **Scale/Scope**: observed 45–110 all-participant rows per second; 10,000-row pages covering roughly
-160–220 s; reachable depth 20,000 rows; four new source modules and four modified ones, one script,
+160–220 s; reachable depth 20,000 rows (roughly 320–440 seconds in the probes, not a 10-minute
+guarantee); four new source modules and four modified ones, one script,
 five new and five extended test modules, documentation, and the owned gap-register entries G-001–G-006, G-013b, G-030b, G-031,
 and G-032.
 
@@ -150,9 +151,12 @@ implementation-facing behavior.
 - A strict parser produces a `TradeObservation` or an invalid disposition per row, never a lenient
   default. Identity-bearing fields are required; `outcome`/`outcomeIndex` are repaired from cached market
   metadata by matching the token id to `asset`, else the observation is emitted with an unknown outcome
-  and counted `unrepaired-outcome`.
+  and increments the `unknown` outcome-resolution count.
 - Rows more than 60 s ahead of the local clock are `invalid:future-timestamp`. Rows older than the
-  horizon behind the newest accepted timestamp are `padding`.
+  horizon behind the newest cycle-eligible timestamp are `padding`. Rows newer than the cycle cutoff are
+  `deferred:future-cycle`; they are counted and reacquired, but do not emit or move the durable boundary.
+- Every row has exactly one disposition. Outcome resolution is a separate `provided`/`repaired`/`unknown`
+  attribute and counter.
 - Diagnostics for invalid rows carry only the row hash and the field name.
 
 ### 3. Boundary proof and recovery
@@ -168,7 +172,10 @@ implementation-facing behavior.
   boundary at the provisional newest timestamp, and return to `running`. Restart with a checkpoint older
   than the horizon records `restart-beyond-horizon` and re-anchors without emission. Contract:
   [contracts/observation-boundary.md](contracts/observation-boundary.md).
-- **Decision for Patrick's confirmation**: the plan records aged gaps as durable loss events and keeps
+- The 10-minute recovery horizon is a retention and loss-detection bound, not a guarantee of complete
+  recovery for every 10-minute outage. A failed reach proof takes the visible path above even when the
+  checkpoint age is less than 10 minutes.
+- **Decision for Patrick's confirmation**: the recommended plan records aged gaps as durable loss events and keeps
   monitoring; the stricter alternative is to stay in `possible-data-loss` until an operator restart.
 
 ### 4. Delivery and crash semantics
@@ -259,8 +266,9 @@ No constitution violation requires justification.
 
 1. Confirm the aged-gap behavior (record a loss event and keep monitoring) versus stalling until
    restart (Design Decision 3).
-2. Confirm the 10-minute recovery horizon knowing the reachable depth is 20,000 rows (about 5–7 minutes
-   at observed rates); a restart or outage longer than the reachable depth produces a recorded loss.
+2. Confirm that the 10-minute horizon is a retention/loss-detection bound, not a complete-recovery
+   guarantee: reachable depth is 20,000 rows (about 5–7 minutes at observed rates), so an outage can
+   produce a visible loss event before it is 10 minutes old.
 3. Confirm the deprecation window for `POLYMARKET_WS_URL` and the retained `TradeStreamHandler`
    export instead of immediate rejection and removal.
 

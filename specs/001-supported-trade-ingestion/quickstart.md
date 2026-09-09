@@ -53,7 +53,8 @@ uv run --env-file .env python scripts/trades_smoke.py --live --window-seconds 5 
 
 Expected result: one anonymous request per coverage mode, exit `0`, and a JSON record with the fields in
 [data-model.md](data-model.md#smoke-evidence-record) reporting reachability, schema compatibility,
-newest provider timestamp, measured lag, page saturation, and cache headers. The record contains no
+newest provider timestamp, clock-relative timestamp lag, page saturation, and cache headers. The
+timestamp lag is not presented as first-publication latency. The record contains no
 wallet, name, pseudonym, or raw row. No alert is sent, no Redis key is written, and the command is never
 part of `scripts/verify.py` or CI. Exit `1` names the failing case; exit `2` is an invocation error.
 

@@ -1,6 +1,6 @@
 # Feasibility Record: Supported Trade Ingestion
 
-**Recorded**: 2026-09-09 (probes captured 2026-09-09T19:45:14Z through 2026-09-09T19:59:55Z)
+**Recorded**: 2026-09-09 (probes captured 2026-09-09T19:45:14Z through 2026-09-09T20:01:16Z)
 
 **Requirement**: FR-016 and SC-007 of [spec.md](../spec.md); condition of Decision A1 in
 [review-gate.md](../../audit/review-gate.md)
@@ -33,7 +33,7 @@ violations in both directions, rows missing a required field (by field name), ex
 rows, and, for the transaction analysis, the number of unique `transactionHash` values, the maximum
 observations per transaction, and the number of transactions with more than one wallet. Composite
 identities were hashed in memory for overlap counting. Wallet, name, pseudonym, and profile fields were
-discarded before any aggregate was written; the raw bodies were not retained. The five aggregate
+discarded before any aggregate was written; the raw bodies were not retained. The six aggregate
 records are committed under [probes/](probes/) and each declares `retained_wallet_identifiers: false`;
 a repository grep for 40-hex-character addresses over those files returns zero matches.
 
@@ -44,8 +44,9 @@ a repository grep for 40-hex-character addresses over those files returns zero m
 | `probes/slice001-window-semantics-20260909.json` | `ba205cbe3503b79f507b70983bc3a94ab902f675abad02ccb2cad7da2828ef28` |
 | `probes/slice001-offset-boundary-20260909.json` | `42af60bc21a8363c6500f8347e5b26f9bda353c7a7941f4cc3df094d0e9f3719` |
 | `probes/slice001-ten-minute-recovery-20260909.json` | `9a4bf84028e6afc3b93116db1c4c992b59aac4b452bb7f567f5e1e2eee79fa3d` |
+| `probes/slice001-deep-window-offset-20260909.json` | `8ec0c35d82e90d1919d6f50ccf1cfea27f67dd6a486b2593ef19dc3cab63373a` |
 
-Sixteen requests were made in total over about fifteen minutes, never more than two within any ten
+Seventeen requests were made in total over about seventeen minutes, never more than two within any ten
 seconds (at most 1% of the published limit). The probe script was a throwaway; the implementation's
 `scripts/trades_smoke.py` ([contracts/live-smoke.md](../contracts/live-smoke.md)) formalizes the same
 record shape.
@@ -119,15 +120,23 @@ Setting `end` to the previous oldest timestamp returned the same newest page wit
 than the requested bound. The upper bound is not applied to the newest-first page; cursor pagination
 by time is not available, and `offset` is the only documented way to reach older rows.
 
+## Sample 6: Older Bounds With the Recovery Offset (Rejected)
+
+One final request combined `offset=10000` with an `end` 16 seconds older than the preceding page's
+oldest timestamp. It returned 10,000 rows, all 10,000 newer than the requested `end`, with zero rows in
+the requested 160-second window. The second documented offset cannot be combined with time bounds to
+reach a third/deeper window. This independently confirms that the maximum observable depth is the two
+documented pages, not the requested 10-minute interval.
+
 ## Interpretation Against the Approval Conditions
 
 | Condition (Decision A1) | Finding | Status |
 |---|---|---|
 | Sustainable cadence within the published limit | A 5-second cadence uses 2 requests per 10 s (1%); with the recovery page 2%; the configured minimum of 1 s stays at 5% | Met |
 | Ordering and replay handling | Every page was newest-first but the order is undocumented; the client sorts, de-duplicates by composite identity, and proves reach plus identity continuity | Met by design; validated by probes |
-| Publication lag | Newest rows were timestamped within one second of the request clock (lag 0 or -1 s); latency 388–1,352 ms | Met; late-arrival lag beyond the newest row not measurable from these probes |
+| Timestamp freshness | Newest rows were timestamped within one second of the request clock (lag 0 or -1 s); latency 388–1,352 ms | Met for newest-row freshness; first-publication latency and late arrivals were not measured |
 | Cache behavior | Fixed URLs cached up to 300 s; a strictly increasing `end` produced a distinct URL and a miss every time | Met |
-| Visible page-saturation and loss detection | Every response was full, so length is never evidence; reach plus retained identities, one `offset=10000` recovery page, then a visible possible-data-loss state | Met by design; reachable depth is 20,000 rows |
+| Visible page-saturation and loss detection | Every response was full, so length is never evidence; reach plus retained identities, one `offset=10000` recovery page, then a visible possible-data-loss state | Conditional: testable design, but reachable depth is only 20,000 rows |
 | No wallet identity retained | All records aggregate-only with `retained_wallet_identifiers: false` | Met |
 
 Derived capacity at observed all-participant rates (45–110 rows/s): one page covers roughly 160–220 s;
@@ -144,25 +153,30 @@ the recovery page doubles that.
 
 ## Conclusion
 
-The feasibility gate for planning passes. The documented public trades query supplies wallet-bearing
+The source is feasible for bounded near-real-time polling and the planning package may proceed to
+human validation. The documented public trades query supplies wallet-bearing
 rows for all markets anonymously; a five-second all-participant cadence is sustainable at about 1% of
 the published limit with an order of magnitude of page headroom; shared caching is defeated by a
 moving documented parameter; ordering, duplicate, and outcome-gap behaviors are characterized; and the
 boundary proof plus the single documented recovery page give a testable, visible loss-detection
-contract. Decision A1's conditions are satisfied for planning, not for convergence: the pre-convergence
-live-safe smoke run must repeat the reachability, schema, lag, saturation, and cache checks.
+contract. It does **not** demonstrate complete recovery for every 10-minute outage: the recovery
+horizon must be approved as a retention/loss-detection bound, with visible possible-data-loss behavior
+when the 20,000-row boundary is unreachable. Decision A1's conditions are therefore conditional on
+Patrick accepting that product contract; the pre-convergence live-safe smoke run must repeat the
+reachability, schema, timestamp-freshness, saturation, and cache checks.
 
 ## Limitations
 
 - All samples come from one fifteen-minute period on one day; peak-event throughput was not observed.
-- Reachable depth is 20,000 rows, so the 10-minute recovery horizon is time-bounded but not
-  rate-guaranteed: at observed rates two pages covered 320–440 s. Longer outages produce recorded loss
-  events by design.
+- Reachable depth is 20,000 rows, so the 10-minute recovery horizon is not a completeness guarantee: at
+  observed rates two pages covered 320–440 s, and an outage shorter than 10 minutes can still produce a
+  recorded loss event.
 - Provider order, the `start`/`end` semantics observed here, and cache policy are behaviors, not
   documented guarantees; the implementation relies only on the documented parameters and treats the rest
   defensively.
-- Late-arriving rows (published well after their `timestamp`) could not be measured with these probes;
-  the identity window inside the horizon makes them visible as `late` emissions rather than losses.
+- First-publication latency and late-arriving rows (published well after their `timestamp`) could not
+  be measured without repeated identity sampling. The identity window can recover a late row only if it
+  remains inside reachable pages; the plan makes no stronger claim.
 - The throwaway probe script is not in the repository; the smoke script defined by the live-smoke
   contract replaces it and is tested deterministically.
 
@@ -180,7 +194,7 @@ live-safe smoke run:
 3. In a bounded live-safe run of at least twelve consecutive five-second cycles, any cycle fails the
    boundary proof even after the recovery page, or any single page spans fewer than 30 seconds of
    history (sustained rate above about 330 rows/s).
-4. Measured provider lag (local clock minus newest accepted timestamp) exceeds 60 seconds in two
+4. Measured newest-row timestamp lag (local clock minus newest cycle-eligible timestamp) exceeds 60 seconds in two
    consecutive cycles, which would make the freshness claim in SC-002 untrue.
 5. The invalid-row share of a page exceeds 5%, or a field other than `outcome`/`outcomeIndex` is
    missing in more than 0.1% of rows, indicating schema drift beyond the repair contract.

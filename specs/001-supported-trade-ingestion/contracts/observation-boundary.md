@@ -25,7 +25,8 @@ and the cycle is reported as a failure.
 ## Proof Before Advance
 
 Given the durable boundary time `T` and the retained identity window `W`, and a cycle's parsed page
-`P` (valid rows only, padding included, sorted ascending by `(timestamp, identity)`):
+`P` (valid rows at or before the cycle cutoff only, padding included, sorted ascending by
+`(timestamp, identity)`):
 
 ```text
 oldest     = min(timestamp(row) for row in P)
@@ -36,12 +37,16 @@ proven     = reach and continuity
 ```
 
 - `P` empty: not proven, not a loss; `last_success_at` updates, nothing is emitted, `T` unchanged.
-- `proven`: emit new observations, retain their identities, set `T' = max(timestamp(row) for accepted
+- `proven`: emit new observations, retain their identities, set `T' = max(timestamp(row) for eligible
   rows)`, trim identities with score `< T' - horizon`, write `boundary_origin = proven`.
 - not `proven`: perform exactly one recovery request (`offset=10000`), merge by identity, and evaluate
   again. If still not proven, open a gap `[T, oldest)` and enter `possible-data-loss`.
 
 Page length is never an input to the proof.
+
+Rows newer than the cycle cutoff are counted as `deferred:future-cycle` and excluded from proof,
+emission, identity retention, and `T'`. They are eligible for reacquisition in a later cycle. Thus the
+durable `T` is a complete-through claim, not a newest-seen watermark.
 
 ## Candidate Selection and Emission
 
@@ -72,12 +77,12 @@ Page length is never an input to the proof.
 |---|---|
 | No checkpoint, or a checkpoint whose `coverage` differs from the configuration | First start: fetch one page, `T = newest accepted`, retain identities within the horizon, emit nothing, `boundary_origin = first-start` |
 | Checkpoint with an unknown `schema_version` | Terminal configuration error; the poller enters `failed` and touches nothing |
-| Checkpoint age `now - T <= horizon` | Reload `W` from Redis, then run the normal proof; emitted rows are exactly the candidates not in `W` |
+| Checkpoint age `now - T <= horizon` | Reload `W` from Redis, then run the normal proof; if reachable, emitted rows are exactly the candidates not in `W`; otherwise enter `possible-data-loss` |
 | Checkpoint age `now - T > horizon` | Write a loss event `[T, newest accepted]` with reason `restart-beyond-horizon`, re-anchor without emission |
 
-The reachable depth is 20,000 rows, so a restart inside the horizon can still fail proof at observed
-rates after roughly five to seven minutes; that produces the possible-data-loss path above, not a
-silent skip.
+The reachable depth is 20,000 rows, so the 10-minute horizon does not guarantee 10-minute recovery. A
+restart inside the horizon can still fail proof after roughly five to seven minutes at the observed
+rates; that produces the possible-data-loss path above, not a silent skip.
 
 ## Crash Semantics
 
