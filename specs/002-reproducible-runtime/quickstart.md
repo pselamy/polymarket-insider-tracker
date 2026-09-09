@@ -27,7 +27,7 @@ uv run --env-file .env python scripts/verify.py --profile all
 Expected result:
 
 - installation uses only the checked-in lock;
-- PostgreSQL and Redis answer real probes;
+- PostgreSQL and Redis answer real probes, and the shared Redis behavioral contract passes against both `fakeredis` and the real loopback Redis;
 - migrations reach head, downgrade one revision in a disposable database, return to head, and clean up;
 - an asynchronous query succeeds through the same canonical database URL;
 - lock, Black format, Ruff lint, strict mypy, strict Pyright, Vulture dead-code check, Complexipy cognitive complexity check, and deterministic test gates all pass;

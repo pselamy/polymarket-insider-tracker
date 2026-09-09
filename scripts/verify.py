@@ -31,6 +31,7 @@ class Gate(NamedTuple):
     command: tuple[str, ...]
     needs_services: bool = False
     redaction_policy: RedactionPolicy = "configured-secrets"
+    environment: tuple[tuple[str, str], ...] = ()
 
     @property
     def command_text(self) -> str:
@@ -167,6 +168,12 @@ GATES: Mapping[str, Gate] = {
         (sys.executable, "scripts/runtime_services.py", "--phase", "probe"),
         needs_services=True,
     ),
+    "redis-contract": Gate(
+        "redis-contract",
+        (sys.executable, "-m", "pytest", "tests/integration/test_redis_contract.py"),
+        needs_services=True,
+        environment=(("RUN_SERVICE_TESTS", "1"),),
+    ),
     "migrations": Gate(
         "migrations",
         (sys.executable, "scripts/runtime_services.py", "--phase", "migrations"),
@@ -177,7 +184,7 @@ GATES: Mapping[str, Gate] = {
 BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
     "static": ("lock", "format", "lint", "strict-types", "pyright", "vulture", "complexipy"),
     "compatibility": ("lock", "imports", "tests"),
-    "services": ("services", "migrations"),
+    "services": ("services", "redis-contract", "migrations"),
 }
 PROFILE_NAMES = ("static", "compatibility", "services", "all")
 
@@ -234,6 +241,10 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ),
     ("tests", "uv run pytest"),
     ("services", "uv run --env-file .env python scripts/runtime_services.py --phase probe"),
+    (
+        "redis-contract",
+        "RUN_SERVICE_TESTS=1 uv run --env-file .env pytest tests/integration/test_redis_contract.py",
+    ),
     (
         "migrations",
         "uv run --env-file .env python scripts/runtime_services.py --phase migrations",
@@ -362,15 +373,27 @@ def redact_text(text: str, environment: Mapping[str, str] | None = None) -> str:
     return _redact_secrets(_redact_urls(text, values), values)
 
 
-def _environment_for_gate(gate: Gate) -> dict[str, str] | None:
-    """Return an isolated environment for deterministic tests; other gates inherit the caller."""
-    if gate.id != "tests":
-        return None
+def _scrubbed_test_environment() -> dict[str, str]:
+    """Return the caller's environment without any application or service configuration."""
     return {
         key: value
         for key, value in os.environ.items()
         if key not in TEST_CONFIGURATION_KEYS and not key.startswith(TEST_CONFIGURATION_PREFIXES)
     }
+
+
+def _environment_for_gate(gate: Gate) -> dict[str, str] | None:
+    """Return the environment a gate runs in.
+
+    The deterministic ``tests`` gate is isolated from every application setting; a gate that
+    declares ``environment`` overrides inherits the caller's environment plus those overrides; every
+    other gate inherits the caller's environment unchanged.
+    """
+    if gate.id == "tests":
+        return _scrubbed_test_environment()
+    if gate.environment:
+        return {**os.environ, **dict(gate.environment)}
+    return None
 
 
 def _run_command(gate: Gate) -> CommandExecution:

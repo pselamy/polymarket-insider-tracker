@@ -15,6 +15,8 @@ is an entry point to those authorities, not a replacement for them.
 - Tests and verification must not accidentally contact market, chain, or notification
   services. Real Discord/Telegram delivery requires explicit authorization. Dry runs
   must neither deliver nor poison later real-delivery deduplication state.
+  The existing dedup-ordering gap is tracked as G-018 in slice 003; do not claim it
+  is fixed or use dry-run alone as evidence that shared delivery state is isolated.
 - Preserve durable research assessments. Persistence failures must be observable
   without blocking an otherwise authorized alert attempt.
 - Never log secrets or credential-bearing URLs. Exercise migration downgrades only
@@ -67,9 +69,10 @@ Prefer real value objects and lightweight working fakes. Reusable fakes need sha
 contract tests against real implementations for exercised behavior. Keep real local
 database and transport tests where they provide stronger evidence.
 
-Do not introduce new `unittest.mock` doubles or patches (`Mock`, `MagicMock`,
-`AsyncMock`, or `patch`). Migrate existing uses through the owned fakes work item;
-do not expand an unrelated PR into a repository-wide test rewrite.
+`unittest.mock` and generic mock frameworks are prohibited. The AST policy scans
+tests and root `conftest.py`, including aliases and literal dynamic imports.
+Follow the [test-quality contract](specs/002-reproducible-runtime/contracts/test-quality.md)
+for shared Redis contracts and narrow lifecycle/failure-injection exceptions.
 
 Do not replace mocks with a homemade mock framework: no dynamic attribute trees,
 generic return-value/side-effect DSL, or call-assertion framework. Assert resulting

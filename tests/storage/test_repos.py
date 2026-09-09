@@ -4,7 +4,6 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import cast
-from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -359,7 +358,11 @@ class TestFundingRepository:
         """Duplicate-looking text on a non-SQLAlchemy error must still propagate."""
         repo = FundingRepository(async_session)
         failure = RuntimeError("UNIQUE constraint failed: funding_transfers.tx_hash")
-        monkeypatch.setattr(repo, "insert", AsyncMock(side_effect=failure))
+
+        async def failing_insert(*_args: object, **_kwargs: object) -> None:
+            raise failure
+
+        monkeypatch.setattr(repo, "insert", failing_insert)
 
         with pytest.raises(RuntimeError) as raised:
             await repo.insert_many([sample_transfer_dto])

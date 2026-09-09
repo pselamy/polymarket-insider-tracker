@@ -1,7 +1,8 @@
-"""Tests verifying wallet and funding data persistence in the pipeline.
+"""Tests that the pipeline persists wallet profiles and funding transfers.
 
-These tests confirm that running the live pipeline writes rows into
-wallet_profiles and funding_transfers tables when fresh wallets are detected.
+The pipeline runs with its real detectors, analyzer, funding tracer, and repositories; only the
+Polygon RPC (``FakeEth``), Redis (``fakeredis``), and the database engine (in-memory SQLite) are
+substituted.
 """
 
 from __future__ import annotations
@@ -9,90 +10,41 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fakeredis import FakeAsyncRedis
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.detector.models import FreshWalletSignal
-from polymarket_insider_tracker.ingestor.models import TradeEvent
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline
-from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer, WalletProfile
+from polymarket_insider_tracker.profiler.funding import USDC_BRIDGED
+from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
-from polymarket_insider_tracker.storage.models import Base, FundingTransferModel, WalletProfileModel
+from polymarket_insider_tracker.storage.models import FundingTransferModel, WalletProfileModel
+from tests.fakes import FakeEth, TransferLogIndex, make_test_settings, transfer_log, wire_pipeline
+
+WALLET = "0x" + "b" * 40
+FUNDER = "0x" + "d" * 40
+FUNDING_TX_HASH = "0x" + "e" * 64
+CHAIN_HEAD = 12_400_000
+UNREACHABLE_DATABASE_URL = "postgresql+psycopg://tracker:unused@127.0.0.1:1/unreachable"
 
 
 @pytest.fixture
-def mock_settings():
-    """Create mock settings for testing."""
-    redis = MagicMock()
-    redis.url = "redis://localhost:6379"
-
-    database = MagicMock()
-    database.url = "sqlite+aiosqlite:///:memory:"
-
-    polygon = MagicMock()
-    polygon.rpc_url = "https://polygon-rpc.com"
-    polygon.fallback_rpc_url = None
-
-    polymarket = MagicMock()
-    polymarket.ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
-    polymarket.api_key = None
-
-    discord = MagicMock()
-    discord.enabled = False
-    discord.webhook_url = None
-
-    telegram = MagicMock()
-    telegram.enabled = False
-    telegram.bot_token = None
-    telegram.chat_id = None
-
-    settings = MagicMock(spec=Settings)
-    settings.redis = redis
-    settings.database = database
-    settings.polygon = polygon
-    settings.polymarket = polymarket
-    settings.discord = discord
-    settings.telegram = telegram
-    settings.dry_run = True
-    return settings
+def test_settings() -> Settings:
+    """Create concrete test settings."""
+    return make_test_settings()
 
 
 @pytest.fixture
-async def async_engine():
-    """Create an async SQLite engine for testing."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
-
-
-@pytest.fixture
-async def db_manager(async_engine):
-    """Create a DatabaseManager backed by the in-memory SQLite engine."""
-    manager = DatabaseManager.__new__(DatabaseManager)
-    manager.database_url = "sqlite+aiosqlite:///:memory:"
-    manager.async_mode = True
-    manager._pool_size = 5
-    manager._max_overflow = 10
-    manager._echo = False
-    manager._sync_engine = None
-    manager._async_engine = async_engine
-    manager._sync_session_factory = None
-    manager._async_session_factory = async_sessionmaker(bind=async_engine, expire_on_commit=False)
-    return manager
-
-
-@pytest.fixture
-def sample_trade():
+def sample_trade() -> TradeEvent:
     """Create a sample trade event."""
     return TradeEvent(
         trade_id="0x" + "a" * 64,
-        wallet_address="0x" + "b" * 40,
+        wallet_address=WALLET,
         market_id="0x" + "c" * 64,
         asset_id="asset_123",
         side="BUY",
@@ -107,10 +59,21 @@ def sample_trade():
 
 
 @pytest.fixture
-def sample_profile():
+def mainstream_market(sample_trade: TradeEvent) -> MarketMetadata:
+    return MarketMetadata(
+        condition_id=sample_trade.market_id,
+        question="Test Market",
+        description="",
+        tokens=(Token(token_id=sample_trade.asset_id, outcome="Yes", price=Decimal("0.65")),),
+        category="politics",
+    )
+
+
+@pytest.fixture
+def sample_profile() -> WalletProfile:
     """Create a sample fresh wallet profile."""
     return WalletProfile(
-        address="0x" + "b" * 40,
+        address=WALLET,
         nonce=2,
         first_seen=datetime(2026, 3, 31, 12, 0, 0, tzinfo=UTC),
         age_hours=1.5,
@@ -123,77 +86,75 @@ def sample_profile():
 
 
 @pytest.fixture
-def sample_funding_chain():
-    """Create a sample funding chain with one transfer."""
-    return FundingChain(
-        target_address="0x" + "b" * 40,
-        chain=[
-            FundingTransfer(
-                from_address="0x" + "d" * 40,
-                to_address="0x" + "b" * 40,
-                amount=Decimal("5000000000"),
-                token="USDC",
-                tx_hash="0x" + "e" * 64,
-                block_number=12345678,
-                timestamp=datetime(2026, 3, 31, 11, 0, 0, tzinfo=UTC),
-            ),
-        ],
-        origin_address="0x" + "d" * 40,
-        origin_type="cex_binance",
-        hop_count=1,
+def funded_chain() -> TransferLogIndex:
+    """On-chain history with one USDC transfer from ``FUNDER`` into the traded wallet."""
+    index = TransferLogIndex()
+    index.add_transfer(
+        USDC_BRIDGED,
+        transfer_log(
+            from_address=FUNDER,
+            to_address=WALLET,
+            amount=5_000_000_000,
+            tx_hash=FUNDING_TX_HASH,
+            block_number=12_345_678,
+        ),
     )
+    return index
+
+
+def _fresh_wallet_eth(chain: TransferLogIndex | None = None) -> FakeEth:
+    """A Polygon RPC that reports a two-transaction wallet, which the analyzer deems fresh."""
+    return FakeEth(transaction_count=2, block_number=CHAIN_HEAD, logs=chain)
+
+
+async def _wallet_rows(engine: AsyncEngine) -> list[WalletProfileModel]:
+    async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+        return list((await session.execute(select(WalletProfileModel))).scalars().all())
+
+
+async def _funding_rows(engine: AsyncEngine) -> list[FundingTransferModel]:
+    async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+        return list((await session.execute(select(FundingTransferModel))).scalars().all())
 
 
 class TestPipelinePersistence:
-    """Tests that the pipeline persists wallet and funding data to Postgres."""
+    """Tests that the pipeline persists wallet and funding data to the database."""
 
-    @pytest.mark.asyncio
     async def test_on_trade_persists_wallet_profile(
-        self, mock_settings, db_manager, sample_trade, sample_profile, async_engine
-    ):
+        self,
+        test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade: TradeEvent,
+        mainstream_market: MarketMetadata,
+    ) -> None:
         """When a fresh wallet signal fires, the wallet profile is written to wallet_profiles."""
-        pipeline = Pipeline(mock_settings)
-        pipeline._db_manager = db_manager
-
-        fresh_signal = FreshWalletSignal(
-            trade_event=sample_trade,
-            wallet_profile=sample_profile,
-            confidence=0.8,
-            factors={"base": 0.5, "brand_new": 0.2},
+        pipeline = await wire_pipeline(
+            test_settings,
+            redis=fake_redis,
+            eth=_fresh_wallet_eth(),
+            market=mainstream_market,
+            db_manager=db_manager,
         )
-
-        pipeline._fresh_wallet_detector = MagicMock()
-        pipeline._fresh_wallet_detector.analyze = AsyncMock(return_value=fresh_signal)
-        pipeline._size_anomaly_detector = MagicMock()
-        pipeline._size_anomaly_detector.analyze = AsyncMock(return_value=None)
-        pipeline._funding_tracer = MagicMock()
-        pipeline._funding_tracer.trace = AsyncMock(
-            return_value=FundingChain(target_address=sample_profile.address)
-        )
-        pipeline._risk_scorer = MagicMock()
-        pipeline._risk_scorer.assess = AsyncMock(
-            return_value=MagicMock(should_alert=False, weighted_score=0.3)
-        )
-        pipeline._alert_formatter = MagicMock()
-        pipeline._alert_dispatcher = MagicMock()
 
         await pipeline._on_trade(sample_trade)
 
-        # Verify wallet_profiles has a row
-        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
-            result = await session.execute(select(WalletProfileModel))
-            rows = result.scalars().all()
-            assert len(rows) == 1
-            assert rows[0].address == sample_profile.address.lower()
-            assert rows[0].nonce == sample_profile.nonce
-            assert rows[0].is_fresh is True
+        rows = await _wallet_rows(async_engine)
+        assert [(row.address, row.nonce, row.is_fresh) for row in rows] == [(WALLET, 2, True)]
+        assert pipeline.stats.signals_generated == 1
 
-    @pytest.mark.asyncio
     async def test_persists_wallet_without_a_funding_tracer(
-        self, mock_settings, db_manager, sample_trade, sample_profile, async_engine, caplog
-    ):
+        self,
+        test_settings: Settings,
+        db_manager: DatabaseManager,
+        sample_trade: TradeEvent,
+        sample_profile: WalletProfile,
+        async_engine: AsyncEngine,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         """Guard the explicitly initialized transfer count when no tracer is configured."""
-        pipeline = Pipeline(mock_settings)
+        pipeline = Pipeline(test_settings)
         pipeline._db_manager = db_manager
         pipeline._funding_tracer = None
         fresh_signal = FreshWalletSignal(
@@ -207,153 +168,114 @@ class TestPipelinePersistence:
             await pipeline._persist_wallet_and_funding(fresh_signal)
 
         assert "Failed to persist wallet/funding data" not in caplog.text
-        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
-            rows = (await session.execute(select(WalletProfileModel))).scalars().all()
-            assert len(rows) == 1
-            assert rows[0].address == sample_profile.address.lower()
+        rows = await _wallet_rows(async_engine)
+        assert [row.address for row in rows] == [sample_profile.address]
+        assert await _funding_rows(async_engine) == []
 
-    @pytest.mark.asyncio
     async def test_on_trade_persists_funding_transfers(
         self,
-        mock_settings,
-        db_manager,
-        sample_trade,
-        sample_profile,
-        sample_funding_chain,
-        async_engine,
-    ):
-        """When a fresh wallet signal fires, funding transfers are written to funding_transfers."""
-        pipeline = Pipeline(mock_settings)
-        pipeline._db_manager = db_manager
-
-        fresh_signal = FreshWalletSignal(
-            trade_event=sample_trade,
-            wallet_profile=sample_profile,
-            confidence=0.8,
-            factors={"base": 0.5, "brand_new": 0.2},
+        test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade: TradeEvent,
+        mainstream_market: MarketMetadata,
+        funded_chain: TransferLogIndex,
+    ) -> None:
+        """When a fresh wallet signal fires, traced funding transfers are written."""
+        pipeline = await wire_pipeline(
+            test_settings,
+            redis=fake_redis,
+            eth=_fresh_wallet_eth(funded_chain),
+            market=mainstream_market,
+            db_manager=db_manager,
         )
-
-        pipeline._fresh_wallet_detector = MagicMock()
-        pipeline._fresh_wallet_detector.analyze = AsyncMock(return_value=fresh_signal)
-        pipeline._size_anomaly_detector = MagicMock()
-        pipeline._size_anomaly_detector.analyze = AsyncMock(return_value=None)
-        pipeline._funding_tracer = MagicMock()
-        pipeline._funding_tracer.trace = AsyncMock(return_value=sample_funding_chain)
-        pipeline._risk_scorer = MagicMock()
-        pipeline._risk_scorer.assess = AsyncMock(
-            return_value=MagicMock(should_alert=False, weighted_score=0.3)
-        )
-        pipeline._alert_formatter = MagicMock()
-        pipeline._alert_dispatcher = MagicMock()
 
         await pipeline._on_trade(sample_trade)
 
-        # Verify funding_transfers has a row
-        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
-            result = await session.execute(select(FundingTransferModel))
-            rows = result.scalars().all()
-            assert len(rows) == 1
-            assert rows[0].to_address == ("0x" + "b" * 40).lower()
-            assert rows[0].from_address == ("0x" + "d" * 40).lower()
-            assert rows[0].token == "USDC"
-            assert rows[0].tx_hash == ("0x" + "e" * 64).lower()
+        rows = await _funding_rows(async_engine)
+        # The tracer stores ``transactionHash.hex()``, which is bare hex without a ``0x`` prefix.
+        assert [(row.from_address, row.to_address, row.token, row.tx_hash) for row in rows] == [
+            (FUNDER, WALLET, "USDC", FUNDING_TX_HASH.removeprefix("0x"))
+        ]
+        assert rows[0].block_number == 12_345_678
+        assert rows[0].amount == Decimal("5000000000")
 
-    @pytest.mark.asyncio
     async def test_no_persistence_without_fresh_signal(
-        self, mock_settings, db_manager, sample_trade, async_engine
-    ):
-        """No rows written when fresh wallet signal is None (wallet not fresh)."""
-        pipeline = Pipeline(mock_settings)
-        pipeline._db_manager = db_manager
-
-        pipeline._fresh_wallet_detector = MagicMock()
-        pipeline._fresh_wallet_detector.analyze = AsyncMock(return_value=None)
-        pipeline._size_anomaly_detector = MagicMock()
-        pipeline._size_anomaly_detector.analyze = AsyncMock(return_value=None)
+        self,
+        test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade: TradeEvent,
+        mainstream_market: MarketMetadata,
+        funded_chain: TransferLogIndex,
+    ) -> None:
+        """No rows are written when the wallet is not fresh."""
+        pipeline = await wire_pipeline(
+            test_settings,
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=100, block_number=CHAIN_HEAD, logs=funded_chain),
+            market=mainstream_market,
+            db_manager=db_manager,
+        )
 
         await pipeline._on_trade(sample_trade)
 
-        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
-            wallets = (await session.execute(select(WalletProfileModel))).scalars().all()
-            transfers = (await session.execute(select(FundingTransferModel))).scalars().all()
-            assert len(wallets) == 0
-            assert len(transfers) == 0
+        assert await _wallet_rows(async_engine) == []
+        assert await _funding_rows(async_engine) == []
+        assert pipeline.stats.signals_generated == 0
 
-    @pytest.mark.asyncio
     async def test_persistence_failure_does_not_break_pipeline(
-        self, mock_settings, sample_trade, sample_profile
-    ):
-        """Persistence errors are caught and don't crash trade processing."""
-        pipeline = Pipeline(mock_settings)
-
-        # Use a broken db_manager that raises on get_async_session
-        broken_db = MagicMock()
-        broken_db.get_async_session = MagicMock(side_effect=Exception("DB connection failed"))
-        pipeline._db_manager = broken_db
-
-        fresh_signal = FreshWalletSignal(
-            trade_event=sample_trade,
-            wallet_profile=sample_profile,
-            confidence=0.8,
-            factors={"base": 0.5},
+        self,
+        test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        mainstream_market: MarketMetadata,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An unreachable database is logged and never crashes trade processing."""
+        unreachable_db = DatabaseManager(UNREACHABLE_DATABASE_URL, async_mode=True)
+        pipeline = await wire_pipeline(
+            test_settings,
+            redis=fake_redis,
+            eth=_fresh_wallet_eth(),
+            market=mainstream_market,
+            db_manager=unreachable_db,
         )
 
-        pipeline._fresh_wallet_detector = MagicMock()
-        pipeline._fresh_wallet_detector.analyze = AsyncMock(return_value=fresh_signal)
-        pipeline._size_anomaly_detector = MagicMock()
-        pipeline._size_anomaly_detector.analyze = AsyncMock(return_value=None)
-        pipeline._funding_tracer = MagicMock()
-        pipeline._risk_scorer = MagicMock()
-        pipeline._risk_scorer.assess = AsyncMock(
-            return_value=MagicMock(should_alert=False, weighted_score=0.3)
-        )
-        pipeline._alert_formatter = MagicMock()
-        pipeline._alert_dispatcher = MagicMock()
+        try:
+            with caplog.at_level(logging.WARNING):
+                await pipeline._on_trade(sample_trade)
+        finally:
+            await unreachable_db.dispose_async()
 
-        # Should not raise
-        await pipeline._on_trade(sample_trade)
+        assert "Failed to persist wallet/funding data" in caplog.text
         assert pipeline.stats.trades_processed == 1
+        assert pipeline.stats.errors == 0
 
-    @pytest.mark.asyncio
     async def test_duplicate_funding_transfers_are_skipped(
         self,
-        mock_settings,
-        db_manager,
-        sample_trade,
-        sample_profile,
-        sample_funding_chain,
-        async_engine,
-    ):
+        test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade: TradeEvent,
+        mainstream_market: MarketMetadata,
+        funded_chain: TransferLogIndex,
+    ) -> None:
         """Processing the same trade twice should not duplicate funding transfer rows."""
-        pipeline = Pipeline(mock_settings)
-        pipeline._db_manager = db_manager
-
-        fresh_signal = FreshWalletSignal(
-            trade_event=sample_trade,
-            wallet_profile=sample_profile,
-            confidence=0.8,
-            factors={"base": 0.5},
+        pipeline = await wire_pipeline(
+            test_settings,
+            redis=fake_redis,
+            eth=_fresh_wallet_eth(funded_chain),
+            market=mainstream_market,
+            db_manager=db_manager,
         )
 
-        pipeline._fresh_wallet_detector = MagicMock()
-        pipeline._fresh_wallet_detector.analyze = AsyncMock(return_value=fresh_signal)
-        pipeline._size_anomaly_detector = MagicMock()
-        pipeline._size_anomaly_detector.analyze = AsyncMock(return_value=None)
-        pipeline._funding_tracer = MagicMock()
-        pipeline._funding_tracer.trace = AsyncMock(return_value=sample_funding_chain)
-        pipeline._risk_scorer = MagicMock()
-        pipeline._risk_scorer.assess = AsyncMock(
-            return_value=MagicMock(should_alert=False, weighted_score=0.3)
-        )
-        pipeline._alert_formatter = MagicMock()
-        pipeline._alert_dispatcher = MagicMock()
-
-        # Process same trade twice
         await pipeline._on_trade(sample_trade)
         await pipeline._on_trade(sample_trade)
 
-        # Should still have only 1 funding transfer (duplicate skipped)
-        async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
-            result = await session.execute(select(FundingTransferModel))
-            rows = result.scalars().all()
-            assert len(rows) == 1
+        assert len(await _funding_rows(async_engine)) == 1
+        assert len(await _wallet_rows(async_engine)) == 1
+        assert pipeline.stats.errors == 0

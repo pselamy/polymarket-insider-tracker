@@ -3,9 +3,9 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import AsyncMock
 
 import pytest
+from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.detector.models import (
     FreshWalletSignal,
@@ -25,16 +25,6 @@ from polymarket_insider_tracker.profiler.models import WalletProfile
 # ============================================================================
 # Fixtures
 # ============================================================================
-
-
-@pytest.fixture
-def mock_redis() -> AsyncMock:
-    """Create a mock Redis client."""
-    mock = AsyncMock()
-    # Default: key doesn't exist (not a duplicate)
-    mock.set.return_value = True
-    mock.delete.return_value = 1
-    return mock
 
 
 @pytest.fixture
@@ -278,19 +268,19 @@ class TestRiskAssessment:
 class TestRiskScorerInit:
     """Tests for RiskScorer initialization."""
 
-    def test_default_initialization(self, mock_redis: AsyncMock) -> None:
+    def test_default_initialization(self, fake_redis: FakeAsyncRedis) -> None:
         """Test scorer initializes with default values."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
 
         assert scorer._alert_threshold == DEFAULT_ALERT_THRESHOLD
         assert scorer._weights == DEFAULT_WEIGHTS
         assert scorer._dedup_window == 3600
 
-    def test_custom_configuration(self, mock_redis: AsyncMock) -> None:
+    def test_custom_configuration(self, fake_redis: FakeAsyncRedis) -> None:
         """Test scorer with custom configuration."""
         custom_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
         scorer = RiskScorer(
-            mock_redis,
+            fake_redis,
             weights=custom_weights,
             alert_threshold=0.7,
             dedup_window_seconds=1800,
@@ -309,9 +299,11 @@ class TestRiskScorerInit:
 class TestWeightedScoreCalculation:
     """Tests for weighted score calculation."""
 
-    def test_no_signals_zero_score(self, mock_redis: AsyncMock, sample_trade: TradeEvent) -> None:
+    def test_no_signals_zero_score(
+        self, fake_redis: FakeAsyncRedis, sample_trade: TradeEvent
+    ) -> None:
         """Test score is zero when no signals present."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(trade_event=sample_trade)
 
         score, count = scorer.calculate_weighted_score(bundle)
@@ -321,12 +313,12 @@ class TestWeightedScoreCalculation:
 
     def test_fresh_wallet_only(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
     ) -> None:
         """Test score with only fresh wallet signal."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
@@ -341,12 +333,12 @@ class TestWeightedScoreCalculation:
 
     def test_size_anomaly_only(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
         """Test score with only size anomaly signal."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             size_anomaly_signal=size_anomaly_signal,
@@ -361,7 +353,7 @@ class TestWeightedScoreCalculation:
 
     def test_size_anomaly_non_niche(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         sample_metadata: MarketMetadata,
     ) -> None:
@@ -375,7 +367,7 @@ class TestWeightedScoreCalculation:
             confidence=0.7,
             factors={},
         )
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             size_anomaly_signal=signal,
@@ -389,13 +381,13 @@ class TestWeightedScoreCalculation:
 
     def test_multi_signal_bonus_two_signals(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
         """Test 20% bonus for two signals."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
@@ -416,7 +408,7 @@ class TestWeightedScoreCalculation:
 
     def test_score_capped_at_one(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         sample_wallet_profile: WalletProfile,
         sample_metadata: MarketMetadata,
@@ -439,7 +431,7 @@ class TestWeightedScoreCalculation:
             factors={},
         )
 
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_signal,
@@ -463,13 +455,13 @@ class TestAssessMethod:
     @pytest.mark.asyncio
     async def test_assess_triggers_alert(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
         """Test assess triggers alert for high-risk trades."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
@@ -484,10 +476,10 @@ class TestAssessMethod:
 
     @pytest.mark.asyncio
     async def test_assess_no_alert_below_threshold(
-        self, mock_redis: AsyncMock, sample_trade: TradeEvent
+        self, fake_redis: FakeAsyncRedis, sample_trade: TradeEvent
     ) -> None:
         """Test assess does not alert for low-risk trades."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(trade_event=sample_trade)
 
         assessment = await scorer.assess(bundle)
@@ -499,7 +491,7 @@ class TestAssessMethod:
     @pytest.mark.asyncio
     async def test_assess_preserves_base_addition_order_at_alert_boundary(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
@@ -515,26 +507,22 @@ class TestAssessMethod:
             ),
         )
 
-        assessment = await RiskScorer(mock_redis).assess(bundle)
+        assessment = await RiskScorer(fake_redis).assess(bundle)
 
         assert assessment.weighted_score == 0.7999999999999999
         assert assessment.should_alert is False
-        mock_redis.set.assert_not_awaited()
+        assert await fake_redis.dbsize() == 0
 
     @pytest.mark.asyncio
     async def test_assess_deduplication(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
         """Test assess deduplicates repeated alerts."""
-        # First call: key doesn't exist (returns True)
-        # Second call: key exists (returns False/None)
-        mock_redis.set.configure_mock(side_effect=[True, False])
-
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
@@ -552,12 +540,12 @@ class TestAssessMethod:
     @pytest.mark.asyncio
     async def test_assess_preserves_signals(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
     ) -> None:
         """Test assess preserves original signals in assessment."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=fresh_wallet_signal,
@@ -578,36 +566,35 @@ class TestDeduplication:
     """Tests for deduplication functionality."""
 
     @pytest.mark.asyncio
-    async def test_check_and_set_dedup_new_key(self, mock_redis: AsyncMock) -> None:
+    async def test_check_and_set_dedup_new_key(self, fake_redis: FakeAsyncRedis) -> None:
         """Test dedup returns False for new key."""
-        mock_redis.set.return_value = True
-
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         is_dup = await scorer._check_and_set_dedup("0xwallet", "market123")
 
         assert is_dup is False
-        mock_redis.set.assert_called_once()
+        key = f"{scorer._key_prefix}0xwallet:market123"
+        assert await fake_redis.exists(key) == 1
 
     @pytest.mark.asyncio
-    async def test_check_and_set_dedup_existing_key(self, mock_redis: AsyncMock) -> None:
+    async def test_check_and_set_dedup_existing_key(self, fake_redis: FakeAsyncRedis) -> None:
         """Test dedup returns True for existing key."""
-        mock_redis.set.return_value = False  # Key exists, NX failed
-
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
+        key = f"{scorer._key_prefix}0xwallet:market123"
+        await fake_redis.set(key, "existing")
         is_dup = await scorer._check_and_set_dedup("0xwallet", "market123")
 
         assert is_dup is True
 
     @pytest.mark.asyncio
-    async def test_clear_dedup(self, mock_redis: AsyncMock) -> None:
+    async def test_clear_dedup(self, fake_redis: FakeAsyncRedis) -> None:
         """Test clearing dedup key."""
-        mock_redis.delete.return_value = 1
-
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
+        key = f"{scorer._key_prefix}0xwallet:market123"
+        await fake_redis.set(key, "existing")
         cleared = await scorer.clear_dedup("0xwallet", "market123")
 
         assert cleared is True
-        mock_redis.delete.assert_called_once()
+        assert await fake_redis.exists(key) == 0
 
 
 # ============================================================================
@@ -621,11 +608,11 @@ class TestBatchAnalysis:
     @pytest.mark.asyncio
     async def test_assess_batch(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         sample_wallet_profile: WalletProfile,
     ) -> None:
         """Test batch assessment returns assessments for all bundles."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
 
         bundles = []
         for i in range(3):
@@ -655,9 +642,9 @@ class TestBatchAnalysis:
         assert all(isinstance(a, RiskAssessment) for a in assessments)
 
     @pytest.mark.asyncio
-    async def test_assess_batch_empty(self, mock_redis: AsyncMock) -> None:
+    async def test_assess_batch_empty(self, fake_redis: FakeAsyncRedis) -> None:
         """Test batch assessment with empty list."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
 
         assessments = await scorer.assess_batch([])
 
@@ -672,9 +659,9 @@ class TestBatchAnalysis:
 class TestWeightManagement:
     """Tests for weight get/set functionality."""
 
-    def test_get_weights(self, mock_redis: AsyncMock) -> None:
+    def test_get_weights(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting weights returns a copy."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
 
         weights = scorer.get_weights()
 
@@ -683,18 +670,18 @@ class TestWeightManagement:
         weights["fresh_wallet"] = 999
         assert scorer._weights["fresh_wallet"] != 999
 
-    def test_set_weights(self, mock_redis: AsyncMock) -> None:
+    def test_set_weights(self, fake_redis: FakeAsyncRedis) -> None:
         """Test setting new weights."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         new_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
 
         scorer.set_weights(new_weights)
 
         assert scorer._weights == new_weights
 
-    def test_set_weights_makes_copy(self, mock_redis: AsyncMock) -> None:
+    def test_set_weights_makes_copy(self, fake_redis: FakeAsyncRedis) -> None:
         """Test set_weights makes a copy of the input."""
-        scorer = RiskScorer(mock_redis)
+        scorer = RiskScorer(fake_redis)
         new_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
 
         scorer.set_weights(new_weights)

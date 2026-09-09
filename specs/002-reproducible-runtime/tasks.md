@@ -328,24 +328,93 @@ completion is not evidence for this phase; each item below is checked only when 
   pass on implementation head `b69ff382972d7e0f9bfe49ce52f8d8862e413c1b`; immutable push run
   `34293412134`, pull-request run `34293638475`, and per-job conclusions are recorded in
   `evidence/verification.md`.
-- [ ] T080 Patrick's approval of the pull request.
-- [ ] T081 Merge into `main`.
-- [ ] T082 Post-merge: confirm the `main` workflow run is green with the `complexipy` job present in the
-  required aggregator, and close this ledger.
+- [X] T080 Patrick's approval of the pull request (Patrick approved reviewed head `3e3375a`).
+- [X] T081 Merge into `main` (merge commit `7a4f11cd645dd21b049db3649747bb4e03b652e2` at `2026-09-09T01:30:42Z`; tree `fca6220513027eba30f478deab10191d6547bb22`).
+- [X] T082 Post-merge: confirm the `main` workflow run is green with the `complexipy` job present in the
+  required aggregator, and close this ledger (root verified all 9 jobs successful in run `34299489433`:
+  https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34299489433).
 - [X] T083 Correct post-PR adversarial findings without amending the ordered agent commits: isolate
   duplicate funding inserts with transaction savepoints and structured `IntegrityError` identifiers;
   preserve the scorer's base IEEE-754 addition order at the alert threshold; and close Complexipy's
   automatic-snapshot, cwd-exclusion, and omitted-module-control-flow escape hatches with real red-to-green
   regression tests, aligned contracts, and appended evidence.
 
+## Phase 12: Mocks-to-Fakes Test Quality Migration
+
+Branch `quality/fakes-over-mocks` from base `7a4f11cd645dd21b049db3649747bb4e03b652e2`. Inventory: 22 test files
+importing `unittest.mock`, 301 mock constructors, and 52 interaction assertions. Ordered agent history: Agy's
+incomplete first pass was preserved unchanged by Codex as checkpoint `7b7305aff0ad6a2c5a85bb95dec114a7fce52525`;
+Claude Fable's corrective pass is the commit that follows it; Codex reviews independently afterwards.
+
+- [X] T084 Capture baseline test collection (862 tests collected; 860 passed, 2 platform skips) and coverage
+  (pytest-cov `TOTAL 91%` with `branch = true`, which is combined statement-and-branch coverage: 4098 statements /
+  329 missed, 768 branches / 93 partial) to establish the invariant mapping before migration.
+- [X] T085 AST policy regression in `tests/tooling/test_test_quality.py`. Agy's version exempted its own file by
+  basename; Fable removed the exemption, added attribute-access detection (`import unittest` +
+  `unittest.mock.*`), the root `conftest.py`, and fixtures proving every alias spelling is rejected while
+  `pytest.MonkeyPatch`, `httpx.MockTransport`, and string literals are allowed.
+- [X] T086 Redis double and shared contract. Agy's 561-line hand-built `FakeRedis` and its fake-only self-tests
+  were deleted; Fable adopted the pinned `fakeredis==2.38.0` development dependency, rewrote
+  `tests/integration/test_redis_contract.py` as one suite parametrized over `fakeredis` and the real loopback
+  Redis (`RUN_SERVICE_TESTS=1`, fail-closed, unique namespace, no `FLUSHDB`), added
+  `validate_loopback_redis_url` to `scripts/runtime_services.py`, and added the mandatory `redis-contract` gate to
+  the `services` verification profile.
+- [X] T087 `tests/test_config.py` uses `pytest.MonkeyPatch` contexts and real model instances (Agy).
+- [X] T088 `tests/ingestor/` migrated. Fable replaced call-count paging and fail flags with cursor-keyed pages
+  and per-operation error injection in `tests/fakes/clob.py`, used the real `OrderBookSummary`/`OrderSummary`
+  SDK values, replaced canned `xreadgroup` overrides with real stream lifecycles (trimmed and deleted entries
+  read back as tombstones) plus explicit parser fixtures for the impossible `None` payload, and removed every
+  `cast(Any, ...)`.
+- [X] T089 `tests/profiler/` migrated. Fable replaced response ladders with a `TransferLogIndex` filtered by
+  token, recipient, and block window; runs the tracer over a real `PolygonClient`; uses a real closed-port Redis
+  as the cache-failure injector; and surfaced a product defect (`health_check` called the `block_number`
+  property as a method) that the faithful `FakeEth` exposes and the previously mocked test could not.
+- [X] T090 `tests/detector/` migrated. Fable keyed `FakeWalletAnalyzer` and `FakeMetadataSync` by wallet and
+  market instead of call order, removed the subclass-of-product fake, and asserted Redis state through the
+  public `DBSIZE` instead of fake internals.
+- [X] T091 `tests/alerter/` migrated. Fable replaced the hand-written async HTTP client with real
+  `httpx.AsyncClient` instances bound to `httpx.MockTransport` webhook servers that rate-limit or fail, and
+  asserted the posted JSON payloads.
+- [X] T092 Pipeline, persistence, shutdown, and CLI tests migrated. Fable removed all 26 new `# type: ignore`
+  comments, the private `_score_and_alert` spy, and every canned detector/scorer/formatter/dispatcher fake;
+  `wire_pipeline` assembles the real pipeline over `fakeredis`, `FakeEth`, `FakeBaseClobClient`, and
+  `FakeAlertChannel`, and tests prove persisted assessments, delivered or suppressed payloads, logged
+  persistence failures against a real unreachable database, and barrier-proven detector concurrency without
+  wall-clock sleeps. `make_test_settings` was corrected to pass detector options by their aliases, which Agy's
+  version silently dropped.
+- [X] T093 Verification: zero `unittest.mock` usage under `tests/`; all 862 baseline test IDs retained plus the
+  new contract, policy, and fidelity tests; Black, Ruff, strict mypy/Pyright, Vulture, Complexipy `<= 5`, and the
+  Python 3.11–3.13 compatibility profile pass; the shared Redis contract passes against `fakeredis` and a real
+  Redis 8.10.1 (evidence in `evidence/verification.md`).
+- [X] T094 Agy's first pass was preserved immutably as checkpoint `7b7305aff0ad6a2c5a85bb95dec114a7fce52525`
+  (2 failing tests, no production or gate changes) rather than as a completed hand-off.
+- [X] T095 Claude Fable adversarial review and corrective commit on top of the checkpoint (this phase's
+  commit), with the SHIP/REVISE verdict and behavior-preservation map recorded outside the repository in the
+  follow-up evidence directory and summarized in `evidence/verification.md`.
+- [X] T096 Codex independent artifact read, verification rerun, and adversarial review. Root
+  accepted corrective commit `e8077f6` after a separate all-profile run on Python 3.13 with
+  PostgreSQL 15/Redis 7 and isolated Python 3.11/3.12 compatibility runs; a second independent
+  reviewer returned SHIP and confirmed the history test kills all three bound/limit mutants.
+- [X] T097 Open pull request #117 after convergence; both push `34307927635` and PR
+  `34307929943` passed all nine jobs at reviewed head `408177b` before Patrick approved merging.
+- [X] T098 Resolve Codex findings after immutable Fable `ae4e180`: policy alias/dynamic imports,
+  Redis SCAN and cleanup, CLOB BookParams fidelity, deterministic settings, real funding path
+  assertions, history range/limit coverage, and actual Web3 provider health-check regression.
+  Independently verify all 12 gates, 909 tests, Python 3.11–3.13 compatibility, shared Redis 7
+  contracts, real PostgreSQL 15 probes/migration cycle and cleanup; append exact evidence.
+- [X] T099 Patrick approved PR117; squash-merged as `357c350af2f2b4080fbd90cbddfc01900452c5fe`
+  at `2026-09-09T03:52:00Z`. Root confirmed the merged tree equals approved head `408177b`
+  and all nine main-CI jobs passed in run `34308759971`.
+
 ## Root Agent Guidance Follow-up (Separate PR)
 
-The AG prefix isolates this documentation ledger from the concurrently prepared fakes ledger.
+The AG prefix isolates this documentation ledger from the fakes ledger above.
 
 - [X] AG001 Record the root-guidance contract and implementation plan before authoring the root file.
 - [X] AG002 Add root `AGENTS.md`, grounded in approved policy and executable repository configuration.
 - [X] AG003 Verify relative links and command examples; review policy/implementation distinctions.
 - [X] AG004 Run existing static and compatibility profiles; results are in `evidence/agent-guidance.md`.
-- [ ] AG005 Reconcile against the final fakes follow-up and independently review the guidance diff.
+- [X] AG005 Reconcile against merged PR117 and independently review the guidance diff;
+  reviewer returned SHIP and fresh all-profile / Python 3.11–3.12 compatibility passed.
 - [ ] AG006 Open the separate PR and verify required checks at its exact head.
 - [ ] AG007 Obtain Patrick's merge approval, merge, and verify resulting main CI.

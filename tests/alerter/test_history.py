@@ -3,9 +3,9 @@
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.alerter.history import (
     AlertHistory,
@@ -117,35 +117,6 @@ def high_risk_assessment(
         weighted_score=0.82,
         should_alert=True,
     )
-
-
-@pytest.fixture
-def mock_redis() -> MagicMock:
-    """Create a mock Redis client."""
-    redis = MagicMock()
-
-    # Make async methods return AsyncMock
-    redis.exists = AsyncMock(return_value=0)  # Key doesn't exist (not duplicate)
-    redis.get = AsyncMock(return_value=None)
-    redis.set = AsyncMock(return_value=True)
-    redis.ttl = AsyncMock(return_value=3600)
-    redis.zadd = AsyncMock(return_value=1)
-    redis.expire = AsyncMock(return_value=True)
-    redis.zrangebyscore = AsyncMock(return_value=[])
-    redis.zcount = AsyncMock(return_value=0)
-    redis.zremrangebyscore = AsyncMock(return_value=0)
-
-    # Mock pipeline - async context manager
-    pipeline = MagicMock()
-    pipeline.__aenter__ = AsyncMock(return_value=pipeline)
-    pipeline.__aexit__ = AsyncMock(return_value=None)
-    pipeline.set.return_value = pipeline
-    pipeline.zadd.return_value = pipeline
-    pipeline.expire.return_value = pipeline
-    pipeline.execute = AsyncMock(return_value=[True, True, True, True, True, True])
-    redis.pipeline.return_value = pipeline
-
-    return redis
 
 
 # ============================================================================
@@ -298,25 +269,27 @@ class TestGetSignalsFromAssessment:
 class TestAlertHistoryInit:
     """Tests for AlertHistory initialization."""
 
-    def test_default_settings(self, mock_redis: AsyncMock) -> None:
+    def test_default_settings(self, fake_redis: FakeAsyncRedis) -> None:
         """Test default configuration."""
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
 
         assert history.dedup_window_hours == 1
         assert history.retention_days == 30
         assert history._dedup_ttl == 3600
         assert history._retention_ttl == 30 * 86400
 
-    def test_custom_settings(self, mock_redis: AsyncMock) -> None:
+    def test_custom_settings(self, fake_redis: FakeAsyncRedis) -> None:
         """Test custom configuration."""
         history = AlertHistory(
-            mock_redis,
+            fake_redis,
             dedup_window_hours=2,
             retention_days=7,
         )
 
         assert history.dedup_window_hours == 2
+        assert history.retention_days == 7
         assert history._dedup_ttl == 7200
+        assert history._retention_ttl == 7 * 86400
 
 
 class TestShouldSend:
@@ -325,27 +298,26 @@ class TestShouldSend:
     @pytest.mark.asyncio
     async def test_not_duplicate(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test that non-duplicate returns True."""
-        mock_redis.exists.return_value = 0
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
 
         result = await history.should_send(high_risk_assessment)
 
         assert result is True
-        mock_redis.exists.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_is_duplicate(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test that duplicate returns False."""
-        mock_redis.exists.return_value = 1
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
+        dedup_key = history._get_dedup_key(high_risk_assessment)
+        await fake_redis.set(f"{history.KEY_PREFIX_DEDUP}{dedup_key}", "1")
 
         result = await history.should_send(high_risk_assessment)
 
@@ -358,11 +330,11 @@ class TestRecordSent:
     @pytest.mark.asyncio
     async def test_record_success(
         self,
-        mock_redis: AsyncMock,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test recording a sent alert."""
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
 
         alert_id = await history.record_sent(
             high_risk_assessment,
@@ -373,15 +345,17 @@ class TestRecordSent:
         assert alert_id is not None
         assert len(alert_id) == 36  # UUID length
 
-        # Verify pipeline was used
-        mock_redis.pipeline.assert_called_once()
+        record = await history.get_alert(alert_id)
+        assert record is not None
+        assert record.wallet_address == high_risk_assessment.wallet_address
+        assert record.channels_succeeded == ["discord"]
 
 
 class TestRecordFeedback:
     """Tests for record_feedback method."""
 
     @pytest.mark.asyncio
-    async def test_feedback_success(self, mock_redis: AsyncMock) -> None:
+    async def test_feedback_success(self, fake_redis: FakeAsyncRedis) -> None:
         """Test recording feedback for existing alert."""
         existing_record = {
             "alert_id": "test-123",
@@ -394,21 +368,22 @@ class TestRecordFeedback:
             "dedup_key": "key",
             "feedback_useful": None,
         }
-        mock_redis.get.return_value = json.dumps(existing_record)
-        mock_redis.ttl.return_value = 3600
+        history = AlertHistory(fake_redis)
+        await fake_redis.set(
+            f"{history.KEY_PREFIX_ALERT}test-123", json.dumps(existing_record), ex=3600
+        )
 
-        history = AlertHistory(mock_redis)
         result = await history.record_feedback("test-123", useful=True)
 
         assert result is True
-        mock_redis.set.assert_called()
+        record = await history.get_alert("test-123")
+        assert record is not None
+        assert record.feedback_useful is True
 
     @pytest.mark.asyncio
-    async def test_feedback_not_found(self, mock_redis: AsyncMock) -> None:
+    async def test_feedback_not_found(self, fake_redis: FakeAsyncRedis) -> None:
         """Test feedback for non-existent alert."""
-        mock_redis.get.return_value = None
-
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
         result = await history.record_feedback("nonexistent", useful=True)
 
         assert result is False
@@ -418,7 +393,7 @@ class TestGetAlert:
     """Tests for get_alert method."""
 
     @pytest.mark.asyncio
-    async def test_get_existing(self, mock_redis: AsyncMock) -> None:
+    async def test_get_existing(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting existing alert."""
         existing_record = {
             "alert_id": "test-123",
@@ -431,9 +406,9 @@ class TestGetAlert:
             "dedup_key": "key",
             "created_at": "2026-01-04T16:00:00+00:00",
         }
-        mock_redis.get.return_value = json.dumps(existing_record)
+        history = AlertHistory(fake_redis)
+        await fake_redis.set(f"{history.KEY_PREFIX_ALERT}test-123", json.dumps(existing_record))
 
-        history = AlertHistory(mock_redis)
         record = await history.get_alert("test-123")
 
         assert record is not None
@@ -441,11 +416,9 @@ class TestGetAlert:
         assert record.risk_score == 0.75
 
     @pytest.mark.asyncio
-    async def test_get_nonexistent(self, mock_redis: AsyncMock) -> None:
+    async def test_get_nonexistent(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting non-existent alert."""
-        mock_redis.get.return_value = None
-
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
         record = await history.get_alert("nonexistent")
 
         assert record is None
@@ -455,11 +428,9 @@ class TestGetAlerts:
     """Tests for get_alerts query method."""
 
     @pytest.mark.asyncio
-    async def test_empty_results(self, mock_redis: AsyncMock) -> None:
+    async def test_empty_results(self, fake_redis: FakeAsyncRedis) -> None:
         """Test query with no results."""
-        mock_redis.zrangebyscore.return_value = []
-
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
         results = await history.get_alerts(
             start=datetime.now(UTC) - timedelta(hours=24),
             end=datetime.now(UTC),
@@ -468,70 +439,93 @@ class TestGetAlerts:
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_with_wallet_filter(self, mock_redis: AsyncMock) -> None:
+    async def test_with_wallet_filter(
+        self,
+        fake_redis: FakeAsyncRedis,
+        high_risk_assessment: RiskAssessment,
+    ) -> None:
         """Test query with wallet filter uses correct index."""
-        mock_redis.zrangebyscore.return_value = []
-
-        history = AlertHistory(mock_redis)
-        await history.get_alerts(
+        history = AlertHistory(fake_redis)
+        alert_id = await history.record_sent(
+            high_risk_assessment,
+            channels_attempted=["discord"],
+            channels_succeeded={"discord": True},
+        )
+        results = await history.get_alerts(
             start=datetime.now(UTC) - timedelta(hours=24),
-            end=datetime.now(UTC),
-            wallet="0x1234",
+            end=datetime.now(UTC) + timedelta(hours=1),
+            wallet=high_risk_assessment.wallet_address,
         )
 
-        # Verify correct index was used
-        call_args = mock_redis.zrangebyscore.call_args
-        assert "wallet:0x1234" in call_args[0][0]
+        assert len(results) == 1
+        assert results[0].alert_id == alert_id
 
 
 class TestGetRecentCount:
     """Tests for get_recent_count method."""
 
     @pytest.mark.asyncio
-    async def test_count_all(self, mock_redis: AsyncMock) -> None:
+    async def test_count_all(
+        self,
+        fake_redis: FakeAsyncRedis,
+        high_risk_assessment: RiskAssessment,
+    ) -> None:
         """Test counting all recent alerts."""
-        mock_redis.zcount.return_value = 42
+        history = AlertHistory(fake_redis)
+        await history.record_sent(
+            high_risk_assessment,
+            channels_attempted=["discord"],
+            channels_succeeded={"discord": True},
+        )
 
-        history = AlertHistory(mock_redis)
         count = await history.get_recent_count(hours=24)
 
-        assert count == 42
+        assert count == 1
 
     @pytest.mark.asyncio
-    async def test_count_by_wallet(self, mock_redis: AsyncMock) -> None:
+    async def test_count_by_wallet(
+        self,
+        fake_redis: FakeAsyncRedis,
+        high_risk_assessment: RiskAssessment,
+    ) -> None:
         """Test counting alerts for specific wallet."""
-        mock_redis.zcount.return_value = 5
+        history = AlertHistory(fake_redis)
+        await history.record_sent(
+            high_risk_assessment,
+            channels_attempted=["discord"],
+            channels_succeeded={"discord": True},
+        )
 
-        history = AlertHistory(mock_redis)
-        count = await history.get_recent_count(hours=24, wallet="0x1234")
-
-        assert count == 5
+        count = await history.get_recent_count(hours=24, wallet=high_risk_assessment.wallet_address)
+        assert count == 1
+        count_other = await history.get_recent_count(hours=24, wallet="0xother")
+        assert count_other == 0
 
 
 class TestCleanupOldAlerts:
     """Tests for cleanup_old_alerts method."""
 
     @pytest.mark.asyncio
-    async def test_cleanup_empty(self, mock_redis: AsyncMock) -> None:
+    async def test_cleanup_empty(self, fake_redis: FakeAsyncRedis) -> None:
         """Test cleanup with no old alerts."""
-        mock_redis.zrangebyscore.return_value = []
-
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
         removed = await history.cleanup_old_alerts()
 
         assert removed == 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_removes_old(self, mock_redis: AsyncMock) -> None:
+    async def test_cleanup_removes_old(self, fake_redis: FakeAsyncRedis) -> None:
         """Test cleanup removes old alerts."""
-        mock_redis.zrangebyscore.return_value = [b"alert-1", b"alert-2"]
-        mock_redis.zremrangebyscore.return_value = 2
+        history = AlertHistory(fake_redis)
+        old_time = (datetime.now(UTC) - timedelta(days=35)).timestamp()
+        await fake_redis.set("alert:record:alert-1", "{}")
+        await fake_redis.set("alert:record:alert-2", "{}")
+        await fake_redis.zadd(history.KEY_INDEX_TIME, {"alert-1": old_time, "alert-2": old_time})
 
-        history = AlertHistory(mock_redis)
         removed = await history.cleanup_old_alerts()
 
         assert removed == 2
-        mock_redis.zremrangebyscore.assert_called_once()
+        assert await fake_redis.zcount(history.KEY_INDEX_TIME, "-inf", "+inf") == 0
 
 
 def _stored_record(alert_id: str, wallet: str, market: str) -> str:
@@ -553,64 +547,57 @@ class TestGetAlertsFilters:
 
     @pytest.mark.asyncio
     async def test_market_filter_uses_market_index_and_drops_mismatches(
-        self, mock_redis: MagicMock
+        self, fake_redis: FakeAsyncRedis
     ) -> None:
-        stored = {
-            "alert:record:a-1": _stored_record("a-1", "0xw", "m1"),
-            "alert:record:a-2": _stored_record("a-2", "0xw", "m2"),
-        }
-        mock_redis.zrangebyscore = AsyncMock(return_value=[b"a-1", "a-2"])
-        mock_redis.get = AsyncMock(side_effect=stored.get)
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
+        now = datetime.now(UTC).timestamp()
+        await fake_redis.set("alert:record:a-1", _stored_record("a-1", "0xw", "m1"))
+        await fake_redis.set("alert:record:a-2", _stored_record("a-2", "0xw", "m2"))
+        await fake_redis.zadd("alert:index:market:m1", {"a-1": now, "a-2": now})
 
         results = await history.get_alerts(
             start=datetime.now(UTC) - timedelta(hours=24),
-            end=datetime.now(UTC),
+            end=datetime.now(UTC) + timedelta(hours=1),
             market="m1",
         )
 
-        assert mock_redis.zrangebyscore.call_args[0][0] == "alert:index:market:m1"
         assert [record.alert_id for record in results] == ["a-1"]
 
     @pytest.mark.asyncio
     async def test_wallet_filter_wins_over_market_and_missing_records_are_skipped(
-        self, mock_redis: MagicMock
+        self, fake_redis: FakeAsyncRedis
     ) -> None:
-        stored = {
-            "alert:record:a-1": _stored_record("a-1", "0xw", "m1"),
-            "alert:record:a-3": _stored_record("a-3", "0xother", "m1"),
-        }
-        mock_redis.zrangebyscore = AsyncMock(return_value=["a-1", "gone", "a-3"])
-        mock_redis.get = AsyncMock(side_effect=stored.get)
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
+        now = datetime.now(UTC).timestamp()
+        await fake_redis.set("alert:record:a-1", _stored_record("a-1", "0xw", "m1"))
+        await fake_redis.set("alert:record:a-3", _stored_record("a-3", "0xother", "m1"))
+        await fake_redis.zadd("alert:index:wallet:0xw", {"a-1": now, "gone": now, "a-3": now})
 
         results = await history.get_alerts(
             start=datetime.now(UTC) - timedelta(hours=24),
-            end=datetime.now(UTC),
+            end=datetime.now(UTC) + timedelta(hours=1),
             wallet="0xw",
             market="m1",
         )
 
-        assert mock_redis.zrangebyscore.call_args[0][0] == "alert:index:wallet:0xw"
         assert [record.alert_id for record in results] == ["a-1"]
 
     @pytest.mark.asyncio
     async def test_no_filter_uses_the_time_index_and_bounds_by_limit(
-        self, mock_redis: MagicMock
+        self, fake_redis: FakeAsyncRedis
     ) -> None:
-        stored = {
-            "alert:record:a-1": _stored_record("a-1", "0xw", "m1"),
-            "alert:record:a-2": _stored_record("a-2", "0xv", "m2"),
-        }
-        mock_redis.zrangebyscore = AsyncMock(return_value=["a-1", "a-2"])
-        mock_redis.get = AsyncMock(side_effect=stored.get)
-        history = AlertHistory(mock_redis)
+        history = AlertHistory(fake_redis)
         start = datetime(2026, 1, 1, tzinfo=UTC)
         end = datetime(2026, 1, 2, tzinfo=UTC)
+        offsets = {"before": -1, "a-1": 0, "a-2": 1, "a-3": 2, "end": 24, "after": 25}
+        for alert_id, hour in offsets.items():
+            await fake_redis.set(f"alert:record:{alert_id}", _stored_record(alert_id, "0xw", "m1"))
+            await fake_redis.zadd(
+                "alert:index:time", {alert_id: (start + timedelta(hours=hour)).timestamp()}
+            )
 
-        results = await history.get_alerts(start=start, end=end, limit=7)
+        limited = await history.get_alerts(start=start, end=end, limit=2)
+        bounded = await history.get_alerts(start=start, end=end, limit=10)
 
-        args, kwargs = mock_redis.zrangebyscore.call_args
-        assert args == ("alert:index:time", start.timestamp(), end.timestamp())
-        assert kwargs == {"start": 0, "num": 7}
-        assert [record.alert_id for record in results] == ["a-1", "a-2"]
+        assert [record.alert_id for record in limited] == ["a-1", "a-2"]
+        assert [record.alert_id for record in bounded] == ["a-1", "a-2", "a-3", "end"]

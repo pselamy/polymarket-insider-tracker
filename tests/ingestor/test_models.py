@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock
 
 import pytest
+from py_clob_client.clob_types import OrderBookSummary, OrderSummary
 
 from polymarket_insider_tracker.ingestor.models import (
     Market,
@@ -139,23 +139,15 @@ class TestOrderbook:
 
     def test_from_clob_orderbook(self) -> None:
         """Test creating Orderbook from py-clob-client response."""
-        # Create mock bid/ask objects
-        mock_bid = MagicMock()
-        mock_bid.price = "0.50"
-        mock_bid.size = "100"
+        clob_ob = OrderBookSummary(
+            market="0xmarket123",
+            asset_id="token123",
+            tick_size="0.01",
+            bids=[OrderSummary(price="0.50", size="100")],
+            asks=[OrderSummary(price="0.52", size="150")],
+        )
 
-        mock_ask = MagicMock()
-        mock_ask.price = "0.52"
-        mock_ask.size = "150"
-
-        mock_orderbook = MagicMock()
-        mock_orderbook.market = "0xmarket123"
-        mock_orderbook.asset_id = "token123"
-        mock_orderbook.tick_size = "0.01"
-        mock_orderbook.bids = [mock_bid]
-        mock_orderbook.asks = [mock_ask]
-
-        orderbook = Orderbook.from_clob_orderbook(mock_orderbook)
+        orderbook = Orderbook.from_clob_orderbook(clob_ob)
 
         assert orderbook.market == "0xmarket123"
         assert orderbook.asset_id == "token123"
@@ -167,14 +159,15 @@ class TestOrderbook:
 
     def test_from_clob_orderbook_empty(self) -> None:
         """Test creating Orderbook with empty bids/asks."""
-        mock_orderbook = MagicMock()
-        mock_orderbook.market = "0xmarket"
-        mock_orderbook.asset_id = "token"
-        mock_orderbook.tick_size = "0.01"
-        mock_orderbook.bids = None
-        mock_orderbook.asks = []
+        clob_ob = OrderBookSummary(
+            market="0xmarket",
+            asset_id="token",
+            tick_size="0.01",
+            bids=None,
+            asks=[],
+        )
 
-        orderbook = Orderbook.from_clob_orderbook(mock_orderbook)
+        orderbook = Orderbook.from_clob_orderbook(clob_ob)
 
         assert orderbook.bids == ()
         assert orderbook.asks == ()

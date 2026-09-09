@@ -38,9 +38,45 @@ re-read the corrections and evidence, then returned SHIP for locally prepared
 documentation with no further actionable findings. It explicitly did not claim
 PR readiness or independently rerun the parent's recorded tests.
 
-## Not yet established
+## Not yet established at the preparation checkpoint
 
 The guidance branch has not been reconciled with the final fakes follow-up, published
 as a PR, approved, or merged. No new service/migration run or full Linux matrix is
 claimed by this local documentation checkpoint. Existing runtime/service contracts
 are unchanged. Human-owned requirements-quality checklist items remain unchecked.
+
+## Reconciliation and independent verification after PR117
+
+Patrick approved merging PR117 and continuing on 2026-09-09. Root rechecked its
+exact head `408177b55c2f2eb97f1cb167d80bef867fc94081` and all push/PR checks, then
+squash-merged with a head-match guard as `357c350af2f2b4080fbd90cbddfc01900452c5fe`
+at `2026-09-09T03:52:00Z`. Both commits have tree
+`f91dc26d9c289b3b200b097e59154458cb635aec`. Root directly verified all nine jobs in
+[main CI](https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34308759971)
+passed at the merge SHA. T097/T099 record the actual publication and merge events.
+
+The original guidance commit `1909680945c10e77df628422d3bfa386ec796b2d` was preserved.
+Main was merged into the guidance branch; the single task-ledger conflict was resolved
+by retaining both independent ledgers. Relative to merged main, this branch changes
+only AGENTS.md and seven owned documentation files. Guidance now links to the enforced
+test-quality contract and explicitly identifies the still-unresolved G-018 dry-run
+dedup gap. It does not claim application-wide convergence.
+
+Independent Apple Silicon verification after reconciliation:
+
+- Locked Python 3.13 sync passed, resolving 104 packages.
+- All 12 gates of the `all` profile passed on Python 3.13, including real local
+  PostgreSQL 15 / Redis 7 and the disposable migration lifecycle.
+- Isolated Python 3.11 and 3.12 full compatibility profiles both passed.
+- Explicit slice002 prerequisite activation passed, returning the intended directory.
+- All nine relative links in AGENTS.md and its contract resolved; diff check passed.
+
+Raw machine-readable receipts are retained in the coordination workspace as
+`outputs/agents-guidance-all.json`, `outputs/agents-guidance-311.json`, and
+`outputs/agents-guidance-312.json`.
+
+An independent read-only reviewer compared the reconciled diff against main and
+returned SHIP: no actionable findings in policy consistency, links, commands, narrow
+test exceptions, task reconciliation, or human-approval ownership. Reviewer-owned
+criteria remain unchecked. PR publication, exact-head CI and merge approval are
+separate pending events. The requested stale docs-directory pruning is a separate PR.

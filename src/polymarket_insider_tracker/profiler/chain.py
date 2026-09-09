@@ -555,7 +555,7 @@ class PolygonClient:
             True if healthy, False otherwise.
         """
         try:
-            await self._execute_with_retry("block_number")
+            await self._execute_with_retry("get_block_number")
             return True
         except RPCError:
             return False

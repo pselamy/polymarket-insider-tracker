@@ -2,7 +2,6 @@
 
 import asyncio
 import time
-from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp import web
@@ -79,6 +78,21 @@ class TestHealthReport:
         assert report.status == HealthStatus.DEGRADED
         assert "trades" in report.streams
         assert report.total_events_received == 100
+
+
+class RecordingHealthCallback:
+    """Fake async health callback that records received reports."""
+
+    def __init__(self, raise_error: Exception | None = None) -> None:
+        self.reports: list[HealthReport] = []
+        self.called: bool = False
+        self._raise_error = raise_error
+
+    async def __call__(self, report: HealthReport) -> None:
+        self.called = True
+        self.reports.append(report)
+        if self._raise_error is not None:
+            raise self._raise_error
 
 
 class TestHealthMonitor:
@@ -366,7 +380,7 @@ class TestHealthMonitor:
     @pytest.mark.asyncio
     async def test_health_change_callback(self) -> None:
         """Test that health change callback is invoked."""
-        callback = AsyncMock()
+        callback = RecordingHealthCallback()
         monitor = HealthMonitor(
             health_check_interval=0.1,
             on_health_change=callback,
@@ -382,11 +396,12 @@ class TestHealthMonitor:
 
         # Callback should have been called at least once
         assert callback.called
+        assert len(callback.reports) >= 1
 
     @pytest.mark.asyncio
     async def test_health_change_callback_error_handling(self) -> None:
         """Test that callback errors don't crash the loop."""
-        callback = AsyncMock(side_effect=ValueError("test error"))
+        callback = RecordingHealthCallback(raise_error=ValueError("test error"))
         monitor = HealthMonitor(
             health_check_interval=0.1,
             on_health_change=callback,
@@ -399,6 +414,7 @@ class TestHealthMonitor:
         await asyncio.sleep(0.2)
 
         await monitor.stop()
+        assert callback.called
 
 
 class TestHealthMonitorHTTPEndpoints:

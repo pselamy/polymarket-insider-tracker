@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from unittest.mock import MagicMock
 
 from polymarket_insider_tracker.detector.models import SniperClusterSignal
 from polymarket_insider_tracker.detector.sniper import (
@@ -13,21 +12,28 @@ from polymarket_insider_tracker.detector.sniper import (
     MarketEntry,
     SniperDetector,
 )
+from polymarket_insider_tracker.ingestor.models import TradeEvent
 
 
-def create_mock_trade(
+def create_test_trade(
     wallet_address: str,
     market_id: str,
     timestamp: datetime,
     notional_value: Decimal = Decimal("1000"),
-) -> MagicMock:
-    """Create a mock TradeEvent for testing."""
-    trade = MagicMock()
-    trade.wallet_address = wallet_address
-    trade.market_id = market_id
-    trade.timestamp = timestamp
-    trade.notional_value = notional_value
-    return trade
+) -> TradeEvent:
+    """Create a TradeEvent for testing."""
+    return TradeEvent(
+        market_id=market_id,
+        trade_id=f"tx_{wallet_address[:6]}_{market_id}",
+        wallet_address=wallet_address,
+        side="BUY",
+        outcome="Yes",
+        outcome_index=0,
+        price=Decimal("1"),
+        size=notional_value,
+        timestamp=timestamp,
+        asset_id="asset_001",
+    )
 
 
 class TestSniperDetectorInit:
@@ -77,7 +83,7 @@ class TestRecordEntry:
         market_created = datetime.now(UTC)
         trade_time = market_created + timedelta(seconds=60)
 
-        trade = create_mock_trade(
+        trade = create_test_trade(
             wallet_address="0x1111111111111111111111111111111111111111",
             market_id="market_001",
             timestamp=trade_time,
@@ -94,7 +100,7 @@ class TestRecordEntry:
         market_created = datetime.now(UTC)
         trade_time = market_created + timedelta(seconds=400)  # 400s > 300s threshold
 
-        trade = create_mock_trade(
+        trade = create_test_trade(
             wallet_address="0x1111111111111111111111111111111111111111",
             market_id="market_001",
             timestamp=trade_time,
@@ -110,7 +116,7 @@ class TestRecordEntry:
         market_created = datetime.now(UTC)
         trade_time = market_created - timedelta(seconds=60)  # Before creation
 
-        trade = create_mock_trade(
+        trade = create_test_trade(
             wallet_address="0x1111111111111111111111111111111111111111",
             market_id="market_001",
             timestamp=trade_time,
@@ -126,7 +132,7 @@ class TestRecordEntry:
         market_created = datetime.now(UTC)
 
         for i in range(5):
-            trade = create_mock_trade(
+            trade = create_test_trade(
                 wallet_address=f"0x{i:040x}",
                 market_id="market_001",
                 timestamp=market_created + timedelta(seconds=30 * i),
@@ -143,7 +149,7 @@ class TestRecordEntry:
 
         for i in range(3):
             market_created = datetime.now(UTC)
-            trade = create_mock_trade(
+            trade = create_test_trade(
                 wallet_address=wallet,
                 market_id=f"market_{i:03d}",
                 timestamp=market_created + timedelta(seconds=60),
@@ -165,7 +171,7 @@ class TestRunClustering:
         for i in range(2):
             market_created = datetime.now(UTC)
             for j in range(3):  # Multiple entries per wallet
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=f"0x{i:040x}",
                     market_id=f"market_{j:03d}",
                     timestamp=market_created + timedelta(seconds=30),
@@ -186,7 +192,7 @@ class TestRunClustering:
         for i in range(5):
             for j in range(2):  # Only 2 entries
                 market_created = datetime.now(UTC)
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=f"0x{i:040x}",
                     market_id=f"market_{j:03d}",
                     timestamp=market_created + timedelta(seconds=30),
@@ -212,7 +218,7 @@ class TestRunClustering:
         for market in markets:
             market_created = datetime.now(UTC)
             for wallet in wallets:
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=wallet,
                     market_id=market,
                     timestamp=market_created + timedelta(seconds=30),
@@ -242,7 +248,7 @@ class TestRunClustering:
         for market in markets:
             market_created = datetime.now(UTC)
             for wallet in wallets:
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=wallet,
                     market_id=market,
                     timestamp=market_created + timedelta(seconds=30),
@@ -281,7 +287,7 @@ class TestIsSniper:
         for market in ["market_001", "market_002"]:
             market_created = datetime.now(UTC)
             for wallet in wallets:
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=wallet,
                     market_id=market,
                     timestamp=market_created + timedelta(seconds=30),
@@ -317,7 +323,7 @@ class TestGetClusterForWallet:
         for market in ["market_001", "market_002"]:
             market_created = datetime.now(UTC)
             for wallet in wallets:
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=wallet,
                     market_id=market,
                     timestamp=market_created + timedelta(seconds=30),
@@ -343,7 +349,7 @@ class TestClearEntries:
         market_created = datetime.now(UTC)
 
         for i in range(5):
-            trade = create_mock_trade(
+            trade = create_test_trade(
                 wallet_address=f"0x{i:040x}",
                 market_id="market_001",
                 timestamp=market_created + timedelta(seconds=30),
@@ -569,7 +575,7 @@ class TestIntegration:
         for market in markets:
             market_created = datetime.now(UTC)
             for i, wallet in enumerate(sniper_wallets):
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=wallet,
                     market_id=market,
                     timestamp=market_created + timedelta(seconds=10 + i * 10),
@@ -582,7 +588,7 @@ class TestIntegration:
         for market in markets:
             market_created = datetime.now(UTC)
             for i in range(3):
-                trade = create_mock_trade(
+                trade = create_test_trade(
                     wallet_address=f"0x{'b' * 38}{i:02d}",
                     market_id=market,
                     timestamp=market_created + timedelta(seconds=400),

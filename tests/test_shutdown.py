@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -123,29 +122,35 @@ class TestSignalHandlers:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
     async def test_unix_signal_handler_installed(self) -> None:
-        """On Unix, should install loop signal handlers."""
+        """On Unix, the loop's handler replaces the process disposition and is restored later."""
         shutdown = GracefulShutdown()
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
 
-        with patch.object(asyncio.get_running_loop(), "add_signal_handler") as mock_add:
-            shutdown.install_signal_handlers()
+        shutdown.install_signal_handlers()
+        try:
+            assert signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL
+            assert signal.getsignal(signal.SIGINT) is signal.getsignal(signal.SIGTERM)
+        finally:
+            shutdown.remove_signal_handlers()
 
-            # Should have been called for both SIGTERM and SIGINT
-            assert mock_add.call_count >= 1
-
-        shutdown.remove_signal_handlers()
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
 
     @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
-    async def test_windows_signal_handler_installed(self) -> None:
-        """On Windows, should install signal.signal handlers."""
+    async def test_windows_signal_handler_installed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On Windows, should install signal.signal handlers for every shutdown signal."""
         shutdown = GracefulShutdown()
+        installed: list[signal.Signals] = []
+        original_signal = signal.signal
 
-        with patch("signal.signal") as mock_signal:
-            shutdown.install_signal_handlers()
+        def record(sig: signal.Signals, handler: object) -> object:
+            installed.append(sig)
+            return original_signal(sig, handler)
 
-            # Should have been called for available signals
-            assert mock_signal.call_count >= 1
-
+        monkeypatch.setattr(signal, "signal", record)
+        shutdown.install_signal_handlers()
         shutdown.remove_signal_handlers()
+
+        assert set(installed) >= set(SHUTDOWN_SIGNALS)
 
 
 class TestHandleSignal:
@@ -181,21 +186,25 @@ class TestCleanupCallbacks:
     async def test_register_sync_callback(self) -> None:
         """Should register sync cleanup callbacks."""
         shutdown = GracefulShutdown()
-        callback = MagicMock()
+        runs: list[str] = []
+
+        def callback() -> None:
+            runs.append("cleanup")
 
         shutdown.register_cleanup(callback)
 
         assert callback in shutdown._cleanup_callbacks
+        assert runs == []
 
     async def test_run_sync_cleanup_callback(self) -> None:
-        """Should run sync cleanup callbacks."""
+        """Should run sync cleanup callbacks exactly once."""
         shutdown = GracefulShutdown()
-        callback = MagicMock()
-        shutdown.register_cleanup(callback)
+        runs: list[str] = []
+        shutdown.register_cleanup(lambda: runs.append("cleanup"))
 
         await shutdown.run_cleanup_callbacks()
 
-        callback.assert_called_once()
+        assert runs == ["cleanup"]
 
     async def test_run_async_cleanup_callback(self) -> None:
         """Should run async cleanup callbacks."""
@@ -236,26 +245,26 @@ class TestAsyncContextManager:
             assert shutdown._shutdown_event is not None
             assert shutdown._loop is not None
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
     async def test_context_manager_removes_handlers(self) -> None:
-        """Exiting context should remove signal handlers."""
+        """Exiting context should restore the default SIGTERM disposition."""
         shutdown = GracefulShutdown()
-
-        with patch.object(shutdown, "remove_signal_handlers") as mock_remove:
-            async with shutdown:
-                pass
-
-            mock_remove.assert_called_once()
-
-    async def test_context_manager_runs_cleanup(self) -> None:
-        """Exiting context should run cleanup callbacks."""
-        shutdown = GracefulShutdown()
-        callback = MagicMock()
-        shutdown.register_cleanup(callback)
 
         async with shutdown:
-            pass
+            assert signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL
 
-        callback.assert_called_once()
+        assert signal.getsignal(signal.SIGTERM) is signal.SIG_DFL
+
+    async def test_context_manager_runs_cleanup(self) -> None:
+        """Exiting context should run cleanup callbacks exactly once."""
+        shutdown = GracefulShutdown()
+        runs: list[str] = []
+        shutdown.register_cleanup(lambda: runs.append("cleanup"))
+
+        async with shutdown:
+            assert runs == []
+
+        assert runs == ["cleanup"]
 
 
 class TestRunWithGracefulShutdown:

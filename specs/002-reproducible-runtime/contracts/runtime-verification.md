@@ -14,7 +14,7 @@ uv run python scripts/verify.py --profile PROFILE [--json]
 |---|---|---|
 | `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy, strict Pyright, Vulture dead code detection, Complexipy cognitive complexity verification | Contributor and Linux quality job |
 | `compatibility` | lock freshness, dependency/import smoke, full deterministic pytest suite | Linux version matrix and advisory Apple job |
-| `services` | `services` connectivity/async-query gate, then independent `migrations` disposable-cycle gate | Linux service job and local release evidence |
+| `services` | `services` connectivity/async-query gate, then the `redis-contract` shared fake/real Redis behavioral suite against the loopback service, then the independent `migrations` disposable-cycle gate | Linux service job and local release evidence |
 | `all` | Every gate above, without duplicate execution | Contributor pre-review/release evidence |
 
 Individual Black, Ruff, mypy, Pyright, Vulture, Complexipy, pytest, and Alembic commands remain directly runnable and are
@@ -69,8 +69,19 @@ The aggregate `tests` gate removes application and service configuration inherit
 before starting pytest. The test harness also runs from an isolated temporary working directory so Pydantic
 cannot implicitly rediscover the repository `.env`. Together these boundaries keep the compatibility suite
 deterministic and prevent unit tests from contacting configured live endpoints. The separately identified
-`services` and `migrations` gates inherit the loaded service configuration and provide the real integration
-proof.
+`services`, `redis-contract`, and `migrations` gates inherit the loaded service configuration and provide
+the real integration proof.
+
+The `redis-contract` gate runs the shared Redis behavioral contract with real-service selection enabled:
+
+```text
+RUN_SERVICE_TESTS=1 uv run --env-file .env pytest tests/integration/test_redis_contract.py
+```
+
+The same scenarios always run against `fakeredis` in the deterministic suite. With `RUN_SERVICE_TESTS=1`
+they are additionally parametrized against the real Redis named by `REDIS_URL`, which must resolve only
+to loopback addresses; an unreachable or non-loopback service fails the gate rather than skipping. Every
+scenario writes inside a unique key namespace that it deletes afterwards and never flushes the database.
 
 ## Inputs
 
@@ -79,7 +90,7 @@ proof.
 | `--profile` | Yes | Exact enum; unknown values fail before running a gate |
 | `--json` | No | Emit one JSON object to stdout; human diagnostics otherwise |
 | `DATABASE_URL` | Services/all only | Canonical or supported legacy PostgreSQL URL whose host resolves to loopback |
-| `REDIS_URL` | Services/all only | Redis URL reachable from the current host |
+| `REDIS_URL` | Services/all only | `redis://` URL of a loopback Redis; the probe pings it and the contract suite writes disposable keys to it |
 
 No failure-suppression, skip-required-gate, or production failure-injection flag exists.
 

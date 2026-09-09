@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import warnings
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -26,9 +27,31 @@ from polymarket_insider_tracker.config import (
 from polymarket_insider_tracker.storage.database_url import DatabaseUrlMigrationWarning
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable
 
     from pydantic_settings import BaseSettings
+
+
+def _clear_environment(mp: pytest.MonkeyPatch) -> None:
+    for k in list(os.environ.keys()):
+        mp.delenv(k, raising=False)
+
+
+def _apply_environment(mp: pytest.MonkeyPatch, env: Mapping[str, str] | None) -> None:
+    if env:
+        for k, v in env.items():
+            mp.setenv(k, v)
+
+
+@contextlib.contextmanager
+def env_context(env: Mapping[str, str] | None = None, *, clear: bool = False) -> Iterator[None]:
+    """Isolated environment context using pytest monkeypatch."""
+    with pytest.MonkeyPatch.context() as mp:
+        if clear:
+            _clear_environment(mp)
+        _apply_environment(mp, env)
+        yield
+
 
 # Every settings group and the environment-variable prefix it documents.
 SETTINGS_GROUPS: tuple[tuple[type[BaseSettings], str], ...] = (
@@ -94,7 +117,7 @@ class TestSharedDotenvContract:
                 ("POLYGON_", "POLYMARKET_", "DISCORD_", "TELEGRAM_", "DETECTOR_")
             )
         }
-        with patch.dict(os.environ, scrubbed_environment, clear=True):
+        with env_context(scrubbed_environment, clear=True):
             loaded = [settings_class() for settings_class, _ in SETTINGS_GROUPS]
 
         assert len(loaded) == len(SETTINGS_GROUPS)
@@ -106,7 +129,7 @@ class TestDatabaseSettings:
     def test_valid_postgresql_url(self) -> None:
         """Test valid PostgreSQL URL."""
         with (
-            patch.dict(os.environ, {"DATABASE_URL": "postgresql://user:pass@localhost/db"}),
+            env_context({"DATABASE_URL": "postgresql://user:pass@localhost/db"}),
             pytest.warns(DatabaseUrlMigrationWarning, match="postgresql.*psycopg"),
         ):
             settings = DatabaseSettings()
@@ -115,7 +138,7 @@ class TestDatabaseSettings:
     def test_valid_asyncpg_url(self) -> None:
         """Test valid asyncpg URL."""
         with (
-            patch.dict(os.environ, {"DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db"}),
+            env_context({"DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db"}),
             pytest.warns(DatabaseUrlMigrationWarning, match="asyncpg.*psycopg"),
         ):
             settings = DatabaseSettings()
@@ -124,7 +147,7 @@ class TestDatabaseSettings:
     def test_canonical_url_does_not_warn(self) -> None:
         """Test that the canonical URL is accepted without a migration warning."""
         with (
-            patch.dict(os.environ, {"DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db"}),
+            env_context({"DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db"}),
             warnings.catch_warnings(record=True) as caught,
         ):
             warnings.simplefilter("always")
@@ -136,7 +159,7 @@ class TestDatabaseSettings:
     def test_invalid_url_raises(self) -> None:
         """Test that invalid database URL raises validation error."""
         with (
-            patch.dict(os.environ, {"DATABASE_URL": "mysql://user:pass@localhost/db"}),
+            env_context({"DATABASE_URL": "mysql://user:pass@localhost/db"}),
             pytest.raises(ValidationError, match="DATABASE_URL"),
         ):
             DatabaseSettings()
@@ -145,8 +168,7 @@ class TestDatabaseSettings:
         """Test that driver migration failures never echo credentials."""
         secret = "never-print-this-password"
         with (
-            patch.dict(
-                os.environ,
+            env_context(
                 {
                     "DATABASE_URL": (
                         f"postgresql+asyncpg://user:{secret}@localhost/db"
@@ -168,20 +190,20 @@ class TestRedisSettings:
 
     def test_default_url(self) -> None:
         """Test default Redis URL."""
-        with patch.dict(os.environ, {}, clear=True):
+        with env_context({}, clear=True):
             settings = RedisSettings()
             assert settings.url == "redis://localhost:6379"
 
     def test_custom_url(self) -> None:
         """Test custom Redis URL."""
-        with patch.dict(os.environ, {"REDIS_URL": "redis://redis:6380"}):
+        with env_context({"REDIS_URL": "redis://redis:6380"}):
             settings = RedisSettings()
             assert settings.url == "redis://redis:6380"
 
     def test_invalid_url_raises(self) -> None:
         """Test that invalid Redis URL raises validation error."""
         with (
-            patch.dict(os.environ, {"REDIS_URL": "http://localhost:6379"}),
+            env_context({"REDIS_URL": "http://localhost:6379"}),
             pytest.raises(ValidationError, match="redis://"),
         ):
             RedisSettings()
@@ -192,15 +214,14 @@ class TestPolygonSettings:
 
     def test_default_rpc_url(self) -> None:
         """Test default Polygon RPC URL."""
-        with patch.dict(os.environ, {}, clear=True):
+        with env_context({}, clear=True):
             settings = PolygonSettings()
             assert settings.rpc_url == "https://polygon-rpc.com"
             assert settings.fallback_rpc_url is None
 
     def test_custom_urls(self) -> None:
         """Test custom Polygon RPC URLs."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "POLYGON_RPC_URL": "https://alchemy.io/polygon",
                 "POLYGON_FALLBACK_RPC_URL": "https://backup.polygon.io",
@@ -213,7 +234,7 @@ class TestPolygonSettings:
     def test_invalid_url_raises(self) -> None:
         """Test that invalid RPC URL raises validation error."""
         with (
-            patch.dict(os.environ, {"POLYGON_RPC_URL": "ws://polygon.io"}),
+            env_context({"POLYGON_RPC_URL": "ws://polygon.io"}),
             pytest.raises(ValidationError, match="HTTP"),
         ):
             PolygonSettings()
@@ -224,14 +245,14 @@ class TestPolymarketSettings:
 
     def test_default_ws_url(self) -> None:
         """Test default Polymarket WebSocket URL."""
-        with patch.dict(os.environ, {}, clear=True):
+        with env_context({}, clear=True):
             settings = PolymarketSettings()
             assert "polymarket.com" in settings.ws_url
             assert settings.api_key is None
 
     def test_custom_api_key(self) -> None:
         """Test custom API key (secret)."""
-        with patch.dict(os.environ, {"POLYMARKET_API_KEY": "secret-key-123"}):
+        with env_context({"POLYMARKET_API_KEY": "secret-key-123"}):
             settings = PolymarketSettings()
             assert settings.api_key is not None
             assert settings.api_key.get_secret_value() == "secret-key-123"
@@ -239,7 +260,7 @@ class TestPolymarketSettings:
     def test_invalid_ws_url_raises(self) -> None:
         """Test that invalid WebSocket URL raises validation error."""
         with (
-            patch.dict(os.environ, {"POLYMARKET_WS_URL": "http://polymarket.com"}),
+            env_context({"POLYMARKET_WS_URL": "http://polymarket.com"}),
             pytest.raises(ValidationError, match="ws://"),
         ):
             PolymarketSettings()
@@ -250,14 +271,14 @@ class TestDiscordSettings:
 
     def test_disabled_by_default(self) -> None:
         """Test Discord is disabled when no webhook URL."""
-        with patch.dict(os.environ, {}, clear=True):
+        with env_context({}, clear=True):
             settings = DiscordSettings()
             assert not settings.enabled
             assert settings.webhook_url is None
 
     def test_enabled_with_webhook(self) -> None:
         """Test Discord is enabled with webhook URL."""
-        with patch.dict(os.environ, {"DISCORD_WEBHOOK_URL": "https://discord.com/webhook/123"}):
+        with env_context({"DISCORD_WEBHOOK_URL": "https://discord.com/webhook/123"}):
             settings = DiscordSettings()
             assert settings.enabled
             assert settings.webhook_url is not None
@@ -268,24 +289,23 @@ class TestTelegramSettings:
 
     def test_disabled_by_default(self) -> None:
         """Test Telegram is disabled when no credentials."""
-        with patch.dict(os.environ, {}, clear=True):
+        with env_context({}, clear=True):
             settings = TelegramSettings()
             assert not settings.enabled
 
     def test_disabled_with_partial_config(self) -> None:
         """Test Telegram is disabled with only token or chat_id."""
-        with patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "token123"}):
+        with env_context({"TELEGRAM_BOT_TOKEN": "token123"}):
             settings = TelegramSettings()
             assert not settings.enabled
 
-        with patch.dict(os.environ, {"TELEGRAM_CHAT_ID": "12345"}):
+        with env_context({"TELEGRAM_CHAT_ID": "12345"}):
             settings = TelegramSettings()
             assert not settings.enabled
 
     def test_enabled_with_full_config(self) -> None:
         """Test Telegram is enabled with both token and chat_id."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "TELEGRAM_BOT_TOKEN": "token123",
                 "TELEGRAM_CHAT_ID": "12345",
@@ -300,8 +320,7 @@ class TestSettings:
 
     def test_loads_with_required_vars(self) -> None:
         """Test settings load with required environment variables."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "DATABASE_URL": "postgresql://user:pass@localhost/db",
                 "REDIS_URL": "redis://localhost:6379",
@@ -313,8 +332,7 @@ class TestSettings:
 
     def test_default_log_level(self) -> None:
         """Test default log level is INFO."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {"DATABASE_URL": "postgresql://user:pass@localhost/db"},
         ):
             settings = Settings()
@@ -322,8 +340,7 @@ class TestSettings:
 
     def test_custom_log_level(self) -> None:
         """Test custom log level."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "DATABASE_URL": "postgresql://user:pass@localhost/db",
                 "LOG_LEVEL": "DEBUG",
@@ -335,8 +352,7 @@ class TestSettings:
     def test_invalid_log_level_raises(self) -> None:
         """Test invalid log level raises validation error."""
         with (
-            patch.dict(
-                os.environ,
+            env_context(
                 {
                     "DATABASE_URL": "postgresql://user:pass@localhost/db",
                     "LOG_LEVEL": "TRACE",
@@ -349,8 +365,7 @@ class TestSettings:
     def test_health_port_validation(self) -> None:
         """Test health port must be valid port number."""
         with (
-            patch.dict(
-                os.environ,
+            env_context(
                 {
                     "DATABASE_URL": "postgresql://user:pass@localhost/db",
                     "HEALTH_PORT": "99999",
@@ -364,8 +379,7 @@ class TestSettings:
         """Test get_logging_level returns numeric level."""
         import logging
 
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "DATABASE_URL": "postgresql://user:pass@localhost/db",
                 "LOG_LEVEL": "WARNING",
@@ -376,8 +390,7 @@ class TestSettings:
 
     def test_redacted_summary(self) -> None:
         """Test redacted_summary masks sensitive data."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "DATABASE_URL": "postgresql://user:secretpass@localhost/db",
                 "REDIS_URL": "redis://localhost:6379",
@@ -399,8 +412,7 @@ class TestGetSettings:
 
     def test_returns_same_instance(self) -> None:
         """Test get_settings returns cached instance."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {"DATABASE_URL": "postgresql://user:pass@localhost/db"},
         ):
             settings1 = get_settings()
@@ -409,8 +421,7 @@ class TestGetSettings:
 
     def test_clear_cache_allows_reload(self, clear_cache: Callable[[], None]) -> None:
         """Test clear_settings_cache allows reloading settings."""
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "DATABASE_URL": "postgresql://user:pass@localhost/db",
                 "LOG_LEVEL": "INFO",
@@ -421,8 +432,7 @@ class TestGetSettings:
 
         clear_cache()
 
-        with patch.dict(
-            os.environ,
+        with env_context(
             {
                 "DATABASE_URL": "postgresql://user:pass@localhost/db",
                 "LOG_LEVEL": "DEBUG",

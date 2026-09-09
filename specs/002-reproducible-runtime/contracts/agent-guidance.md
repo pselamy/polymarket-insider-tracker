@@ -11,7 +11,7 @@ codifying the practices established during slice 002. It changes no public runti
 | Explicit slice activation, artifact/checklist ownership, truthful evidence, approval before merge | Constitution, Development Workflow and Quality Gates | Root guidance gives a valid explicit activation command and does not authorize agent self-signoff |
 | Locked setup, Black/Ruff, strict mypy/Pyright, Vulture, Complexipy <=5, real services and supported minors | [Runtime contract](runtime-verification.md), `pyproject.toml`, `scripts/verify.py`, CI | Commands agree with tracked executable configuration; no new checker or exception |
 | Low cognitive load, underlying remediation, separate coherent PRs, no `.claude/skills` | Patrick's explicit quality and repository-hygiene instructions | Root guidance rejects metric gaming and copied tool-specific skill trees without deleting the managed Spec Kit integration |
-| Working fakes, observable outcomes, independent verification of delegated work | Patrick's test-double and Agy/Claude/Codex review instructions; constitution principle III | Policy is stated without claiming all legacy mocks are already removed or all fakes are already contract-tested |
+| Working fakes, observable outcomes, independent verification of delegated work | Patrick's test-double and Agy/Claude/Codex review instructions; constitution principle III; [test-quality contract](test-quality.md) | Guidance reflects merged PR117 enforcement and narrow exceptions without claiming every fake has full protocol parity |
 | CodeGraph before broad code exploration | Patrick's supplied AGENTS instructions | Local generated index handling and unavailable-tool fallback are explicit |
 
 ## Non-goals

@@ -1320,3 +1320,142 @@ approval, or merge was introduced.
 - **Task closed**: T083
 - **Tasks pending**: T080–T082
 - **Not performed**: no merge, rebase, squash, amend, approval, or post-merge action
+
+### PR116 closure and post-merge verification
+
+- **Patrick approval**: Patrick approved reviewed head `3e3375a`.
+- **Merge**: Merge completed at `2026-09-09T01:30:42Z`, commit `7a4f11cd645dd21b049db3649747bb4e03b652e2` into `main`.
+- **Tree equality**: Approved and merged trees both equal `fca6220513027eba30f478deab10191d6547bb22`.
+- **Main CI run**: Root independently verified all 9 jobs in main CI run `34299489433` successful, including Complexipy, Required checks, compatibility, and services:
+  https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34299489433.
+- **Tasks closed**: T080, T081, T082.
+
+
+### Mocks-to-fakes migration (branch `quality/fakes-over-mocks`)
+
+- **Baseline** (`7a4f11cd645dd21b049db3649747bb4e03b652e2`): 22 test files importing `unittest.mock`, 301 mock
+  constructors, 52 interaction assertions; 862 tests collected, 860 passed, 2 platform skips; pytest-cov
+  `TOTAL 91%` with `branch = true`, which is combined statement-and-branch coverage (4098 statements /
+  329 missed, 768 branches / 93 partial), not a line-only figure.
+- **Agy first pass**: exited without committing; Codex preserved the tree unchanged as incomplete checkpoint
+  `7b7305aff0ad6a2c5a85bb95dec114a7fce52525` (866 passed, 2 failed: an invalid `id_val` keyword in the
+  hand-built Redis stream test and the policy test finding `unittest.mock` still imported by
+  `tests/test_main.py` and `tests/test_shutdown.py`). No production or gate change was present.
+- **Claude Fable corrective pass** (commit following the checkpoint): deleted the 561-line hand-built
+  `FakeRedis` and its fake-only self-tests in favour of pinned `fakeredis==2.38.0`; rewrote the shared Redis
+  contract as one suite parametrized over `fakeredis` and the real loopback Redis, fail-closed under
+  `RUN_SERVICE_TESTS=1`, scoped to a unique namespace, and added it as the `redis-contract` gate of the
+  `services` profile; removed all 26 new `# type: ignore` comments and every `cast(Any, ...)` added for
+  doubles; replaced the private `_score_and_alert` spy and every canned detector/scorer/formatter/dispatcher
+  fake with the real pipeline assembled over boundary fakes; replaced call-order response ladders with
+  state-keyed fakes; replaced the hand-written HTTP client with real `httpx.AsyncClient` +
+  `httpx.MockTransport` webhook servers; migrated `tests/test_main.py` and `tests/test_shutdown.py`;
+  removed the policy test's self-exemption and added alias/attribute-access and benign fixtures; corrected
+  `make_test_settings`, which silently dropped detector options because the fields are declared by alias;
+  and fixed `PolygonClient.health_check`, which called web3's `block_number` property as a method
+  (`TypeError` against real web3) and was only ever exercised through a mock.
+- **Verification on the corrected head** (2026-09-09, Linux dev box, `uv 0.11.21`):
+  - `uv run python scripts/verify.py --profile static`: lock, format, lint, strict-types, pyright, vulture,
+    complexipy all passed.
+  - `uv run --isolated --locked --all-extras --python 3.11|3.12|3.13 python scripts/verify.py --profile
+    compatibility`: passed on all three interpreters (893 passed, 2 platform skips before the last
+    baseline-ID rename; 894 passed, 2 skipped on the final tree with Python 3.11).
+  - `pytest --cov=src --cov-branch`: `TOTAL 4098 321 768 89 91%` (combined coverage unchanged at 91%, with
+    fewer missed statements and partial branches than the baseline).
+  - Baseline test IDs: all 862 retained (`pytest --collect-only` diff against the base tree), 34 added
+    (shared Redis contract, policy fixtures, `FakeEth` fidelity, `redis-contract` gate coverage, and the
+    settings-helper regression).
+  - Shared Redis contract against a real service: a disposable Redis `8.10.1` built from source on the dev
+    box and bound to `127.0.0.1:6390`; `RUN_SERVICE_TESTS=1 REDIS_URL=redis://127.0.0.1:6390 pytest
+    tests/integration/test_redis_contract.py` passed 18/18 (9 scenarios × fake and real) and left
+    `DBSIZE 0`. Fail-closed checks: `REDIS_URL=redis://127.0.0.1:1` errors every real-parametrized scenario;
+    `REDIS_URL=redis://example.com:6379` is rejected by `validate_loopback_redis_url` before any connection.
+  - Not run locally: the `services` and `migrations` gates against PostgreSQL (the dev box PostgreSQL does not
+    accept the Compose credentials), and the CI `redis:7` image itself; the Linux services job runs all
+    three service gates.
+- **Not performed**: no push, pull request, merge, rebase, squash, or amend; the Agy checkpoint is intact.
+- **Pending**: Codex independent review (T096).
+
+### Codex corrections after Fable `ae4e180` (2026-09-09)
+
+The Fable commit `ae4e180b365a25d229bd3126b54baade60178c8b` and Agy checkpoint remain
+immutable. Codex independently inspected the actual artifact and resolved these findings:
+
+- Seven alias/literal dynamic-import spellings bypassed the no-mocks source policy. New
+  fixtures reproduced seven failures before binding-aware detection was added. Inert string
+  literals and functional HTTP transports remain allowed; no file is exempted.
+- Shared Redis tests assumed one SCAN response contained every matching key. They now consume
+  the complete cursor iteration. Real-client setup has bounded socket timeouts and closes on
+  every exception, including cancellation; namespace cleanup closes the client even when
+  deletion fails. Three focused failure regressions exercise this resource lifecycle.
+- The CLOB batch fake converted `BookParams` to its repr instead of returning token IDs. Two
+  strengthened batch cases failed before the fake adopted the actual SDK parameter type and
+  single-book implementation. Ordered, repeated and empty token batches now preserve IDs and bids.
+- The settings helper leaked environment variables and ignored aliases beyond detector options.
+  An adversarial environment test failed before every group supplied its explicit aliases,
+  defaults, absent credentials and `_env_file=None`. It now proves inherited configuration and
+  a local dotenv cannot enable notification destinations or alter test settings.
+- Funding batch success and hop overrides still replaced internal tracing with canned results.
+  They now follow real transfer-index paths to a known CEX, proving both default and overridden
+  termination. The exceptional batch case injects a failure by address and executes the real
+  tracer for successful addresses; it has no call-order response ladder.
+- Alert-history range/limit assertions had insufficient data to detect lost bounds. The test now
+  seeds records before, at, inside and after the range, with more eligible records than the limit,
+  and verifies exact ordered results for bounded and limited queries.
+- Removed the remaining new ABI-name `noqa` and narrowed the written interaction rule to its
+  actual lifecycle-delegation and deliberate failure-injection exceptions.
+- The one-line production health-check fix has an additional regression through real
+  `AsyncWeb3`, its real `AsyncEth` dispatch/formatting, and an `AsyncBaseProvider` that serves a
+  JSON-RPC block number. The test does not replace `_execute_with_retry`. This repairs an
+  existing method/property mismatch exposed by faithful doubles; it adds no product capability.
+
+Independent Linux verification on the corrected tree:
+
+| Check | Observed result |
+|---|---|
+| Full Python 3.11 `scripts/verify.py --profile all` | All 12 gates passed in 31.73s, including Black, Ruff, strict mypy/Pyright, Vulture, full function/module Complexipy <=5, tests, service probes, Redis contract and migrations |
+| Full deterministic suite | 909 passed, 2 existing platform skips, 15 warnings |
+| Python 3.11, 3.12 and 3.13 compatibility profiles | Each passed with 909 passed and 2 existing platform skips |
+| Python 3.13 services profile | All three gates passed against disposable pinned PostgreSQL 15 and Redis 7 |
+| Shared Redis contract | 21 passed: nine identical scenarios against fake and real backends, plus three resource-cleanup regressions |
+| Combined statement/branch coverage | 91%; 4098 statements, 321 missed, 768 branches, 89 partial; baseline was 329 missed and 93 partial |
+| `git diff --check` and CodeGraph sync | Passed; generated index stays locally excluded |
+| Disposable-service cleanup | Both task-owned containers removed; migration temporary database cleanup succeeded |
+
+The Linux evidence used the exact repository images:
+`postgres:15@sha256:9b1d34adbce1dd07ee6e94b4a2cf698884b89bd44a6c9c12f5da8f3acbfe4957`
+and `redis:7@sha256:71da9275c5f3fcb97d0fa0c8c5b36cc995327265420f17a04bfd544f458059f7`,
+bound only to loopback ports 55441 and 56383. Contrary to Fable's capability assumption,
+`dev` could use the existing Docker installation through its configured noninteractive sudo
+access, so real PostgreSQL and Redis 7 evidence was obtained before any push.
+
+Logs are retained in `/home/dev/work/polymarket-fakes-followup-20260909/`:
+`all-live-3.11.log`, `services-3.13.log`, `compatibility-3.11.log`,
+`compatibility-3.12.log`, `compatibility-3.13.log`, `codex-coverage.log`,
+`codex-policy-red.log`, `codex-clob-red.log`, `codex-settings-red.log`, and
+`codex-focused.log`. The earlier baseline-ID statement describes Fable's checkpoint;
+Codex parameterized the existing order-book batch test into three retained scenarios.
+No original behavior scenario was intentionally removed.
+
+The baseline dry-run/dedup ordering issue remains owned by slice 003 (G-018); this
+test-double migration does not claim to repair it. Final independent review of the
+corrective commit remains pending before PR publication. No push or merge has occurred.
+
+### Independent root acceptance of `e8077f6`
+
+Root independently retrieved and read corrective commit
+`e8077f6c90cd192bbc883e804a6056cb206d4228` in a separate Apple Silicon review checkout.
+All 12 verifier gates passed on Python 3.13 with real PostgreSQL 15 and Redis 7;
+isolated compatibility profiles also passed on Python 3.11 and 3.12. Root verified
+strict branch protection still requires `Required checks` and `Complexipy complexity check`.
+
+A second independent reviewer returned **SHIP**. Mutation checks confirmed the
+strengthened alert-history test rejects each of three implementations that ignore
+the start bound, end bound, or result limit. Root returned **SHIP** after reading
+the final correction diff and these actual test results. T096 is complete.
+
+Root evidence files are retained under the coordination workspace `outputs/` as
+`fakes-root-all-e8077f6.json`, `fakes-root-311-e8077f6.json`, and
+`fakes-root-312-e8077f6.json`. This acceptance append and T096 update change only
+documentation. PR creation, GitHub checks, and eventual merge are separate events;
+T097 remains unchecked until the PR exists. No merge is authorized by this review.

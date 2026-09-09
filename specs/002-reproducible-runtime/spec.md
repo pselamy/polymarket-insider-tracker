@@ -89,6 +89,30 @@ and automated checks; verify that they name one consistent support matrix and re
 3. **Given** a clean example environment, **When** configuration is loaded, **Then** secrets are not
    committed or printed and all required values are explained.
 
+---
+
+### User Story 4 - High-Quality Working Fakes Over Mocks (Priority: P2)
+
+As a maintainer and contributor, I want the test suite to verify observable state and behavior
+using lightweight working fakes and real values rather than fragile `unittest.mock` interaction mocks.
+
+**Why this priority**: Interaction mocks couple tests to arbitrary call sequences and dynamic
+attribute trees, failing to catch real integration breaks while breaking on benign refactors. Working
+fakes and real values guarantee tests assert outcome and state faithfully.
+
+**Independent Test**: Run the test suite and AST-based anti-mock regression; verify zero occurrences of
+`unittest.mock` imports across all test files while retaining 100% of baseline test scenarios and coverage.
+
+**Acceptance Scenarios**:
+
+1. **Given** the test suite across all subsystems, **When** static and regression tests run, **Then** zero
+   test files import or alias `unittest.mock` or use dynamic mock/spy frameworks.
+2. **Given** the reusable Redis double (`fakeredis`), **When** the shared behavioral contract suite runs in the
+   services profile, **Then** the fake and the real loopback Redis demonstrate identical observable semantics.
+3. **Given** external HTTP, blockchain, and repository boundaries, **When** tests execute, **Then**
+   real transport hooks, in-memory SQLite instances, and domain-specific stateful fakes are used instead of
+   `return_value`/`side_effect` mock configurators.
+
 ### Edge Cases
 
 - Apple Silicon may not receive optional asynchronous database dependencies unless they are explicit.
@@ -155,6 +179,16 @@ and automated checks; verify that they name one consistent support matrix and re
   non-matching CLI pattern. It MUST NOT use a baseline, grandfathering, diff-only mode, inline suppression
   comments (`# complexipy: ignore` or `# noqa: complexipy`), real path exclusion, relaxed thresholds, or
   non-blocking status.
+- **FR-018**: Test files MUST NOT import or alias `unittest.mock` or use dynamic mock/spy frameworks. Test doubles
+  MUST be concrete working fakes asserting outcome/state, real models/objects, or narrow failure injectors.
+  Generic CallableFake/Mock frameworks, dynamic attribute trees (`__getattr__`), and return_value/side_effect
+  configurators are strictly prohibited.
+- **FR-019**: The reusable Redis double MUST be the pinned `fakeredis` library, and one shared behavioral contract
+  suite MUST run against it and against the real loopback Redis in the services profile, covering the string,
+  TTL/`NX`, bytes-encoding, sorted-set, pipeline, stream/consumer-group/pending/ack/trim, error-type, and scan
+  semantics the product exercises. Real-service selection MUST fail closed and MUST clean up its own keys.
+- **FR-020**: An AST-based static regression test MUST enforce the prohibition of `unittest.mock` imports across all
+  test files without self-triggering or banning `pytest.monkeypatch` or production-safe HTTP transports.
 
 ### Key Entities
 
@@ -186,6 +220,9 @@ and automated checks; verify that they name one consistent support matrix and re
 - **SC-007**: Runtime support is declared in native project metadata and exercised by locked installation,
   the complete Python compatibility matrix, and real service verification. No bespoke checker reparses
   source files or README prose as a second configuration authority.
+- **SC-008**: 100% of `unittest.mock` uses are replaced with working fakes and real values across all 22 baseline test
+  files; zero files under `tests/` import or alias `unittest.mock`; an AST-based regression enforces this continuously;
+  every one of the 862 baseline test IDs is retained; and combined coverage does not regress below the 91% baseline.
 
 ## Assumptions
 
@@ -211,8 +248,9 @@ Patrick requested a separate root `AGENTS.md` PR to codify the approved developm
 The root file MUST provide a concise, tool-neutral entry point to the constitution, active slice,
 verification commands, safe-effects rules, test-double policy, complexity budget, and review/merge
 gates. It MUST distinguish existing executable enforcement from behavioral requirements and pending
-work. It MUST NOT amend the constitution, expand product scope, duplicate installed skill payloads,
-or claim the separate mocks-to-fakes migration has already shipped.
+work. It MUST NOT amend the constitution, expand product scope, or duplicate installed skill payloads.
+The separate mocks-to-fakes migration shipped in PR117; guidance MUST reflect its enforced contract
+without implying unresolved product gaps such as G-018 are fixed.
 
 Acceptance: a contributor can identify the active slice, required verification, prohibited shortcuts,
 and human-owned approvals from the root file; each material rule traces to existing approval or an
