@@ -80,8 +80,8 @@ Primary external references:
 | G-026 | High | Capability wiring | `SniperDetector` has isolated tests but is not instantiated by the pipeline; “ML + heuristics” presents it as operational. | detector package/tests vs `pipeline.py` | Slice 004; proposed explicit experimental status |
 | G-027 | High | Capability wiring | Funding chains are traced and stored only after a fresh-wallet signal; funding suspiciousness is absent from scoring, persisted risk inputs, and alert output despite the public “funding chain analysis” claim. | `pipeline.py`, signal/assessment models, README | Slice 004; proposed enrichment-only contract |
 | G-028 | Medium | Research claims | Changelog describes stored assessments as ground truth for future backtests and implies backtest scripts, but no backtest workflow exists in the repository. | CHANGELOG and file inventory | Explicitly defer; separate future spec required |
-| G-029a | Medium | Ingestion documentation | The tracked prediction-market skill repeats the obsolete WebSocket ingestion contract. | `docs/skill-tracking-prediction-market-flow.md` | Slice 001 |
-| G-029b | Medium | Detection documentation | The tracked prediction-market skill repeats stale threshold, signal-count, and operational-capability claims. | `docs/skill-tracking-prediction-market-flow.md` | Slice 004 |
+| G-029a | Medium | Ingestion documentation | The old prediction-market skill repeated the obsolete WebSocket ingestion contract. | [Pruning decision and historical source](docs-pruning.md) | Slice 001 documentation gap: obsolete draft removed by requested hygiene change; merge pending. Runtime ingestion gaps remain open. |
+| G-029b | Medium | Detection documentation | The old prediction-market skill repeated stale threshold, signal-count, and operational-capability claims. | [Pruning decision and historical source](docs-pruning.md) | Slice 004 documentation gap: obsolete draft removed by requested hygiene change; merge pending. Runtime detection gaps remain open. |
 | G-030a | Medium | Configuration diagnostics | Issue #93 contains a source URL with both `wss://` and `https://`; current validation would accept or poorly diagnose similar malformed-but-prefixed values. | GitHub issue #93 | Slice 003; no issue mutation before review |
 | G-030b | High | Ingestion/startup | Issue #93's deeper obsolete-protocol and 204.35-second blocking-startup symptoms remain reproducible concerns independent of the malformed user value. | GitHub issue #93 plus code trace | Slice 001; no issue mutation before review |
 | G-031 | Blocker | Source coverage | The public trades query is newest-first and bounded to 10,000 rows per reachable page range. A 2026-09-06 live-safe probe returned the full 10,000 rows even for a five-second requested window; only 83 taker-only or 259 all-participant rows were inside that exact window, and some rows fell outside documented `start`/`end` bounds. Without saturation and boundary detection, polling can silently lose trades or trust ineffective filters. | Official pagination contract plus bounded live-safe aggregate probe; no wallet data retained | Slice 001 |
@@ -94,9 +94,9 @@ Primary external references:
 | Execution order | Specification | Owns | Explicitly does not own |
 |---|---|---|---|
 | 1 | `002-reproducible-runtime` | G-007–G-012, G-013a, and G-034 | Product behavior beyond setup, migrations, required checks, and test-double quality |
-| 2 | `001-supported-trade-ingestion` | G-001–G-006, G-013b, G-029a, G-030b, G-031, and G-032 | Scoring changes; authenticated/private feeds; trading |
+| 2 | `001-supported-trade-ingestion` | G-001–G-006, G-013b, G-030b, G-031, and G-032; G-029a resolved by separate draft-removal change, merge pending | Scoring changes; authenticated/private feeds; trading |
 | 3 | `003-safe-observable-operation` | G-014–G-021, G-030a, and G-033 | New detector algorithms; real notification smoke tests |
-| 4 | `004-truthful-detection-contract` | G-022–G-028 and G-029b; consumes G-017/G-032/G-033 outcomes | New uncalibrated scoring signals; backtesting; trading recommendations |
+| 4 | `004-truthful-detection-contract` | G-022–G-028; G-029b resolved by separate draft-removal change, merge pending; consumes G-017/G-032/G-033 outcomes | New uncalibrated scoring signals; backtesting; trading recommendations |
 
 The numeric feature prefix records specification creation order, not execution order. Before every
 Spec Kit command, the operator MUST activate the intended slice explicitly via
