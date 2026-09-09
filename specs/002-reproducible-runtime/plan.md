@@ -261,3 +261,21 @@ monitoring E2E proof preserves slice ownership.
 ## Complexity Tracking
 
 No constitution violation requires justification.
+
+## Root Agent Guidance Follow-up Plan
+
+This documentation-only follow-up is a separate PR from the mocks-to-fakes implementation.
+
+1. Record the requested guidance contract and trace it to the constitution, current runtime gates,
+   and Patrick's explicit quality/test-double instructions. No new governance is introduced.
+2. Add a concise root `AGENTS.md` with relative links, an explicitly activated slice example, the
+   canonical verifier commands, and the exact fail-closed Complexipy command. Preserve the managed
+   `.agents/skills/speckit-*` integration; do not recreate `.claude/skills` or copy global skills.
+3. Check all local links and command examples against actual tracked scripts/configuration. Review
+   for misleading statements about type-checker scope, advisory CI, fake coverage, or completed work.
+4. Run the existing static and compatibility profiles. No runtime change is intended; preserve the
+   service and migration contracts unchanged. Record exact evidence and limitations separately.
+5. Reconcile with the completed fakes PR before publishing this subsequent PR. Keep human-owned
+   reviewer criteria unchecked and obtain Patrick's approval before merging.
+
+No new dependencies, scripts, application behavior, CI gates, or schema changes are needed.

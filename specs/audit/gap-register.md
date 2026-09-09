@@ -87,7 +87,7 @@ Primary external references:
 | G-031 | Blocker | Source coverage | The public trades query is newest-first and bounded to 10,000 rows per reachable page range. A 2026-09-06 live-safe probe returned the full 10,000 rows even for a five-second requested window; only 83 taker-only or 259 all-participant rows were inside that exact window, and some rows fell outside documented `start`/`end` bounds. Without saturation and boundary detection, polling can silently lose trades or trust ineffective filters. | Official pagination contract plus bounded live-safe aggregate probe; no wallet data retained | Slice 001 |
 | G-032 | High | Detection coverage | The public trades query defaults to `takerOnly=true`; the product has no explicit decision on monitoring only takers versus all publicly returned participants. A bounded probe with `takerOnly=false` showed multiple wallet rows per transaction, which are distinct research observations rather than simple transport duplicates. | Official parameter contract plus bounded aggregate probe | Slice 001, with detection semantics documented by slice 004 |
 | G-033 | High | Storage contract | Slices 003 and 004 both require new delivery dispositions, evidence availability, and reproducibility fields in persisted assessments. Without one owned target schema, independent plans will create migration churn and incompatible records. | Specs 003 FR-012 and 004 FR-003; current risk-assessment schema | Slice 003 owns the target record/migration; slice 004 contributes required evidence fields before planning |
-| G-034 | High | Test quality | Baseline test suite relies on `unittest.mock` across 22 test files with 301 constructors and 52 interaction assertions, coupling tests to implementation details rather than observable behavior. | Test inventory, baseline audit, `fakes-followup-plan.md` | Slice 002 owns it; the user-authorized mocks-to-fakes migration (working boundary fakes, `fakeredis` with a shared real/fake Redis contract in the services profile, real values, and an AST anti-mock regression) is implemented on branch `quality/fakes-over-mocks` and closes when that pull request merges. |
+| G-034 | High | Test quality | Baseline test suite relied on `unittest.mock` across 22 test files with 301 constructors and 52 interaction assertions. | Test inventory and [merge evidence](../002-reproducible-runtime/evidence/agent-guidance.md) | Closed by approved PR117, merged as `357c350`; all nine main-CI jobs passed in run `34308759971`. Working fakes, shared Redis contracts and AST enforcement are live; unrelated product gaps remain open. |
 
 ## Proposed Slice Map
 
@@ -126,6 +126,16 @@ pointer MUST NOT be trusted across slices or clones.
 - The codebase contains substantial unit coverage. The gap is behavioral integration and required
   environment coverage, not absence of tests.
 - Trading execution, UI work, monetization, and accusations of actual insider conduct remain outside scope.
+
+## Agent Guidance Follow-up
+
+**AG-G001 — root contributor/agent guidance**: Patrick requested a separate root `AGENTS.md` to
+codify the approved Spec Kit, safety, quality, test-double, and review practices. Owner: Codex;
+scope: slice 002 documentation only. Status: implemented, locally verified, and independently
+reviewed after reconciliation with merged PR117; publication and merge remain pending. Acceptance and source mapping are in
+[the guidance contract](../002-reproducible-runtime/contracts/agent-guidance.md); completion evidence
+belongs in `specs/002-reproducible-runtime/evidence/agent-guidance.md`. The mocks-to-fakes migration
+remains a separate work item and is not closed by this document.
 
 ## Audit Limitations
 
