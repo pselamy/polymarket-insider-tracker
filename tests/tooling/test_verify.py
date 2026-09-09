@@ -46,7 +46,11 @@ def test_profile_membership_and_ordering_are_exact() -> None:
         "complexipy",
     )
     assert module.gate_ids_for_profile("compatibility") == ("lock", "imports", "tests")
-    assert module.gate_ids_for_profile("services") == ("services", "migrations")
+    assert module.gate_ids_for_profile("services") == (
+        "services",
+        "redis-contract",
+        "migrations",
+    )
 
 
 def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
@@ -63,6 +67,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
         "imports",
         "tests",
         "services",
+        "redis-contract",
         "migrations",
     )
 
@@ -218,7 +223,7 @@ def test_gate_definitions_expose_prerequisites_and_redaction_policy() -> None:
     assert set(module.GATES) == set(module.gate_ids_for_profile("all"))
     for gate in module.GATES.values():
         assert gate.redaction_policy == "configured-secrets"
-        assert gate.needs_services is (gate.id in {"services", "migrations"})
+        assert gate.needs_services is (gate.id in {"services", "redis-contract", "migrations"})
 
 
 def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
@@ -230,6 +235,7 @@ def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
         "imports",
         "tests",
         "services",
+        "redis-contract",
         "migrations",
     ):
         assert module.GATES[gate_id].command[0] == module.sys.executable
@@ -256,8 +262,9 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
 
     module._run_command(module.GATES["tests"])
     module._run_command(module.GATES["services"])
+    module._run_command(module.GATES["redis-contract"])
 
-    tests_environment, services_environment = environments
+    tests_environment, services_environment, contract_environment = environments
     assert tests_environment is not None
     assert tests_environment["PATH"] == "/usr/bin"
     for key in (
@@ -269,6 +276,10 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
     ):
         assert key not in tests_environment
     assert services_environment is None
+    assert contract_environment is not None
+    assert contract_environment["RUN_SERVICE_TESTS"] == "1"
+    assert contract_environment["REDIS_URL"] == "redis://localhost:6379"
+    assert contract_environment["PATH"] == "/usr/bin"
 
 
 @pytest.mark.parametrize(
@@ -284,6 +295,7 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
         "imports",
         "tests",
         "services",
+        "redis-contract",
         "migrations",
     ],
 )
@@ -323,6 +335,8 @@ def test_human_output_names_commands_and_results() -> None:
     assert "[RUN ] services:" in rendered
     assert "scripts/runtime_services.py --phase probe" in rendered
     assert "[PASS] services (0.25s)" in rendered
+    assert "[RUN ] redis-contract:" in rendered
+    assert "pytest tests/integration/test_redis_contract.py" in rendered
     assert "[RUN ] migrations:" in rendered
     assert "scripts/runtime_services.py --phase migrations" in rendered
     assert "status: passed" in rendered
@@ -448,6 +462,7 @@ def test_help_lists_every_direct_gate_command() -> None:
         "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
         "--check-script=true",
         "uv run pytest",
+        "RUN_SERVICE_TESTS=1 uv run --env-file .env pytest tests/integration/test_redis_contract.py",
         "uv run --env-file .env alembic upgrade head",
     ):
         assert command in result.stdout

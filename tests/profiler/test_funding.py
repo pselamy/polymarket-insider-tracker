@@ -1,47 +1,85 @@
-"""Tests for the FundingTracer module."""
+"""Tests for the FundingTracer module.
+
+The tracer runs against a real ``PolygonClient`` whose JSON-RPC surface is ``FakeEth``; transfer
+logs come from a ``TransferLogIndex`` that answers ``eth_getLogs`` by token, recipient, and block
+window exactly like a node does.
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.entities import EntityRegistry
 from polymarket_insider_tracker.profiler.entity_data import EntityType
 from polymarket_insider_tracker.profiler.funding import (
+    DEFAULT_MAX_LOOKBACK_BLOCKS,
     TRANSFER_EVENT_SIGNATURE,
     USDC_BRIDGED,
     USDC_NATIVE,
     FundingTracer,
 )
 from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer
+from tests.fakes import FakeAsyncWeb3, FakeEth, TransferLogIndex, transfer_log
 
 # Test addresses
 TEST_WALLET = "0x1234567890abcdef1234567890abcdef12345678"
 TEST_SOURCE = "0xabcdef1234567890abcdef1234567890abcdef12"
 BINANCE_HOT_WALLET = "0x28c6c06298d514db089934071355e5743bf21d60"
+CHAIN_HEAD = 50_000_000
+PRUNED_HISTORY_ERROR = RuntimeError(
+    "{'code': -32701, 'message': 'History has been pruned for this block. To remove "
+    "restrictions, order a dedicated full node here: https://www.allnodes.com/pol/host'}"
+)
 
 
-@pytest.fixture
-def mock_polygon_client() -> MagicMock:
-    """Create a mock PolygonClient."""
-    client = MagicMock()
-    client._rate_limiter = MagicMock()
-    client._rate_limiter.acquire = AsyncMock()
-    client._primary_healthy = True
-    client._w3 = MagicMock()
-    client._w3_fallback = None
-    client.acquire_rate_limit = AsyncMock()
-    client.select_web3 = MagicMock(
-        side_effect=lambda: (
-            client._w3 if client._primary_healthy else (client._w3_fallback or client._w3)
-        )
+def _polygon_client(eth: FakeEth, *, fallback: FakeEth | None = None) -> PolygonClient:
+    """A real PolygonClient with its web3 providers bound to fakes and no retry delays."""
+    client = PolygonClient(
+        "https://polygon-rpc.com",
+        fallback_rpc_url="https://fallback.invalid" if fallback else None,
+        max_requests_per_second=10_000.0,
+        max_retries=1,
+        retry_delay_seconds=0.0,
     )
-    client.get_block = AsyncMock(return_value={"timestamp": 1704067200})
+    client._w3 = FakeAsyncWeb3(eth)
+    if fallback is not None:
+        client._w3_fallback = FakeAsyncWeb3(fallback)
     return client
+
+
+def _tracer(logs: TransferLogIndex, *, block_number: int = CHAIN_HEAD) -> FundingTracer:
+    return _polygon_tracer(FakeEth(block_number=block_number, logs=logs))
+
+
+def _polygon_tracer(eth: FakeEth, *, fallback: FakeEth | None = None) -> FundingTracer:
+    return FundingTracer(_polygon_client(eth, fallback=fallback))
+
+
+def _transfer_to(
+    to_address: str, from_address: str, *, block_number: int = CHAIN_HEAD, seed: int = 0
+) -> dict[str, Any]:
+    return transfer_log(
+        from_address=from_address,
+        to_address=to_address,
+        amount=1_000_000,
+        tx_hash=f"0x{seed:064x}",
+        block_number=block_number,
+    )
+
+
+def _tracer_for_path(wallets: list[str]) -> FundingTracer:
+    logs = TransferLogIndex()
+    for index, (target, source) in enumerate(zip(wallets, wallets[1:], strict=False)):
+        logs.add_transfer(
+            USDC_BRIDGED,
+            _transfer_to(target, source, block_number=CHAIN_HEAD - index, seed=index),
+        )
+    return _tracer(logs)
 
 
 @pytest.fixture
@@ -51,61 +89,56 @@ def entity_registry() -> EntityRegistry:
 
 
 @pytest.fixture
-def funding_tracer(
-    mock_polygon_client: MagicMock,
-    entity_registry: EntityRegistry,
-) -> FundingTracer:
-    """Create a FundingTracer with mocked dependencies."""
-    return FundingTracer(
-        polygon_client=mock_polygon_client,
-        entity_registry=entity_registry,
-        max_hops=3,
-    )
+def polygon_client() -> PolygonClient:
+    """A Polygon client over a chain with no transfer history."""
+    return _polygon_client(FakeEth(block_number=CHAIN_HEAD))
+
+
+@pytest.fixture
+def funding_tracer(polygon_client: PolygonClient, entity_registry: EntityRegistry) -> FundingTracer:
+    """Create a FundingTracer over the empty chain."""
+    return FundingTracer(polygon_client=polygon_client, entity_registry=entity_registry, max_hops=3)
 
 
 class TestFundingTracerInit:
     """Tests for FundingTracer initialization."""
 
-    def test_init_with_defaults(self, mock_polygon_client: MagicMock) -> None:
+    def test_init_with_defaults(self, polygon_client: PolygonClient) -> None:
         """Test initialization with default parameters."""
-        tracer = FundingTracer(mock_polygon_client)
+        tracer = FundingTracer(polygon_client)
 
-        assert tracer.polygon_client is mock_polygon_client
+        assert tracer.polygon_client is polygon_client
         assert tracer.max_hops == 3
         assert USDC_BRIDGED.lower() in tracer._usdc_addresses
         assert USDC_NATIVE.lower() in tracer._usdc_addresses
 
-    def test_init_with_custom_max_hops(self, mock_polygon_client: MagicMock) -> None:
+    def test_init_with_custom_max_hops(self, polygon_client: PolygonClient) -> None:
         """Test initialization with custom max_hops."""
-        tracer = FundingTracer(mock_polygon_client, max_hops=5)
+        tracer = FundingTracer(polygon_client, max_hops=5)
         assert tracer.max_hops == 5
 
-    def test_init_with_custom_usdc_addresses(self, mock_polygon_client: MagicMock) -> None:
+    def test_init_with_custom_usdc_addresses(self, polygon_client: PolygonClient) -> None:
         """Test initialization with custom USDC addresses."""
         custom_addresses = ["0x1111111111111111111111111111111111111111"]
-        tracer = FundingTracer(mock_polygon_client, usdc_addresses=custom_addresses)
+        tracer = FundingTracer(polygon_client, usdc_addresses=custom_addresses)
         assert tracer._usdc_addresses == [custom_addresses[0].lower()]
 
-    def test_init_with_custom_entity_registry(self, mock_polygon_client: MagicMock) -> None:
+    def test_init_with_custom_entity_registry(self, polygon_client: PolygonClient) -> None:
         """Test initialization with custom entity registry."""
         registry = EntityRegistry()
-        tracer = FundingTracer(mock_polygon_client, entity_registry=registry)
+        tracer = FundingTracer(polygon_client, entity_registry=registry)
         assert tracer.entity_registry is registry
 
-    def test_init_creates_default_entity_registry(self, mock_polygon_client: MagicMock) -> None:
+    def test_init_creates_default_entity_registry(self, polygon_client: PolygonClient) -> None:
         """Test initialization creates default EntityRegistry if None."""
-        tracer = FundingTracer(mock_polygon_client, entity_registry=None)
+        tracer = FundingTracer(polygon_client, entity_registry=None)
         assert isinstance(tracer.entity_registry, EntityRegistry)
 
 
 class TestFundingTracerTrace:
     """Tests for the trace method."""
 
-    @pytest.mark.asyncio
-    async def test_trace_terminates_at_known_cex(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_trace_terminates_at_known_cex(self, funding_tracer: FundingTracer) -> None:
         """Test trace terminates when starting at a CEX address."""
         result = await funding_tracer.trace(BINANCE_HOT_WALLET)
 
@@ -115,258 +148,144 @@ class TestFundingTracerTrace:
         assert result.hop_count == 0
         assert len(result.chain) == 0
 
-    @pytest.mark.asyncio
-    async def test_trace_no_transfers_found(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_trace_no_transfers_found(self, funding_tracer: FundingTracer) -> None:
         """Test trace when no USDC transfers are found."""
-        funding_tracer._get_transfer_logs = AsyncMock(return_value=[])
-
         result = await funding_tracer.trace(TEST_WALLET)
 
         assert result.target_address == TEST_WALLET.lower()
         assert result.origin_address == TEST_WALLET.lower()
+        assert result.chain == []
         assert result.origin_type == "unknown"
         assert result.hop_count == 0
 
-    @pytest.mark.asyncio
-    async def test_trace_finds_cex_origin(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_trace_finds_cex_origin(self, entity_registry: EntityRegistry) -> None:
         """Test trace finds CEX as funding origin."""
-        # Mock a transfer from Binance to test wallet
-        mock_log = _create_mock_log(
-            from_address=BINANCE_HOT_WALLET,
-            to_address=TEST_WALLET,
-            amount=1000000,  # 1 USDC
-            tx_hash="0x" + "ab" * 32,
-            block_number=50000000,
-        )
+        logs = TransferLogIndex()
+        logs.add_transfer(USDC_BRIDGED, _transfer_to(TEST_WALLET, BINANCE_HOT_WALLET, seed=0xAB))
+        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
 
-        funding_tracer._get_transfer_logs = AsyncMock(return_value=[mock_log])
-
-        result = await funding_tracer.trace(TEST_WALLET)
+        result = await tracer.trace(TEST_WALLET)
 
         assert result.target_address == TEST_WALLET.lower()
         assert result.origin_address == BINANCE_HOT_WALLET.lower()
         assert result.origin_type == EntityType.CEX_BINANCE.value
         assert result.hop_count == 1
-        assert len(result.chain) == 1
+        assert result.is_cex_origin is True
 
-    @pytest.mark.asyncio
-    async def test_trace_multiple_hops(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_trace_multiple_hops(self, entity_registry: EntityRegistry) -> None:
         """Test trace follows multiple hops."""
         intermediate_wallet = "0x" + "11" * 20
+        logs = TransferLogIndex()
+        logs.add_transfer(USDC_BRIDGED, _transfer_to(TEST_WALLET, intermediate_wallet, seed=1))
+        logs.add_transfer(
+            USDC_BRIDGED, _transfer_to(intermediate_wallet, BINANCE_HOT_WALLET, seed=2)
+        )
+        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
 
-        # First call: TEST_WALLET received from intermediate
-        # Second call: intermediate received from Binance
-        mock_logs = [
-            _create_mock_log(
-                from_address=intermediate_wallet,
-                to_address=TEST_WALLET,
-                amount=1000000,
-                tx_hash="0x" + "aa" * 32,
-                block_number=50000001,
-            ),
-            _create_mock_log(
-                from_address=BINANCE_HOT_WALLET,
-                to_address=intermediate_wallet,
-                amount=1000000,
-                tx_hash="0x" + "bb" * 32,
-                block_number=50000000,
-            ),
-        ]
-
-        call_count = 0
-
-        async def mock_get_logs(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
-            nonlocal call_count
-            result = [mock_logs[call_count]] if call_count < len(mock_logs) else []
-            call_count += 1
-            return result
-
-        funding_tracer._get_transfer_logs = mock_get_logs
-
-        result = await funding_tracer.trace(TEST_WALLET)
+        result = await tracer.trace(TEST_WALLET)
 
         assert result.hop_count == 2
         assert result.origin_address == BINANCE_HOT_WALLET.lower()
-        assert result.origin_type == EntityType.CEX_BINANCE.value
+        assert result.is_cex_origin is True
 
-    @pytest.mark.asyncio
-    async def test_trace_respects_max_hops(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_trace_respects_max_hops(self, entity_registry: EntityRegistry) -> None:
         """Test trace stops at max_hops."""
-        # Create a chain of unknown wallets
         wallets = [f"0x{i:040x}" for i in range(10)]
+        logs = TransferLogIndex()
+        for i in range(len(wallets) - 1):
+            logs.add_transfer(
+                USDC_BRIDGED,
+                _transfer_to(wallets[i], wallets[i + 1], block_number=CHAIN_HEAD - i, seed=i),
+            )
+        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
 
-        call_count = 0
-
-        async def mock_get_logs(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
-            nonlocal call_count
-            if call_count < len(wallets) - 1:
-                log = _create_mock_log(
-                    from_address=wallets[call_count + 1],
-                    to_address=wallets[call_count],
-                    amount=1000000,
-                    tx_hash=f"0x{call_count:064x}",
-                    block_number=50000000 + call_count,
-                )
-                call_count += 1
-                return [log]
-            return []
-
-        funding_tracer._get_transfer_logs = mock_get_logs
-
-        result = await funding_tracer.trace(wallets[0], max_hops=3)
+        result = await tracer.trace(wallets[0], max_hops=3)
 
         assert result.hop_count == 3
         assert result.origin_type == "unknown"
 
-    @pytest.mark.asyncio
-    async def test_trace_override_max_hops(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_trace_override_max_hops(self) -> None:
         """Test trace can override default max_hops."""
-        funding_tracer._get_transfer_logs = AsyncMock(return_value=[])
+        tracer = _tracer_for_path([TEST_WALLET, TEST_SOURCE, BINANCE_HOT_WALLET])
+        result = await tracer.trace(TEST_WALLET, max_hops=1)
 
-        # Override to 1 hop
-        await funding_tracer.trace(TEST_WALLET, max_hops=1)
-
-        # Verify only 1 iteration (no hops since no transfers found)
-        # The trace should have been called once for the target wallet
+        assert result.hop_count == 1
+        assert result.origin_address == TEST_SOURCE
+        assert result.origin_type == "unknown"
+        assert (await tracer.trace(TEST_WALLET)).is_cex_origin is True
 
 
 class TestGetFirstUsdcTransfer:
     """Tests for get_first_usdc_transfer method."""
 
-    @pytest.mark.asyncio
-    async def test_get_first_usdc_transfer_bridged(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_get_first_usdc_transfer_bridged(self, entity_registry: EntityRegistry) -> None:
         """Test getting first USDC transfer from bridged contract."""
-        mock_log = _create_mock_log(
-            from_address=TEST_SOURCE,
-            to_address=TEST_WALLET,
-            amount=5000000,
-            tx_hash="0x" + "cc" * 32,
-            block_number=50000000,
-        )
+        logs = TransferLogIndex()
+        logs.add_transfer(USDC_BRIDGED, _transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xCC))
+        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
 
-        funding_tracer._get_transfer_logs = AsyncMock(return_value=[mock_log])
-
-        result = await funding_tracer.get_first_usdc_transfer(TEST_WALLET)
+        result = await tracer.get_first_usdc_transfer(TEST_WALLET)
 
         assert result is not None
         assert result.from_address == TEST_SOURCE.lower()
         assert result.to_address == TEST_WALLET.lower()
-        assert result.amount == Decimal(5000000)
+        assert result.amount == Decimal(1_000_000)
         assert result.token == "USDC"
 
-    @pytest.mark.asyncio
-    async def test_get_first_usdc_transfer_native(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
-        """Test fallback to native USDC contract."""
-        call_count = 0
+    async def test_get_first_usdc_transfer_native(self, entity_registry: EntityRegistry) -> None:
+        """Test fallback to native USDC contract when the bridged contract has no transfer."""
+        logs = TransferLogIndex()
+        logs.add_transfer(USDC_NATIVE, _transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xDD))
+        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
 
-        async def mock_get_logs(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:  # First call (bridged) returns nothing
-                return []
-            # Second call (native) returns a transfer
-            return [
-                _create_mock_log(
-                    from_address=TEST_SOURCE,
-                    to_address=TEST_WALLET,
-                    amount=1000000,
-                    tx_hash="0x" + "dd" * 32,
-                    block_number=50000000,
-                )
-            ]
-
-        funding_tracer._get_transfer_logs = mock_get_logs
-
-        result = await funding_tracer.get_first_usdc_transfer(TEST_WALLET)
+        result = await tracer.get_first_usdc_transfer(TEST_WALLET)
 
         assert result is not None
-        assert call_count == 2
+        assert result.token == "USDC"
+        assert [query["address"].lower() for query in logs.queries][0] == USDC_BRIDGED.lower()
+        assert USDC_NATIVE.lower() in {query["address"].lower() for query in logs.queries}
 
-    @pytest.mark.asyncio
-    async def test_get_first_usdc_transfer_none_found(
-        self,
-        funding_tracer: FundingTracer,
-    ) -> None:
+    async def test_get_first_usdc_transfer_none_found(self, funding_tracer: FundingTracer) -> None:
         """Test returns None when no USDC transfers found."""
-        funding_tracer._get_transfer_logs = AsyncMock(return_value=[])
-
         result = await funding_tracer.get_first_usdc_transfer(TEST_WALLET)
-
         assert result is None
 
 
 class TestGetTransferLogs:
     """Tests for _get_transfer_logs method."""
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_formats_topics_correctly(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
+    async def test_get_transfer_logs_formats_topics_correctly(self) -> None:
         """Test that transfer logs query is formatted correctly."""
-        mock_w3 = MagicMock()
-        mock_w3.eth.get_logs = AsyncMock(return_value=[])
-        mock_polygon_client._w3 = mock_w3
+        logs = TransferLogIndex()
+        tracer = _tracer(logs)
 
-        await funding_tracer._get_transfer_logs(
+        await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
-            # Explicit numeric range so we stay inside one chunk and skip
-            # the "latest" → block_number resolution path.
             from_block=1,
             to_block=8_000,
         )
 
-        mock_w3.eth.get_logs.assert_called_once()
-        call_args = mock_w3.eth.get_logs.call_args[0][0]
-
-        # Verify topics structure
+        assert len(logs.queries) == 1
+        call_args = logs.queries[0]
         assert len(call_args["topics"]) == 3
-        # The Transfer event topic must be 0x-prefixed; drpc rejects bare hex.
         assert call_args["topics"][0] == "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
         assert call_args["topics"][0].startswith("0x")
-        assert call_args["topics"][1] is None  # from (any)
-        # to address should be padded to 32 bytes
+        assert call_args["topics"][1] is None
         assert call_args["topics"][2].endswith(TEST_WALLET.lower().replace("0x", ""))
-        # And the chunk bounds match what we asked for.
         assert call_args["fromBlock"] == 1
         assert call_args["toBlock"] == 8_000
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_respects_limit(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
+    async def test_get_transfer_logs_respects_limit(self) -> None:
         """Test that limit parameter works correctly."""
-        mock_logs = [MagicMock() for _ in range(10)]
-        mock_w3 = MagicMock()
-        mock_w3.eth.get_logs = AsyncMock(return_value=mock_logs)
-        mock_polygon_client._w3 = mock_w3
+        logs = TransferLogIndex()
+        for i in range(10):
+            logs.add_transfer(
+                USDC_BRIDGED, _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=100 + i, seed=i)
+            )
+        tracer = _tracer(logs)
 
-        result = await funding_tracer._get_transfer_logs(
+        result = await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             limit=3,
@@ -376,304 +295,175 @@ class TestGetTransferLogs:
 
         assert len(result) == 3
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_uses_fallback_when_primary_unhealthy(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
-        """Test fallback RPC is used when primary is unhealthy."""
-        mock_polygon_client._primary_healthy = False
-        mock_fallback = MagicMock()
-        mock_fallback.eth.get_logs = AsyncMock(return_value=[])
-        mock_polygon_client._w3_fallback = mock_fallback
+    async def test_get_transfer_logs_uses_fallback_when_primary_unhealthy(self) -> None:
+        """Once the primary RPC has failed over, log scans go to the fallback provider."""
+        primary_logs, fallback_logs = TransferLogIndex(), TransferLogIndex()
+        primary = FakeEth(always_fail=True, logs=primary_logs)
+        fallback = FakeEth(logs=fallback_logs)
+        client = _polygon_client(primary, fallback=fallback)
+        await client.get_transaction_count(TEST_WALLET)
+        tracer = FundingTracer(client)
 
-        await funding_tracer._get_transfer_logs(
+        await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1,
             to_block=8_000,
         )
 
-        mock_fallback.eth.get_logs.assert_called_once()
+        assert primary_logs.queries == []
+        assert len(fallback_logs.queries) == 1
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_chunks_large_ranges(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
-        """Ranges wider than chunk_size are split into multiple eth_getLogs calls.
+    async def test_get_transfer_logs_chunks_large_ranges(self) -> None:
+        """Ranges wider than chunk_size are split into multiple eth_getLogs calls."""
+        logs = TransferLogIndex()
+        tracer = _tracer(logs)
 
-        This is the regression guard for the publicnode 10_000-block cap that
-        was rejecting every funding trace before chunking landed.
-        """
-        mock_w3 = MagicMock()
-        mock_w3.eth.get_logs = AsyncMock(return_value=[])
-        mock_polygon_client._w3 = mock_w3
-
-        # 25_000 blocks at 9_000-per-chunk → 3 calls (9000 + 9000 + 7001).
-        await funding_tracer._get_transfer_logs(
+        await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1_000_000,
             to_block=1_025_000,
         )
 
-        assert mock_w3.eth.get_logs.call_count == 3
-        windows = [call[0][0] for call in mock_w3.eth.get_logs.call_args_list]
-        assert windows[0]["fromBlock"] == 1_000_000
-        assert windows[0]["toBlock"] == 1_008_999
-        assert windows[1]["fromBlock"] == 1_009_000
-        assert windows[1]["toBlock"] == 1_017_999
-        assert windows[2]["fromBlock"] == 1_018_000
-        assert windows[2]["toBlock"] == 1_025_000
-        # No window exceeds the chunk size — that's what RPC providers reject.
-        for win in windows:
-            assert win["toBlock"] - win["fromBlock"] + 1 <= 9_000
+        windows = [(query["fromBlock"], query["toBlock"]) for query in logs.queries]
+        assert windows == [
+            (1_000_000, 1_008_999),
+            (1_009_000, 1_017_999),
+            (1_018_000, 1_025_000),
+        ]
+        for from_block, to_block in windows:
+            assert to_block - from_block + 1 <= 9_000
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_stops_when_limit_hit_mid_walk(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
-        """Walking should stop as soon as ``limit`` matches are gathered."""
-        mock_w3 = MagicMock()
-        # First chunk yields 5 logs, more than the limit, so subsequent chunks
-        # must not be queried.
-        mock_w3.eth.get_logs = AsyncMock(return_value=[MagicMock() for _ in range(5)])
-        mock_polygon_client._w3 = mock_w3
+    async def test_get_transfer_logs_stops_when_limit_hit_mid_walk(self) -> None:
+        """Walking should stop as soon as limit matches are gathered."""
+        logs = TransferLogIndex()
+        for i in range(5):
+            logs.add_transfer(
+                USDC_BRIDGED,
+                _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_100 + i, seed=i),
+            )
+        tracer = _tracer(logs)
 
-        result = await funding_tracer._get_transfer_logs(
+        result = await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             limit=2,
             from_block=1_000_000,
-            to_block=1_025_000,
+            to_block=1_027_000,
         )
 
         assert len(result) == 2
-        mock_w3.eth.get_logs.assert_called_once()
+        assert len(logs.queries) == 1
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_skips_failing_chunk(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
-        """A flaky chunk must not abort the whole trace — we move on."""
-        mock_w3 = MagicMock()
-        good_log = MagicMock()
-        responses: list[Any] = [
-            RuntimeError("RPC hiccup"),
-            [good_log],
-        ]
+    async def test_get_transfer_logs_skips_failing_chunk(self) -> None:
+        """A flaky chunk must not abort the whole trace; the walk moves on."""
+        logs = TransferLogIndex()
+        logs.fail_chunk(1_000_000, RuntimeError("RPC hiccup"))
+        good_log = _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_009_500, seed=0xAA)
+        logs.add_transfer(USDC_BRIDGED, good_log)
+        tracer = _tracer(logs)
 
-        async def fake_get_logs(_params: dict[str, Any]) -> list[Any]:
-            outcome = responses.pop(0)
-            if isinstance(outcome, BaseException):
-                raise outcome
-            return outcome
-
-        mock_w3.eth.get_logs = AsyncMock(side_effect=fake_get_logs)
-        mock_polygon_client._w3 = mock_w3
-
-        result = await funding_tracer._get_transfer_logs(
+        result = await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1_000_000,
-            to_block=1_018_000,  # forces 3 chunks; we exercise chunks 1+2
+            to_block=1_018_000,
         )
 
-        # The error chunk is skipped; the second chunk contributes one log.
-        assert result == [dict(good_log)]
-        assert mock_w3.eth.get_logs.call_count >= 2
+        assert result == [good_log]
+        assert len(logs.queries) == 3
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_resolves_latest_via_block_number(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
-        """``to_block='latest'`` should resolve via ``eth.block_number``.
+    async def test_get_transfer_logs_resolves_latest_via_block_number(self) -> None:
+        """to_block='latest' resolves via eth.block_number and from_block=0 is clamped."""
+        logs = TransferLogIndex()
+        tracer = _tracer(logs, block_number=5_000)
 
-        And ``from_block=0`` should not become a full-history scan — it must
-        be clamped to ``latest - max_lookback_blocks``.
-        """
+        await tracer._get_transfer_logs(to_address=TEST_WALLET, token_address=USDC_BRIDGED)
 
-        async def _block_number_coro() -> int:
-            return 5_000
+        assert [(query["fromBlock"], query["toBlock"]) for query in logs.queries] == [(0, 5_000)]
 
-        mock_eth = MagicMock()
-        mock_eth.get_logs = AsyncMock(return_value=[])
-        # Property-style awaitable: web3.py exposes block_number as a property
-        # returning a coroutine, so each access must yield a fresh awaitable.
-        type(mock_eth).block_number = property(  # type: ignore[misc]
-            lambda _self: _block_number_coro()
+    async def test_get_transfer_logs_breaks_on_pruned_history(self) -> None:
+        """A pruned-history error must short-circuit the whole walk."""
+        logs = TransferLogIndex()
+        good_log = _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_500, seed=0xAA)
+        logs.add_transfer(USDC_BRIDGED, good_log)
+        logs.fail_chunk(1_009_000, PRUNED_HISTORY_ERROR)
+        logs.add_transfer(
+            USDC_BRIDGED, _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_018_500, seed=0xBB)
         )
-        mock_w3 = MagicMock()
-        mock_w3.eth = mock_eth
-        mock_polygon_client._w3 = mock_w3
+        tracer = _tracer(logs)
 
-        await funding_tracer._get_transfer_logs(
-            to_address=TEST_WALLET,
-            token_address=USDC_BRIDGED,
-        )
-
-        # block_number=5000 < chunk_size, so it's one chunk that bottoms at 0.
-        mock_eth.get_logs.assert_called_once()
-        call_args = mock_eth.get_logs.call_args[0][0]
-        assert call_args["fromBlock"] == 0
-        assert call_args["toBlock"] == 5_000
-
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_breaks_on_pruned_history(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
-        """A pruned-history error must short-circuit the whole walk.
-
-        Public Polygon RPCs prune log history. Once we walk past the cutoff,
-        every subsequent chunk will raise the same error — keep walking and
-        we just burn quota on guaranteed failures. The first such error must
-        end the walk and return whatever we already collected.
-        """
-        mock_w3 = MagicMock()
-        good_log = MagicMock()
-
-        responses: list[Any] = [
-            [good_log],
-            RuntimeError(
-                "{'code': -32701, 'message': 'History has been pruned for "
-                "this block. To remove restrictions, order a dedicated full "
-                "node here: https://www.allnodes.com/pol/host'}"
-            ),
-            # If the early-break logic is missing, this third chunk would
-            # also be requested. The test asserts it isn't.
-            [MagicMock()],
-        ]
-
-        async def fake_get_logs(_params: dict[str, Any]) -> list[Any]:
-            outcome = responses.pop(0)
-            if isinstance(outcome, BaseException):
-                raise outcome
-            return outcome
-
-        mock_w3.eth.get_logs = AsyncMock(side_effect=fake_get_logs)
-        mock_polygon_client._w3 = mock_w3
-
-        # 3 chunks total. The pruned error fires on chunk #2; chunk #3 must
-        # never be issued.
-        result = await funding_tracer._get_transfer_logs(
+        result = await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1_000_000,
             to_block=1_027_000,
         )
 
-        assert result == [dict(good_log)]
-        assert mock_w3.eth.get_logs.call_count == 2
+        assert result == [good_log]
+        assert len(logs.queries) == 2
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_default_lookback_fits_pruned_horizon(
-        self,
-    ) -> None:
-        """Default ``max_lookback_blocks`` must stay inside what public RPCs serve.
-
-        publicnode prunes after ~100k blocks. If we default to 1.3M, every
-        funding trace blows through the archive horizon and produces nothing
-        but pruned-history warnings. Pin the default at <= 100k as a
-        regression guard.
-        """
-        from polymarket_insider_tracker.profiler.funding import (
-            DEFAULT_MAX_LOOKBACK_BLOCKS,
-        )
-
+    async def test_get_transfer_logs_default_lookback_fits_pruned_horizon(self) -> None:
+        """Default max_lookback_blocks must stay inside what public RPCs serve."""
         assert DEFAULT_MAX_LOOKBACK_BLOCKS <= 100_000
 
-    @pytest.mark.asyncio
-    async def test_get_transfer_logs_topic_is_0x_prefixed(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
-        """The Transfer event topic passed to ``eth_getLogs`` must begin with ``0x``.
+    async def test_get_transfer_logs_topic_is_0x_prefixed(self) -> None:
+        """The Transfer event topic passed to eth_getLogs must begin with 0x."""
+        logs = TransferLogIndex()
+        tracer = _tracer(logs)
 
-        ``HexBytes.hex()`` returns a bare hex string. publicnode tolerates
-        that, but stricter providers like drpc (our fallback) reject it with
-        ``invalid argument 0: hex string without 0x prefix`` and every chunk
-        in the trace fails. This guards against regressing back to the
-        bare-hex form.
-        """
-        mock_w3 = MagicMock()
-        mock_w3.eth.get_logs = AsyncMock(return_value=[])
-        mock_polygon_client._w3 = mock_w3
-
-        await funding_tracer._get_transfer_logs(
+        await tracer._get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1,
             to_block=8_000,
         )
 
-        topics = mock_w3.eth.get_logs.call_args[0][0]["topics"]
+        topics = logs.queries[0]["topics"]
         assert topics[0].startswith("0x")
-        # And the topic also has to be 32 bytes (64 hex chars) as required by
-        # the JSON-RPC spec.
         assert len(topics[0]) == 2 + 64
-        # The padded `to` topic was already 0x-prefixed; double-check that
-        # didn't regress either.
         assert topics[2].startswith("0x")
 
 
 class TestLogToFundingTransfer:
     """Tests for _log_to_funding_transfer method."""
 
-    @pytest.mark.asyncio
     async def test_log_to_funding_transfer_parses_correctly(
-        self,
-        funding_tracer: FundingTracer,
+        self, funding_tracer: FundingTracer
     ) -> None:
         """Test correct parsing of log to FundingTransfer."""
-        mock_log = _create_mock_log(
+        log = transfer_log(
             from_address=TEST_SOURCE,
             to_address=TEST_WALLET,
             amount=1500000,
             tx_hash="0x" + "ee" * 32,
-            block_number=50000000,
+            block_number=CHAIN_HEAD,
         )
 
-        result = await funding_tracer._log_to_funding_transfer(mock_log, USDC_BRIDGED)
+        result = await funding_tracer._log_to_funding_transfer(log, USDC_BRIDGED)
 
         assert result.from_address == TEST_SOURCE.lower()
         assert result.to_address == TEST_WALLET.lower()
         assert result.amount == Decimal(1500000)
         assert result.token == "USDC"
         assert result.tx_hash == "ee" * 32
-        assert result.block_number == 50000000
+        assert result.block_number == CHAIN_HEAD
+        assert result.timestamp == datetime.fromtimestamp(1704369600, tz=UTC)
 
-    @pytest.mark.asyncio
-    async def test_log_to_funding_transfer_handles_block_error(
-        self,
-        funding_tracer: FundingTracer,
-        mock_polygon_client: MagicMock,
-    ) -> None:
+    async def test_log_to_funding_transfer_handles_block_error(self) -> None:
         """Test graceful handling when block fetch fails."""
-        mock_polygon_client.get_block = AsyncMock(side_effect=Exception("Block error"))
-
-        mock_log = _create_mock_log(
+        tracer = _polygon_tracer(FakeEth(always_fail=True))
+        log = transfer_log(
             from_address=TEST_SOURCE,
             to_address=TEST_WALLET,
             amount=1000000,
             tx_hash="0x" + "ff" * 32,
-            block_number=50000000,
+            block_number=CHAIN_HEAD,
         )
 
-        result = await funding_tracer._log_to_funding_transfer(mock_log, USDC_BRIDGED)
+        result = await tracer._log_to_funding_transfer(log, USDC_BRIDGED)
 
-        # Should still return a valid transfer with current timestamp
         assert result.from_address == TEST_SOURCE.lower()
         assert result.timestamp is not None
 
@@ -684,63 +474,42 @@ class TestGetFundingChainsBatch:
     @pytest.mark.asyncio
     async def test_batch_traces_multiple_addresses(
         self,
-        funding_tracer: FundingTracer,
     ) -> None:
         """Test batch tracing multiple addresses."""
-        addresses = [f"0x{i:040x}" for i in range(3)]
+        tracer = _tracer_for_path([TEST_WALLET, TEST_SOURCE, BINANCE_HOT_WALLET])
+        results = await tracer.get_funding_chains_batch([TEST_WALLET, TEST_SOURCE])
 
-        # Mock trace to return simple chains
-        async def mock_trace(
-            addr: str,
-            *,
-            max_hops: int | None = None,  # noqa: ARG001
-        ) -> FundingChain:
-            return FundingChain(
-                target_address=addr.lower(),
-                origin_type="unknown",
-            )
-
-        funding_tracer.trace = mock_trace
-
-        results = await funding_tracer.get_funding_chains_batch(addresses)
-
-        assert len(results) == 3
-        for addr in addresses:
-            assert addr.lower() in results
+        assert set(results) == {TEST_WALLET, TEST_SOURCE}
+        assert results[TEST_WALLET].hop_count == 2
+        assert results[TEST_SOURCE].hop_count == 1
+        assert results[TEST_WALLET].origin_address == BINANCE_HOT_WALLET
+        assert results[TEST_SOURCE].origin_address == BINANCE_HOT_WALLET
 
     @pytest.mark.asyncio
     async def test_batch_handles_exceptions(
         self,
-        funding_tracer: FundingTracer,
     ) -> None:
         """Test batch handles exceptions gracefully."""
-        addresses = ["0x" + "11" * 20, "0x" + "22" * 20]
+        tracer = _tracer_for_path([TEST_SOURCE, BINANCE_HOT_WALLET])
+        real_trace = tracer.trace
 
-        call_count = 0
-
-        async def mock_trace(
+        async def fail_for_one_address(
             addr: str,
             *,
-            max_hops: int | None = None,  # noqa: ARG001
+            max_hops: int | None = None,
         ) -> FundingChain:
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+            if addr == TEST_WALLET:
                 raise ValueError("Test error")
-            return FundingChain(
-                target_address=addr.lower(),
-                origin_type="cex_binance",
-            )
+            return await real_trace(addr, max_hops=max_hops)
 
-        funding_tracer.trace = mock_trace
+        tracer.trace = fail_for_one_address
 
-        results = await funding_tracer.get_funding_chains_batch(addresses)
+        results = await tracer.get_funding_chains_batch([TEST_SOURCE, TEST_WALLET])
 
         assert len(results) == 2
-        # First address should have error origin type
-        assert results[addresses[0].lower()].origin_type == "error"
-        # Second address should succeed
-        assert results[addresses[1].lower()].origin_type == "cex_binance"
+        assert results[TEST_WALLET].origin_type == "error"
+        assert results[TEST_SOURCE].origin_type == "cex_binance"
+        assert results[TEST_SOURCE].hop_count == 1
 
     @pytest.mark.asyncio
     async def test_batch_empty_list(
@@ -754,21 +523,19 @@ class TestGetFundingChainsBatch:
     @pytest.mark.asyncio
     async def test_batch_respects_max_hops_override(
         self,
-        funding_tracer: FundingTracer,
     ) -> None:
-        """Test batch passes max_hops to individual traces."""
-        addresses = ["0x" + "11" * 20]
-        captured_max_hops: list[int | None] = []
+        """The batch override reaches a known origin beyond the default hop budget."""
+        wallets = [TEST_WALLET, TEST_SOURCE, "0x" + "11" * 20, "0x" + "22" * 20]
+        tracer = _tracer_for_path([*wallets, BINANCE_HOT_WALLET])
 
-        async def mock_trace(addr: str, max_hops: int | None = None) -> FundingChain:
-            captured_max_hops.append(max_hops)
-            return FundingChain(target_address=addr.lower())
+        ordinary = await tracer.get_funding_chains_batch([TEST_WALLET])
+        extended = await tracer.get_funding_chains_batch([TEST_WALLET], max_hops=5)
 
-        funding_tracer.trace = mock_trace
-
-        await funding_tracer.get_funding_chains_batch(addresses, max_hops=5)
-
-        assert captured_max_hops == [5]
+        assert ordinary[TEST_WALLET].hop_count == 3
+        assert ordinary[TEST_WALLET].origin_type == "unknown"
+        assert extended[TEST_WALLET].hop_count == 4
+        assert extended[TEST_WALLET].origin_address == BINANCE_HOT_WALLET
+        assert extended[TEST_WALLET].is_cex_origin is True
 
 
 class TestGetSuspiciousnessScore:
@@ -832,7 +599,6 @@ class TestGetSuspiciousnessScore:
 
         score = funding_tracer.get_suspiciousness_score(chain)
 
-        # 0.5 + (0.3 * (1 - 1/3)) = 0.5 + 0.2 = 0.7
         assert 0.5 < score < 0.8
 
 
@@ -961,36 +727,5 @@ class TestConstants:
 
     def test_transfer_event_signature(self) -> None:
         """Test Transfer event signature is correct keccak hash."""
-        # Transfer(address,address,uint256) hash
         assert TRANSFER_EVENT_SIGNATURE is not None
         assert len(TRANSFER_EVENT_SIGNATURE) == 32
-
-
-# Helper functions
-
-
-def _create_mock_log(
-    from_address: str,
-    to_address: str,
-    amount: int,
-    tx_hash: str,
-    block_number: int,
-) -> dict[str, Any]:
-    """Create a mock log entry for testing."""
-    # Pad addresses to 32 bytes (topics format)
-    from_padded = bytes.fromhex(from_address.replace("0x", "").zfill(64))
-    to_padded = bytes.fromhex(to_address.replace("0x", "").zfill(64))
-
-    # Amount as 32-byte hex data
-    amount_hex = bytes.fromhex(f"{amount:064x}")
-
-    return {
-        "topics": [
-            TRANSFER_EVENT_SIGNATURE,
-            from_padded,
-            to_padded,
-        ],
-        "data": amount_hex,
-        "transactionHash": bytes.fromhex(tx_hash.replace("0x", "")),
-        "blockNumber": block_number,
-    }

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
+import polymarket_insider_tracker.__main__ as cli
 from polymarket_insider_tracker.__main__ import (
     EXIT_CONFIG_ERROR,
     EXIT_SUCCESS,
@@ -16,6 +15,7 @@ from polymarket_insider_tracker.__main__ import (
     run_config_check,
     validate_config,
 )
+from polymarket_insider_tracker.config import Settings
 
 
 class TestCreateParser:
@@ -166,18 +166,24 @@ class TestMain:
 
         assert exc_info.value.code == EXIT_SUCCESS
 
-    @patch("polymarket_insider_tracker.__main__.run_pipeline")
-    @patch("polymarket_insider_tracker.__main__.asyncio.run")
-    def test_main_runs_pipeline(self, mock_asyncio_run, _mock_run_pipeline, monkeypatch):
-        """Main should run pipeline when not in config-check mode."""
+    def test_main_runs_pipeline(self, monkeypatch):
+        """Main should run the pipeline with the validated settings and dry-run flag."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
-        mock_asyncio_run.return_value = EXIT_SUCCESS
+        runs: list[tuple[Settings, bool]] = []
+
+        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
+            runs.append((settings, dry_run))
+            return EXIT_SUCCESS
+
+        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
 
         with pytest.raises(SystemExit) as exc_info:
-            main([])
+            main(["--dry-run"])
 
         assert exc_info.value.code == EXIT_SUCCESS
-        mock_asyncio_run.assert_called_once()
+        assert [(settings.database.url, dry_run) for settings, dry_run in runs] == [
+            ("postgresql+psycopg://localhost/test", True)
+        ]
 
 
 class TestIntegration:

@@ -80,12 +80,14 @@ MigrationRunner = Callable[[str], Awaitable[dict[str, object]]]
 BackendFactory = Callable[[str], MigrationBackend]
 
 
-def _resolved_addresses(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+def _resolved_addresses(
+    host: str, variable: str = "DATABASE_URL"
+) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     try:
         records = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
         raise ServicePrerequisiteError(
-            "DATABASE_URL host could not be resolved for loopback verification"
+            f"{variable} host could not be resolved for loopback verification"
         ) from exc
     addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
     for record in records:
@@ -93,9 +95,17 @@ def _resolved_addresses(host: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6
             addresses.add(ipaddress.ip_address(record[4][0]))
         except ValueError as exc:
             raise ServicePrerequisiteError(
-                "DATABASE_URL host returned an invalid address during loopback verification"
+                f"{variable} host returned an invalid address during loopback verification"
             ) from exc
     return addresses
+
+
+def _require_loopback(host: str, variable: str) -> None:
+    addresses = _resolved_addresses(host, variable)
+    if not addresses or any(not address.is_loopback for address in addresses):
+        raise ServicePrerequisiteError(
+            f"{variable} must resolve only to loopback addresses for service verification"
+        )
 
 
 def validate_loopback_database_url(database_url: str) -> str:
@@ -110,11 +120,7 @@ def validate_loopback_database_url(database_url: str) -> str:
     host = make_url(canonical).host
     if host is None:
         raise ServicePrerequisiteError("DATABASE_URL must include a loopback host")
-    addresses = _resolved_addresses(host)
-    if not addresses or any(not address.is_loopback for address in addresses):
-        raise ServicePrerequisiteError(
-            "DATABASE_URL must resolve only to loopback addresses for service verification"
-        )
+    _require_loopback(host, "DATABASE_URL")
     return canonical
 
 
@@ -143,6 +149,19 @@ def validate_redis_url(redis_url: str) -> str:
         raise ServicePrerequisiteError("REDIS_URL must include a host")
     _validate_redis_port(parsed)
     return redis_url
+
+
+def validate_loopback_redis_url(redis_url: str) -> str:
+    """Return ``redis_url`` only when it is usable and every resolved host address is loopback.
+
+    Shared Redis contract tests write and delete keys, so they may only ever target a disposable
+    local service; an arbitrary external ``REDIS_URL`` is rejected before any client exists.
+    """
+    validated = validate_redis_url(redis_url)
+    host = urlsplit(validated).hostname
+    assert host is not None
+    _require_loopback(host, "REDIS_URL")
+    return validated
 
 
 def _psycopg_dsn(url: URL) -> str:
