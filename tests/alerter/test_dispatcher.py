@@ -1,7 +1,6 @@
 """Tests for alert dispatcher and channels."""
 
 from datetime import UTC, datetime
-from typing import Any
 
 import httpx
 import pytest
@@ -14,66 +13,10 @@ from polymarket_insider_tracker.alerter.dispatcher import (
     DispatchResult,
 )
 from polymarket_insider_tracker.alerter.models import FormattedAlert
+from tests.fakes import FakeAlertChannel
+from tests.fakes.alerts import discord_webhook, telegram_bot_api
 
-# ============================================================================
-# Fakes
-# ============================================================================
-
-
-class FakeHttpResponse:
-    """Fake HTTP response for httpx calls."""
-
-    def __init__(
-        self,
-        status_code: int = 200,
-        json_data: dict[str, Any] | None = None,
-        text: str = "",
-    ) -> None:
-        self.status_code = status_code
-        self._json_data = json_data or {}
-        self.text = text
-
-    def json(self) -> dict[str, Any]:
-        return self._json_data
-
-
-class FakeAsyncHttpClient:
-    """Fake async HTTP client substituting httpx.AsyncClient."""
-
-    def __init__(
-        self,
-        responses: list[FakeHttpResponse] | FakeHttpResponse | None = None,
-    ) -> None:
-        self.responses = (
-            [responses] if isinstance(responses, FakeHttpResponse) else list(responses or [])
-        )
-        self.post_calls: list[dict[str, Any]] = []
-
-    async def __aenter__(self) -> "FakeAsyncHttpClient":
-        return self
-
-    async def __aexit__(self, *args: Any) -> None:
-        pass
-
-    async def post(self, url: str, **kwargs: Any) -> FakeHttpResponse:
-        self.post_calls.append({"url": url, **kwargs})
-        if self.responses:
-            return self.responses.pop(0)
-        return FakeHttpResponse(200)
-
-
-class FakeAlertChannel:
-    """In-memory fake alert channel for testing AlertDispatcher."""
-
-    def __init__(self, name: str, succeeds: bool = True) -> None:
-        self.name = name
-        self.succeeds = succeeds
-        self.sent_alerts: list[FormattedAlert] = []
-
-    async def send(self, alert: FormattedAlert) -> bool:
-        self.sent_alerts.append(alert)
-        return self.succeeds
-
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/123/abc"
 
 # ============================================================================
 # Fixtures
@@ -100,13 +43,13 @@ def sample_alert() -> FormattedAlert:
 @pytest.fixture
 def fake_discord_channel() -> FakeAlertChannel:
     """Create a fake Discord channel."""
-    return FakeAlertChannel(name="discord")
+    return FakeAlertChannel("discord")
 
 
 @pytest.fixture
 def fake_telegram_channel() -> FakeAlertChannel:
     """Create a fake Telegram channel."""
-    return FakeAlertChannel(name="telegram")
+    return FakeAlertChannel("telegram")
 
 
 # ============================================================================
@@ -131,16 +74,16 @@ class TestDiscordChannel:
     async def test_send_success(
         self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Test successful Discord message send."""
-        channel = DiscordChannel(webhook_url="https://discord.com/api/webhooks/123/abc")
-        fake_client = FakeAsyncHttpClient(FakeHttpResponse(204))
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake_client)
+        """A 204 from the webhook is a delivery of the Discord embed."""
+        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL)
+        server = discord_webhook()
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
         assert result is True
-        assert len(fake_client.post_calls) == 1
-        assert fake_client.post_calls[0]["url"] == "https://discord.com/api/webhooks/123/abc"
+        assert [str(request.url) for request in server.requests] == [DISCORD_WEBHOOK_URL]
+        assert server.payloads() == [{"embeds": [sample_alert.discord_embed]}]
 
     @pytest.mark.asyncio
     async def test_send_rate_limited(
@@ -152,18 +95,13 @@ class TestDiscordChannel:
             max_retries=2,
             retry_delay=0.01,
         )
-        fake_client = FakeAsyncHttpClient(
-            [
-                FakeHttpResponse(429, json_data={"retry_after": 0.01}),
-                FakeHttpResponse(204),
-            ]
-        )
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake_client)
+        server = discord_webhook(rate_limited_requests=1)
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
         assert result is True
-        assert len(fake_client.post_calls) == 2
+        assert len(server.requests) == 2
 
     @pytest.mark.asyncio
     async def test_send_failure(
@@ -175,19 +113,13 @@ class TestDiscordChannel:
             max_retries=2,
             retry_delay=0.01,
         )
-        fake_client = FakeAsyncHttpClient(
-            [
-                FakeHttpResponse(500, text="Internal Server Error"),
-                FakeHttpResponse(500, text="Internal Server Error"),
-                FakeHttpResponse(500, text="Internal Server Error"),
-            ]
-        )
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake_client)
+        server = discord_webhook(failure=httpx.Response(500, text="Internal Server Error"))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
         assert result is False
-        assert len(fake_client.post_calls) == 2
+        assert len(server.requests) == 2
 
 
 # ============================================================================
@@ -218,13 +150,23 @@ class TestTelegramChannel:
             bot_token="123456:ABC-DEF",
             chat_id="-1001234567890",
         )
-        fake_client = FakeAsyncHttpClient(FakeHttpResponse(200, json_data={"ok": True}))
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake_client)
+        server = telegram_bot_api()
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
         assert result is True
-        assert len(fake_client.post_calls) == 1
+        assert [str(request.url) for request in server.requests] == [
+            "https://api.telegram.org/bot123456:ABC-DEF/sendMessage"
+        ]
+        assert server.payloads() == [
+            {
+                "chat_id": "-1001234567890",
+                "text": sample_alert.telegram_markdown,
+                "parse_mode": "MarkdownV2",
+                "disable_web_page_preview": False,
+            }
+        ]
 
     @pytest.mark.asyncio
     async def test_send_rate_limited(
@@ -237,25 +179,13 @@ class TestTelegramChannel:
             max_retries=2,
             retry_delay=0.01,
         )
-        fake_client = FakeAsyncHttpClient(
-            [
-                FakeHttpResponse(
-                    429,
-                    json_data={
-                        "ok": False,
-                        "error_code": 429,
-                        "parameters": {"retry_after": 0.01},
-                    },
-                ),
-                FakeHttpResponse(200, json_data={"ok": True}),
-            ]
-        )
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake_client)
+        server = telegram_bot_api(rate_limited_requests=1)
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
         assert result is True
-        assert len(fake_client.post_calls) == 2
+        assert len(server.requests) == 2
 
     @pytest.mark.asyncio
     async def test_send_failure(
@@ -268,40 +198,17 @@ class TestTelegramChannel:
             max_retries=2,
             retry_delay=0.01,
         )
-        fake_client = FakeAsyncHttpClient(
-            [
-                FakeHttpResponse(
-                    400,
-                    json_data={
-                        "ok": False,
-                        "error_code": 400,
-                        "description": "Bad Request",
-                    },
-                ),
-                FakeHttpResponse(
-                    400,
-                    json_data={
-                        "ok": False,
-                        "error_code": 400,
-                        "description": "Bad Request",
-                    },
-                ),
-                FakeHttpResponse(
-                    400,
-                    json_data={
-                        "ok": False,
-                        "error_code": 400,
-                        "description": "Bad Request",
-                    },
-                ),
-            ]
+        server = telegram_bot_api(
+            failure=httpx.Response(
+                400, json={"ok": False, "error_code": 400, "description": "Bad Request"}
+            )
         )
-        monkeypatch.setattr(httpx, "AsyncClient", lambda *_, **__: fake_client)
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
         assert result is False
-        assert len(fake_client.post_calls) == 2
+        assert len(server.requests) == 2
 
 
 # ============================================================================
@@ -387,8 +294,8 @@ class TestAlertDispatcher:
         assert result.success_count == 2
         assert result.failure_count == 0
         assert result.all_succeeded is True
-        assert len(fake_discord_channel.sent_alerts) == 1
-        assert len(fake_telegram_channel.sent_alerts) == 1
+        assert len(fake_discord_channel.deliveries) == 1
+        assert len(fake_telegram_channel.deliveries) == 1
 
     @pytest.mark.asyncio
     async def test_dispatch_partial_failure(
@@ -398,7 +305,7 @@ class TestAlertDispatcher:
         fake_telegram_channel: FakeAlertChannel,
     ) -> None:
         """Test dispatch with one channel failing."""
-        fake_telegram_channel.succeeds = False
+        fake_telegram_channel.accepting = False
 
         dispatcher = AlertDispatcher(channels=[fake_discord_channel, fake_telegram_channel])
 
@@ -426,7 +333,7 @@ class TestAlertDispatcher:
         fake_discord_channel: FakeAlertChannel,
     ) -> None:
         """Test circuit breaker opens after threshold failures."""
-        fake_discord_channel.succeeds = False
+        fake_discord_channel.accepting = False
 
         dispatcher = AlertDispatcher(
             channels=[fake_discord_channel],
@@ -461,7 +368,7 @@ class TestAlertDispatcher:
         result = await dispatcher.dispatch(sample_alert)
 
         assert result.channel_results["discord"] is False
-        assert len(fake_discord_channel.sent_alerts) == 0
+        assert len(fake_discord_channel.deliveries) == 0
 
     @pytest.mark.asyncio
     async def test_circuit_closes_on_success(
@@ -470,7 +377,7 @@ class TestAlertDispatcher:
         fake_discord_channel: FakeAlertChannel,
     ) -> None:
         """Test circuit closes on successful delivery."""
-        fake_discord_channel.succeeds = False
+        fake_discord_channel.accepting = False
 
         dispatcher = AlertDispatcher(
             channels=[fake_discord_channel],
@@ -483,7 +390,7 @@ class TestAlertDispatcher:
         assert dispatcher._circuit_state["discord"].is_open is True
 
         # Now succeed
-        fake_discord_channel.succeeds = True
+        fake_discord_channel.accepting = True
         # Force half-open by resetting last_failure to past
         dispatcher._circuit_state["discord"].last_failure_time = datetime(2020, 1, 1, tzinfo=UTC)
 
@@ -506,7 +413,7 @@ class TestAlertDispatcher:
 
         assert len(results) == 3
         assert all(r.success_count == 1 for r in results)
-        assert len(fake_discord_channel.sent_alerts) == 3
+        assert len(fake_discord_channel.deliveries) == 3
 
     def test_get_circuit_status(
         self,

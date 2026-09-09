@@ -1,10 +1,13 @@
 """Tests for the Polygon blockchain client."""
 
 import asyncio
+import inspect
 from decimal import Decimal
-from typing import Any, cast
 
 import pytest
+from fakeredis import FakeAsyncRedis
+from redis.asyncio import Redis
+from web3.eth import AsyncEth
 
 from polymarket_insider_tracker.profiler.chain import (
     DEFAULT_CACHE_TTL_SECONDS,
@@ -12,7 +15,6 @@ from polymarket_insider_tracker.profiler.chain import (
     RateLimiter,
     RPCError,
 )
-from tests.fakes.redis import FakeRedis
 from tests.fakes.web3 import FakeAsyncWeb3, FakeEth
 
 # Valid Ethereum addresses for testing
@@ -34,12 +36,8 @@ class RecordingRateLimiter(RateLimiter):
         self.acquired += 1
 
 
-class ErrorRedis(FakeRedis):
-    """Fake Redis that raises on get."""
-
-    async def get(self, name: str) -> Any:
-        _ = name
-        raise Exception("Redis error")
+# A real client bound to a closed loopback port: every command fails with a connection error.
+UNREACHABLE_REDIS_URL = "redis://127.0.0.1:1"
 
 
 class TestRateLimiter:
@@ -87,6 +85,23 @@ class TestRateLimiter:
 
         # Should have waited some time
         assert elapsed >= 0.1
+
+
+class TestFakeEthFidelity:
+    """The RPC fake must expose web3's surface the way web3 does, or it hides product bugs."""
+
+    async def test_block_number_is_an_awaitable_property_and_get_block_number_a_method(
+        self,
+    ) -> None:
+        """web3 exposes ``block_number`` as a property; only ``get_block_number`` is callable."""
+        assert isinstance(inspect.getattr_static(AsyncEth, "block_number"), property)
+        assert isinstance(inspect.getattr_static(FakeEth, "block_number"), property)
+        assert inspect.getattr_static(AsyncEth, "get_block_number") is not None
+        eth = FakeEth(block_number=7)
+
+        assert await eth.block_number == 7
+        assert await eth.get_block_number() == 7
+        assert not callable(eth.block_number)
 
 
 class TestPolygonClient:
@@ -161,21 +176,19 @@ class TestPolygonClient:
         assert client_without_fallback.select_web3() is sole_client
 
     @pytest.mark.asyncio
-    async def test_get_cached_miss(self) -> None:
+    async def test_get_cached_miss(self, fake_redis: FakeAsyncRedis) -> None:
         """Test cache miss."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
 
         result = await client._get_cached("test:key")
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_cached_hit(self) -> None:
+    async def test_get_cached_hit(self, fake_redis: FakeAsyncRedis) -> None:
         """Test cache hit."""
-        redis = FakeRedis()
-        await redis.set("test:key", b"cached_value")
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
+        await fake_redis.set("test:key", b"cached_value")
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
 
         result = await client._get_cached("test:key")
 
@@ -183,67 +196,65 @@ class TestPolygonClient:
 
     @pytest.mark.asyncio
     async def test_get_cached_error_handling(self) -> None:
-        """Test that cache errors are handled gracefully."""
-        redis = ErrorRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
+        """A Redis connection failure is swallowed and treated as a cache miss."""
+        unreachable = Redis.from_url(UNREACHABLE_REDIS_URL)
+        client = PolygonClient("https://polygon-rpc.com", redis=unreachable)
 
-        result = await client._get_cached("test:key")
+        try:
+            result = await client._get_cached("test:key")
+        finally:
+            await unreachable.aclose()
 
-        assert result is None  # Should not raise
+        assert result is None
 
     @pytest.mark.asyncio
-    async def test_set_cached(self) -> None:
+    async def test_set_cached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test setting cache."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
 
         await client._set_cached("test:key", "value")
 
-        assert await redis.get("test:key") == b"value"
-        assert await redis.ttl("test:key") == DEFAULT_CACHE_TTL_SECONDS
+        assert await fake_redis.get("test:key") == b"value"
+        assert await fake_redis.ttl("test:key") == DEFAULT_CACHE_TTL_SECONDS
 
     @pytest.mark.asyncio
-    async def test_set_cached_custom_ttl(self) -> None:
+    async def test_set_cached_custom_ttl(self, fake_redis: FakeAsyncRedis) -> None:
         """Test setting cache with custom TTL."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
 
         await client._set_cached("test:key", "value", ttl=3600)
 
-        assert await redis.get("test:key") == b"value"
-        assert await redis.ttl("test:key") == 3600
+        assert await fake_redis.get("test:key") == b"value"
+        assert await fake_redis.ttl("test:key") == 3600
 
     @pytest.mark.asyncio
-    async def test_get_transaction_count_cached(self) -> None:
+    async def test_get_transaction_count_cached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting transaction count from cache."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        await redis.set(client._cache_key("nonce", VALID_ADDRESS), b"42")
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        await fake_redis.set(client._cache_key("nonce", VALID_ADDRESS), b"42")
 
         count = await client.get_transaction_count(VALID_ADDRESS)
 
         assert count == 42
 
     @pytest.mark.asyncio
-    async def test_get_transaction_count_uncached(self) -> None:
+    async def test_get_transaction_count_uncached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting transaction count from blockchain."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(transaction_count=42)))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(FakeEth(transaction_count=42))
 
         count = await client.get_transaction_count(VALID_ADDRESS)
 
         assert count == 42
-        assert await redis.get(client._cache_key("nonce", VALID_ADDRESS)) == b"42"
+        assert await fake_redis.get(client._cache_key("nonce", VALID_ADDRESS)) == b"42"
 
     @pytest.mark.asyncio
-    async def test_get_transaction_counts_batch(self) -> None:
+    async def test_get_transaction_counts_batch(self, fake_redis: FakeAsyncRedis) -> None:
         """Test batch getting transaction counts."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        await redis.set(client._cache_key("nonce", VALID_ADDRESS), b"10")
-        await redis.set(client._cache_key("nonce", VALID_ADDRESS_3), b"30")
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(transaction_count=20)))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        await fake_redis.set(client._cache_key("nonce", VALID_ADDRESS), b"10")
+        await fake_redis.set(client._cache_key("nonce", VALID_ADDRESS_3), b"30")
+        client._w3 = FakeAsyncWeb3(FakeEth(transaction_count=20))
 
         addresses = [VALID_ADDRESS, VALID_ADDRESS_2, VALID_ADDRESS_3]
         counts = await client.get_transaction_counts(addresses)
@@ -253,52 +264,46 @@ class TestPolygonClient:
         assert counts[VALID_ADDRESS_3.lower()] == 30  # From cache
 
     @pytest.mark.asyncio
-    async def test_get_transaction_counts_empty(self) -> None:
+    async def test_get_transaction_counts_empty(self, fake_redis: FakeAsyncRedis) -> None:
         """Test batch with empty list."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
 
         counts = await client.get_transaction_counts([])
 
         assert counts == {}
 
     @pytest.mark.asyncio
-    async def test_get_balance_cached(self) -> None:
+    async def test_get_balance_cached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting balance from cache."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        await redis.set(client._cache_key("balance", VALID_ADDRESS), b"1000000000000000000")
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        await fake_redis.set(client._cache_key("balance", VALID_ADDRESS), b"1000000000000000000")
 
         balance = await client.get_balance(VALID_ADDRESS)
 
         assert balance == Decimal("1000000000000000000")
 
     @pytest.mark.asyncio
-    async def test_get_balance_uncached(self) -> None:
+    async def test_get_balance_uncached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting balance from blockchain."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(balance_wei=2000000000000000000)))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(FakeEth(balance_wei=2000000000000000000))
 
         balance = await client.get_balance(VALID_ADDRESS)
 
         assert balance == Decimal("2000000000000000000")
         assert (
-            await redis.get(client._cache_key("balance", VALID_ADDRESS)) == b"2000000000000000000"
+            await fake_redis.get(client._cache_key("balance", VALID_ADDRESS))
+            == b"2000000000000000000"
         )
 
     @pytest.mark.asyncio
-    async def test_get_wallet_info(self) -> None:
+    async def test_get_wallet_info(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting aggregated wallet info."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(
-            Any,
-            FakeAsyncWeb3(
-                FakeEth(
-                    transaction_count=42,
-                    balance_wei=1000000000000000000,
-                )
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(
+            FakeEth(
+                transaction_count=42,
+                balance_wei=1000000000000000000,
             ),
         )
 
@@ -310,33 +315,30 @@ class TestPolygonClient:
         assert info.first_transaction is None
 
     @pytest.mark.asyncio
-    async def test_get_first_transaction_no_transactions(self) -> None:
+    async def test_get_first_transaction_no_transactions(self, fake_redis: FakeAsyncRedis) -> None:
         """Test get_first_transaction when wallet has no transactions."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(transaction_count=0)))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(FakeEth(transaction_count=0))
 
         tx = await client.get_first_transaction(VALID_ADDRESS)
 
         assert tx is None
 
     @pytest.mark.asyncio
-    async def test_health_check_success(self) -> None:
+    async def test_health_check_success(self, fake_redis: FakeAsyncRedis) -> None:
         """Test successful health check."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(block_number=50000000)))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(FakeEth(block_number=50000000))
 
         healthy = await client.health_check()
 
         assert healthy is True
 
     @pytest.mark.asyncio
-    async def test_health_check_failure(self) -> None:
+    async def test_health_check_failure(self, fake_redis: FakeAsyncRedis) -> None:
         """Test failed health check."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(always_fail=True)))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(FakeEth(always_fail=True))
 
         healthy = await client.health_check()
 
@@ -347,17 +349,16 @@ class TestPolygonClientRetryLogic:
     """Tests for retry and failover logic."""
 
     @pytest.mark.asyncio
-    async def test_retry_on_failure(self) -> None:
+    async def test_retry_on_failure(self, fake_redis: FakeAsyncRedis) -> None:
         """Test that client retries on RPC failure."""
-        redis = FakeRedis()
         client = PolygonClient(
             "https://polygon-rpc.com",
-            redis=cast(Any, redis),
+            redis=fake_redis,
             max_retries=3,
             retry_delay_seconds=0.01,
         )
         eth = FakeEth(transaction_count=42, fail_count=2)
-        client._w3 = cast(Any, FakeAsyncWeb3(eth))
+        client._w3 = FakeAsyncWeb3(eth)
 
         count = await client.get_transaction_count(VALID_ADDRESS)
 
@@ -365,20 +366,19 @@ class TestPolygonClientRetryLogic:
         assert eth.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_failover_to_secondary(self) -> None:
+    async def test_failover_to_secondary(self, fake_redis: FakeAsyncRedis) -> None:
         """Test failover to secondary RPC."""
-        redis = FakeRedis()
         client = PolygonClient(
             "https://polygon-rpc.com",
             fallback_rpc_url="https://fallback.com",
-            redis=cast(Any, redis),
+            redis=fake_redis,
             max_retries=1,
             retry_delay_seconds=0.01,
         )
         primary_eth = FakeEth(always_fail=True)
         fallback_eth = FakeEth(transaction_count=42)
-        client._w3 = cast(Any, FakeAsyncWeb3(primary_eth))
-        client._w3_fallback = cast(Any, FakeAsyncWeb3(fallback_eth))
+        client._w3 = FakeAsyncWeb3(primary_eth)
+        client._w3_fallback = FakeAsyncWeb3(fallback_eth)
 
         count = await client.get_transaction_count(VALID_ADDRESS)
 
@@ -387,17 +387,16 @@ class TestPolygonClientRetryLogic:
         assert fallback_eth.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_all_retries_exhausted(self) -> None:
+    async def test_all_retries_exhausted(self, fake_redis: FakeAsyncRedis) -> None:
         """Test error when all retries are exhausted."""
-        redis = FakeRedis()
         client = PolygonClient(
             "https://polygon-rpc.com",
-            redis=cast(Any, redis),
+            redis=fake_redis,
             max_retries=2,
             retry_delay_seconds=0.01,
         )
         eth = FakeEth(always_fail=True)
-        client._w3 = cast(Any, FakeAsyncWeb3(eth))
+        client._w3 = FakeAsyncWeb3(eth)
 
         with pytest.raises(RPCError):
             await client.get_transaction_count(VALID_ADDRESS)
@@ -407,18 +406,17 @@ class TestPolygonClientRateLimiting:
     """Tests for rate limiting."""
 
     @pytest.mark.asyncio
-    async def test_rate_limiting_enforced(self) -> None:
+    async def test_rate_limiting_enforced(self, fake_redis: FakeAsyncRedis) -> None:
         """Test that rate limiting delays requests."""
-        redis = FakeRedis()
         client = PolygonClient(
             "https://polygon-rpc.com",
-            redis=cast(Any, redis),
+            redis=fake_redis,
             max_requests_per_second=5.0,
         )
 
         # Deplete rate limit
         client._rate_limiter.tokens = 0
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(transaction_count=42)))
+        client._w3 = FakeAsyncWeb3(FakeEth(transaction_count=42))
 
         start = asyncio.get_event_loop().time()
         await client.get_transaction_count(VALID_ADDRESS)
@@ -432,12 +430,11 @@ class TestPolygonClientTokenBalance:
     """Tests for ERC20 token balance queries."""
 
     @pytest.mark.asyncio
-    async def test_get_token_balance_cached(self) -> None:
+    async def test_get_token_balance_cached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting token balance from cache."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(Any, FakeAsyncWeb3())
-        await redis.set(
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3()
+        await fake_redis.set(
             client._cache_key(f"token:{VALID_TOKEN.lower()}", VALID_ADDRESS),
             b"1000000",
         )
@@ -447,17 +444,16 @@ class TestPolygonClientTokenBalance:
         assert balance == Decimal("1000000")
 
     @pytest.mark.asyncio
-    async def test_get_token_balance_uncached(self) -> None:
+    async def test_get_token_balance_uncached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting token balance from blockchain."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(Any, FakeAsyncWeb3(FakeEth(token_balance=5000000)))
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(FakeEth(token_balance=5000000))
 
         balance = await client.get_token_balance(VALID_ADDRESS, VALID_TOKEN)
 
         assert balance == Decimal("5000000")
         assert (
-            await redis.get(client._cache_key(f"token:{VALID_TOKEN.lower()}", VALID_ADDRESS))
+            await fake_redis.get(client._cache_key(f"token:{VALID_TOKEN.lower()}", VALID_ADDRESS))
             == b"5000000"
         )
 
@@ -466,28 +462,23 @@ class TestPolygonClientBlock:
     """Tests for block queries."""
 
     @pytest.mark.asyncio
-    async def test_get_block_cached(self) -> None:
+    async def test_get_block_cached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting block from cache."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        await redis.set("polygon:block:50000000", b'{"timestamp": 1704369600}')
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        await fake_redis.set("polygon:block:50000000", b'{"timestamp": 1704369600}')
 
         block = await client.get_block(50000000)
 
         assert block["timestamp"] == 1704369600
 
     @pytest.mark.asyncio
-    async def test_get_block_uncached(self) -> None:
+    async def test_get_block_uncached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting block from blockchain."""
-        redis = FakeRedis()
-        client = PolygonClient("https://polygon-rpc.com", redis=cast(Any, redis))
-        client._w3 = cast(
-            Any,
-            FakeAsyncWeb3(
-                FakeEth(
-                    block_timestamp=1704369600,
-                    block_number=50000000,
-                )
+        client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
+        client._w3 = FakeAsyncWeb3(
+            FakeEth(
+                block_timestamp=1704369600,
+                block_number=50000000,
             ),
         )
 
@@ -495,4 +486,4 @@ class TestPolygonClientBlock:
 
         assert block["timestamp"] == 1704369600
         # Block cache uses 1 hour TTL
-        assert await redis.ttl("polygon:block:50000000") == 3600
+        assert await fake_redis.ttl("polygon:block:50000000") == 3600

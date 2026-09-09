@@ -208,20 +208,40 @@ modules. No new service, package, or migration is needed.
 
 ### 6. Test Quality: Working Fakes Over Mocks
 
-- **Scope & Baseline Inventory**: 22 test files importing `unittest.mock`, 301 mock constructors, and 52 interaction assertions.
-- **Migration Strategy**: Replace all interaction mocks with domain-specific lightweight working fakes and real values.
-- **Forbidden Patterns**: Generic CallableFake/Mock framework, return_value/side_effect configurators, `__getattr__` dynamic fake trees, automatically generated call/await assertions, replacing strong expectations with no assertions, deleting coverage scenarios, new skips/xfails, threshold increases, gate exclusions/suppressions, broad Any/object type escapes.
-- **Domain Fakes**:
-  - `FakeRedis`: In-memory implementation of key/value, hash, set, sorted-set, and stream operations required by the repository, with TTL tracking. Tested against real Redis in shared contracts under the `services` profile.
-  - `FakePolygonClient`: Concrete client returning real `Transaction` and `WalletInfo` domain models.
-  - `FakeClobClient`: Concrete client returning real `Market` and `Orderbook` models.
-  - `FakeGammaClient`: Concrete client returning real `GammaMarketStats` models.
-  - `FakeDispatcher`: Concrete dispatcher recording sent alerts for state inspection.
-  - `FakeHistory`: Concrete alert history tracking delivery state.
-  - Transport hooks: `httpx.MockTransport` / custom transport with real responses for HTTP boundaries.
-  - SQLite: Real in-memory SQLite database sessions for storage repositories.
-- **Regression Enforcement**: An AST-based test scanning `tests/` to guarantee zero `unittest.mock` imports or usage.
-- **Quality Gates**: All fakes and migrated tests must pass Black, Ruff, strict mypy/Pyright, default-confidence Vulture, and Complexipy <= 5 on functions and modules.
+- **Baseline inventory**: 22 test files importing `unittest.mock`, 301 mock constructors, 52
+  interaction assertions, 862 collected tests (860 passed, 2 platform skips), pytest-cov `TOTAL 91%`
+  with `branch = true` (combined statement and branch coverage: 4098 statements / 329 missed, 768
+  branches / 93 partial).
+- **Strategy**: real product code wherever it runs offline; real values for settings, models, SDK
+  and HTTP responses; small working fakes only at external boundaries; every baseline test ID kept.
+- **Redis decision**: use the pinned `fakeredis==2.38.0` development dependency instead of a
+  hand-built Redis. Rationale recorded from the official documentation and PyPI metadata on
+  2026-09-09: `FakeAsyncRedis` is a `redis.asyncio.Redis` subclass emulating Redis 7 semantics by
+  default; the release supports redis-py 4.6 through 8.x (the lock resolves `redis==7.1.0`) and
+  Python 3.10+ (the project supports 3.11–3.13); streams, consumer groups, pending entries,
+  transactions with `WATCH`, and sorted sets are implemented. Known divergences observed while
+  building the shared contract: `XTRIM` on a missing key creates an empty stream key in `fakeredis`
+  but not in Redis, and approximate `XTRIM`/`XADD MAXLEN ~` trims exactly in `fakeredis` while Redis
+  trims by radix-tree node. The contract therefore asserts only behavior both implementations share
+  and the product never depends on either divergence. Lua scripting is not used.
+- **Shared contract**: `tests/integration/test_redis_contract.py` is parametrized over `fakeredis`
+  and, under `RUN_SERVICE_TESTS=1`, the real loopback Redis; the `redis-contract` gate in the
+  `services` profile runs it in CI. `scripts/runtime_services.py` gained
+  `validate_loopback_redis_url` so the suite refuses any non-loopback `REDIS_URL`.
+- **Boundary fakes** (`tests/fakes/`): `FakeAlertChannel`, `FakeWebhookServer` transports,
+  `FakeBaseClobClient`, `FakeEth`/`FakeAsyncWeb3`/`TransferLogIndex`, `FakeMetadataSync`, and the
+  `wire_pipeline` assembler that builds the real pipeline over those boundaries.
+- **Forbidden**: generic mock frameworks, `return_value`/`side_effect` ladders, response queues keyed
+  by call order, `__getattr__` attribute trees, subclass-of-product fakes, casts or `# type: ignore`
+  added for doubles, new skips or xfails, gate exclusions or suppressions.
+- **Regression enforcement**: AST policy test over every file in `tests/` and the root
+  `conftest.py`, with fixtures for aliases, attribute access, and benign look-alikes.
+- **Product defect surfaced**: a faithful `eth.block_number` property (web3 exposes it as a
+  property, not a method) showed `PolygonClient.health_check` calling
+  `_execute_with_retry("block_number")`, which raises `TypeError` against real web3. The fix uses
+  the real `get_block_number` RPC method; the previously mocked test could not detect this.
+- **Quality gates**: Black, Ruff, strict mypy/Pyright, default-confidence Vulture, and Complexipy
+  `<= 5` for functions and modules over the whole tree, unchanged.
 
 ## Phase Outputs
 
@@ -241,4 +261,3 @@ monitoring E2E proof preserves slice ownership.
 ## Complexity Tracking
 
 No constitution violation requires justification.
-

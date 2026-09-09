@@ -342,17 +342,54 @@ completion is not evidence for this phase; each item below is checked only when 
 ## Phase 12: Mocks-to-Fakes Test Quality Migration
 
 Branch `quality/fakes-over-mocks` from base `7a4f11cd645dd21b049db3649747bb4e03b652e2`. Inventory: 22 test files
-importing `unittest.mock`, 301 mock constructors, and 52 interaction assertions.
+importing `unittest.mock`, 301 mock constructors, and 52 interaction assertions. Ordered agent history: Agy's
+incomplete first pass was preserved unchanged by Codex as checkpoint `7b7305aff0ad6a2c5a85bb95dec114a7fce52525`;
+Claude Fable's corrective pass is the commit that follows it; Codex reviews independently afterwards.
 
-- [X] T084 Capture baseline test collection (862 tests collected, 860 passed, 2 skipped) and coverage (91% line coverage) to establish invariant mapping before migration.
-- [ ] T085 Add AST-based regression test in `tests/tooling/test_test_quality.py` that fails if any test file imports or aliases `unittest.mock` without self-triggering or banning monkeypatch/transports.
-- [ ] T086 Build reusable in-memory `FakeRedis` implementing working string, hash, set, sorted set, stream, and expiration semantics, and add shared behavioral contract tests against real Redis in `tests/integration/test_redis_contract.py`.
-- [ ] T087 Migrate `tests/test_config.py` from `unittest.mock.patch` to `pytest.monkeypatch` and real model instances.
-- [ ] T088 Migrate `tests/ingestor/` test files (`test_clob_client.py`, `test_gamma_client.py`, `test_health.py`, `test_metadata_sync.py`, `test_models.py`, `test_publisher.py`, `test_websocket.py`) to concrete working fakes, `httpx` transport hooks, real response objects, and observable state assertions.
-- [ ] T089 Migrate `tests/profiler/` test files (`test_analyzer.py`, `test_chain.py`, `test_funding.py`) to working blockchain/client fakes and real Web3/model objects.
-- [ ] T090 Migrate `tests/detector/` test files (`test_fresh_wallet.py`, `test_scorer.py`, `test_size_anomaly.py`, `test_sniper.py`) to real signal inputs, working Redis fakes, and output assertions.
-- [ ] T091 Migrate `tests/alerter/` test files (`test_dispatcher.py`, `test_history.py`) to working webhook transport fakes, in-memory history/storage, and observable delivery state assertions.
-- [ ] T092 Migrate storage and pipeline test files (`tests/storage/test_repos.py`, `tests/test_pipeline.py`, `tests/test_pipeline_persistence.py`, `tests/test_persist_assessment.py`, `tests/test_shutdown.py`, `tests/test_main.py`) to SQLite-backed repositories, working fakes, and lifecycle assertions.
-- [ ] T093 Verify zero test files import `unittest.mock`, all 862 baseline tests pass, coverage is preserved, and all quality gates pass (Black, Ruff, strict mypy/Pyright, Vulture, Complexipy <= 5).
-- [ ] T094 Document evidence and create immutable first-pass commit for Fable on branch `quality/fakes-over-mocks`.
-
+- [X] T084 Capture baseline test collection (862 tests collected; 860 passed, 2 platform skips) and coverage
+  (pytest-cov `TOTAL 91%` with `branch = true`, which is combined statement-and-branch coverage: 4098 statements /
+  329 missed, 768 branches / 93 partial) to establish the invariant mapping before migration.
+- [X] T085 AST policy regression in `tests/tooling/test_test_quality.py`. Agy's version exempted its own file by
+  basename; Fable removed the exemption, added attribute-access detection (`import unittest` +
+  `unittest.mock.*`), the root `conftest.py`, and fixtures proving every alias spelling is rejected while
+  `pytest.MonkeyPatch`, `httpx.MockTransport`, and string literals are allowed.
+- [X] T086 Redis double and shared contract. Agy's 561-line hand-built `FakeRedis` and its fake-only self-tests
+  were deleted; Fable adopted the pinned `fakeredis==2.38.0` development dependency, rewrote
+  `tests/integration/test_redis_contract.py` as one suite parametrized over `fakeredis` and the real loopback
+  Redis (`RUN_SERVICE_TESTS=1`, fail-closed, unique namespace, no `FLUSHDB`), added
+  `validate_loopback_redis_url` to `scripts/runtime_services.py`, and added the mandatory `redis-contract` gate to
+  the `services` verification profile.
+- [X] T087 `tests/test_config.py` uses `pytest.MonkeyPatch` contexts and real model instances (Agy).
+- [X] T088 `tests/ingestor/` migrated. Fable replaced call-count paging and fail flags with cursor-keyed pages
+  and per-operation error injection in `tests/fakes/clob.py`, used the real `OrderBookSummary`/`OrderSummary`
+  SDK values, replaced canned `xreadgroup` overrides with real stream lifecycles (trimmed and deleted entries
+  read back as tombstones) plus explicit parser fixtures for the impossible `None` payload, and removed every
+  `cast(Any, ...)`.
+- [X] T089 `tests/profiler/` migrated. Fable replaced response ladders with a `TransferLogIndex` filtered by
+  token, recipient, and block window; runs the tracer over a real `PolygonClient`; uses a real closed-port Redis
+  as the cache-failure injector; and surfaced a product defect (`health_check` called the `block_number`
+  property as a method) that the faithful `FakeEth` exposes and the previously mocked test could not.
+- [X] T090 `tests/detector/` migrated. Fable keyed `FakeWalletAnalyzer` and `FakeMetadataSync` by wallet and
+  market instead of call order, removed the subclass-of-product fake, and asserted Redis state through the
+  public `DBSIZE` instead of fake internals.
+- [X] T091 `tests/alerter/` migrated. Fable replaced the hand-written async HTTP client with real
+  `httpx.AsyncClient` instances bound to `httpx.MockTransport` webhook servers that rate-limit or fail, and
+  asserted the posted JSON payloads.
+- [X] T092 Pipeline, persistence, shutdown, and CLI tests migrated. Fable removed all 26 new `# type: ignore`
+  comments, the private `_score_and_alert` spy, and every canned detector/scorer/formatter/dispatcher fake;
+  `wire_pipeline` assembles the real pipeline over `fakeredis`, `FakeEth`, `FakeBaseClobClient`, and
+  `FakeAlertChannel`, and tests prove persisted assessments, delivered or suppressed payloads, logged
+  persistence failures against a real unreachable database, and barrier-proven detector concurrency without
+  wall-clock sleeps. `make_test_settings` was corrected to pass detector options by their aliases, which Agy's
+  version silently dropped.
+- [X] T093 Verification: zero `unittest.mock` usage under `tests/`; all 862 baseline test IDs retained plus the
+  new contract, policy, and fidelity tests; Black, Ruff, strict mypy/Pyright, Vulture, Complexipy `<= 5`, and the
+  Python 3.11–3.13 compatibility profile pass; the shared Redis contract passes against `fakeredis` and a real
+  Redis 8.10.1 (evidence in `evidence/verification.md`).
+- [X] T094 Agy's first pass was preserved immutably as checkpoint `7b7305aff0ad6a2c5a85bb95dec114a7fce52525`
+  (2 failing tests, no production or gate changes) rather than as a completed hand-off.
+- [X] T095 Claude Fable adversarial review and corrective commit on top of the checkpoint (this phase's
+  commit), with the SHIP/REVISE verdict and behavior-preservation map recorded outside the repository in the
+  follow-up evidence directory and summarized in `evidence/verification.md`.
+- [ ] T096 Codex independent artifact read, verification rerun, and adversarial review.
+- [ ] T097 Open one pull request after convergence; never merge without Patrick's approval.

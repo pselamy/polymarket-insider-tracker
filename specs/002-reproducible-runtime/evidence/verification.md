@@ -1330,3 +1330,48 @@ approval, or merge was introduced.
   https://github.com/pselamy/polymarket-insider-tracker/actions/runs/34299489433.
 - **Tasks closed**: T080, T081, T082.
 
+
+### Mocks-to-fakes migration (branch `quality/fakes-over-mocks`)
+
+- **Baseline** (`7a4f11cd645dd21b049db3649747bb4e03b652e2`): 22 test files importing `unittest.mock`, 301 mock
+  constructors, 52 interaction assertions; 862 tests collected, 860 passed, 2 platform skips; pytest-cov
+  `TOTAL 91%` with `branch = true`, which is combined statement-and-branch coverage (4098 statements /
+  329 missed, 768 branches / 93 partial), not a line-only figure.
+- **Agy first pass**: exited without committing; Codex preserved the tree unchanged as incomplete checkpoint
+  `7b7305aff0ad6a2c5a85bb95dec114a7fce52525` (866 passed, 2 failed: an invalid `id_val` keyword in the
+  hand-built Redis stream test and the policy test finding `unittest.mock` still imported by
+  `tests/test_main.py` and `tests/test_shutdown.py`). No production or gate change was present.
+- **Claude Fable corrective pass** (commit following the checkpoint): deleted the 561-line hand-built
+  `FakeRedis` and its fake-only self-tests in favour of pinned `fakeredis==2.38.0`; rewrote the shared Redis
+  contract as one suite parametrized over `fakeredis` and the real loopback Redis, fail-closed under
+  `RUN_SERVICE_TESTS=1`, scoped to a unique namespace, and added it as the `redis-contract` gate of the
+  `services` profile; removed all 26 new `# type: ignore` comments and every `cast(Any, ...)` added for
+  doubles; replaced the private `_score_and_alert` spy and every canned detector/scorer/formatter/dispatcher
+  fake with the real pipeline assembled over boundary fakes; replaced call-order response ladders with
+  state-keyed fakes; replaced the hand-written HTTP client with real `httpx.AsyncClient` +
+  `httpx.MockTransport` webhook servers; migrated `tests/test_main.py` and `tests/test_shutdown.py`;
+  removed the policy test's self-exemption and added alias/attribute-access and benign fixtures; corrected
+  `make_test_settings`, which silently dropped detector options because the fields are declared by alias;
+  and fixed `PolygonClient.health_check`, which called web3's `block_number` property as a method
+  (`TypeError` against real web3) and was only ever exercised through a mock.
+- **Verification on the corrected head** (2026-09-09, Linux dev box, `uv 0.11.21`):
+  - `uv run python scripts/verify.py --profile static`: lock, format, lint, strict-types, pyright, vulture,
+    complexipy all passed.
+  - `uv run --isolated --locked --all-extras --python 3.11|3.12|3.13 python scripts/verify.py --profile
+    compatibility`: passed on all three interpreters (893 passed, 2 platform skips before the last
+    baseline-ID rename; 894 passed, 2 skipped on the final tree with Python 3.11).
+  - `pytest --cov=src --cov-branch`: `TOTAL 4098 321 768 89 91%` (combined coverage unchanged at 91%, with
+    fewer missed statements and partial branches than the baseline).
+  - Baseline test IDs: all 862 retained (`pytest --collect-only` diff against the base tree), 34 added
+    (shared Redis contract, policy fixtures, `FakeEth` fidelity, `redis-contract` gate coverage, and the
+    settings-helper regression).
+  - Shared Redis contract against a real service: a disposable Redis `8.10.1` built from source on the dev
+    box and bound to `127.0.0.1:6390`; `RUN_SERVICE_TESTS=1 REDIS_URL=redis://127.0.0.1:6390 pytest
+    tests/integration/test_redis_contract.py` passed 18/18 (9 scenarios × fake and real) and left
+    `DBSIZE 0`. Fail-closed checks: `REDIS_URL=redis://127.0.0.1:1` errors every real-parametrized scenario;
+    `REDIS_URL=redis://example.com:6379` is rejected by `validate_loopback_redis_url` before any connection.
+  - Not run locally: the `services` and `migrations` gates against PostgreSQL (the dev box PostgreSQL does not
+    accept the Compose credentials), and the CI `redis:7` image itself; the Linux services job runs all
+    three service gates.
+- **Not performed**: no push, pull request, merge, rebase, squash, or amend; the Agy checkpoint is intact.
+- **Pending**: Codex independent review (T096).

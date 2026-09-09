@@ -1,14 +1,17 @@
-"""In-memory fakes and helpers for pipeline and persistence tests."""
+"""Assemble a real ``Pipeline`` with only its external boundaries replaced."""
 
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Sequence
 from typing import Any
 
+from fakeredis import FakeAsyncRedis
 from pydantic import SecretStr
 
-from polymarket_insider_tracker.alerter.dispatcher import DispatchResult
-from polymarket_insider_tracker.alerter.models import FormattedAlert
+from polymarket_insider_tracker.alerter.dispatcher import AlertChannel, AlertDispatcher
+from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.config import (
     DatabaseSettings,
     DetectorSettings,
@@ -19,14 +22,23 @@ from polymarket_insider_tracker.config import (
     Settings,
     TelegramSettings,
 )
-from polymarket_insider_tracker.detector.models import (
-    FreshWalletSignal,
-    RiskAssessment,
-    SizeAnomalySignal,
+from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
+from polymarket_insider_tracker.detector.scorer import RiskScorer
+from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
+from polymarket_insider_tracker.ingestor.clob_client import ClobClient
+from polymarket_insider_tracker.ingestor.metadata_sync import (
+    DEFAULT_CACHE_TTL_SECONDS,
+    DEFAULT_REDIS_KEY_PREFIX,
+    MarketMetadataSync,
 )
-from polymarket_insider_tracker.detector.scorer import SignalBundle
-from polymarket_insider_tracker.ingestor.models import TradeEvent
-from polymarket_insider_tracker.profiler.models import FundingChain
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
+from polymarket_insider_tracker.pipeline import Pipeline
+from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
+from polymarket_insider_tracker.profiler.chain import PolygonClient
+from polymarket_insider_tracker.profiler.funding import FundingTracer
+from polymarket_insider_tracker.storage.database import DatabaseManager
+from tests.fakes.clob import FakeBaseClobClient
+from tests.fakes.web3 import FakeAsyncWeb3, FakeEth
 
 
 def make_test_settings(
@@ -40,7 +52,7 @@ def make_test_settings(
     telegram_bot_token: str | None = None,
     telegram_chat_id: str | None = None,
 ) -> Settings:
-    """Create a fully-formed Settings instance without external network calls."""
+    """Create a fully validated ``Settings`` value without reading the environment."""
     discord_kwargs: dict[str, Any] = {"enabled": discord_enabled}
     if discord_webhook_url is not None:
         discord_kwargs["DISCORD_WEBHOOK_URL"] = SecretStr(discord_webhook_url)
@@ -60,149 +72,94 @@ def make_test_settings(
         ),
         discord=DiscordSettings(**discord_kwargs),
         telegram=TelegramSettings(**telegram_kwargs),
+        # Detector fields are declared by alias with ``extra="ignore"``; the field names
+        # themselves would be silently dropped, so the aliases must be used here.
         detector=DetectorSettings(
-            persist_assessments=persist_assessments,
-            alert_threshold=alert_threshold,
+            DETECTOR_PERSIST_ASSESSMENTS=persist_assessments,
+            DETECTOR_ALERT_THRESHOLD=alert_threshold,
         ),
         DRY_RUN=dry_run,
     )
 
 
-class FakeFreshWalletDetector:
-    """Fake fresh wallet detector returning a preset signal."""
+async def wire_pipeline(
+    settings: Settings,
+    *,
+    redis: FakeAsyncRedis,
+    eth: FakeEth,
+    market: MarketMetadata | None = None,
+    db_manager: DatabaseManager | None = None,
+    channels: Sequence[AlertChannel] = (),
+) -> Pipeline:
+    """Build a ``Pipeline`` the way ``Pipeline._initialize_components`` does.
 
-    def __init__(self, signal: FreshWalletSignal | None = None) -> None:
-        self.signal = signal
-        self.analyzed_trades: list[TradeEvent] = []
+    Every product component is real: the Polygon client, wallet analyzer, funding tracer,
+    metadata sync, both detectors, the risk scorer, the alert formatter, and the dispatcher.
+    Only the boundaries differ: Redis is ``fakeredis``, the Polygon RPC is ``eth``, the CLOB SDK is
+    ``FakeBaseClobClient``, market metadata is pre-cached in Redis the way a completed sync leaves
+    it, and delivery goes to ``channels`` instead of Discord or Telegram.
+    """
+    pipeline = Pipeline(settings)
+    pipeline._redis = redis
+    pipeline._db_manager = db_manager
 
-    async def analyze(self, trade: TradeEvent) -> FreshWalletSignal | None:
-        self.analyzed_trades.append(trade)
-        return self.signal
+    polygon_client = PolygonClient(
+        settings.polygon.rpc_url,
+        redis=redis,
+        max_requests_per_second=10_000.0,
+        retry_delay_seconds=0.0,
+    )
+    polygon_client._w3 = FakeAsyncWeb3(eth)
+    wallet_analyzer = WalletAnalyzer(polygon_client, redis=redis)
+    pipeline._funding_tracer = FundingTracer(polygon_client)
+
+    clob_client = ClobClient()
+    clob_client._client = FakeBaseClobClient()
+    pipeline._metadata_sync = MarketMetadataSync(redis=redis, clob_client=clob_client)
+    if market is not None:
+        await redis.setex(
+            f"{DEFAULT_REDIS_KEY_PREFIX}{market.condition_id}",
+            DEFAULT_CACHE_TTL_SECONDS,
+            json.dumps(market.to_dict()),
+        )
+
+    pipeline._fresh_wallet_detector = FreshWalletDetector(wallet_analyzer)
+    pipeline._size_anomaly_detector = SizeAnomalyDetector(pipeline._metadata_sync)
+    pipeline._risk_scorer = RiskScorer(
+        redis,
+        alert_threshold=settings.detector.alert_threshold,
+        dedup_window_seconds=settings.detector.dedup_window_seconds,
+    )
+    pipeline._alert_formatter = AlertFormatter(verbosity="detailed")
+    pipeline._alert_dispatcher = AlertDispatcher(list(channels))
+    return pipeline
 
 
-class FakeSizeAnomalyDetector:
-    """Fake size anomaly detector returning a preset signal."""
+class FailingDetector:
+    """A detector whose analysis raises.
 
-    def __init__(self, signal: SizeAnomalySignal | None = None) -> None:
-        self.signal = signal
-        self.analyzed_trades: list[TradeEvent] = []
-
-    async def analyze(self, trade: TradeEvent, **_kwargs: Any) -> SizeAnomalySignal | None:
-        self.analyzed_trades.append(trade)
-        return self.signal
-
-
-class SlowDetector:
-    """Fake detector that sleeps before returning None."""
-
-    def __init__(self, delay: float = 0.1) -> None:
-        self.delay = delay
-        self.calls: list[TradeEvent] = []
-
-    async def analyze(self, trade: TradeEvent, **_kwargs: Any) -> None:
-        self.calls.append(trade)
-        await asyncio.sleep(self.delay)
-        return None
-
-
-class ErrorDetector:
-    """Fake detector that raises an exception on analyze."""
+    Real detectors swallow their collaborator failures, so this is the only way to reach the
+    pipeline's own detector-error handling.
+    """
 
     def __init__(self, error: Exception) -> None:
         self.error = error
-        self.calls: list[TradeEvent] = []
 
-    async def analyze(self, trade: TradeEvent, **_kwargs: Any) -> None:
-        self.calls.append(trade)
+    async def analyze(self, trade: TradeEvent) -> None:
+        _ = trade
         raise self.error
 
 
-class FakeFundingTracer:
-    """Fake funding tracer returning a preset FundingChain."""
+class BarrierDetector:
+    """A detector that finishes only once every detector sharing its barrier has started.
 
-    def __init__(self, chain: FundingChain | None = None) -> None:
-        self.chain = chain
-        self.traced_addresses: list[str] = []
+    Sequential execution deadlocks at the barrier, so completing within a timeout proves the
+    pipeline runs detectors concurrently without measuring wall-clock time.
+    """
 
-    async def trace(self, target_address: str, **_kwargs: Any) -> FundingChain:
-        self.traced_addresses.append(target_address)
-        if self.chain is not None:
-            return self.chain
-        return FundingChain(target_address=target_address)
+    def __init__(self, barrier: asyncio.Barrier) -> None:
+        self._barrier = barrier
 
-
-class FakeRiskScorer:
-    """Fake risk scorer returning a RiskAssessment."""
-
-    def __init__(
-        self,
-        assessment: RiskAssessment | None = None,
-        *,
-        should_alert: bool = False,
-        weighted_score: float = 0.3,
-    ) -> None:
-        self.assessment = assessment
-        self.should_alert = should_alert
-        self.weighted_score = weighted_score
-        self.assessed_bundles: list[SignalBundle] = []
-
-    async def assess(self, bundle: SignalBundle) -> RiskAssessment:
-        self.assessed_bundles.append(bundle)
-        if self.assessment is not None:
-            return self.assessment
-        return RiskAssessment(
-            trade_event=bundle.trade_event,
-            wallet_address=bundle.wallet_address,
-            market_id=bundle.market_id,
-            fresh_wallet_signal=bundle.fresh_wallet_signal,
-            size_anomaly_signal=bundle.size_anomaly_signal,
-            signals_triggered=1,
-            weighted_score=self.weighted_score,
-            should_alert=self.should_alert,
-        )
-
-
-class FakeAlertFormatter:
-    """Fake alert formatter returning a FormattedAlert."""
-
-    def __init__(self, formatted: FormattedAlert | None = None) -> None:
-        self.formatted = formatted or FormattedAlert(
-            title="Test Alert",
-            body="Test Body",
-            discord_embed={"title": "Test"},
-            telegram_markdown="Test",
-            plain_text="Test Alert",
-        )
-        self.calls: list[RiskAssessment] = []
-
-    def format(self, assessment: RiskAssessment) -> FormattedAlert:
-        self.calls.append(assessment)
-        return self.formatted
-
-
-class FakeAlertDispatcher:
-    """Fake alert dispatcher recording calls and returning preset DispatchResult."""
-
-    def __init__(self, result: DispatchResult | None = None) -> None:
-        self.result = result or DispatchResult(
-            success_count=1,
-            failure_count=0,
-            channel_results={"discord": True},
-        )
-        self.dispatched: list[FormattedAlert] = []
-
-    async def dispatch(self, alert: FormattedAlert) -> DispatchResult:
-        self.dispatched.append(alert)
-        return self.result
-
-
-class BrokenDatabaseManager:
-    """Fake database manager that fails when getting an async session."""
-
-    def __init__(self, error: Exception | None = None) -> None:
-        self.calls = 0
-        self.error = error or RuntimeError("DB connection failed")
-
-    def get_async_session(self) -> Any:
-        self.calls += 1
-        raise self.error
+    async def analyze(self, trade: TradeEvent) -> None:
+        _ = trade
+        await self._barrier.wait()

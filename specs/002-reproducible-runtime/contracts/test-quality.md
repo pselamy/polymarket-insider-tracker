@@ -2,72 +2,78 @@
 
 ## Purpose
 
-This contract governs test double design and testing quality for `polymarket-insider-tracker`.
-It enforces the repository principle of using lightweight working fakes and real values over
-`unittest.mock` interaction mocks, ensuring tests verify observable behavior and state rather than
-brittle call sequences.
+This contract governs test doubles for `polymarket-insider-tracker`. Tests verify observable
+behavior and state through real product code, real values, and small working fakes at external
+boundaries. `unittest.mock` and generic mock frameworks are prohibited.
 
-## 1. Core Principles
+## 1. Principles
 
-1. **State Verification Over Interaction Verification**: Tests assert observable outcomes, return values,
-   and persisted state rather than call counts or argument tuples (`mock.assert_called_with`).
-2. **Working Fakes Over Mocks**: Reusable collaborators (in-memory Redis, repositories, blockchain/API clients)
-   must be concrete, lightweight implementations that maintain internal state and simulate the collaborator's
-   contracts faithfully within the test context.
-3. **Real Values Over Dummy Stubs**: Use real Pydantic models, dataclasses, and domain objects rather than
-   dynamically configured mock structures.
-4. **Shared Behavioral Contracts**: Reusable fakes representing external infrastructure (such as Redis) must
-   pass the same behavioral contract tests as the real implementation in the services profile.
+1. **State over interaction**: tests assert return values, persisted rows, Redis state, delivered
+   payloads, logged failures, and stats counters, not call sequences or argument tuples.
+2. **Real values**: settings, models, signals, assessments, SDK responses, and HTTP responses are
+   the real types (`Settings`, `TradeEvent`, `RiskAssessment`, `OrderBookSummary`, `httpx.Response`).
+3. **Boundaries only**: a fake stands in for something the test cannot run: alert delivery, the
+   py-clob-client SDK, the Polygon JSON-RPC surface, webhook servers, a WebSocket, a callback the
+   product invokes. Product classes between the test and that boundary are real.
+4. **Shared contracts for reusable doubles**: the Redis double is `fakeredis`, and the same
+   behavioral suite runs against it and against a real loopback Redis in the services profile.
+5. **Recorded effects are contracts, not spies**: a channel keeps delivered payloads, a webhook
+   server keeps its requests, a log index keeps queried block windows. Those are the externally
+   observable outputs of the product. Counting them is valid when the count is the contract
+   (retries, deliveries, RPC chunking); nothing records calls to product-internal methods.
 
-## 2. Prohibited Anti-Patterns
+## 2. Prohibited
 
-The following patterns are strictly prohibited in the test suite:
+- Any spelling of `unittest.mock` or the `mock` backport: `import unittest.mock`,
+  `from unittest import mock`, aliases, `import mock`, and attribute access through `import unittest`.
+- Generic callable or attribute-generating doubles, `return_value`/`side_effect` style
+  configurators, response ladders keyed by call order, and assertion helpers that mirror calls.
+- Fakes that subclass the product class they replace, or that accept impossible inputs
+  (for example an empty stream record) to satisfy a fixture.
+- Casts, `# type: ignore`, skips, or xfails introduced to make a double fit.
+- Weakening or deleting a baseline scenario; every baseline test ID is retained.
 
-- **No `unittest.mock` imports or aliases**: Neither `unittest.mock`, `mock`, `MagicMock`, `AsyncMock`,
-  nor `patch` may be imported or used in test files.
-- **No generic mock frameworks**: Custom generic `CallableFake`, `MockWrapper`, or general-purpose mock engines
-  are prohibited.
-- **No dynamic configurators**: `return_value` or `side_effect` assignment ladders that mimic mock frameworks
-  are prohibited.
-- **No dynamic attribute trees**: `__getattr__` or dynamic attribute dispatch returning self/fakes is prohibited.
-- **No synthetic interaction assertions**: Automated or helper-driven `assert_called` or call-list assertions are
-  prohibited.
-- **No assertion weakening**: Replacing strong expectations with empty assertions or deleting test scenarios
-  is prohibited.
-- **No test skipping or threshold increases**: No new `skip`, `xfail`, or relaxed quality thresholds.
-- **No broad type escapes**: No `Any` or `object` casts to bypass strict type checking.
+## 3. Allowed
 
-## 3. Allowed and Recommended Patterns
+- `pytest.MonkeyPatch` for environment variables, replacing a boundary factory
+  (`httpx.AsyncClient`, `BaseClobClient`, `ws_connect`, `get_settings`, `run_pipeline`), and
+  deliberate failure injection.
+- Real `httpx.AsyncClient` bound to `httpx.MockTransport` handlers that behave like the remote
+  server (`tests/fakes/alerts.py`).
+- Real unreachable services as failure injectors: a `redis.asyncio.Redis` or `DatabaseManager`
+  bound to a closed loopback port fails exactly as production would.
+- Real in-memory SQLite engines behind the real `DatabaseManager`, repositories, and sessions.
+- Boundary fakes in `tests/fakes/`:
+  - `FakeAlertChannel`: keeps delivered `FormattedAlert` payloads; `accepting` models failure.
+  - `FakeWebhookServer` (`discord_webhook`, `telegram_bot_api`): a rate-limiting or failing
+    webhook/Bot API server behind a real transport.
+  - `FakeBaseClobClient`: py-clob-client responses (cursor-keyed pages, real `OrderBookSummary`).
+  - `FakeEth` / `FakeAsyncWeb3` / `TransferLogIndex`: the Polygon RPC surface with transient or
+    permanent faults and an `eth_getLogs` index filtered by token, recipient, and block window.
+  - `FakeMetadataSync`: market metadata keyed by condition ID with per-market failures.
+  - `wire_pipeline`: assembles the real `Pipeline` (real Polygon client, analyzer, tracer,
+    metadata sync, detectors, scorer, formatter, dispatcher) over those boundaries.
+- Small file-local fakes for a callback or connection the product consumes
+  (`RecordingTradeCallback`, `FakeWebSocket`, `FakeWalletAnalyzer`, `FakeClobClient`).
 
-- **`pytest.monkeypatch`**: Permitted for setting environment variables, substituting concrete fakes at
-  system boundaries, and deliberate failure injection.
-- **Real HTTP test transports**: Use real `httpx.HTTPTransport`, `httpx.MockTransport`, or custom `httpx.BaseTransport`
-  with real `httpx.Response` and `httpx.Request` objects.
-- **In-Memory SQLite**: Use real SQLite-backed database sessions and repositories where already practical.
-- **Working Fake Collaborators**:
-  - `FakeRedis`: In-memory Redis implementing string (get/set/delete/exists/expire/ttl), hash (hget/hset/hgetall/hdel),
-    set (sadd/srem/smembers/sismember), sorted set (zadd/zrangebyscore/zremrangebyscore), and stream
-    (xadd/xread/xrange/xack) semantics required by the pipeline, with TTL tracking.
-  - `FakePolygonClient`: In-memory blockchain client returning real `Transaction` and `WalletInfo` records.
-  - `FakeClobClient`: In-memory Polymarket CLOB client returning real `Market` and `Orderbook` models.
-  - `FakeGammaClient`: In-memory Gamma API client returning real `GammaMarketStats`.
-  - `FakeDispatcher`: In-memory alert dispatcher recording dispatched `Alert` records for state inspection.
-  - `FakeHistory`: In-memory alert history recording delivery records for state inspection.
+## 4. Redis
 
-## 4. Shared Contract Verification
+Redis is never hand-built. Unit tests use `fakeredis.FakeAsyncRedis` (pinned `fakeredis==2.38.0`,
+a `redis.asyncio.Redis` subclass) through the `fake_redis` fixture. Fidelity for every operation the
+product exercises is proven by `tests/integration/test_redis_contract.py`, which runs identical
+scenarios against `fakeredis` always and against the real loopback Redis named by `REDIS_URL` when
+`RUN_SERVICE_TESTS=1` selects it. The `redis-contract` gate of the `services` profile makes the real
+run mandatory in CI. The suite covers string values and bytes encoding, `SET NX EX` and TTL rules,
+key-type exclusivity, sorted-set ranges and ordering, transactional pipelines, stream
+append/consumer-group/pending/ack/trim lifecycles including deleted-entry tombstones, error types, and
+pattern scans. Every scenario works inside a unique namespace that it deletes; a shared service is
+never flushed, and an unreachable or non-loopback service fails the gate instead of skipping.
 
-Reusable collaborator fakes (such as `FakeRedis`) must be verified through shared contract suites:
-- A parameterised test suite executes identical operations against both `FakeRedis` and a real `redis.asyncio.Redis`
-  instance (when available under the `services` profile).
-- Parity covers key storage, key expiration, hash manipulations, sorted set ranges, and stream append/read semantics.
+## 5. Enforcement
 
-## 5. Enforcement and Regressions
-
-1. **AST-Based Static Regression**: An automated test inspects all Python files under `tests/` and asserts that
-   none import from `unittest.mock` or reference `unittest.mock` symbols.
-2. **Standard Gate Enforcement**: All test and fake implementations must satisfy:
-   - Black formatting
-   - Ruff linting
-   - Strict mypy and Pyright type checking
-   - Default-confidence Vulture dead-code analysis (no unused fake methods)
-   - Fail-closed Complexipy cognitive complexity <= 5 on all functions and modules
+1. `tests/tooling/test_test_quality.py` parses every file under `tests/` (itself included) and the
+   root `conftest.py` and rejects every spelling of `unittest.mock`; fixtures prove aliases and
+   attribute access are caught while `pytest.MonkeyPatch`, `httpx.MockTransport`, and string
+   literals are allowed.
+2. Black, Ruff, strict mypy and Pyright, default-confidence Vulture over `tests/` (no unused fake
+   methods or recorded attributes), and fail-closed Complexipy `<= 5` for functions and modules.

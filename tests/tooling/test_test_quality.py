@@ -1,83 +1,131 @@
-"""Regression test enforcing prohibition of unittest.mock across test files."""
+"""Source policy: test code never uses ``unittest.mock`` or the ``mock`` backport.
+
+The scan covers every Python file under ``tests/`` (this file included) and the root
+``conftest.py``. It inspects import statements and attribute access in the AST, so string
+literals, ``pytest.MonkeyPatch``, and functional transports such as ``httpx.MockTransport`` are
+never mistaken for the forbidden framework.
+"""
+
+from __future__ import annotations
 
 import ast
 from pathlib import Path
 
+import pytest
 
-def _check_import_node(node: ast.Import) -> list[str]:
-    """Check standard import statement for mock imports."""
-    forbidden = ("unittest.mock", "mock")
-    matches = [a.name for a in node.names if a.name in forbidden]
-    return [f"import {name}" for name in matches]
-
-
-def _check_unittest_subimport(node: ast.ImportFrom) -> list[str]:
-    """Check from unittest import ... for mock submodule."""
-    if node.module != "unittest":
-        return []
-    matches = [a.name for a in node.names if a.name == "mock"]
-    return ["from unittest import mock"] if matches else []
+TESTS_DIR = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = TESTS_DIR.parent
+FORBIDDEN_MODULES = ("unittest.mock", "mock")
 
 
-def _check_import_from_node(node: ast.ImportFrom) -> list[str]:
-    """Check from ... import statement for mock imports."""
-    if node.module in ("unittest.mock", "mock"):
-        names = ", ".join(a.name for a in node.names)
-        return [f"from {node.module} import {names}"]
-    return _check_unittest_subimport(node)
+def _is_forbidden_module(name: str) -> bool:
+    return name in FORBIDDEN_MODULES or name.startswith(("unittest.mock.", "mock."))
 
 
-def _node_violations(node: ast.AST) -> list[str]:
-    """Return violation messages for an AST import node."""
-    if isinstance(node, ast.Import):
-        return _check_import_node(node)
-    if isinstance(node, ast.ImportFrom):
-        return _check_import_from_node(node)
+def _import_violations(node: ast.Import) -> list[str]:
+    return [f"import {alias.name}" for alias in node.names if _is_forbidden_module(alias.name)]
+
+
+def _mock_submodule_imports(node: ast.ImportFrom) -> list[str]:
+    return [f"from unittest import {alias.name}" for alias in node.names if alias.name == "mock"]
+
+
+def _import_from_violations(node: ast.ImportFrom) -> list[str]:
+    module = node.module or ""
+    if node.level == 0 and _is_forbidden_module(module):
+        return [f"from {module} import {', '.join(alias.name for alias in node.names)}"]
+    if module == "unittest":
+        return _mock_submodule_imports(node)
     return []
 
 
-def _find_mock_imports_in_file(path: Path) -> list[tuple[int, str]]:
-    """Scan a Python file for forbidden unittest.mock imports using AST."""
-    source = path.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(path))
-    results: list[tuple[int, str]] = []
+def _attribute_violations(node: ast.Attribute) -> list[str]:
+    if node.attr == "mock" and isinstance(node.value, ast.Name) and node.value.id == "unittest":
+        return ["unittest.mock attribute access"]
+    return []
+
+
+def _node_violations(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.Import):
+        return _import_violations(node)
+    if isinstance(node, ast.ImportFrom):
+        return _import_from_violations(node)
+    if isinstance(node, ast.Attribute):
+        return _attribute_violations(node)
+    return []
+
+
+def find_mock_usage(source: str, filename: str) -> list[tuple[int, str]]:
+    """Return ``(line, description)`` for every forbidden mock usage in ``source``."""
+    tree = ast.parse(source, filename=filename)
+    findings: list[tuple[int, str]] = []
     for node in ast.walk(tree):
-        msgs = _node_violations(node)
-        lineno = getattr(node, "lineno", 0)
-        results.extend((lineno, msg) for msg in msgs)
-    return results
+        line = getattr(node, "lineno", 0)
+        findings.extend((line, message) for message in _node_violations(node))
+    return findings
 
 
-def _collect_file_violations(
-    file_path: Path, tests_dir: Path, out: dict[str, list[tuple[int, str]]]
-) -> None:
-    """Record violations for a single file if present."""
-    if file_path.name == "test_test_quality.py":
-        return
-    viols = _find_mock_imports_in_file(file_path)
-    if viols:
-        rel = str(file_path.relative_to(tests_dir.parent))
-        out[rel] = viols
+def policed_files() -> list[Path]:
+    """Every file the policy applies to; nothing under ``tests/`` is exempt."""
+    return sorted([*TESTS_DIR.rglob("*.py"), REPOSITORY_ROOT / "conftest.py"])
 
 
-def _format_violation_lines(path_key: str, viols: list[tuple[int, str]]) -> list[str]:
-    """Format violations for one path."""
-    return [f"  {path_key}:{line_no}: {stmt}" for line_no, stmt in viols]
+def test_no_test_code_uses_unittest_mock() -> None:
+    violations = {
+        path.relative_to(REPOSITORY_ROOT).as_posix(): findings
+        for path in policed_files()
+        if (findings := find_mock_usage(path.read_text(encoding="utf-8"), str(path)))
+    }
+
+    assert violations == {}, "\n".join(
+        f"{path}:{line}: {message}"
+        for path, findings in violations.items()
+        for line, message in findings
+    )
 
 
-def _format_error_message(violations: dict[str, list[tuple[int, str]]]) -> str:
-    """Format comprehensive error message for test failure."""
-    lines: list[str] = [f"Found {len(violations)} test files importing unittest.mock:"]
-    for path_key, viols in violations.items():
-        lines.extend(_format_violation_lines(path_key, viols))
-    return "\n".join(lines)
+def test_policy_scans_its_own_file_without_self_triggering() -> None:
+    own_file = Path(__file__).resolve()
+
+    assert own_file in policed_files()
+    assert find_mock_usage(own_file.read_text(encoding="utf-8"), str(own_file)) == []
 
 
-def test_no_test_files_import_unittest_mock() -> None:
-    """Every test file must use working fakes and real values rather than unittest.mock."""
-    tests_dir = Path(__file__).resolve().parent.parent
-    violations: dict[str, list[tuple[int, str]]] = {}
-    for path in sorted(tests_dir.rglob("*.py")):
-        _collect_file_violations(path, tests_dir, violations)
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from unittest.mock import patch",
+        "from unittest.mock import AsyncMock as Fake",
+        "from unittest import mock",
+        "from unittest import mock as aliased",
+        "import unittest.mock",
+        "import unittest.mock as aliased",
+        "from unittest.mock.support import thing",
+        "import mock",
+        "import mock as aliased",
+        "from mock import MagicMock",
+        "import unittest\nunittest.mock.patch('target')",
+        "import unittest\nspy = unittest.mock.MagicMock()",
+    ],
+    ids=lambda source: source.replace("\n", "; "),
+)
+def test_policy_rejects_every_mock_spelling(source: str) -> None:
+    assert len(find_mock_usage(source, "<fixture>")) == 1
 
-    assert not violations, _format_error_message(violations)
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import pytest\n\ndef test_it(monkeypatch: pytest.MonkeyPatch) -> None:\n    pass",
+        "import httpx\ntransport = httpx.MockTransport(handler)",
+        "from fakeredis import FakeAsyncRedis",
+        "FORBIDDEN = ('unittest.mock', 'mock', 'from unittest import mock')",
+        "import unittest\n\nclass Suite(unittest.TestCase):\n    pass",
+        "import mockingbird\nfrom mockups import sketch",
+        "mock_data = {'mock': True}\nunittest = object()\nvalue = unittest.name",
+        "import importlib\nimportlib.import_module('unittest.mock')",
+    ],
+    ids=lambda source: source.replace("\n", "; ")[:60],
+)
+def test_policy_allows_monkeypatch_transports_and_strings(source: str) -> None:
+    assert find_mock_usage(source, "<fixture>") == []

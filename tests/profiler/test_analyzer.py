@@ -3,9 +3,9 @@
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
 
 import pytest
+from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.profiler.analyzer import (
     DEFAULT_FRESH_THRESHOLD,
@@ -13,7 +13,6 @@ from polymarket_insider_tracker.profiler.analyzer import (
     WalletAnalyzer,
 )
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
-from tests.fakes.redis import FakeRedis
 
 # Valid Ethereum addresses for testing
 VALID_ADDRESS = "0x742d35Cc6634C0532925a3b844Bc9e7595f5eaE2"
@@ -63,25 +62,24 @@ class TestWalletAnalyzerInit:
     def test_init_default(self) -> None:
         """Test initialization with defaults."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
 
         assert analyzer._client is client
         assert analyzer._redis is None
         assert analyzer._fresh_threshold == DEFAULT_FRESH_THRESHOLD
         assert analyzer._usdc_address == USDC_POLYGON_ADDRESS
 
-    def test_init_with_redis(self) -> None:
+    def test_init_with_redis(self, fake_redis: FakeAsyncRedis) -> None:
         """Test initialization with Redis."""
         client = FakePolygonClient()
-        redis = FakeRedis()
-        analyzer = WalletAnalyzer(cast(Any, client), redis=cast(Any, redis))
+        analyzer = WalletAnalyzer(client, redis=fake_redis)
 
-        assert analyzer._redis is redis
+        assert analyzer._redis is fake_redis
 
     def test_init_custom_threshold(self) -> None:
         """Test initialization with custom threshold."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), fresh_threshold=10)
+        analyzer = WalletAnalyzer(client, fresh_threshold=10)
 
         assert analyzer._fresh_threshold == 10
 
@@ -109,7 +107,7 @@ class TestWalletAnalyzerAnalyze:
             first_transaction=first_tx,
         )
         client = FakePolygonClient(wallet_infos={VALID_ADDRESS: info})
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         profile = await analyzer.analyze(VALID_ADDRESS)
 
         assert profile.address == VALID_ADDRESS.lower()
@@ -139,7 +137,7 @@ class TestWalletAnalyzerAnalyze:
             first_transaction=first_tx,
         )
         client = FakePolygonClient(wallet_infos={VALID_ADDRESS: info})
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         profile = await analyzer.analyze(VALID_ADDRESS)
 
         assert profile.nonce == 500
@@ -157,7 +155,7 @@ class TestWalletAnalyzerAnalyze:
             first_transaction=None,
         )
         client = FakePolygonClient(wallet_infos={VALID_ADDRESS: info})
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         profile = await analyzer.analyze(VALID_ADDRESS)
 
         assert profile.nonce == 0
@@ -167,7 +165,7 @@ class TestWalletAnalyzerAnalyze:
         assert profile.age_hours is None
 
     @pytest.mark.asyncio
-    async def test_analyze_uses_cache(self) -> None:
+    async def test_analyze_uses_cache(self, fake_redis: FakeAsyncRedis) -> None:
         """Test that analyze uses cached data."""
         cached_data = {
             "address": VALID_ADDRESS.lower(),
@@ -181,14 +179,13 @@ class TestWalletAnalyzerAnalyze:
             "analyzed_at": datetime.now(UTC).isoformat(),
             "fresh_threshold": 5,
         }
-        redis = FakeRedis()
-        await redis.set(
+        await fake_redis.set(
             f"wallet_profile:{VALID_ADDRESS.lower()}",
             json.dumps(cached_data).encode(),
         )
 
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), redis=cast(Any, redis))
+        analyzer = WalletAnalyzer(client, redis=fake_redis)
         profile = await analyzer.analyze(VALID_ADDRESS)
 
         assert profile.address == VALID_ADDRESS.lower()
@@ -196,7 +193,7 @@ class TestWalletAnalyzerAnalyze:
         assert len(client.wallet_info_queries) == 0
 
     @pytest.mark.asyncio
-    async def test_analyze_force_refresh(self) -> None:
+    async def test_analyze_force_refresh(self, fake_redis: FakeAsyncRedis) -> None:
         """Test that force_refresh bypasses cache."""
         cached_data = {
             "address": VALID_ADDRESS.lower(),
@@ -210,8 +207,7 @@ class TestWalletAnalyzerAnalyze:
             "analyzed_at": datetime.now(UTC).isoformat(),
             "fresh_threshold": 5,
         }
-        redis = FakeRedis()
-        await redis.set(
+        await fake_redis.set(
             f"wallet_profile:{VALID_ADDRESS.lower()}",
             json.dumps(cached_data).encode(),
         )
@@ -223,7 +219,7 @@ class TestWalletAnalyzerAnalyze:
             first_transaction=None,
         )
         client = FakePolygonClient(wallet_infos={VALID_ADDRESS: info})
-        analyzer = WalletAnalyzer(cast(Any, client), redis=cast(Any, redis))
+        analyzer = WalletAnalyzer(client, redis=fake_redis)
         profile = await analyzer.analyze(VALID_ADDRESS, force_refresh=True)
 
         assert profile.nonce == 10  # From fresh query, not cache
@@ -242,7 +238,7 @@ class TestWalletAnalyzerAnalyze:
             wallet_infos={VALID_ADDRESS: info},
             raise_token_error=Exception("Token query failed"),
         )
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         profile = await analyzer.analyze(VALID_ADDRESS)
 
         assert profile.usdc_balance == Decimal(0)
@@ -261,7 +257,7 @@ class TestWalletAnalyzerIsFresh:
             first_transaction=None,
         )
         client = FakePolygonClient(wallet_infos={VALID_ADDRESS: info})
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         result = await analyzer.is_fresh(VALID_ADDRESS)
 
         assert result is True
@@ -276,7 +272,7 @@ class TestWalletAnalyzerIsFresh:
             first_transaction=None,
         )
         client = FakePolygonClient(wallet_infos={VALID_ADDRESS: info})
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         result = await analyzer.is_fresh(VALID_ADDRESS)
 
         assert result is False
@@ -288,42 +284,42 @@ class TestWalletAnalyzerFreshnessLogic:
     def test_is_wallet_fresh_low_nonce_no_age(self) -> None:
         """Test fresh wallet with low nonce and unknown age."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), fresh_threshold=5)
+        analyzer = WalletAnalyzer(client, fresh_threshold=5)
         result = analyzer._is_wallet_fresh(nonce=2, age_hours=None)
         assert result is True
 
     def test_is_wallet_fresh_low_nonce_young_age(self) -> None:
         """Test fresh wallet with low nonce and young age."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), fresh_threshold=5)
+        analyzer = WalletAnalyzer(client, fresh_threshold=5)
         result = analyzer._is_wallet_fresh(nonce=2, age_hours=12.0)
         assert result is True
 
     def test_is_wallet_fresh_low_nonce_old_age(self) -> None:
         """Test not fresh when nonce is low but age is old."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), fresh_threshold=5)
+        analyzer = WalletAnalyzer(client, fresh_threshold=5)
         result = analyzer._is_wallet_fresh(nonce=2, age_hours=100.0)
         assert result is False
 
     def test_is_wallet_fresh_high_nonce(self) -> None:
         """Test not fresh when nonce is high."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), fresh_threshold=5)
+        analyzer = WalletAnalyzer(client, fresh_threshold=5)
         result = analyzer._is_wallet_fresh(nonce=10, age_hours=12.0)
         assert result is False
 
     def test_is_wallet_fresh_at_threshold(self) -> None:
         """Test not fresh when nonce equals threshold."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), fresh_threshold=5)
+        analyzer = WalletAnalyzer(client, fresh_threshold=5)
         result = analyzer._is_wallet_fresh(nonce=5, age_hours=12.0)
         assert result is False
 
     def test_is_wallet_fresh_at_age_boundary(self) -> None:
         """Test at 48 hour boundary."""
         client = FakePolygonClient()
-        analyzer = WalletAnalyzer(cast(Any, client), fresh_threshold=5)
+        analyzer = WalletAnalyzer(client, fresh_threshold=5)
 
         result_under = analyzer._is_wallet_fresh(nonce=2, age_hours=47.9)
         assert result_under is True
@@ -353,7 +349,7 @@ class TestWalletAnalyzerBatch:
             ),
         }
         client = FakePolygonClient(wallet_infos=infos)
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         profiles = await analyzer.analyze_batch([VALID_ADDRESS, VALID_ADDRESS_2])
 
         assert len(profiles) == 2
@@ -375,7 +371,7 @@ class TestWalletAnalyzerBatch:
             wallet_infos=infos,
             error_on_addresses={VALID_ADDRESS_2: Exception("RPC error")},
         )
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         profiles = await analyzer.analyze_batch([VALID_ADDRESS, VALID_ADDRESS_2])
 
         assert len(profiles) == 1
@@ -399,7 +395,7 @@ class TestWalletAnalyzerBatch:
             ),
         }
         client = FakePolygonClient(wallet_infos=infos)
-        analyzer = WalletAnalyzer(cast(Any, client))
+        analyzer = WalletAnalyzer(client)
         fresh = await analyzer.get_fresh_wallets([VALID_ADDRESS, VALID_ADDRESS_2])
 
         assert len(fresh) == 1

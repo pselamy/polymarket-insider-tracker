@@ -72,7 +72,9 @@ uv run --env-file .env python scripts/runtime_services.py --phase all
 
 This probes PostgreSQL and Redis, then runs upgrade → downgrade → upgrade against a generated disposable
 loopback database. It always attempts to remove that database and never downgrades or drops the normal
-application database named in `.env`.
+application database named in `.env`. The `services` verification profile additionally runs the shared
+Redis behavioral contract (`tests/integration/test_redis_contract.py`) against that loopback Redis inside
+a disposable key namespace, proving the in-memory `fakeredis` used by unit tests matches the real service.
 
 ### 5. Migrate the application database and start
 
@@ -188,7 +190,10 @@ uv run --env-file .env python scripts/verify.py --profile all
 ```
 
 The `static` profile checks the lock, Black formatting across the repository, Ruff lint/import rules,
-strict mypy, strict Pyright, Vulture dead code detection, and Complexipy cognitive complexity analysis. Pyright is an additional checker, not a mypy replacement. Its canonical
+strict mypy, strict Pyright, Vulture dead code detection, and Complexipy cognitive complexity analysis.
+Unit tests use working fakes and real values instead of `unittest.mock`; an AST policy test rejects any
+spelling of that framework, Redis is `fakeredis` verified by the services-profile contract, and only
+external boundaries (alert channels, the CLOB SDK, the Polygon RPC, webhook servers) are faked. Pyright is an additional checker, not a mypy replacement. Its canonical
 scope is the complete production package, configured for the lowest supported Python version:
 
 ```bash

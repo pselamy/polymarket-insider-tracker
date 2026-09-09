@@ -107,8 +107,8 @@ fakes and real values guarantee tests assert outcome and state faithfully.
 
 1. **Given** the test suite across all subsystems, **When** static and regression tests run, **Then** zero
    test files import or alias `unittest.mock` or use dynamic mock/spy frameworks.
-2. **Given** reusable collaborator fakes (such as `FakeRedis`), **When** shared behavioral contract tests
-   run, **Then** fake and real implementations demonstrate identical observable semantics.
+2. **Given** the reusable Redis double (`fakeredis`), **When** the shared behavioral contract suite runs in the
+   services profile, **Then** the fake and the real loopback Redis demonstrate identical observable semantics.
 3. **Given** external HTTP, blockchain, and repository boundaries, **When** tests execute, **Then**
    real transport hooks, in-memory SQLite instances, and domain-specific stateful fakes are used instead of
    `return_value`/`side_effect` mock configurators.
@@ -183,8 +183,10 @@ fakes and real values guarantee tests assert outcome and state faithfully.
   MUST be concrete working fakes asserting outcome/state, real models/objects, or narrow failure injectors.
   Generic CallableFake/Mock frameworks, dynamic attribute trees (`__getattr__`), and return_value/side_effect
   configurators are strictly prohibited.
-- **FR-019**: Reusable collaborator fakes (such as `FakeRedis`) MUST satisfy shared behavioral contract tests against
-  the real implementation in the services profile, covering key/value, hash, set, sorted-set, stream, and expiration semantics.
+- **FR-019**: The reusable Redis double MUST be the pinned `fakeredis` library, and one shared behavioral contract
+  suite MUST run against it and against the real loopback Redis in the services profile, covering the string,
+  TTL/`NX`, bytes-encoding, sorted-set, pipeline, stream/consumer-group/pending/ack/trim, error-type, and scan
+  semantics the product exercises. Real-service selection MUST fail closed and MUST clean up its own keys.
 - **FR-020**: An AST-based static regression test MUST enforce the prohibition of `unittest.mock` imports across all
   test files without self-triggering or banning `pytest.monkeypatch` or production-safe HTTP transports.
 
@@ -219,8 +221,8 @@ fakes and real values guarantee tests assert outcome and state faithfully.
   the complete Python compatibility matrix, and real service verification. No bespoke checker reparses
   source files or README prose as a second configuration authority.
 - **SC-008**: 100% of `unittest.mock` uses are replaced with working fakes and real values across all 22 baseline test
-  files; zero test files import `unittest.mock`; an AST-based regression enforces this continuously; and all baseline
-  scenarios and test coverage are preserved.
+  files; zero files under `tests/` import or alias `unittest.mock`; an AST-based regression enforces this continuously;
+  every one of the 862 baseline test IDs is retained; and combined coverage does not regress below the 91% baseline.
 
 ## Assumptions
 

@@ -517,7 +517,7 @@ class TestAnalyzeMethod:
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects high volume impact trade."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade notional = 6500, volume = 65000, impact = 10% > 2% threshold
@@ -538,7 +538,7 @@ class TestAnalyzeMethod:
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects high book impact trade."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade notional = 6500, book depth = 32500, impact = 20% > 5% threshold
@@ -559,7 +559,7 @@ class TestAnalyzeMethod:
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects niche market trade."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Low volume market (science category with volume unknown)
@@ -576,7 +576,7 @@ class TestAnalyzeMethod:
         sample_metadata: MarketMetadata,
     ) -> None:
         """Niche-only trades below the min trade size are suppressed."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         tiny_trade = TradeEvent(
@@ -603,7 +603,7 @@ class TestAnalyzeMethod:
         sample_metadata: MarketMetadata,
     ) -> None:
         """Niche-only trades at or above the min trade size still emit."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         ok_trade = TradeEvent(
@@ -632,7 +632,7 @@ class TestAnalyzeMethod:
         sample_metadata: MarketMetadata,
     ) -> None:
         """A trade that exceeds volume/book thresholds is never blocked by the niche guard."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         small_but_high_impact_trade = TradeEvent(
@@ -669,7 +669,7 @@ class TestAnalyzeMethod:
             tokens=(sample_token,),
             category="politics",
         )
-        fake_metadata_sync.set_default(metadata)
+        fake_metadata_sync.fallback = metadata
 
         trade = TradeEvent(
             market_id="market_politics",
@@ -702,7 +702,7 @@ class TestAnalyzeMethod:
         sample_trade: TradeEvent,
     ) -> None:
         """Test analyze creates minimal metadata when market not found."""
-        fake_metadata_sync.set_default(None)
+        fake_metadata_sync.fallback = None
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Should still work with minimal metadata (category="other" which is niche)
@@ -719,7 +719,7 @@ class TestAnalyzeMethod:
         sample_trade: TradeEvent,
     ) -> None:
         """Test analyze handles exception when fetching metadata."""
-        fake_metadata_sync.add_error(Exception("Redis error"))
+        fake_metadata_sync.failures[sample_trade.market_id] = Exception("Redis error")
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Should still work with minimal metadata
@@ -743,7 +743,7 @@ class TestAnalyzeMethod:
             tokens=(sample_token,),
             category="sports",
         )
-        fake_metadata_sync.set_default(metadata)
+        fake_metadata_sync.fallback = metadata
 
         trade = TradeEvent(
             market_id="market_sports",
@@ -785,7 +785,7 @@ class TestBatchAnalysis:
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test batch analysis returns signals for anomalous trades."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
 
         trades = [
             TradeEvent(
@@ -816,7 +816,7 @@ class TestBatchAnalysis:
         sample_metadata: MarketMetadata,
     ) -> None:
         """Test batch analysis uses provided volume data."""
-        fake_metadata_sync.set_default(sample_metadata)
+        fake_metadata_sync.fallback = sample_metadata
 
         trades = [
             TradeEvent(
@@ -850,9 +850,9 @@ class TestBatchAnalysis:
         fake_metadata_sync: FakeMetadataSync,
     ) -> None:
         """Test batch analysis handles individual trade errors."""
-        # First call succeeds, second fails
-        fake_metadata_sync.add_error(Exception("Error"))
-        fake_metadata_sync.set_default(None)
+        # The first market's lookup fails; the second market is unknown.
+        fake_metadata_sync.failures["market_0"] = Exception("Error")
+        fake_metadata_sync.fallback = None
 
         trades = [
             TradeEvent(

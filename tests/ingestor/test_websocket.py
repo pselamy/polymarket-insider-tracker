@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
@@ -367,7 +367,7 @@ class TestTradeStreamHandler:
     async def test_cleanup_closes_websocket(self, handler: TradeStreamHandler) -> None:
         """Test that cleanup closes the WebSocket."""
         fake_ws = FakeWebSocket()
-        handler._ws = cast(Any, fake_ws)
+        handler._ws = fake_ws
 
         await handler._cleanup()
 

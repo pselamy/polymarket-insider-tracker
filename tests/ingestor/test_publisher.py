@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, cast
 
 import pytest
+from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.publisher import (
@@ -14,9 +14,9 @@ from polymarket_insider_tracker.ingestor.publisher import (
     EventPublisher,
     StreamEntry,
     _deserialize_trade_event,
+    _parse_stream_results,
     _serialize_trade_event,
 )
-from tests.fakes.redis import FakeRedis
 
 
 # Test fixtures
@@ -40,12 +40,6 @@ def sample_trade_event() -> TradeEvent:
         trader_name="Alice",
         trader_pseudonym="AliceTrader",
     )
-
-
-@pytest.fixture
-def fake_redis() -> FakeRedis:
-    """Create a working fake Redis client."""
-    return FakeRedis()
 
 
 class TestSerializationFunctions:
@@ -137,28 +131,26 @@ class TestSerializationFunctions:
 class TestEventPublisher:
     """Tests for the EventPublisher class."""
 
-    def test_init(self, fake_redis: FakeRedis) -> None:
+    def test_init(self, fake_redis: FakeAsyncRedis) -> None:
         """Test initialization."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         assert publisher.stream_name == DEFAULT_STREAM_NAME
         assert publisher._max_len == DEFAULT_MAX_LEN
 
-    def test_init_custom_config(self, fake_redis: FakeRedis) -> None:
+    def test_init_custom_config(self, fake_redis: FakeAsyncRedis) -> None:
         """Test initialization with custom config."""
-        publisher = EventPublisher(
-            cast(Any, fake_redis),
-            stream_name="custom-stream",
-            max_len=50_000,
-        )
+        publisher = EventPublisher(fake_redis, stream_name="custom-stream", max_len=50_000)
 
         assert publisher.stream_name == "custom-stream"
         assert publisher._max_len == 50_000
 
     @pytest.mark.asyncio
-    async def test_publish(self, fake_redis: FakeRedis, sample_trade_event: TradeEvent) -> None:
+    async def test_publish(
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
+    ) -> None:
         """Test publishing a single event."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         entry_id = await publisher.publish(sample_trade_event)
 
@@ -167,37 +159,24 @@ class TestEventPublisher:
         assert await fake_redis.xlen(DEFAULT_STREAM_NAME) == 1
 
     @pytest.mark.asyncio
-    async def test_publish_returns_decoded_bytes(self, sample_trade_event: TradeEvent) -> None:
-        """Test that publish handles bytes entry IDs."""
-
-        class FakeBytesRedis(FakeRedis):
-            async def xadd(
-                self,
-                name: str | bytes,
-                fields: Any,
-                id: str = "*",
-                maxlen: int | None = None,
-                approximate: bool = True,
-            ) -> bytes:
-                eid = await super().xadd(
-                    name, fields, id=id, maxlen=maxlen, approximate=approximate
-                )
-                return eid.encode("utf-8")
-
-        fake_redis = FakeBytesRedis()
-        publisher = EventPublisher(cast(Any, fake_redis))
+    async def test_publish_returns_decoded_bytes(
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
+    ) -> None:
+        """Redis answers XADD with a bytes entry ID; publish returns it decoded."""
+        publisher = EventPublisher(fake_redis)
 
         entry_id = await publisher.publish(sample_trade_event)
 
-        assert isinstance(entry_id, str)
-        assert len(entry_id) > 0
+        stored = await fake_redis.xrange(DEFAULT_STREAM_NAME)
+        assert isinstance(stored[0][0], bytes)
+        assert entry_id == stored[0][0].decode()
 
     @pytest.mark.asyncio
     async def test_publish_batch(
-        self, fake_redis: FakeRedis, sample_trade_event: TradeEvent
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Test batch publishing."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         events = [sample_trade_event, sample_trade_event]
 
         entry_ids = await publisher.publish_batch(events)
@@ -206,9 +185,9 @@ class TestEventPublisher:
         assert await fake_redis.xlen(DEFAULT_STREAM_NAME) == 2
 
     @pytest.mark.asyncio
-    async def test_publish_batch_empty(self, fake_redis: FakeRedis) -> None:
+    async def test_publish_batch_empty(self, fake_redis: FakeAsyncRedis) -> None:
         """Test batch publishing with empty list."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         entry_ids = await publisher.publish_batch([])
 
@@ -216,9 +195,9 @@ class TestEventPublisher:
         assert await fake_redis.xlen(DEFAULT_STREAM_NAME) == 0
 
     @pytest.mark.asyncio
-    async def test_create_consumer_group(self, fake_redis: FakeRedis) -> None:
+    async def test_create_consumer_group(self, fake_redis: FakeAsyncRedis) -> None:
         """Test creating a consumer group."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         await publisher.create_consumer_group("test-group")
 
@@ -226,35 +205,35 @@ class TestEventPublisher:
         assert info["length"] == 0
 
     @pytest.mark.asyncio
-    async def test_create_consumer_group_custom_start_id(self, fake_redis: FakeRedis) -> None:
+    async def test_create_consumer_group_custom_start_id(self, fake_redis: FakeAsyncRedis) -> None:
         """Test creating a consumer group with custom start ID."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         await publisher.create_consumer_group("test-group", start_id="$")
         assert await publisher.ensure_consumer_group("test-group") is False
 
     @pytest.mark.asyncio
-    async def test_create_consumer_group_already_exists(self, fake_redis: FakeRedis) -> None:
+    async def test_create_consumer_group_already_exists(self, fake_redis: FakeAsyncRedis) -> None:
         """Test creating a consumer group that already exists."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.create_consumer_group("existing-group")
 
         with pytest.raises(ConsumerGroupExistsError):
             await publisher.create_consumer_group("existing-group")
 
     @pytest.mark.asyncio
-    async def test_ensure_consumer_group_creates(self, fake_redis: FakeRedis) -> None:
+    async def test_ensure_consumer_group_creates(self, fake_redis: FakeAsyncRedis) -> None:
         """Test ensure_consumer_group creates if not exists."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         created = await publisher.ensure_consumer_group("new-group")
 
         assert created is True
 
     @pytest.mark.asyncio
-    async def test_ensure_consumer_group_exists(self, fake_redis: FakeRedis) -> None:
+    async def test_ensure_consumer_group_exists(self, fake_redis: FakeAsyncRedis) -> None:
         """Test ensure_consumer_group returns False if exists."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.ensure_consumer_group("existing-group")
 
         created = await publisher.ensure_consumer_group("existing-group")
@@ -262,9 +241,11 @@ class TestEventPublisher:
         assert created is False
 
     @pytest.mark.asyncio
-    async def test_read_events(self, fake_redis: FakeRedis, sample_trade_event: TradeEvent) -> None:
+    async def test_read_events(
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
+    ) -> None:
         """Test reading events from stream."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.create_consumer_group("test-group", start_id="0")
         entry_id = await publisher.publish(sample_trade_event)
 
@@ -275,9 +256,9 @@ class TestEventPublisher:
         assert entries[0].event.market_id == sample_trade_event.market_id
 
     @pytest.mark.asyncio
-    async def test_read_events_empty(self, fake_redis: FakeRedis) -> None:
+    async def test_read_events_empty(self, fake_redis: FakeAsyncRedis) -> None:
         """Test reading when no events available."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.create_consumer_group("test-group", start_id="0")
 
         entries = await publisher.read_events("test-group", "worker-1")
@@ -286,10 +267,10 @@ class TestEventPublisher:
 
     @pytest.mark.asyncio
     async def test_read_events_with_bytes(
-        self, fake_redis: FakeRedis, sample_trade_event: TradeEvent
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Test reading events with bytes data (as from real Redis)."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.create_consumer_group("test-group", start_id="0")
         entry_id = await publisher.publish(sample_trade_event)
 
@@ -300,10 +281,10 @@ class TestEventPublisher:
 
     @pytest.mark.asyncio
     async def test_read_pending(
-        self, fake_redis: FakeRedis, sample_trade_event: TradeEvent
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Test reading pending events."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.create_consumer_group("test-group", start_id="0")
         entry_id = await publisher.publish(sample_trade_event)
 
@@ -314,41 +295,24 @@ class TestEventPublisher:
         assert entries[0].entry_id == entry_id
 
     @pytest.mark.asyncio
-    async def test_read_pending_skips_empty_data(self) -> None:
-        """Test that read_pending skips entries with no data (already acked)."""
-
-        class FakeEmptyPendingRedis(FakeRedis):
-            async def xreadgroup(
-                self,
-                groupname: Any,
-                consumername: Any,
-                streams: Any,
-                count: int | None = None,
-                block: int | None = None,
-                noack: bool = False,
-            ) -> list[Any]:
-                _ = (groupname, consumername, streams, count, block, noack)
-                return [
-                    (
-                        "trades",
-                        [
-                            ("1704369600000-0", {}),
-                            ("1704369600000-1", None),
-                        ],
-                    )
-                ]
-
-        fake_redis = FakeEmptyPendingRedis()
-        publisher = EventPublisher(cast(Any, fake_redis))
+    async def test_read_pending_skips_empty_data(
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
+    ) -> None:
+        """A delivered entry that was trimmed away reads back empty and is skipped."""
+        publisher = EventPublisher(fake_redis)
+        await publisher.create_consumer_group("test-group", start_id="0")
+        await publisher.publish(sample_trade_event)
+        await publisher.read_events("test-group", "worker-1")
+        await fake_redis.xtrim(DEFAULT_STREAM_NAME, maxlen=0, approximate=False)
 
         entries = await publisher.read_pending("test-group", "worker-1")
 
         assert entries == []
 
     @pytest.mark.asyncio
-    async def test_ack(self, fake_redis: FakeRedis, sample_trade_event: TradeEvent) -> None:
+    async def test_ack(self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent) -> None:
         """Test acknowledging entries."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.create_consumer_group("test-group", start_id="0")
         entry_id = await publisher.publish(sample_trade_event)
         await publisher.read_events("test-group", "worker-1")
@@ -358,9 +322,9 @@ class TestEventPublisher:
         assert count == 1
 
     @pytest.mark.asyncio
-    async def test_ack_empty(self, fake_redis: FakeRedis) -> None:
+    async def test_ack_empty(self, fake_redis: FakeAsyncRedis) -> None:
         """Test ack with no entry IDs."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         count = await publisher.ack("test-group")
 
@@ -368,10 +332,10 @@ class TestEventPublisher:
 
     @pytest.mark.asyncio
     async def test_get_stream_info(
-        self, fake_redis: FakeRedis, sample_trade_event: TradeEvent
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Test getting stream info."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.publish(sample_trade_event)
 
         info = await publisher.get_stream_info()
@@ -379,9 +343,9 @@ class TestEventPublisher:
         assert info["length"] == 1
 
     @pytest.mark.asyncio
-    async def test_get_stream_info_not_exists(self, fake_redis: FakeRedis) -> None:
+    async def test_get_stream_info_not_exists(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting stream info when stream doesn't exist."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         info = await publisher.get_stream_info()
 
@@ -389,10 +353,10 @@ class TestEventPublisher:
 
     @pytest.mark.asyncio
     async def test_get_stream_length(
-        self, fake_redis: FakeRedis, sample_trade_event: TradeEvent
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Test getting stream length."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.publish(sample_trade_event)
 
         length = await publisher.get_stream_length()
@@ -400,9 +364,11 @@ class TestEventPublisher:
         assert length == 1
 
     @pytest.mark.asyncio
-    async def test_trim_stream(self, fake_redis: FakeRedis, sample_trade_event: TradeEvent) -> None:
+    async def test_trim_stream(
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
+    ) -> None:
         """Test trimming stream."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
         await publisher.publish(sample_trade_event)
         await publisher.publish(sample_trade_event)
 
@@ -411,9 +377,9 @@ class TestEventPublisher:
         assert await fake_redis.xlen(DEFAULT_STREAM_NAME) == 1
 
     @pytest.mark.asyncio
-    async def test_trim_stream_default(self, fake_redis: FakeRedis) -> None:
+    async def test_trim_stream_default(self, fake_redis: FakeAsyncRedis) -> None:
         """Test trimming stream with default max_len."""
-        publisher = EventPublisher(cast(Any, fake_redis))
+        publisher = EventPublisher(fake_redis)
 
         await publisher.trim_stream()
 
@@ -432,49 +398,44 @@ class TestStreamEntry:
 
 
 class TestEmptyEntryHandling:
-    """Only pending re-reads skip already-acknowledged (empty) entries."""
+    """Pending re-reads skip trimmed or deleted (empty) entries; new-entry reads never skip.
 
-    @pytest.mark.asyncio
-    async def test_read_events_keeps_entries_with_empty_data(self) -> None:
-        class FakeEmptyDataRedis(FakeRedis):
-            async def xreadgroup(self, *args: Any, **kwargs: Any) -> list[Any]:
-                _ = (args, kwargs)
-                return [("trades", [("1704369600000-0", {})])]
+    Empty records come from real stream lifecycles (deleted entries still pending for a consumer);
+    the ``None`` payload is a parser-robustness fixture that no Redis produces.
+    """
 
-        publisher = EventPublisher(cast(Any, FakeEmptyDataRedis()))
-        entries = await publisher.read_events("test-group", "worker-1")
+    def test_read_events_keeps_entries_with_empty_data(self) -> None:
+        """New-entry reads never skip: an empty record still yields a defaulted entry."""
+        results = [("trades", [("1704369600000-0", {})])]
+
+        entries = _parse_stream_results(results, context="entry", skip_empty=False)
 
         assert [entry.entry_id for entry in entries] == ["1704369600000-0"]
-        assert entries[0].event.market_id == ""
+        assert entries[0].event.trade_id == ""
 
-    @pytest.mark.asyncio
-    async def test_read_events_drops_undecodable_entries_and_keeps_the_rest(
+    def test_read_events_drops_undecodable_entries_and_keeps_the_rest(
         self, sample_trade_event: TradeEvent
     ) -> None:
+        """A malformed record with no field mapping is dropped without losing its siblings."""
         serialized = _serialize_trade_event(sample_trade_event)
+        results = [("trades", [("1704369600000-0", None), (b"1704369600000-1", serialized)])]
 
-        class FakeCorruptRedis(FakeRedis):
-            async def xreadgroup(self, *args: Any, **kwargs: Any) -> list[Any]:
-                _ = (args, kwargs)
-                return [("trades", [("1704369600000-0", None), (b"1704369600000-1", serialized)])]
-
-        publisher = EventPublisher(cast(Any, FakeCorruptRedis()))
-        entries = await publisher.read_events("test-group", "worker-1")
+        entries = _parse_stream_results(results, context="entry", skip_empty=False)
 
         assert [entry.entry_id for entry in entries] == ["1704369600000-1"]
 
     @pytest.mark.asyncio
     async def test_read_pending_keeps_populated_entries_after_an_empty_one(
-        self, sample_trade_event: TradeEvent
+        self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
-        serialized = _serialize_trade_event(sample_trade_event)
+        """Deleting the first delivered entry leaves a tombstone; the second is still recovered."""
+        publisher = EventPublisher(fake_redis)
+        await publisher.create_consumer_group("test-group", start_id="0")
+        first = await publisher.publish(sample_trade_event)
+        second = await publisher.publish(sample_trade_event)
+        await publisher.read_events("test-group", "worker-1")
+        await fake_redis.xdel(DEFAULT_STREAM_NAME, first)
 
-        class FakeMixedRedis(FakeRedis):
-            async def xreadgroup(self, *args: Any, **kwargs: Any) -> list[Any]:
-                _ = (args, kwargs)
-                return [("trades", [("1704369600000-0", {}), ("1704369600000-1", serialized)])]
-
-        publisher = EventPublisher(cast(Any, FakeMixedRedis()))
         entries = await publisher.read_pending("test-group", "worker-1")
 
-        assert [entry.entry_id for entry in entries] == ["1704369600000-1"]
+        assert [entry.entry_id for entry in entries] == [second]

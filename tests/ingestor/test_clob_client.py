@@ -2,8 +2,6 @@
 
 import time
 from collections.abc import Iterator
-from dataclasses import dataclass
-from typing import Any
 
 import pytest
 
@@ -15,6 +13,7 @@ from polymarket_insider_tracker.ingestor.clob_client import (
     with_retry,
 )
 from polymarket_insider_tracker.ingestor.models import Market, Orderbook
+from tests.fakes import FakeBaseClobClient
 
 
 class TestRateLimiter:
@@ -111,98 +110,6 @@ class TestWithRetry:
         assert call_count == 1
 
 
-@dataclass
-class FakeClobLevel:
-    price: str
-    size: str
-
-
-@dataclass
-class FakeClobOrderbook:
-    market: str
-    asset_id: str
-    tick_size: str
-    bids: list[FakeClobLevel] | None
-    asks: list[FakeClobLevel] | None
-
-
-class FakeBaseClobClient:
-    """Working in-memory fake for py-clob-client BaseClobClient."""
-
-    def __init__(self, host: str | None = None) -> None:
-        self.host = host
-        self.fail_health: bool = False
-        self.fail_market: bool = False
-        self.fail_midpoint: bool = False
-        self.simplified_markets_pages: list[dict[str, Any]] = []
-        self.call_count_simplified: int = 0
-        self.health_call_count: int = 0
-
-    def get_ok(self) -> str:
-        self.health_call_count += 1
-        if self.fail_health:
-            raise RuntimeError("Connection failed")
-        return "OK"
-
-    def get_server_time(self) -> int:
-        return 1704067200000
-
-    def get_simplified_markets(self, cursor: str | None = None) -> dict[str, Any]:
-        _ = cursor
-        self.call_count_simplified += 1
-        if self.simplified_markets_pages:
-            idx = min(self.call_count_simplified - 1, len(self.simplified_markets_pages) - 1)
-            return self.simplified_markets_pages[idx]
-        return {
-            "data": [
-                {
-                    "condition_id": "0x123",
-                    "question": "Test market?",
-                    "tokens": [],
-                    "closed": False,
-                }
-            ],
-            "next_cursor": "LTE=",
-        }
-
-    def get_market(self, condition_id: str) -> dict[str, Any]:
-        if self.fail_market:
-            raise RuntimeError("Not found")
-        return {
-            "condition_id": condition_id,
-            "question": "Will it happen?",
-            "tokens": [
-                {"token_id": "t1", "outcome": "Yes"},
-                {"token_id": "t2", "outcome": "No"},
-            ],
-        }
-
-    def get_order_book(self, token_id: str) -> FakeClobOrderbook:
-        return FakeClobOrderbook(
-            market="0xmarket",
-            asset_id=token_id,
-            tick_size="0.01",
-            bids=[FakeClobLevel(price="0.50", size="100")],
-            asks=[FakeClobLevel(price="0.52", size="150")],
-        )
-
-    def get_order_books(self, token_ids: list[str]) -> list[FakeClobOrderbook]:
-        return [
-            FakeClobOrderbook(market=f"m{i}", asset_id=t, tick_size="0.01", bids=[], asks=[])
-            for i, t in enumerate(token_ids, 1)
-        ]
-
-    def get_midpoint(self, token_id: str) -> dict[str, str]:
-        _ = token_id
-        if self.fail_midpoint:
-            raise RuntimeError("API error")
-        return {"mid": "0.55"}
-
-    def get_price(self, token_id: str, side: str = "BUY") -> dict[str, str]:
-        _ = token_id
-        return {"price": "0.53" if side == "BUY" else "0.51"}
-
-
 class TestClobClient:
     """Tests for ClobClient wrapper."""
 
@@ -240,11 +147,11 @@ class TestClobClient:
         client = ClobClient()
         result = client.health_check()
         assert result is True
-        assert fake_base_client.health_call_count == 1
+        assert fake_base_client.health_requests == 1
 
     def test_health_check_failure(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test health check returns False on error."""
-        fake_base_client.fail_health = True
+        fake_base_client.health_error = RuntimeError("Connection failed")
         client = ClobClient()
         result = client.health_check()
         assert result is False
@@ -267,7 +174,7 @@ class TestClobClient:
 
     def test_get_markets_filters_closed(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test that closed markets are filtered when active_only=True."""
-        fake_base_client.simplified_markets_pages = [
+        fake_base_client.pages = [
             {
                 "data": [
                     {"condition_id": "0x1", "closed": False},
@@ -283,7 +190,7 @@ class TestClobClient:
 
     def test_get_markets_includes_closed(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test that closed markets are included when active_only=False."""
-        fake_base_client.simplified_markets_pages = [
+        fake_base_client.pages = [
             {
                 "data": [
                     {"condition_id": "0x1", "closed": False},
@@ -298,7 +205,7 @@ class TestClobClient:
 
     def test_get_markets_pagination(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test that pagination is handled correctly."""
-        fake_base_client.simplified_markets_pages = [
+        fake_base_client.pages = [
             {
                 "data": [{"condition_id": "0x1"}],
                 "next_cursor": "cursor2",
@@ -311,7 +218,7 @@ class TestClobClient:
         client = ClobClient()
         markets = client.get_markets()
         assert len(markets) == 2
-        assert fake_base_client.call_count_simplified == 2
+        assert fake_base_client.page_requests == [None, "cursor2"]
 
     def test_get_market(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test fetching a single market."""
@@ -324,7 +231,7 @@ class TestClobClient:
 
     def test_get_market_not_found(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test error handling when market not found."""
-        fake_base_client.fail_market = True
+        fake_base_client.market_error = RuntimeError("Not found")
         client = ClobClient()
         with pytest.raises(RetryError) as exc_info:
             client.get_market("0xnotfound")
@@ -358,7 +265,7 @@ class TestClobClient:
 
     def test_get_midpoint_error(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test midpoint returns None on error."""
-        fake_base_client.fail_midpoint = True
+        fake_base_client.midpoint_error = RuntimeError("API error")
         client = ClobClient()
         result = client.get_midpoint("token123")
         assert result is None

@@ -2,7 +2,6 @@
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
 
 import pytest
 
@@ -22,48 +21,40 @@ from polymarket_insider_tracker.profiler.models import WalletProfile
 
 
 class FakeWalletAnalyzer:
-    """Fake wallet analyzer for detector tests."""
+    """Wallet profiles keyed by address, standing in for ``WalletAnalyzer``.
 
-    def __init__(
-        self,
-        profile: WalletProfile | None = None,
-        responses: list[Any] | None = None,
-        raise_error: Exception | None = None,
-    ) -> None:
-        self.profile = profile
-        self.responses = list(responses) if responses is not None else None
-        self.raise_error = raise_error
+    ``register`` stores the profile a wallet resolves to and ``failures`` maps a wallet to the
+    error its analysis raises. ``analyzed_addresses`` records which wallets were profiled, the
+    RPC-backed work the detector must skip for trades below its size threshold.
+    """
+
+    def __init__(self) -> None:
+        self.profiles: dict[str, WalletProfile] = {}
+        self.failures: dict[str, Exception] = {}
         self.analyzed_addresses: list[str] = []
 
-    def _next_response(self) -> WalletProfile:
-        if not self.responses:
-            raise RuntimeError("No more responses")
-        outcome = self.responses.pop(0)
-        if isinstance(outcome, BaseException):
-            raise outcome
-        return outcome
+    def register(self, profile: WalletProfile) -> None:
+        self.profiles[profile.address.lower()] = profile
 
-    async def analyze(self, address: str, **kwargs: Any) -> WalletProfile:
-        _ = kwargs
-        self.analyzed_addresses.append(address.lower())
-        if self.raise_error is not None:
-            raise self.raise_error
-        if self.responses is not None:
-            return self._next_response()
-        return self.profile or create_wallet_profile(address=address)
+    async def analyze(self, address: str) -> WalletProfile:
+        wallet = address.lower()
+        self.analyzed_addresses.append(wallet)
+        if wallet in self.failures:
+            raise self.failures[wallet]
+        return self.profiles[wallet]
 
 
 # Test fixtures
 @pytest.fixture
-def mock_wallet_analyzer() -> FakeWalletAnalyzer:
+def fake_wallet_analyzer() -> FakeWalletAnalyzer:
     """Create a fake WalletAnalyzer."""
     return FakeWalletAnalyzer()
 
 
 @pytest.fixture
-def detector(mock_wallet_analyzer: FakeWalletAnalyzer) -> FreshWalletDetector:
+def detector(fake_wallet_analyzer: FakeWalletAnalyzer) -> FreshWalletDetector:
     """Create a FreshWalletDetector with fake analyzer."""
-    return FreshWalletDetector(cast(Any, mock_wallet_analyzer))
+    return FreshWalletDetector(fake_wallet_analyzer)
 
 
 def create_trade_event(
@@ -243,17 +234,17 @@ class TestFreshWalletSignal:
 class TestFreshWalletDetectorInit:
     """Tests for FreshWalletDetector initialization."""
 
-    def test_default_config(self, mock_wallet_analyzer):
+    def test_default_config(self, fake_wallet_analyzer):
         """Test detector initializes with default config."""
-        detector = FreshWalletDetector(mock_wallet_analyzer)
+        detector = FreshWalletDetector(fake_wallet_analyzer)
         assert detector._min_trade_size == DEFAULT_MIN_TRADE_SIZE
         assert detector._max_nonce == DEFAULT_MAX_NONCE
         assert detector._max_age_hours == DEFAULT_MAX_AGE_HOURS
 
-    def test_custom_config(self, mock_wallet_analyzer):
+    def test_custom_config(self, fake_wallet_analyzer):
         """Test detector accepts custom config."""
         detector = FreshWalletDetector(
-            mock_wallet_analyzer,
+            fake_wallet_analyzer,
             min_trade_size=Decimal("5000"),
             max_nonce=10,
             max_age_hours=72.0,
@@ -269,7 +260,7 @@ class TestFreshWalletDetectorInit:
 class TestFreshWalletDetectorAnalyze:
     """Tests for FreshWalletDetector.analyze method."""
 
-    async def test_filters_small_trades(self, detector, mock_wallet_analyzer):
+    async def test_filters_small_trades(self, detector, fake_wallet_analyzer):
         """Test that trades below minimum size are filtered out."""
         trade = create_trade_event(
             price=Decimal("0.1"),
@@ -279,16 +270,16 @@ class TestFreshWalletDetectorAnalyze:
         result = await detector.analyze(trade)
 
         assert result is None
-        assert len(mock_wallet_analyzer.analyzed_addresses) == 0
+        assert len(fake_wallet_analyzer.analyzed_addresses) == 0
 
-    async def test_detects_fresh_wallet(self, detector, mock_wallet_analyzer):
+    async def test_detects_fresh_wallet(self, detector, fake_wallet_analyzer):
         """Test detection of fresh wallet trade."""
         trade = create_trade_event(
             price=Decimal("0.5"),
             size=Decimal("2000"),  # notional = $1000
         )
         profile = create_wallet_profile(nonce=2, age_hours=24.0, is_fresh=True)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
@@ -298,73 +289,73 @@ class TestFreshWalletDetectorAnalyze:
         assert result.wallet_profile == profile
         assert result.confidence >= BASE_CONFIDENCE
 
-    async def test_filters_non_fresh_wallet(self, detector, mock_wallet_analyzer):
+    async def test_filters_non_fresh_wallet(self, detector, fake_wallet_analyzer):
         """Test that non-fresh wallets are filtered out."""
         trade = create_trade_event(
             price=Decimal("0.5"),
             size=Decimal("4000"),  # notional = $2000
         )
         profile = create_wallet_profile(nonce=10, age_hours=100.0, is_fresh=False)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
         assert result is None
 
-    async def test_handles_analyzer_error(self, detector, mock_wallet_analyzer):
+    async def test_handles_analyzer_error(self, detector, fake_wallet_analyzer):
         """Test graceful handling of analyzer errors."""
         trade = create_trade_event()
-        mock_wallet_analyzer.raise_error = Exception("RPC error")
+        fake_wallet_analyzer.failures[trade.wallet_address] = Exception("RPC error")
 
         result = await detector.analyze(trade)
 
         assert result is None
 
-    async def test_wallet_at_nonce_threshold(self, detector, mock_wallet_analyzer):
+    async def test_wallet_at_nonce_threshold(self, detector, fake_wallet_analyzer):
         """Test wallet exactly at max_nonce threshold."""
         trade = create_trade_event(size=Decimal("3000"))
         profile = create_wallet_profile(nonce=5, age_hours=24.0)  # At threshold
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
         assert result is not None
 
-    async def test_wallet_above_nonce_threshold(self, detector, mock_wallet_analyzer):
+    async def test_wallet_above_nonce_threshold(self, detector, fake_wallet_analyzer):
         """Test wallet above max_nonce threshold."""
         trade = create_trade_event(size=Decimal("3000"))
         profile = create_wallet_profile(nonce=6, age_hours=24.0)  # Above threshold
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
         assert result is None
 
-    async def test_wallet_at_age_threshold(self, detector, mock_wallet_analyzer):
+    async def test_wallet_at_age_threshold(self, detector, fake_wallet_analyzer):
         """Test wallet exactly at max_age_hours threshold."""
         trade = create_trade_event(size=Decimal("3000"))
         profile = create_wallet_profile(nonce=2, age_hours=48.0)  # At threshold
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
         assert result is not None
 
-    async def test_wallet_above_age_threshold(self, detector, mock_wallet_analyzer):
+    async def test_wallet_above_age_threshold(self, detector, fake_wallet_analyzer):
         """Test wallet above max_age_hours threshold."""
         trade = create_trade_event(size=Decimal("3000"))
         profile = create_wallet_profile(nonce=2, age_hours=49.0)  # Above threshold
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
         assert result is None
 
-    async def test_wallet_with_unknown_age(self, detector, mock_wallet_analyzer):
+    async def test_wallet_with_unknown_age(self, detector, fake_wallet_analyzer):
         """Test wallet with unknown age (None)."""
         trade = create_trade_event(size=Decimal("3000"))
         profile = create_wallet_profile(nonce=2, age_hours=None)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
@@ -493,44 +484,47 @@ class TestConfidenceScoring:
 class TestBatchAnalysis:
     """Tests for batch trade analysis."""
 
-    async def test_analyze_batch_success(self, detector, mock_wallet_analyzer):
+    async def test_analyze_batch_success(self, detector, fake_wallet_analyzer):
         """Test analyzing multiple trades."""
         trades = [
             create_trade_event(trade_id="trade1", size=Decimal("3000")),
             create_trade_event(trade_id="trade2", size=Decimal("4000")),
         ]
         profile = create_wallet_profile(nonce=2, age_hours=24.0)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         results = await detector.analyze_batch(trades)
 
         assert len(results) == 2
         assert all(isinstance(r, FreshWalletSignal) for r in results)
 
-    async def test_analyze_batch_filters_small(self, detector, mock_wallet_analyzer):
+    async def test_analyze_batch_filters_small(self, detector, fake_wallet_analyzer):
         """Test batch analysis filters small trades."""
         trades = [
             create_trade_event(trade_id="trade1", size=Decimal("3000")),  # Above threshold
             create_trade_event(trade_id="trade2", size=Decimal("100")),  # Below threshold
         ]
         profile = create_wallet_profile(nonce=2, age_hours=24.0)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         results = await detector.analyze_batch(trades)
 
         assert len(results) == 1
         assert results[0].trade_event.trade_id == "trade1"
 
-    async def test_analyze_batch_handles_errors(self, detector, mock_wallet_analyzer):
+    async def test_analyze_batch_handles_errors(self, detector, fake_wallet_analyzer):
         """Test batch analysis handles individual errors gracefully."""
+        failing_wallet = "0x" + "9" * 40
         trades = [
             create_trade_event(trade_id="trade1", size=Decimal("3000")),
-            create_trade_event(trade_id="trade2", size=Decimal("4000")),
+            create_trade_event(
+                trade_id="trade2", size=Decimal("4000"), wallet_address=failing_wallet
+            ),
         ]
 
-        # First call succeeds, second fails
-        profile = create_wallet_profile(nonce=2, age_hours=24.0)
-        mock_wallet_analyzer.responses = [profile, Exception("Error")]
+        # The first wallet profiles normally; analysing the second wallet fails.
+        fake_wallet_analyzer.register(create_wallet_profile(nonce=2, age_hours=24.0))
+        fake_wallet_analyzer.failures[failing_wallet] = Exception("Error")
 
         results = await detector.analyze_batch(trades)
 
@@ -542,7 +536,7 @@ class TestBatchAnalysis:
 
         assert results == []
 
-    async def test_analyze_batch_all_filtered(self, detector, mock_wallet_analyzer):
+    async def test_analyze_batch_all_filtered(self, detector, fake_wallet_analyzer):
         """Test batch analysis when all trades are filtered."""
         trades = [
             create_trade_event(trade_id="trade1", size=Decimal("100")),
@@ -552,7 +546,7 @@ class TestBatchAnalysis:
         results = await detector.analyze_batch(trades)
 
         assert results == []
-        assert len(mock_wallet_analyzer.analyzed_addresses) == 0
+        assert len(fake_wallet_analyzer.analyzed_addresses) == 0
 
 
 # === Integration-Style Tests ===
@@ -561,9 +555,9 @@ class TestBatchAnalysis:
 class TestDetectorIntegration:
     """Integration-style tests for complete detector flow."""
 
-    async def test_full_detection_flow(self, mock_wallet_analyzer):
+    async def test_full_detection_flow(self, fake_wallet_analyzer):
         """Test complete detection flow from trade to signal."""
-        detector = FreshWalletDetector(mock_wallet_analyzer)
+        detector = FreshWalletDetector(fake_wallet_analyzer)
 
         # Create a suspicious trade
         trade = create_trade_event(
@@ -579,7 +573,7 @@ class TestDetectorIntegration:
             nonce=0,  # Brand new
             age_hours=0.5,  # Very young
         )
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         # Analyze
         signal = await detector.analyze(trade)
@@ -593,10 +587,10 @@ class TestDetectorIntegration:
         assert "very_young" in signal.factors
         assert "large_trade" in signal.factors
 
-    async def test_custom_thresholds(self, mock_wallet_analyzer):
+    async def test_custom_thresholds(self, fake_wallet_analyzer):
         """Test detection with custom thresholds."""
         detector = FreshWalletDetector(
-            mock_wallet_analyzer,
+            fake_wallet_analyzer,
             min_trade_size=Decimal("5000"),
             max_nonce=3,
             max_age_hours=24.0,
@@ -605,34 +599,34 @@ class TestDetectorIntegration:
         # Trade that would pass default but fails custom thresholds
         trade = create_trade_event(size=Decimal("8000"))  # $4000 notional
         profile = create_wallet_profile(nonce=4, age_hours=30.0)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         # Should fail min_trade_size check
         result = await detector.analyze(trade)
         assert result is None
 
-    async def test_edge_case_exact_min_trade_size(self, detector, mock_wallet_analyzer):
+    async def test_edge_case_exact_min_trade_size(self, detector, fake_wallet_analyzer):
         """Test trade exactly at minimum size threshold."""
         trade = create_trade_event(
             price=Decimal("0.5"),
             size=Decimal("2000"),  # $1000 notional exactly at default
         )
         profile = create_wallet_profile(nonce=2)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 
         # At threshold should pass
         assert result is not None
 
-    async def test_edge_case_below_min_trade_size(self, detector, mock_wallet_analyzer):
+    async def test_edge_case_below_min_trade_size(self, detector, fake_wallet_analyzer):
         """Test trade just below minimum size threshold."""
         trade = create_trade_event(
             price=Decimal("0.5"),
             size=Decimal("1999"),  # $999.50 - just under $1000
         )
         profile = create_wallet_profile(nonce=2)
-        mock_wallet_analyzer.profile = profile
+        fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
 

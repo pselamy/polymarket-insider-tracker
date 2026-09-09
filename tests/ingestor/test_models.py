@@ -1,10 +1,10 @@
 """Tests for ingestor data models."""
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from py_clob_client.clob_types import OrderBookSummary, OrderSummary
 
 from polymarket_insider_tracker.ingestor.models import (
     Market,
@@ -134,32 +134,17 @@ class TestOrderbookLevel:
             level.price = Decimal("0.6")  # type: ignore[misc]
 
 
-@dataclass
-class FakeClobLevel:
-    price: str
-    size: str
-
-
-@dataclass
-class FakeClobOrderbook:
-    market: str
-    asset_id: str
-    tick_size: str
-    bids: list[FakeClobLevel] | None
-    asks: list[FakeClobLevel] | None
-
-
 class TestOrderbook:
     """Tests for Orderbook model."""
 
     def test_from_clob_orderbook(self) -> None:
         """Test creating Orderbook from py-clob-client response."""
-        clob_ob = FakeClobOrderbook(
+        clob_ob = OrderBookSummary(
             market="0xmarket123",
             asset_id="token123",
             tick_size="0.01",
-            bids=[FakeClobLevel(price="0.50", size="100")],
-            asks=[FakeClobLevel(price="0.52", size="150")],
+            bids=[OrderSummary(price="0.50", size="100")],
+            asks=[OrderSummary(price="0.52", size="150")],
         )
 
         orderbook = Orderbook.from_clob_orderbook(clob_ob)
@@ -174,7 +159,7 @@ class TestOrderbook:
 
     def test_from_clob_orderbook_empty(self) -> None:
         """Test creating Orderbook with empty bids/asks."""
-        clob_ob = FakeClobOrderbook(
+        clob_ob = OrderBookSummary(
             market="0xmarket",
             asset_id="token",
             tick_size="0.01",

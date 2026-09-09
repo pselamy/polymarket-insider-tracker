@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.alerter.history import (
     AlertHistory,
@@ -19,7 +20,6 @@ from polymarket_insider_tracker.detector.models import (
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
-from tests.fakes.redis import FakeRedis
 
 # ============================================================================
 # Fixtures
@@ -117,12 +117,6 @@ def high_risk_assessment(
         weighted_score=0.82,
         should_alert=True,
     )
-
-
-@pytest.fixture
-def fake_redis() -> FakeRedis:
-    """Create a FakeRedis client."""
-    return FakeRedis()
 
 
 # ============================================================================
@@ -275,7 +269,7 @@ class TestGetSignalsFromAssessment:
 class TestAlertHistoryInit:
     """Tests for AlertHistory initialization."""
 
-    def test_default_settings(self, fake_redis: FakeRedis) -> None:
+    def test_default_settings(self, fake_redis: FakeAsyncRedis) -> None:
         """Test default configuration."""
         history = AlertHistory(fake_redis)
 
@@ -284,7 +278,7 @@ class TestAlertHistoryInit:
         assert history._dedup_ttl == 3600
         assert history._retention_ttl == 30 * 86400
 
-    def test_custom_settings(self, fake_redis: FakeRedis) -> None:
+    def test_custom_settings(self, fake_redis: FakeAsyncRedis) -> None:
         """Test custom configuration."""
         history = AlertHistory(
             fake_redis,
@@ -304,7 +298,7 @@ class TestShouldSend:
     @pytest.mark.asyncio
     async def test_not_duplicate(
         self,
-        fake_redis: FakeRedis,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test that non-duplicate returns True."""
@@ -317,7 +311,7 @@ class TestShouldSend:
     @pytest.mark.asyncio
     async def test_is_duplicate(
         self,
-        fake_redis: FakeRedis,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test that duplicate returns False."""
@@ -336,7 +330,7 @@ class TestRecordSent:
     @pytest.mark.asyncio
     async def test_record_success(
         self,
-        fake_redis: FakeRedis,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test recording a sent alert."""
@@ -361,7 +355,7 @@ class TestRecordFeedback:
     """Tests for record_feedback method."""
 
     @pytest.mark.asyncio
-    async def test_feedback_success(self, fake_redis: FakeRedis) -> None:
+    async def test_feedback_success(self, fake_redis: FakeAsyncRedis) -> None:
         """Test recording feedback for existing alert."""
         existing_record = {
             "alert_id": "test-123",
@@ -387,7 +381,7 @@ class TestRecordFeedback:
         assert record.feedback_useful is True
 
     @pytest.mark.asyncio
-    async def test_feedback_not_found(self, fake_redis: FakeRedis) -> None:
+    async def test_feedback_not_found(self, fake_redis: FakeAsyncRedis) -> None:
         """Test feedback for non-existent alert."""
         history = AlertHistory(fake_redis)
         result = await history.record_feedback("nonexistent", useful=True)
@@ -399,7 +393,7 @@ class TestGetAlert:
     """Tests for get_alert method."""
 
     @pytest.mark.asyncio
-    async def test_get_existing(self, fake_redis: FakeRedis) -> None:
+    async def test_get_existing(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting existing alert."""
         existing_record = {
             "alert_id": "test-123",
@@ -422,7 +416,7 @@ class TestGetAlert:
         assert record.risk_score == 0.75
 
     @pytest.mark.asyncio
-    async def test_get_nonexistent(self, fake_redis: FakeRedis) -> None:
+    async def test_get_nonexistent(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting non-existent alert."""
         history = AlertHistory(fake_redis)
         record = await history.get_alert("nonexistent")
@@ -434,7 +428,7 @@ class TestGetAlerts:
     """Tests for get_alerts query method."""
 
     @pytest.mark.asyncio
-    async def test_empty_results(self, fake_redis: FakeRedis) -> None:
+    async def test_empty_results(self, fake_redis: FakeAsyncRedis) -> None:
         """Test query with no results."""
         history = AlertHistory(fake_redis)
         results = await history.get_alerts(
@@ -447,7 +441,7 @@ class TestGetAlerts:
     @pytest.mark.asyncio
     async def test_with_wallet_filter(
         self,
-        fake_redis: FakeRedis,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test query with wallet filter uses correct index."""
@@ -473,7 +467,7 @@ class TestGetRecentCount:
     @pytest.mark.asyncio
     async def test_count_all(
         self,
-        fake_redis: FakeRedis,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test counting all recent alerts."""
@@ -491,7 +485,7 @@ class TestGetRecentCount:
     @pytest.mark.asyncio
     async def test_count_by_wallet(
         self,
-        fake_redis: FakeRedis,
+        fake_redis: FakeAsyncRedis,
         high_risk_assessment: RiskAssessment,
     ) -> None:
         """Test counting alerts for specific wallet."""
@@ -512,7 +506,7 @@ class TestCleanupOldAlerts:
     """Tests for cleanup_old_alerts method."""
 
     @pytest.mark.asyncio
-    async def test_cleanup_empty(self, fake_redis: FakeRedis) -> None:
+    async def test_cleanup_empty(self, fake_redis: FakeAsyncRedis) -> None:
         """Test cleanup with no old alerts."""
         history = AlertHistory(fake_redis)
         removed = await history.cleanup_old_alerts()
@@ -520,7 +514,7 @@ class TestCleanupOldAlerts:
         assert removed == 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_removes_old(self, fake_redis: FakeRedis) -> None:
+    async def test_cleanup_removes_old(self, fake_redis: FakeAsyncRedis) -> None:
         """Test cleanup removes old alerts."""
         history = AlertHistory(fake_redis)
         old_time = (datetime.now(UTC) - timedelta(days=35)).timestamp()
@@ -553,7 +547,7 @@ class TestGetAlertsFilters:
 
     @pytest.mark.asyncio
     async def test_market_filter_uses_market_index_and_drops_mismatches(
-        self, fake_redis: FakeRedis
+        self, fake_redis: FakeAsyncRedis
     ) -> None:
         history = AlertHistory(fake_redis)
         now = datetime.now(UTC).timestamp()
@@ -571,7 +565,7 @@ class TestGetAlertsFilters:
 
     @pytest.mark.asyncio
     async def test_wallet_filter_wins_over_market_and_missing_records_are_skipped(
-        self, fake_redis: FakeRedis
+        self, fake_redis: FakeAsyncRedis
     ) -> None:
         history = AlertHistory(fake_redis)
         now = datetime.now(UTC).timestamp()
@@ -590,7 +584,7 @@ class TestGetAlertsFilters:
 
     @pytest.mark.asyncio
     async def test_no_filter_uses_the_time_index_and_bounds_by_limit(
-        self, fake_redis: FakeRedis
+        self, fake_redis: FakeAsyncRedis
     ) -> None:
         history = AlertHistory(fake_redis)
         start = datetime(2026, 1, 1, tzinfo=UTC)
