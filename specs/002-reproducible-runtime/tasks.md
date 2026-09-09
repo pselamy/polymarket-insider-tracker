@@ -319,7 +319,10 @@ completion is not evidence for this phase; each item below is checked only when 
   of it unamended as one corrective commit and the review recorded in `evidence/verification.md`
   (contract test self-detection, explicit-flag canonical command, corrected hotspot ledger, restored
   behaviour parity with focused tests).
-- [ ] T077 Codex refute-first review, with every finding resolved or recorded.
+- [X] T077 Codex refute-first review, with every finding resolved or recorded. The review reproduced and
+  closed an upstream `ignore-complexity = true` exit-status escape, added the missing Complexipy verifier
+  failure/help contracts, and completed the full local static, compatibility, service, aggregate, and
+  configuration-independent analyzer verification recorded in `evidence/verification.md`.
 - [ ] T078 Open the non-draft pull request for `quality/complexipy-required-gate` against `main`.
 - [ ] T079 Verify that the independent `Complexipy complexity check` job and the `Required checks` aggregator
   pass on the pull-request head; record the immutable run and per-job conclusions in `evidence/verification.md`.

@@ -1119,3 +1119,79 @@ its own hash. Repository identity `pselamy <pselamy@gmail.com>` is unchanged; no
 - **Reviewed commit**: `71cc478f3c2dbf9e72871e71be49a3dbe97ea1e4` (Agy first pass, unamended)
 - **Tasks closed**: T076
 - **Tasks pending**: T077–T082
+
+### Phase 11 — Codex refute-first review and pre-push verification
+
+Codex independently reviewed the exact ordered chain
+`ff146dccbb37ef90f8784bd3115adf64f206f96d` →
+`71cc478f3c2dbf9e72871e71be49a3dbe97ea1e4` (Agy) →
+`ec7992a7ed273309868274e34d4ffaf114cd8033` (Claude Code/fable), read the production
+diff rather than accepting agent summaries, and compared the untouched-base and corrected-tree
+Complexipy JSON reports by `(path, file_name, function_name)`.
+
+#### Findings and corrections
+
+1. **Report-only exit mode remained an invocation escape (blocker, fixed).** Complexipy 8.0.1 was
+   invoked with explicit scope, threshold, and `--no-ignore`, but a higher-priority
+   `.complexipy.toml` containing `ignore-complexity = true` still made a score-28 function exit 0
+   while reporting the violation. The same probe with `--ignore-complexity=false` exited 1. The
+   canonical verifier command, direct-command help, independent CI job, contract tests, README,
+   plan, and runtime contract now include that explicit false override. The repository configuration
+   remains limited to `paths`, `max-complexity-allowed = 5`, and `no-ignore = true`; it does not add
+   the escape-hatch key.
+2. **The verifier's per-gate fail-closed test omitted Complexipy (blocker, fixed).** The parameterized
+   `all`-profile failure test now injects a Complexipy failure and proves it becomes the first failed
+   gate with every later gate marked not run. The first-failure rendering test now also requires the
+   Complexipy not-run line.
+3. **The help contract did not explicitly require the Complexipy command (contract gap, fixed).** The
+   CLI help test now requires the complete canonical command, including its scope and all fail-closed
+   policy flags.
+4. **Production-refactor review (no additional blocker).** The extracted retry, pagination, stream,
+   health, metadata, alert formatting/history, scoring, pipeline persistence, funding, repository,
+   URL-validation, and migration helpers preserve the base interfaces and observable control flow.
+   Fable's focused parity tests cover the behavior changes it restored; the complete suite and live
+   migration cycle passed after the Codex corrections.
+
+#### Independent results on the Codex-corrected tree
+
+```text
+Exact base tests:                         805 passed, 2 skipped
+Complexipy baseline:                     1,312 functions; max 20; 61 above 5
+Complexipy corrected tree:               1,486 functions; max 5; 0 above 5
+Baseline hotspot identity comparison:    61/61 still present; 61/61 now <= 5
+Configuration-independent analyzer run:  1,486 functions; max 5; 0 above 5
+Tooling contracts:                       78 passed
+Static profile (Python 3.11):            PASS (lock, Black, Ruff, mypy, Pyright, Vulture, Complexipy)
+Compatibility profile (Python 3.11):     856 passed, 2 skipped, 16 warnings; PASS
+Compatibility profile (Python 3.12):     856 passed, 2 skipped, 16 warnings; PASS
+Compatibility profile (Python 3.13):     856 passed, 2 skipped, 16 warnings; PASS
+Services profile (Python 3.13):          PostgreSQL probe, Redis PING, upgrade/downgrade/re-upgrade,
+                                         async query, and cleanup all PASS
+All profile (Python 3.11, live services): all eleven gates PASS; 26.22s
+actionlint 1.7.12:                       PASS (release artifact attestation verified)
+uv lock --check:                         PASS
+git diff --check:                        PASS
+CodeGraph sync/affected:                 current index; no additional test files identified
+```
+
+The service and `all` profiles used fresh, digest-pinned PostgreSQL 15 and Redis 7 containers bound
+only to alternate loopback ports. Both containers and their anonymous state were removed after the
+runs. The 16 warnings are the established websocket deprecation, legacy database-driver migration,
+and platform-dependent unawaited-mock warnings; no warning was converted into a bypass or exclusion.
+
+The independent no-configuration scan ran the installed locked binary from a directory outside the
+repository with absolute scope paths and the explicit command-line policy. It therefore did not
+discover `[tool.complexipy]`, yet produced the same 1,486-function, maximum-5 result. The corrected
+distribution is `0:1019, 1:183, 2:122, 3:84, 4:44, 5:34`.
+
+#### Provenance
+
+- **Date**: 2026-09-09 on `dev@selamy-core` (2026-09-08 America/New_York)
+- **Agent**: OpenAI Codex
+- **Role**: `refute-first-review-and-correction`
+- **Reviewed commits**: `71cc478f3c2dbf9e72871e71be49a3dbe97ea1e4`,
+  `ec7992a7ed273309868274e34d4ffaf114cd8033`
+- **Tasks closed**: T077
+- **Tasks pending**: T078–T082
+- **Not performed**: no push, pull request, merge, rebase, squash, amend, approval, or post-merge
+  action at this checkpoint

@@ -108,6 +108,7 @@ def test_complexipy_gate_is_configured_and_matches_canonical_policy() -> None:
         "--max-complexity-allowed",
         "5",
         "--no-ignore",
+        "--ignore-complexity=false",
     )
     with (MODULE_PATH.parents[1] / "pyproject.toml").open("rb") as handle:
         pyproject = tomllib.load(handle)
@@ -116,7 +117,8 @@ def test_complexipy_gate_is_configured_and_matches_canonical_policy() -> None:
     assert pyproject["tool"]["complexipy"]["no-ignore"] is True
     assert dict(module.DIRECT_GATE_COMMANDS)["complexipy"] == (
         "uv run --isolated --locked --all-extras --python 3.11 complexipy "
-        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore"
+        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "--ignore-complexity=false"
     )
 
 
@@ -271,6 +273,7 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
         "strict-types",
         "pyright",
         "vulture",
+        "complexipy",
         "imports",
         "tests",
         "services",
@@ -349,6 +352,7 @@ def test_first_failure_output_includes_not_run_gates() -> None:
     assert "[SKIP] strict-types: not run after format failed" in rendered
     assert "[SKIP] pyright: not run after format failed" in rendered
     assert "[SKIP] vulture: not run after format failed" in rendered
+    assert "[SKIP] complexipy: not run after format failed" in rendered
     assert "first failed gate: format" in rendered
 
 
@@ -432,6 +436,9 @@ def test_help_lists_every_direct_gate_command() -> None:
         "pyright src/polymarket_insider_tracker",
         "uv run --isolated --locked --all-extras --python 3.11 vulture "
         "src tests scripts alembic conftest.py",
+        "uv run --isolated --locked --all-extras --python 3.11 complexipy "
+        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "--ignore-complexity=false",
         "uv run pytest",
         "uv run --env-file .env alembic upgrade head",
     ):

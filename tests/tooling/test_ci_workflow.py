@@ -37,7 +37,7 @@ CANONICAL_COMPLEXIPY_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py
 CANONICAL_COMPLEXIPY_COMMAND = (
     "uv run --isolated --locked --all-extras --python 3.11 complexipy "
     + " ".join(CANONICAL_COMPLEXIPY_SCOPE)
-    + " --max-complexity-allowed 5 --no-ignore"
+    + " --max-complexity-allowed 5 --no-ignore --ignore-complexity=false"
 )
 NON_SUCCESS_RESULTS = ("failure", "cancelled", "skipped")
 NEEDS_RESULT_EXPRESSION = re.compile(r"^\$\{\{ needs\.(?P<job>[A-Za-z0-9_-]+)\.result \}\}$")

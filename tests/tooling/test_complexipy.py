@@ -24,7 +24,12 @@ import pytest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
 CANONICAL_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
-POLICY_FLAGS = ("--max-complexity-allowed", "5", "--no-ignore")
+POLICY_FLAGS = (
+    "--max-complexity-allowed",
+    "5",
+    "--no-ignore",
+    "--ignore-complexity=false",
+)
 LOCKED_PREFIX = (
     "uv",
     "run",
@@ -104,6 +109,7 @@ def test_canonical_command_names_scope_and_policy_and_matches_verifier() -> None
     assert verifier.GATES["complexipy"].command == CANONICAL_COMMAND
     assert dict(verifier.DIRECT_GATE_COMMANDS)["complexipy"] == " ".join(CANONICAL_COMMAND)
     assert "--no-ignore" in CANONICAL_COMMAND
+    assert "--ignore-complexity=false" in CANONICAL_COMMAND
     assert CANONICAL_COMMAND[CANONICAL_COMMAND.index("--max-complexity-allowed") + 1] == "5"
     for entry in CANONICAL_SCOPE:
         assert entry in CANONICAL_COMMAND
@@ -236,10 +242,11 @@ def test_no_ignore_rejects_each_suppression_syntax_on_score_6(tmp_path: Path, ki
     assert _run_locked_analyzer(suppressed, tmp_path=tmp_path, explicit_policy=True) != 0
 
 
-def test_explicit_policy_flags_override_a_relaxed_working_directory_config(tmp_path: Path) -> None:
-    """Upstream prefers a cwd ``.complexipy.toml``; the explicit flags keep the gate closed anyway."""
+def test_explicit_policy_flags_override_working_directory_escape_hatches(tmp_path: Path) -> None:
+    """Explicit flags defeat upstream's higher-priority cwd config and report-only exit mode."""
     (tmp_path / ".complexipy.toml").write_text(
-        "max-complexity-allowed = 100\nno-ignore = false\n", encoding="utf-8"
+        "max-complexity-allowed = 100\nno-ignore = false\nignore-complexity = true\n",
+        encoding="utf-8",
     )
     suppressed = SCORE_6_CODE.replace(
         "def sample_func(x: int) -> int:\n",

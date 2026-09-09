@@ -141,6 +141,7 @@ GATES: Mapping[str, Gate] = {
             "--max-complexity-allowed",
             "5",
             "--no-ignore",
+            "--ignore-complexity=false",
         ),
     ),
     "imports": Gate(
@@ -216,7 +217,8 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "complexipy",
         "uv run --isolated --locked --all-extras --python 3.11 complexipy "
-        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore",
+        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "--ignore-complexity=false",
     ),
     (
         "imports",

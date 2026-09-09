@@ -210,7 +210,7 @@ Complexipy runs as its own required CI job and verifier gate over `src`, `tests`
 complexity of 5 with `--no-ignore` enabled, rejecting inline suppression comments and configuration escape hatches:
 
 ```bash
-uv run --isolated --locked --all-extras --python 3.11 complexipy src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore
+uv run --isolated --locked --all-extras --python 3.11 complexipy src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false
 ```
 
 The `compatibility` profile checks locked imports and the deterministic test suite. The `services`
