@@ -73,6 +73,47 @@ class TelegramChannel:
 
             self._request_times.append(now)
 
+    async def _post_payload(
+        self,
+        payload: dict[str, object],
+        attempt: int,
+    ) -> bool | None:
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(
+                    self._api_url,
+                    json=payload,
+                )
+
+                result = response.json()
+
+                if result.get("ok"):
+                    logger.info("Telegram alert delivered successfully")
+                    return True
+
+                error_code = result.get("error_code", 0)
+                description = result.get("description", "Unknown error")
+
+                if error_code == 429:
+                    retry_after = result.get("parameters", {}).get("retry_after", 1)
+                    logger.warning(f"Telegram rate limited, retry after {retry_after}s")
+                    await asyncio.sleep(retry_after)
+                    return False
+
+                logger.error(f"Telegram API error: {error_code} - {description}")
+
+        except httpx.TimeoutException:
+            logger.warning(f"Telegram API timeout (attempt {attempt + 1})")
+        except httpx.HTTPError as e:
+            logger.error(f"Telegram API error: {e}")
+
+        return None
+
+    async def _backoff(self, attempt: int) -> None:
+        if attempt < self.max_retries - 1:
+            delay = self.retry_delay * (2**attempt)
+            await asyncio.sleep(delay)
+
     async def send(self, alert: FormattedAlert) -> bool:
         """Send alert to Telegram channel.
 
@@ -84,7 +125,7 @@ class TelegramChannel:
         """
         await self._wait_for_rate_limit()
 
-        payload = {
+        payload: dict[str, object] = {
             "chat_id": self.chat_id,
             "text": alert.telegram_markdown,
             "parse_mode": "MarkdownV2",
@@ -92,40 +133,12 @@ class TelegramChannel:
         }
 
         for attempt in range(self.max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
-                    response = await client.post(
-                        self._api_url,
-                        json=payload,
-                    )
-
-                    result = response.json()
-
-                    if result.get("ok"):
-                        logger.info("Telegram alert delivered successfully")
-                        return True
-
-                    error_code = result.get("error_code", 0)
-                    description = result.get("description", "Unknown error")
-
-                    if error_code == 429:
-                        # Rate limited
-                        retry_after = result.get("parameters", {}).get("retry_after", 1)
-                        logger.warning(f"Telegram rate limited, retry after {retry_after}s")
-                        await asyncio.sleep(retry_after)
-                        continue
-
-                    logger.error(f"Telegram API error: {error_code} - {description}")
-
-            except httpx.TimeoutException:
-                logger.warning(f"Telegram API timeout (attempt {attempt + 1})")
-            except httpx.HTTPError as e:
-                logger.error(f"Telegram API error: {e}")
-
-            # Exponential backoff
-            if attempt < self.max_retries - 1:
-                delay = self.retry_delay * (2**attempt)
-                await asyncio.sleep(delay)
+            result = await self._post_payload(payload, attempt)
+            if result is True:
+                return True
+            if result is False:
+                continue
+            await self._backoff(attempt)
 
         logger.error("Telegram delivery failed after all retries")
         return False

@@ -7,6 +7,7 @@ funding transfers, and wallet relationships.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 
 from polymarket_insider_tracker.storage.models import (
     FundingTransferModel,
@@ -378,6 +380,26 @@ class FundingRepository:
         await self.session.flush()
         return dto
 
+    @staticmethod
+    def _is_duplicate_funding_error(error: IntegrityError) -> bool:
+        """Match structured SQLite and PostgreSQL unique-violation identifiers."""
+        original = error.orig
+        return (
+            getattr(original, "sqlite_errorcode", None) == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+            or getattr(original, "sqlstate", None) == "23505"
+            or getattr(original, "pgcode", None) == "23505"
+        )
+
+    async def _try_insert_single(self, dto: FundingTransferDTO) -> bool:
+        try:
+            async with self.session.begin_nested():
+                await self.insert(dto)
+        except IntegrityError as error:
+            if self._is_duplicate_funding_error(error):
+                return False
+            raise
+        return True
+
     async def insert_many(self, dtos: list[FundingTransferDTO]) -> int:
         """Insert multiple funding transfers.
 
@@ -391,14 +413,8 @@ class FundingRepository:
         """
         inserted = 0
         for dto in dtos:
-            try:
-                await self.insert(dto)
+            if await self._try_insert_single(dto):
                 inserted += 1
-            except Exception as e:
-                # Skip duplicates
-                if "UNIQUE constraint" in str(e) or "duplicate key" in str(e).lower():
-                    continue
-                raise
         return inserted
 
 

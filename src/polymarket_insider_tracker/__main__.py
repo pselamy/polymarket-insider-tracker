@@ -165,6 +165,18 @@ def print_config_summary(settings: Settings, dry_run: bool) -> None:
     print()
 
 
+def _format_error_field(loc: tuple[int | str, ...]) -> str:
+    return ".".join(str(part) for part in loc)
+
+
+def _print_validation_errors(exc: ValidationError) -> None:
+    print("Configuration validation failed:", file=sys.stderr)
+    for error in exc.errors():
+        field = _format_error_field(error["loc"])
+        msg = error["msg"]
+        print(f"  {field}: {msg}", file=sys.stderr)
+
+
 def validate_config() -> Settings | None:
     """Validate and load configuration.
 
@@ -176,11 +188,7 @@ def validate_config() -> Settings | None:
         clear_settings_cache()
         return get_settings()
     except ValidationError as e:
-        print("Configuration validation failed:", file=sys.stderr)
-        for error in e.errors():
-            field = ".".join(str(loc) for loc in error["loc"])
-            msg = error["msg"]
-            print(f"  {field}: {msg}", file=sys.stderr)
+        _print_validation_errors(e)
         return None
 
 

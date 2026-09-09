@@ -20,7 +20,7 @@ entry point for a blocking Linux matrix and service job plus an advisory Apple S
 
 **Primary Dependencies**: uv `>=0.11,<0.12` project/lock workflow; SQLAlchemy 2.x with its `asyncio`
 extra; Psycopg 3 with binary distribution; Alembic 1.x; redis-py 5+; pytest, Black, Ruff, mypy,
-Pyright `1.1.411`, and Vulture `2.16`
+Pyright `1.1.411`, Vulture `2.16`, and Complexipy `8.0.1`
 
 **Storage**: PostgreSQL 15 and Redis 7; no persisted schema change in this slice
 
@@ -154,13 +154,17 @@ modules. No new service, package, or migration is needed.
   aggregate exits nonzero and names the first failed gate while preserving that command's output.
 - Unit tests inject a fake command runner and exercise one failure per required gate. There is no
   production flag that fabricates success or weakens a gate.
-- Keep `strict-types` as the existing mypy gate, keep `pyright` immediately after it, and add a separate
-  `vulture` dead-code gate immediately after `pyright`. The exact Vulture command uses the locked Python 3.11
-  environment and names its scope on the command line
-  (`uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py`),
-  covering every tracked repository Python file. Vulture runs at its default confidence with no baseline,
-  allowlist, `ignore_names`, `ignore_decorators`, path exclusion, or inline suppression; framework-consumed
-  names are made visible through real code and tests.
+- Keep `strict-types` as the existing mypy gate, keep `pyright` immediately after it, keep `vulture`
+  immediately after `pyright`, and add a separate `complexipy` cognitive complexity gate immediately after
+  `vulture`. The exact Complexipy command uses the locked Python 3.11 environment and names its scope on
+  the command line
+  (`uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true`),
+  covering functions and module-level control flow in every tracked repository Python file. Complexipy
+  enforces a maximum cognitive complexity of 5 with inline ignores, report-only mode, automatic snapshot
+  use/creation, and cwd-config exclusions explicitly neutralized; no ignore comments, escape hatches,
+  baselines, grandfathering, diff modes, or real path exclusions are permitted. The launcher validates
+  the exact visible arguments, resolves the scope to absolute paths, and invokes the pinned CLI from a
+  fresh configuration-free working directory.
 - The service profile invokes separately identifiable `services` and `migrations` gates through
   `scripts/runtime_services.py --phase probe` and `--phase migrations`; the helper defaults to `all` for
   contributors. The probe performs an async SQLAlchemy query and Redis `PING`. The migration phase refuses
@@ -173,15 +177,17 @@ modules. No new service, package, or migration is needed.
   SHA with a release-comment annotation.
 - Install an exact approved uv 0.11 release from the SHA-pinned setup action and run
   `uv sync --locked --all-extras`; stop using an independent pip resolution.
-- Run a blocking static job containing both independent type gates and Vulture, an independent blocking
-  `vulture` job on `ubuntu-24.04`, a blocking Linux compatibility matrix for 3.11/3.12/3.13, and a blocking
+- Run a blocking static job containing both independent type gates, Vulture, and Complexipy, an independent
+  blocking `vulture` job on `ubuntu-24.04`, an independent blocking `complexipy` job on `ubuntu-24.04`,
+  a blocking Linux compatibility matrix for 3.11/3.12/3.13, and a blocking
   PostgreSQL/Redis service job on `ubuntu-24.04`. Remove `continue-on-error` from strict type checking.
 - Pin PostgreSQL 15 and Redis 7 service images by reviewed multi-architecture digest in both Compose and
   CI so local and automated evidence use the same immutable image identities.
-- Add a stable final required job that fails unless every blocking predecessor succeeds (including `vulture`).
-  Contract tests read the real workflow file, bind the `vulture` job's command to the verifier's gate
-  definition, and execute the real aggregator script under GitHub's Bash options for every non-success
-  predecessor result, so the workflow cannot drift from the verifier or the fail-closed contract silently.
+- Add a stable final required job that fails unless every blocking predecessor succeeds (including `vulture`
+  and `complexipy`).
+  Contract tests read the real workflow file, bind the `vulture` and `complexipy` jobs' commands to the
+  verifier's gate definitions, and execute the real aggregator script under GitHub's Bash options for every
+  non-success predecessor result, so the workflow cannot drift from the verifier or the fail-closed contract silently.
 - Run the same blocking workflow on feature-branch pushes, with concurrency cancellation for stale runs,
   so immutable Linux evidence exists before the constitution permits pull-request preparation.
 - Run the compatibility profile on GitHub's arm64 `macos-14` runner as an advisory job. Full Apple

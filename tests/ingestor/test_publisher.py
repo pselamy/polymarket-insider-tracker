@@ -468,3 +468,45 @@ class TestStreamEntry:
 
         assert entry.entry_id == "1704369600000-0"
         assert entry.event == sample_trade_event
+
+
+class TestEmptyEntryHandling:
+    """Only pending re-reads skip already-acknowledged (empty) entries."""
+
+    @pytest.mark.asyncio
+    async def test_read_events_keeps_entries_with_empty_data(self, mock_redis: AsyncMock) -> None:
+        mock_redis.xreadgroup = AsyncMock(return_value=[("trades", [("1704369600000-0", {})])])
+        publisher = EventPublisher(mock_redis)
+
+        entries = await publisher.read_events("test-group", "worker-1")
+
+        assert [entry.entry_id for entry in entries] == ["1704369600000-0"]
+        assert entries[0].event.market_id == ""
+
+    @pytest.mark.asyncio
+    async def test_read_events_drops_undecodable_entries_and_keeps_the_rest(
+        self, mock_redis: AsyncMock, sample_trade_event: TradeEvent
+    ) -> None:
+        serialized = _serialize_trade_event(sample_trade_event)
+        mock_redis.xreadgroup = AsyncMock(
+            return_value=[("trades", [("1704369600000-0", None), (b"1704369600000-1", serialized)])]
+        )
+        publisher = EventPublisher(mock_redis)
+
+        entries = await publisher.read_events("test-group", "worker-1")
+
+        assert [entry.entry_id for entry in entries] == ["1704369600000-1"]
+
+    @pytest.mark.asyncio
+    async def test_read_pending_keeps_populated_entries_after_an_empty_one(
+        self, mock_redis: AsyncMock, sample_trade_event: TradeEvent
+    ) -> None:
+        serialized = _serialize_trade_event(sample_trade_event)
+        mock_redis.xreadgroup = AsyncMock(
+            return_value=[("trades", [("1704369600000-0", {}), ("1704369600000-1", serialized)])]
+        )
+        publisher = EventPublisher(mock_redis)
+
+        entries = await publisher.read_pending("test-group", "worker-1")
+
+        assert [entry.entry_id for entry in entries] == ["1704369600000-1"]

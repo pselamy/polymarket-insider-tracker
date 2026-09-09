@@ -24,12 +24,21 @@ WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
 
 # Every job the protected aggregator must depend on, in workflow order.
-BLOCKING_JOBS = ("static", "vulture", "compatibility", "services")
+BLOCKING_JOBS = ("static", "vulture", "complexipy", "compatibility", "services")
 # Every tracked repository Python file lives under exactly one of these paths, in gate order.
 CANONICAL_VULTURE_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
 CANONICAL_VULTURE_COMMAND = (
     "uv run --isolated --locked --all-extras --python 3.11 vulture "
     + " ".join(CANONICAL_VULTURE_SCOPE)
+)
+CANONICAL_COMPLEXIPY_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+# The command names its scope and policy explicitly so cwd configuration and snapshots cannot
+# silently relax, exclude, or baseline any part of the gate.
+CANONICAL_COMPLEXIPY_COMMAND = (
+    "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
+    + " ".join(CANONICAL_COMPLEXIPY_SCOPE)
+    + " --max-complexity-allowed 5 --no-ignore --ignore-complexity=false"
+    + " --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true"
 )
 NON_SUCCESS_RESULTS = ("failure", "cancelled", "skipped")
 NEEDS_RESULT_EXPRESSION = re.compile(r"^\$\{\{ needs\.(?P<job>[A-Za-z0-9_-]+)\.result \}\}$")
@@ -93,10 +102,11 @@ def test_every_blocking_job_exists_and_is_not_advisory() -> None:
         assert jobs[job_id]["runs-on"] == "ubuntu-24.04"
 
 
-def test_static_job_runs_the_verifier_static_profile_that_includes_vulture() -> None:
+def test_static_job_runs_the_verifier_static_profile_that_includes_vulture_and_complexipy() -> None:
     verifier = _verifier()
 
     assert "vulture" in verifier.gate_ids_for_profile("static")
+    assert "complexipy" in verifier.gate_ids_for_profile("static")
     assert _run_steps(_workflow()["jobs"]["static"])[-1] == (
         "uv run python scripts/verify.py --profile static"
     )
@@ -134,6 +144,37 @@ def test_vulture_scope_matches_between_ci_pyproject_and_verifier() -> None:
     assert pyproject_paths == CANONICAL_VULTURE_SCOPE
     assert verifier_scope == CANONICAL_VULTURE_SCOPE
     assert direct_command == CANONICAL_VULTURE_COMMAND
+    assert ci_step == direct_command
+
+
+def test_complexipy_job_is_independent_and_runs_the_canonical_gate_command() -> None:
+    verifier = _verifier()
+    job = _workflow()["jobs"]["complexipy"]
+    run_steps = _run_steps(job)
+
+    assert "needs" not in job and "if" not in job, "the Complexipy job must not be gated by others"
+    assert run_steps[-1] == verifier.GATES["complexipy"].command_text
+    assert run_steps[-1] == dict(verifier.DIRECT_GATE_COMMANDS)["complexipy"]
+    assert run_steps[-1] == CANONICAL_COMPLEXIPY_COMMAND
+    assert "uv sync --locked --all-extras --python 3.11" in run_steps
+    setup_uv_steps = [
+        step for step in job["steps"] if "astral-sh/setup-uv@" in step.get("uses", "")
+    ]
+    assert len(setup_uv_steps) == 1
+    assert setup_uv_steps[0]["with"]["cache-suffix"] == "complexipy-3.11"
+
+
+def test_complexipy_scope_matches_between_ci_pyproject_and_verifier() -> None:
+    verifier = _verifier()
+    with (REPOSITORY_ROOT / "pyproject.toml").open("rb") as handle:
+        pyproject_data = tomllib.load(handle)
+
+    pyproject_paths = tuple(pyproject_data["tool"]["complexipy"]["paths"])
+    direct_command = dict(verifier.DIRECT_GATE_COMMANDS)["complexipy"]
+    ci_step = _run_steps(_workflow()["jobs"]["complexipy"])[-1]
+
+    assert pyproject_paths == CANONICAL_COMPLEXIPY_SCOPE
+    assert direct_command == CANONICAL_COMPLEXIPY_COMMAND
     assert ci_step == direct_command
 
 

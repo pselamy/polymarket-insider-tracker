@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 from unittest.mock import MagicMock
 
 from polymarket_insider_tracker.detector.models import SniperClusterSignal
@@ -551,15 +552,23 @@ class TestIntegration:
             min_samples=2,
         )
 
-        # Simulate 5 snipers hitting 3 markets in rapid succession
         sniper_wallets = [f"0x{'a' * 38}{i:02d}" for i in range(5)]
         markets = ["market_001", "market_002", "market_003"]
 
+        self._record_sniper_entries(detector, sniper_wallets, markets)
+        self._record_normal_entries(detector, markets)
+
+        signals = detector.run_clustering()
+        self._verify_sniper_signals(signals, sniper_wallets)
+        self._verify_detected_clusters(detector, sniper_wallets)
+
+    @staticmethod
+    def _record_sniper_entries(
+        detector: SniperDetector, sniper_wallets: list[str], markets: list[str]
+    ) -> None:
         for market in markets:
             market_created = datetime.now(UTC)
-
             for i, wallet in enumerate(sniper_wallets):
-                # Each sniper enters within 10-60 seconds
                 trade = create_mock_trade(
                     wallet_address=wallet,
                     market_id=market,
@@ -568,32 +577,30 @@ class TestIntegration:
                 )
                 detector.record_entry(trade, market_created)
 
-        # Also add some normal traders (enter after threshold)
+    @staticmethod
+    def _record_normal_entries(detector: SniperDetector, markets: list[str]) -> None:
         for market in markets:
             market_created = datetime.now(UTC)
             for i in range(3):
                 trade = create_mock_trade(
                     wallet_address=f"0x{'b' * 38}{i:02d}",
                     market_id=market,
-                    timestamp=market_created + timedelta(seconds=400),  # After threshold
+                    timestamp=market_created + timedelta(seconds=400),
                 )
                 detector.record_entry(trade, market_created)
 
-        # Run clustering
-        signals = detector.run_clustering()
-
-        # Should detect the sniper cluster
+    @staticmethod
+    def _verify_sniper_signals(signals: list[Any], sniper_wallets: list[str]) -> None:
         assert len(signals) > 0
-
-        # All signals should be from sniper wallets
+        allowed = {w.lower() for w in sniper_wallets}
         for signal in signals:
-            assert signal.wallet_address in [w.lower() for w in sniper_wallets]
+            assert signal.wallet_address in allowed
             assert signal.cluster_size >= 3
             assert signal.confidence > 0
 
-        # Verify snipers are marked
+    @staticmethod
+    def _verify_detected_clusters(detector: SniperDetector, sniper_wallets: list[str]) -> None:
         for wallet in sniper_wallets:
-            # May or may not be in cluster depending on clustering
             if detector.is_sniper(wallet.lower()):
                 cluster = detector.get_cluster_for_wallet(wallet)
                 assert cluster is not None

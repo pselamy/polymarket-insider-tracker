@@ -12,12 +12,12 @@ uv run python scripts/verify.py --profile PROFILE [--json]
 
 | Profile | Required gates | Intended caller |
 |---|---|---|
-| `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy, strict Pyright, Vulture dead code detection | Contributor and Linux quality job |
+| `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy, strict Pyright, Vulture dead code detection, Complexipy cognitive complexity verification | Contributor and Linux quality job |
 | `compatibility` | lock freshness, dependency/import smoke, full deterministic pytest suite | Linux version matrix and advisory Apple job |
 | `services` | `services` connectivity/async-query gate, then independent `migrations` disposable-cycle gate | Linux service job and local release evidence |
 | `all` | Every gate above, without duplicate execution | Contributor pre-review/release evidence |
 
-Individual Black, Ruff, mypy, Pyright, Vulture, pytest, and Alembic commands remain directly runnable and are
+Individual Black, Ruff, mypy, Pyright, Vulture, Complexipy, pytest, and Alembic commands remain directly runnable and are
 listed by `--help`; the aggregate entry point does not hide their output.
 
 The independent `pyright` gate runs after `strict-types` (mypy) and before `vulture`:
@@ -32,7 +32,7 @@ is visible and fail-closed at invocation. There is no exclusion, baseline, diff-
 downgrade, or error-suppression setting. `typings/` owns narrow local interfaces for only the untyped
 third-party APIs the production package consumes; it is not a substitute for checking first-party files.
 
-The independent `vulture` gate runs after `pyright` and before runtime imports:
+The independent `vulture` gate runs after `pyright` and before `complexipy`:
 
 ```text
 uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
@@ -46,6 +46,24 @@ no baseline, allowlist, `ignore_names`, `ignore_decorators`, path exclusion, inl
 minimum-confidence setting. Names that frameworks consume by convention (Pydantic `model_config`,
 `unittest.mock` `side_effect`, autouse fixtures) are made visible through real code and tests, not exempted.
 The independent CI `vulture` job runs this exact command and is bound to it by contract tests.
+
+The independent `complexipy` gate runs after `vulture` and before runtime imports:
+
+```text
+uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
+```
+
+`pyproject.toml` pins Complexipy `8.0.1` and configures `[tool.complexipy]` over `src`, `tests`, `scripts`,
+`alembic`, and `conftest.py`, which together hold every tracked repository Python file. The global maximum cognitive
+complexity is 5 for functions and module-level control flow. The command repeats the scope and every fail-closed
+option at invocation. Contract tests prove every tracked `*.py` file is covered exactly once; reject inline
+suppression comments and tracked external config/snapshot files; and execute the pinned analyzer against
+score-6 function, module, suppression, cwd-exclusion, and automatic-snapshot fixtures. Explicit false/true
+overrides neutralize report-only mode, snapshot creation/use, cwd-config exclusion lists, and disabled
+module analysis. The launcher validates those exact visible arguments, resolves only the scope paths to
+absolutes, and invokes the pinned CLI from a fresh temporary working directory, so cwd `[diff]` settings
+cannot replace threshold enforcement with diff success. `--exclude=.` matches no repository path. The
+independent CI `complexipy` job runs this exact command and is bound to it by contract tests.
 
 The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`
 before starting pytest. The test harness also runs from an isolated temporary working directory so Pydantic

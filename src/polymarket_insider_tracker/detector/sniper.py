@@ -247,6 +247,70 @@ class SniperDetector:
 
         return np.array(features), wallet_index
 
+    def _group_cluster_rows(self, labels: np.ndarray) -> dict[int, list[int]]:
+        cluster_rows: dict[int, list[int]] = defaultdict(list)
+        for row_idx, label in enumerate(labels):
+            if label != -1:  # Skip noise
+                cluster_rows[label].append(row_idx)
+        return cluster_rows
+
+    def _create_new_signals(
+        self,
+        cluster_wallets: set[str],
+        cluster_id: str,
+        cluster_stats: dict[str, float | int],
+    ) -> list[SniperClusterSignal]:
+        signals: list[SniperClusterSignal] = []
+        for wallet in cluster_wallets:
+            if wallet in self._signaled_wallets:
+                continue
+            confidence = self._calculate_confidence(
+                cluster_wallets,
+                cluster_stats,
+            )
+
+            signal = SniperClusterSignal(
+                wallet_address=wallet,
+                cluster_id=cluster_id,
+                cluster_size=len(cluster_wallets),
+                avg_entry_delta_seconds=cluster_stats["avg_delta"],
+                markets_in_common=int(cluster_stats["markets_in_common"]),
+                confidence=confidence,
+            )
+
+            signals.append(signal)
+            self._signaled_wallets.add(wallet)
+
+            logger.info(
+                "New sniper detected: wallet=%s cluster=%s confidence=%.2f",
+                wallet[:10],
+                cluster_id[:8],
+                confidence,
+            )
+        return signals
+
+    def _process_single_cluster(
+        self,
+        cluster_wallets: set[str],
+    ) -> list[SniperClusterSignal]:
+        if len(cluster_wallets) < self.min_cluster_size:
+            return []
+
+        cluster_stats = self._calculate_cluster_stats(cluster_wallets)
+        cluster_id = self._get_or_create_cluster_id(cluster_wallets)
+
+        self._known_clusters[cluster_id] = ClusterInfo(
+            cluster_id=cluster_id,
+            wallet_addresses=cluster_wallets,
+            avg_entry_delta=cluster_stats["avg_delta"],
+            markets_in_common=int(cluster_stats["markets_in_common"]),
+        )
+
+        for wallet in cluster_wallets:
+            self._wallet_cluster_map[wallet] = cluster_id
+
+        return self._create_new_signals(cluster_wallets, cluster_id, cluster_stats)
+
     def _process_clustering_results(
         self,
         labels: np.ndarray,
@@ -261,67 +325,30 @@ class SniperDetector:
         Returns:
             List of signals for newly detected cluster members.
         """
-        # Group rows by cluster
-        cluster_rows: dict[int, list[int]] = defaultdict(list)
-        for row_idx, label in enumerate(labels):
-            if label != -1:  # Skip noise
-                cluster_rows[label].append(row_idx)
-
+        cluster_rows = self._group_cluster_rows(labels)
         signals: list[SniperClusterSignal] = []
 
-        for _cluster_label, rows in cluster_rows.items():
-            # Get unique wallets in this cluster
+        for rows in cluster_rows.values():
             cluster_wallets = {wallet_index[row] for row in rows}
-
-            if len(cluster_wallets) < self.min_cluster_size:
-                continue
-
-            # Calculate cluster statistics
-            cluster_stats = self._calculate_cluster_stats(cluster_wallets)
-
-            # Generate or reuse cluster ID
-            cluster_id = self._get_or_create_cluster_id(cluster_wallets)
-
-            # Update cluster info
-            self._known_clusters[cluster_id] = ClusterInfo(
-                cluster_id=cluster_id,
-                wallet_addresses=cluster_wallets,
-                avg_entry_delta=cluster_stats["avg_delta"],
-                markets_in_common=int(cluster_stats["markets_in_common"]),
-            )
-
-            # Update wallet-cluster mapping
-            for wallet in cluster_wallets:
-                self._wallet_cluster_map[wallet] = cluster_id
-
-            # Generate signals for new cluster members
-            for wallet in cluster_wallets:
-                if wallet not in self._signaled_wallets:
-                    confidence = self._calculate_confidence(
-                        cluster_wallets,
-                        cluster_stats,
-                    )
-
-                    signal = SniperClusterSignal(
-                        wallet_address=wallet,
-                        cluster_id=cluster_id,
-                        cluster_size=len(cluster_wallets),
-                        avg_entry_delta_seconds=cluster_stats["avg_delta"],
-                        markets_in_common=int(cluster_stats["markets_in_common"]),
-                        confidence=confidence,
-                    )
-
-                    signals.append(signal)
-                    self._signaled_wallets.add(wallet)
-
-                    logger.info(
-                        "New sniper detected: wallet=%s cluster=%s confidence=%.2f",
-                        wallet[:10],
-                        cluster_id[:8],
-                        confidence,
-                    )
+            signals.extend(self._process_single_cluster(cluster_wallets))
 
         return signals
+
+    def _calculate_avg_delta(self, cluster_wallets: set[str]) -> float:
+        all_deltas: list[float] = [
+            entry.entry_delta_seconds
+            for wallet in cluster_wallets
+            for entry in self._wallet_entries[wallet]
+        ]
+        return sum(all_deltas) / len(all_deltas) if all_deltas else 0.0
+
+    def _calculate_common_markets_count(self, cluster_wallets: set[str]) -> int:
+        wallet_markets = [
+            {e.market_id for e in self._wallet_entries[wallet]} for wallet in cluster_wallets
+        ]
+        if len(wallet_markets) < 2:
+            return 0
+        return len(wallet_markets[0].intersection(*wallet_markets[1:]))
 
     def _calculate_cluster_stats(
         self,
@@ -335,30 +362,25 @@ class SniperDetector:
         Returns:
             Dict with avg_delta, markets_in_common statistics.
         """
-        # Calculate average entry delta
-        all_deltas: list[float] = []
-        for wallet in cluster_wallets:
-            for entry in self._wallet_entries[wallet]:
-                all_deltas.append(entry.entry_delta_seconds)
-
-        avg_delta = sum(all_deltas) / len(all_deltas) if all_deltas else 0.0
-
-        # Calculate markets in common
-        wallet_markets: list[set[str]] = []
-        for wallet in cluster_wallets:
-            markets = {e.market_id for e in self._wallet_entries[wallet]}
-            wallet_markets.append(markets)
-
-        if len(wallet_markets) >= 2:
-            common_markets = wallet_markets[0].intersection(*wallet_markets[1:])
-            markets_in_common = len(common_markets)
-        else:
-            markets_in_common = 0
-
         return {
-            "avg_delta": avg_delta,
-            "markets_in_common": markets_in_common,
+            "avg_delta": self._calculate_avg_delta(cluster_wallets),
+            "markets_in_common": self._calculate_common_markets_count(cluster_wallets),
         }
+
+    def _find_majority_cluster(self, wallets: set[str]) -> str | None:
+        existing_clusters: dict[str, int] = defaultdict(int)
+        for wallet in wallets:
+            cluster_id = self._wallet_cluster_map.get(wallet)
+            if cluster_id is not None:
+                existing_clusters[cluster_id] += 1
+
+        if not existing_clusters:
+            return None
+
+        best_cluster = max(existing_clusters, key=lambda k: existing_clusters[k])
+        if existing_clusters[best_cluster] >= len(wallets) // 2:
+            return best_cluster
+        return None
 
     def _get_or_create_cluster_id(self, wallets: set[str]) -> str:
         """Get existing cluster ID or create new one.
@@ -372,17 +394,9 @@ class SniperDetector:
         Returns:
             Cluster ID string.
         """
-        # Check if majority belongs to existing cluster
-        existing_clusters: dict[str, int] = defaultdict(int)
-        for wallet in wallets:
-            if wallet in self._wallet_cluster_map:
-                existing_clusters[self._wallet_cluster_map[wallet]] += 1
-
-        if existing_clusters:
-            best_cluster = max(existing_clusters, key=lambda k: existing_clusters[k])
-            if existing_clusters[best_cluster] >= len(wallets) // 2:
-                return best_cluster
-
+        majority = self._find_majority_cluster(wallets)
+        if majority is not None:
+            return majority
         return str(uuid.uuid4())
 
     def _calculate_confidence(

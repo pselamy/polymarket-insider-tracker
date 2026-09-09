@@ -12,6 +12,7 @@ from polymarket_insider_tracker.ingestor.gamma_client import (
     GammaClient,
     GammaClientError,
     GammaMarketStats,
+    _aggregate_pages,
     _parse_market,
 )
 
@@ -247,3 +248,34 @@ async def test_skips_non_dict_entries(patch_async_client) -> None:
 
 def test_gamma_client_error_inherits_exception() -> None:
     assert issubclass(GammaClientError, Exception)
+
+
+def _page(*condition_ids: str) -> list[object]:
+    return [{"conditionId": cid, "volume24hr": "1"} for cid in condition_ids]
+
+
+class TestAggregatePages:
+    """Pages arrive fully fetched, so aggregation must never discard a later page."""
+
+    def test_keeps_every_page_after_empty_pages(self) -> None:
+        pages: list[list[object]] = [_page("0xa", "0xb"), [], [], _page("0xd")]
+
+        assert set(_aggregate_pages(pages)) == {"0xa", "0xb", "0xd"}
+
+    def test_keeps_pages_after_a_short_page(self) -> None:
+        pages: list[list[object]] = [_page("0xa"), [], _page("0xc")]
+
+        assert set(_aggregate_pages(pages)) == {"0xa", "0xc"}
+
+    def test_skips_non_dict_and_unparseable_items(self) -> None:
+        pages: list[list[object]] = [[*_page("0xa"), "garbage", {"conditionId": ""}]]
+
+        assert set(_aggregate_pages(pages)) == {"0xa"}
+
+    def test_later_page_wins_for_a_repeated_condition_id(self) -> None:
+        pages: list[list[object]] = [_page("0xa"), [{"conditionId": "0xa", "volume24hr": "9"}]]
+
+        assert _aggregate_pages(pages)["0xa"].daily_volume == Decimal("9")
+
+    def test_no_pages_yields_no_stats(self) -> None:
+        assert _aggregate_pages([]) == {}

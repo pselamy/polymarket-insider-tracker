@@ -29,7 +29,7 @@ jobs:
         run: uv python install 3.11
       - name: Sync locked dependencies
         run: uv sync --locked --all-extras --python 3.11
-      - name: Run static profile with mypy, Pyright, and Vulture
+      - name: Run static profile with mypy, Pyright, Vulture, and Complexipy
         run: uv run python scripts/verify.py --profile static
 
   compatibility:
@@ -141,10 +141,29 @@ jobs:
       - name: Run Vulture dead-code verification
         run: uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
 
+  complexipy:
+    name: Complexipy complexity check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.11.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: complexipy-3.11
+      - name: Install Python
+        run: uv python install 3.11
+      - name: Sync locked dependencies
+        run: uv sync --locked --all-extras --python 3.11
+      - name: Run Complexipy complexity check
+        run: uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
+
   required:
     name: Required checks
     if: always()
-    needs: [static, vulture, compatibility, services]
+    needs: [static, vulture, complexipy, compatibility, services]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -152,10 +171,12 @@ jobs:
         env:
           STATIC_WITH_PYRIGHT_RESULT: ${{ needs.static.result }}
           VULTURE_RESULT: ${{ needs.vulture.result }}
+          COMPLEXIPY_RESULT: ${{ needs.complexipy.result }}
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
           SERVICES_RESULT: ${{ needs.services.result }}
         run: |
           test "$STATIC_WITH_PYRIGHT_RESULT" = success
           test "$VULTURE_RESULT" = success
+          test "$COMPLEXIPY_RESULT" = success
           test "$COMPATIBILITY_RESULT" = success
           test "$SERVICES_RESULT" = success

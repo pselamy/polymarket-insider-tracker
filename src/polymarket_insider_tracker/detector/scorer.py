@@ -183,6 +183,34 @@ class RiskScorer:
             should_alert=should_alert,
         )
 
+    def _score_fresh_wallet(self, bundle: SignalBundle) -> tuple[float, int]:
+        if bundle.fresh_wallet_signal is None:
+            return 0.0, 0
+        weight = self._weights.get("fresh_wallet", 0.0)
+        return bundle.fresh_wallet_signal.confidence * weight, 1
+
+    def _score_size_anomaly(self, bundle: SignalBundle) -> tuple[float, int]:
+        signal = bundle.size_anomaly_signal
+        if signal is None:
+            return 0.0, 0
+        weight = self._weights.get("size_anomaly", 0.0)
+        return signal.confidence * weight, 1
+
+    def _score_niche_market(self, bundle: SignalBundle) -> float:
+        signal = bundle.size_anomaly_signal
+        if signal is None or not signal.is_niche_market:
+            return 0.0
+        niche_weight = self._weights.get("niche_market", 0.0)
+        return signal.confidence * niche_weight
+
+    @staticmethod
+    def _apply_multi_signal_bonus(score: float, count: int) -> float:
+        if count >= 3:
+            return score * MULTI_SIGNAL_BONUS_3
+        if count >= 2:
+            return score * MULTI_SIGNAL_BONUS_2
+        return score
+
     def calculate_weighted_score(self, bundle: SignalBundle) -> tuple[float, int]:
         """Calculate weighted score from all signals.
 
@@ -194,36 +222,15 @@ class RiskScorer:
         Returns:
             Tuple of (weighted_score, signals_triggered_count).
         """
-        score = 0.0
-        signals_triggered = 0
+        fresh_score, fresh_count = self._score_fresh_wallet(bundle)
+        size_score, size_count = self._score_size_anomaly(bundle)
+        signals_triggered = fresh_count + size_count
 
-        # Fresh wallet signal
-        if bundle.fresh_wallet_signal is not None:
-            weight = self._weights.get("fresh_wallet", 0.0)
-            score += bundle.fresh_wallet_signal.confidence * weight
-            signals_triggered += 1
-
-        # Size anomaly signal
-        if bundle.size_anomaly_signal is not None:
-            weight = self._weights.get("size_anomaly", 0.0)
-            score += bundle.size_anomaly_signal.confidence * weight
-            signals_triggered += 1
-
-            # Additional niche market weight
-            if bundle.size_anomaly_signal.is_niche_market:
-                niche_weight = self._weights.get("niche_market", 0.0)
-                score += bundle.size_anomaly_signal.confidence * niche_weight
-
-        # Apply multi-signal bonus
-        if signals_triggered >= 3:
-            score *= MULTI_SIGNAL_BONUS_3
-        elif signals_triggered >= 2:
-            score *= MULTI_SIGNAL_BONUS_2
-
-        # Cap at 1.0
-        score = min(score, 1.0)
-
-        return score, signals_triggered
+        score = fresh_score
+        score += size_score
+        score += self._score_niche_market(bundle)
+        score = self._apply_multi_signal_bonus(score, signals_triggered)
+        return min(score, 1.0), signals_triggered
 
     async def _check_and_set_dedup(
         self,

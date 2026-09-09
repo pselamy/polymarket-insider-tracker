@@ -188,7 +188,7 @@ uv run --env-file .env python scripts/verify.py --profile all
 ```
 
 The `static` profile checks the lock, Black formatting across the repository, Ruff lint/import rules,
-strict mypy, strict Pyright, and Vulture dead code detection. Pyright is an additional checker, not a mypy replacement. Its canonical
+strict mypy, strict Pyright, Vulture dead code detection, and Complexipy cognitive complexity analysis. Pyright is an additional checker, not a mypy replacement. Its canonical
 scope is the complete production package, configured for the lowest supported Python version:
 
 ```bash
@@ -204,6 +204,20 @@ with no baseline, allowlist, ignore list, decorator exemption, or path exclusion
 ```bash
 uv run --isolated --locked --all-extras --python 3.11 vulture src tests scripts alembic conftest.py
 ```
+
+Complexipy runs as its own required CI job and verifier gate over `src`, `tests`, `scripts`, `alembic`, and
+`conftest.py`, which together hold every tracked repository Python file. It enforces a strict maximum cognitive
+complexity of 5 for functions and module-level control flow. Explicit flags disable inline suppression,
+report-only mode, automatic snapshots, snapshot creation, and cwd-config exclusions:
+
+```bash
+uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
+```
+
+The launcher validates the exact visible arguments, resolves only the five scope paths to absolute paths,
+and invokes the pinned CLI from a fresh temporary working directory. That prevents any repository-working-
+directory TOML—including `[diff]` settings—from changing success semantics. `--exclude=.` is a non-matching
+CLI pattern and does not exclude repository files.
 
 The `compatibility` profile checks locked imports and the deterministic test suite. The `services`
 profile performs real local probes and the disposable migration cycle. Individual commands remain

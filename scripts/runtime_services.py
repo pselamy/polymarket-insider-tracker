@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
-from urllib.parse import unquote, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
 
 import psycopg
 from alembic.config import Config
@@ -118,6 +118,17 @@ def validate_loopback_database_url(database_url: str) -> str:
     return canonical
 
 
+def _validate_redis_port(parsed: SplitResult) -> None:
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ServicePrerequisiteError(
+            "REDIS_URL port must be an integer between 1 and 65535"
+        ) from exc
+    if port is not None and not 1 <= port <= 65535:
+        raise ServicePrerequisiteError("REDIS_URL port must be an integer between 1 and 65535")
+
+
 def validate_redis_url(redis_url: str) -> str:
     """Return ``redis_url`` unchanged when it is usable, or fail without echoing any value."""
     if not redis_url:
@@ -130,14 +141,7 @@ def validate_redis_url(redis_url: str) -> str:
         raise ServicePrerequisiteError("REDIS_URL must use the redis:// scheme")
     if not parsed.hostname:
         raise ServicePrerequisiteError("REDIS_URL must include a host")
-    try:
-        port = parsed.port
-    except ValueError as exc:
-        raise ServicePrerequisiteError(
-            "REDIS_URL port must be an integer between 1 and 65535"
-        ) from exc
-    if port is not None and not 1 <= port <= 65535:
-        raise ServicePrerequisiteError("REDIS_URL port must be an integer between 1 and 65535")
+    _validate_redis_port(parsed)
     return redis_url
 
 
@@ -154,6 +158,25 @@ def _split_userinfo(authority: str) -> tuple[str | None, str | None, str]:
     return username, (password if separator else None), hostinfo
 
 
+def _extract_query_password(pair: str) -> str | None:
+    name, separator, raw_value = pair.partition("=")
+    if not separator or not raw_value:
+        return None
+    return raw_value if name.casefold() == "password" else None
+
+
+def _query_credentials(tail: str) -> list[str]:
+    if not tail.startswith("?"):
+        return []
+    query = tail[1:].partition("#")[0]
+    results: list[str] = []
+    for pair in query.split("&"):
+        pwd = _extract_query_password(pair)
+        if pwd:
+            results.append(pwd)
+    return results
+
+
 def _url_credentials(value: str) -> tuple[str, ...]:
     """Return the raw credentials a consumer would read from ``value``.
 
@@ -167,23 +190,16 @@ def _url_credentials(value: str) -> tuple[str, ...]:
     password = _split_userinfo(match.group("authority"))[1]
     if password:
         credentials.append(password)
-    tail = match.group("tail") or ""
-    if tail.startswith("?"):
-        for pair in tail[1:].partition("#")[0].split("&"):
-            name, separator, raw_value = pair.partition("=")
-            if separator and raw_value and name.casefold() == "password":
-                credentials.append(raw_value)
+    credentials.extend(_query_credentials(match.group("tail") or ""))
     return tuple(credentials)
 
 
 def _credential_forms(value: str) -> tuple[str, ...]:
     """Return every encoded or decoded credential spelling a tool might echo from ``value``."""
-    forms: list[str] = []
+    raw_forms: list[str] = []
     for credential in _url_credentials(value):
-        for form in (credential, unquote(credential)):
-            if form not in forms:
-                forms.append(form)
-    return tuple(forms)
+        raw_forms.extend((credential, unquote(credential)))
+    return tuple(dict.fromkeys(raw_forms))
 
 
 def _redacted_url(value: str) -> str:
@@ -312,6 +328,53 @@ def _temporary_database_url(base_url: str, database_name: str) -> str:
     return make_url(base_url).set(database=database_name).render_as_string(hide_password=False)
 
 
+async def _execute_migration_sequence(
+    backend: MigrationBackend, temporary_url: str, head: str, previous: str
+) -> list[str]:
+    states: list[str] = []
+    backend.run_alembic(temporary_url, "upgrade", "head")
+    states.append(backend.current_revision(temporary_url))
+    if states[-1] != head:
+        raise ServiceVerificationError("upgrade did not reach the Alembic head revision")
+
+    backend.run_alembic(temporary_url, "downgrade", "-1")
+    states.append(backend.current_revision(temporary_url))
+    if states[-1] != previous:
+        raise ServiceVerificationError("downgrade did not reach the previous Alembic revision")
+
+    backend.run_alembic(temporary_url, "upgrade", "head")
+    states.append(backend.current_revision(temporary_url))
+    if states[-1] != head:
+        raise ServiceVerificationError("re-upgrade did not return to the Alembic head revision")
+    await backend.async_query(temporary_url)
+    return states
+
+
+def _safe_drop_database(backend: MigrationBackend, name: str) -> Exception | None:
+    try:
+        backend.drop_database(name)
+        return None
+    except Exception as exc:
+        return exc
+
+
+def _raise_if_migration_errors(
+    cleanup_error: Exception | None,
+    primary_error: Exception | None,
+    sensitive_urls: tuple[str, ...],
+) -> None:
+    if cleanup_error is not None:
+        message = _redact_text(str(cleanup_error), *sensitive_urls)
+        raise ServiceVerificationError(
+            f"temporary database cleanup failed: {message}"
+        ) from cleanup_error
+    if primary_error is not None:
+        message = _redact_text(str(primary_error), *sensitive_urls)
+        raise ServiceVerificationError(
+            f"migration verification failed: {message}"
+        ) from primary_error
+
+
 async def run_migration_cycle(
     database_url: str,
     *,
@@ -331,41 +394,16 @@ async def run_migration_cycle(
         head, previous = backend.expected_revisions()
         backend.create_database(database_name)
         created = True
-
-        backend.run_alembic(temporary_url, "upgrade", "head")
-        migration_states.append(backend.current_revision(temporary_url))
-        if migration_states[-1] != head:
-            raise ServiceVerificationError("upgrade did not reach the Alembic head revision")
-
-        backend.run_alembic(temporary_url, "downgrade", "-1")
-        migration_states.append(backend.current_revision(temporary_url))
-        if migration_states[-1] != previous:
-            raise ServiceVerificationError("downgrade did not reach the previous Alembic revision")
-
-        backend.run_alembic(temporary_url, "upgrade", "head")
-        migration_states.append(backend.current_revision(temporary_url))
-        if migration_states[-1] != head:
-            raise ServiceVerificationError("re-upgrade did not return to the Alembic head revision")
-        await backend.async_query(temporary_url)
+        migration_states = await _execute_migration_sequence(backend, temporary_url, head, previous)
     except Exception as exc:
         primary_error = exc
     finally:
         if created:
-            try:
-                backend.drop_database(database_name)
-            except Exception as exc:
-                cleanup_error = exc
+            cleanup_error = _safe_drop_database(backend, database_name)
 
-    if cleanup_error is not None:
-        message = _redact_text(str(cleanup_error), database_url, canonical, temporary_url)
-        raise ServiceVerificationError(
-            f"temporary database cleanup failed: {message}"
-        ) from cleanup_error
-    if primary_error is not None:
-        message = _redact_text(str(primary_error), database_url, canonical, temporary_url)
-        raise ServiceVerificationError(
-            f"migration verification failed: {message}"
-        ) from primary_error
+    _raise_if_migration_errors(
+        cleanup_error, primary_error, (database_url, canonical, temporary_url)
+    )
 
     return {
         "temporary_database": database_name,

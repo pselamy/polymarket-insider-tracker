@@ -278,6 +278,29 @@ class AlertHistory:
             return None
         return AlertRecord.from_dict(json.loads(data))
 
+    def _select_index_key(self, wallet: str | None, market: str | None) -> str:
+        if wallet:
+            return f"{self.KEY_INDEX_WALLET}{wallet}"
+        if market:
+            return f"{self.KEY_INDEX_MARKET}{market}"
+        return self.KEY_INDEX_TIME
+
+    @staticmethod
+    def _matches_filters(
+        record: AlertRecord | None,
+        wallet: str | None,
+        market: str | None,
+    ) -> bool:
+        if record is None:
+            return False
+        if wallet and record.wallet_address != wallet:
+            return False
+        return not (market and record.market_id != market)
+
+    async def _fetch_alert_record(self, raw_id: str | bytes) -> AlertRecord | None:
+        alert_id = raw_id.decode() if isinstance(raw_id, bytes) else raw_id
+        return await self.get_alert(alert_id)
+
     async def get_alerts(
         self,
         start: datetime,
@@ -298,22 +321,12 @@ class AlertHistory:
         Returns:
             List of matching AlertRecord objects.
         """
-        start_score = start.timestamp()
-        end_score = end.timestamp()
+        index_key = self._select_index_key(wallet, market)
 
-        # Determine which index to use
-        if wallet:
-            index_key = f"{self.KEY_INDEX_WALLET}{wallet}"
-        elif market:
-            index_key = f"{self.KEY_INDEX_MARKET}{market}"
-        else:
-            index_key = self.KEY_INDEX_TIME
-
-        # Get alert IDs from index
         alert_ids = await self.redis.zrangebyscore(
             index_key,
-            start_score,
-            end_score,
+            start.timestamp(),
+            end.timestamp(),
             start=0,
             num=limit,
         )
@@ -321,18 +334,11 @@ class AlertHistory:
         if not alert_ids:
             return []
 
-        # Fetch all records
         records: list[AlertRecord] = []
-        for alert_id in alert_ids:
-            if isinstance(alert_id, bytes):
-                alert_id = alert_id.decode()
-            record = await self.get_alert(alert_id)
-            if record:
-                # Apply additional filters if needed
-                if wallet and record.wallet_address != wallet:
-                    continue
-                if market and record.market_id != market:
-                    continue
+        for raw_id in alert_ids:
+            record = await self._fetch_alert_record(raw_id)
+            if self._matches_filters(record, wallet, market):
+                assert record is not None
                 records.append(record)
 
         return records

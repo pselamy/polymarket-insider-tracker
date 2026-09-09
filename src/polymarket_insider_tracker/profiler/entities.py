@@ -207,6 +207,26 @@ class EntityRegistry:
         }
         return entity_type in contract_types
 
+    # Human-readable category per entity type; the three role sets are disjoint.
+    _CATEGORY_MAP: dict[EntityType, str] = (
+        dict.fromkeys(CEX_ENTITY_TYPES, "cex")
+        | dict.fromkeys(BRIDGE_ENTITY_TYPES, "bridge")
+        | dict.fromkeys(DEX_ENTITY_TYPES, "dex")
+        | dict.fromkeys(
+            (
+                EntityType.TOKEN_USDC,
+                EntityType.TOKEN_USDT,
+                EntityType.TOKEN_WETH,
+                EntityType.TOKEN_WMATIC,
+            ),
+            "token",
+        )
+        | dict.fromkeys(
+            (EntityType.DEFI_AAVE, EntityType.DEFI_COMPOUND, EntityType.DEFI_OTHER), "defi"
+        )
+        | {EntityType.CONTRACT: "contract"}
+    )
+
     def get_entity_category(self, address: str) -> str:
         """Get a human-readable category for an address.
 
@@ -217,30 +237,7 @@ class EntityRegistry:
             Category string: "cex", "bridge", "dex", "token", "defi", "contract", or "unknown".
         """
         entity_type = self.classify(address)
-
-        if entity_type in self.CEX_ENTITY_TYPES:
-            return "cex"
-        if entity_type in self.BRIDGE_ENTITY_TYPES:
-            return "bridge"
-        if entity_type in self.DEX_ENTITY_TYPES:
-            return "dex"
-        if entity_type in {
-            EntityType.TOKEN_USDC,
-            EntityType.TOKEN_USDT,
-            EntityType.TOKEN_WETH,
-            EntityType.TOKEN_WMATIC,
-        }:
-            return "token"
-        if entity_type in {
-            EntityType.DEFI_AAVE,
-            EntityType.DEFI_COMPOUND,
-            EntityType.DEFI_OTHER,
-        }:
-            return "defi"
-        if entity_type == EntityType.CONTRACT:
-            return "contract"
-
-        return "unknown"
+        return self._CATEGORY_MAP.get(entity_type, "unknown")
 
     def add_entity(self, address: str, entity_type: EntityType) -> None:
         """Add or update an entity in the registry.

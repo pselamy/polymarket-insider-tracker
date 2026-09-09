@@ -7,7 +7,7 @@ import json
 import subprocess
 import sys
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -43,6 +43,7 @@ def test_profile_membership_and_ordering_are_exact() -> None:
         "strict-types",
         "pyright",
         "vulture",
+        "complexipy",
     )
     assert module.gate_ids_for_profile("compatibility") == ("lock", "imports", "tests")
     assert module.gate_ids_for_profile("services") == ("services", "migrations")
@@ -58,6 +59,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
         "strict-types",
         "pyright",
         "vulture",
+        "complexipy",
         "imports",
         "tests",
         "services",
@@ -89,13 +91,53 @@ def test_vulture_gate_is_unfiltered_and_names_its_complete_scope() -> None:
     )
 
 
-def test_all_tracked_python_files_are_covered_by_vulture_scope() -> None:
+def test_complexipy_gate_is_configured_and_matches_canonical_policy() -> None:
     module = _load_module()
-    vulture_command = module.GATES["vulture"].command
-    vulture_index = vulture_command.index("vulture")
-    canonical_scope = vulture_command[vulture_index + 1 :]
-    root = MODULE_PATH.parents[1]
+    canonical_scope = ("src", "tests", "scripts", "alembic", "conftest.py")
 
+    assert module.GATES["complexipy"].command == (
+        "uv",
+        "run",
+        "--isolated",
+        "--locked",
+        "--all-extras",
+        "--python",
+        "3.11",
+        "python",
+        "scripts/complexipy_gate.py",
+        *canonical_scope,
+        "--max-complexity-allowed",
+        "5",
+        "--no-ignore",
+        "--ignore-complexity=false",
+        "--snapshot-ignore=true",
+        "--snapshot-create=false",
+        "--exclude=.",
+        "--check-script=true",
+    )
+    with (MODULE_PATH.parents[1] / "pyproject.toml").open("rb") as handle:
+        pyproject = tomllib.load(handle)
+    assert tuple(pyproject["tool"]["complexipy"]["paths"]) == canonical_scope
+    assert pyproject["tool"]["complexipy"]["max-complexity-allowed"] == 5
+    assert pyproject["tool"]["complexipy"]["no-ignore"] is True
+    assert pyproject["tool"]["complexipy"]["check-script"] is True
+    assert dict(module.DIRECT_GATE_COMMANDS)["complexipy"] == (
+        "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
+        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
+        "--check-script=true"
+    )
+
+
+def _match_scope_entry(file_path: str, scope: Sequence[str]) -> str:
+    matches = [entry for entry in scope if file_path == entry or file_path.startswith(f"{entry}/")]
+    assert (
+        len(matches) == 1
+    ), f"tracked file {file_path} must match exactly one entry, got {matches}"
+    return matches[0]
+
+
+def _assert_all_tracked_files_covered(scope: Sequence[str], root: Path) -> None:
     completed = subprocess.run(
         ["git", "ls-files", "*.py"],
         cwd=root,
@@ -105,21 +147,26 @@ def test_all_tracked_python_files_are_covered_by_vulture_scope() -> None:
     )
     tracked_files = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
     assert tracked_files, "expected tracked python files in repository"
+    covered: set[str] = {_match_scope_entry(path, scope) for path in tracked_files}
+    for entry in scope:
+        assert entry in covered, f"scope entry {entry} covers no tracked files"
 
-    covered_by_scope: dict[str, list[str]] = {entry: [] for entry in canonical_scope}
-    for file_path in tracked_files:
-        matched_entries = [
-            entry
-            for entry in canonical_scope
-            if file_path == entry or file_path.startswith(f"{entry}/")
-        ]
-        assert (
-            len(matched_entries) == 1
-        ), f"tracked file {file_path} must match exactly one scope entry, got {matched_entries}"
-        covered_by_scope[matched_entries[0]].append(file_path)
 
-    for entry, matched in covered_by_scope.items():
-        assert matched, f"scope entry {entry} covers no tracked files"
+def test_all_tracked_python_files_are_covered_by_vulture_scope() -> None:
+    module = _load_module()
+    vulture_command = module.GATES["vulture"].command
+    vulture_index = vulture_command.index("vulture")
+    canonical_scope = vulture_command[vulture_index + 1 :]
+    root = MODULE_PATH.parents[1]
+    _assert_all_tracked_files_covered(canonical_scope, root)
+
+
+def test_all_tracked_python_files_are_covered_by_complexipy_scope() -> None:
+    root = MODULE_PATH.parents[1]
+    with (root / "pyproject.toml").open("rb") as handle:
+        pyproject = tomllib.load(handle)
+    canonical_scope = tuple(pyproject["tool"]["complexipy"]["paths"])
+    _assert_all_tracked_files_covered(canonical_scope, root)
 
 
 def test_mypy_gate_uses_the_minimum_supported_dependency_resolution() -> None:
@@ -233,6 +280,7 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
         "strict-types",
         "pyright",
         "vulture",
+        "complexipy",
         "imports",
         "tests",
         "services",
@@ -311,6 +359,7 @@ def test_first_failure_output_includes_not_run_gates() -> None:
     assert "[SKIP] strict-types: not run after format failed" in rendered
     assert "[SKIP] pyright: not run after format failed" in rendered
     assert "[SKIP] vulture: not run after format failed" in rendered
+    assert "[SKIP] complexipy: not run after format failed" in rendered
     assert "first failed gate: format" in rendered
 
 
@@ -394,6 +443,10 @@ def test_help_lists_every_direct_gate_command() -> None:
         "pyright src/polymarket_insider_tracker",
         "uv run --isolated --locked --all-extras --python 3.11 vulture "
         "src tests scripts alembic conftest.py",
+        "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
+        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
+        "--check-script=true",
         "uv run pytest",
         "uv run --env-file .env alembic upgrade head",
     ):

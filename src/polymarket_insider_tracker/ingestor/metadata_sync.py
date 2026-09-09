@@ -18,7 +18,7 @@ from redis.asyncio import Redis
 
 from .clob_client import ClobClient
 from .gamma_client import GammaClient, GammaClientError, GammaMarketStats
-from .models import MarketMetadata
+from .models import Market, MarketMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -204,35 +204,43 @@ class MarketMetadataSync:
         self._set_state(SyncState.STOPPED)
         logger.info("Market metadata sync stopped")
 
+    async def _sync_loop_step(self) -> bool:
+        """Wait for next sync interval or stop event. Returns False if loop should terminate."""
+        try:
+            await asyncio.wait_for(
+                self._stop_event.wait(),
+                timeout=self._sync_interval,
+            )
+            return False
+        except TimeoutError:
+            pass
+
+        if self._stop_event.is_set():
+            return False
+
+        await self._sync_all_markets()
+        return True
+
+    def _handle_sync_loop_error(self, e: Exception) -> None:
+        logger.error(f"Sync loop error: {e}")
+        self._stats.failed_syncs += 1
+        self._stats.last_error = str(e)
+        self._set_state(SyncState.ERROR)
+
+    async def _run_sync_cycle(self) -> bool:
+        try:
+            return await self._sync_loop_step()
+        except asyncio.CancelledError:
+            return False
+        except Exception as e:
+            self._handle_sync_loop_error(e)
+            return True
+
     async def _sync_loop(self) -> None:
         """Background loop that periodically syncs markets."""
         while not self._stop_event.is_set():
-            try:
-                # Wait for next sync interval or stop event
-                try:
-                    await asyncio.wait_for(
-                        self._stop_event.wait(),
-                        timeout=self._sync_interval,
-                    )
-                    # Stop event was set
-                    break
-                except TimeoutError:
-                    # Timeout - time to sync
-                    pass
-
-                if self._stop_event.is_set():
-                    break
-
-                await self._sync_all_markets()
-
-            except asyncio.CancelledError:
+            if not await self._run_sync_cycle():
                 break
-            except Exception as e:
-                logger.error(f"Sync loop error: {e}")
-                self._stats.failed_syncs += 1
-                self._stats.last_error = str(e)
-                self._set_state(SyncState.ERROR)
-                # Continue running - will retry on next interval
 
     async def _fetch_gamma_stats(self) -> dict[str, GammaMarketStats]:
         """Fetch volume/liquidity stats from gamma-api.
@@ -246,67 +254,80 @@ class MarketMetadataSync:
             logger.warning("gamma stats fetch failed (continuing without volume): %s", e)
             return {}
 
+    async def _enrich_and_cache_market(
+        self, market: Market, gamma_stats: dict[str, GammaMarketStats]
+    ) -> bool:
+        metadata = MarketMetadata.from_market(market)
+        stats = gamma_stats.get(metadata.condition_id)
+        enriched = False
+        if stats is not None:
+            metadata = replace(
+                metadata,
+                daily_volume=stats.daily_volume,
+                weekly_volume=stats.weekly_volume,
+                liquidity=stats.liquidity,
+            )
+            enriched = True
+        await self._cache_market(metadata)
+        return enriched
+
+    async def _cache_markets_batch(
+        self, markets: list[Market], gamma_stats: dict[str, GammaMarketStats]
+    ) -> tuple[int, int]:
+        cached_count = 0
+        enriched_count = 0
+        for market in markets:
+            try:
+                enriched = await self._enrich_and_cache_market(market, gamma_stats)
+                cached_count += 1
+                if enriched:
+                    enriched_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to cache market {market.condition_id}: {e}")
+        return cached_count, enriched_count
+
+    def _record_sync_success(
+        self, start_time: datetime, cached_count: int, enriched_count: int
+    ) -> None:
+        end_time = datetime.now(UTC)
+        self._stats.successful_syncs += 1
+        self._stats.markets_cached = cached_count
+        self._stats.last_sync_time = end_time
+        self._stats.last_sync_duration_seconds = (end_time - start_time).total_seconds()
+        self._stats.last_error = None
+        self._set_state(SyncState.IDLE)
+        logger.info(
+            "Synced %d markets (%d enriched with gamma volume) in %.2fs",
+            cached_count,
+            enriched_count,
+            self._stats.last_sync_duration_seconds,
+        )
+        if self._on_sync_complete:
+            try:
+                self._on_sync_complete(self._stats)
+            except Exception as e:
+                logger.warning(f"Sync complete callback failed: {e}")
+
+    def _record_sync_failure(self, exc: Exception) -> None:
+        self._stats.failed_syncs += 1
+        self._stats.last_error = str(exc)
+        self._set_state(SyncState.ERROR)
+        logger.error(f"Market sync failed: {exc}")
+
     async def _sync_all_markets(self) -> None:
         """Fetch all markets and cache them in Redis."""
         self._set_state(SyncState.SYNCING)
         start_time = datetime.now(UTC)
         self._stats.total_syncs += 1
-
         try:
-            # Fetch CLOB markets and gamma volume snapshot in parallel
             markets, gamma_stats = await asyncio.gather(
                 asyncio.to_thread(self._clob.get_markets, True),
                 self._fetch_gamma_stats(),
             )
-
-            # Cache each market in Redis, enriched with gamma volume/liquidity
-            cached_count = 0
-            enriched_count = 0
-            for market in markets:
-                try:
-                    metadata = MarketMetadata.from_market(market)
-                    stats = gamma_stats.get(metadata.condition_id)
-                    if stats is not None:
-                        metadata = replace(
-                            metadata,
-                            daily_volume=stats.daily_volume,
-                            weekly_volume=stats.weekly_volume,
-                            liquidity=stats.liquidity,
-                        )
-                        enriched_count += 1
-                    await self._cache_market(metadata)
-                    cached_count += 1
-                except Exception as e:
-                    logger.warning(f"Failed to cache market {market.condition_id}: {e}")
-
-            # Update stats
-            end_time = datetime.now(UTC)
-            self._stats.successful_syncs += 1
-            self._stats.markets_cached = cached_count
-            self._stats.last_sync_time = end_time
-            self._stats.last_sync_duration_seconds = (end_time - start_time).total_seconds()
-            self._stats.last_error = None
-
-            self._set_state(SyncState.IDLE)
-            logger.info(
-                "Synced %d markets (%d enriched with gamma volume) in %.2fs",
-                cached_count,
-                enriched_count,
-                self._stats.last_sync_duration_seconds,
-            )
-
-            # Notify callback
-            if self._on_sync_complete:
-                try:
-                    self._on_sync_complete(self._stats)
-                except Exception as e:
-                    logger.warning(f"Sync complete callback failed: {e}")
-
+            cached, enriched = await self._cache_markets_batch(markets, gamma_stats)
+            self._record_sync_success(start_time, cached, enriched)
         except Exception as e:
-            self._stats.failed_syncs += 1
-            self._stats.last_error = str(e)
-            self._set_state(SyncState.ERROR)
-            logger.error(f"Market sync failed: {e}")
+            self._record_sync_failure(e)
             raise
 
     async def _cache_market(self, metadata: MarketMetadata) -> None:
@@ -354,6 +375,30 @@ class MarketMetadataSync:
 
         return None
 
+    async def _parse_matching_market(
+        self, key: bytes | str, category: str
+    ) -> MarketMetadata | None:
+        cached = await self._redis.get(key)
+        if not cached:
+            return None
+        try:
+            data = json.loads(cached)
+            if data.get("category") == category:
+                return MarketMetadata.from_dict(data)
+        except (json.JSONDecodeError, KeyError):
+            pass
+        return None
+
+    async def _collect_page_markets(
+        self, keys: list[bytes | str], category: str
+    ) -> list[MarketMetadata]:
+        page_results: list[MarketMetadata] = []
+        for key in keys:
+            market = await self._parse_matching_market(key, category)
+            if market is not None:
+                page_results.append(market)
+        return page_results
+
     async def get_markets_by_category(self, category: str) -> list[MarketMetadata]:
         """Get all cached markets of a specific category.
 
@@ -373,15 +418,8 @@ class MarketMetadataSync:
         scanner = cast(RedisScanner, self._redis)
         while True:
             cursor, keys = await scanner.scan(cursor, match=pattern, count=100)
-            for key in keys:
-                cached = await self._redis.get(key)
-                if cached:
-                    try:
-                        data = json.loads(cached)
-                        if data.get("category") == category:
-                            results.append(MarketMetadata.from_dict(data))
-                    except (json.JSONDecodeError, KeyError):
-                        pass
+            page_results = await self._collect_page_markets(keys, category)
+            results.extend(page_results)
             if cursor == 0:
                 break
 

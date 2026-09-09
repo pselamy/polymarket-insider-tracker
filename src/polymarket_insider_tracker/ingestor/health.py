@@ -271,29 +271,44 @@ class HealthMonitor:
         window_span = now - cutoff
         return len(recent_events) / window_span if window_span > 0 else 0.0
 
+    def _evaluate_stream_without_events(self, name: str, stream: StreamHealth, now: float) -> None:
+        if not stream.connected_since:
+            return
+        if (now - stream.connected_since) > self._stale_threshold:
+            stream.status = StreamStatus.STALE
+            STREAM_STATUS.labels(stream=name).set(0.5)
+
+    def _evaluate_stream_with_events(self, name: str, stream: StreamHealth, now: float) -> None:
+        assert stream.last_event_time is not None
+        if (now - stream.last_event_time) > self._stale_threshold:
+            stream.status = StreamStatus.STALE
+            STREAM_STATUS.labels(stream=name).set(0.5)
+        else:
+            stream.status = StreamStatus.ACTIVE
+            STREAM_STATUS.labels(stream=name).set(1.0)
+
+    def _check_single_stream_staleness(self, name: str, stream: StreamHealth, now: float) -> None:
+        if stream.status == StreamStatus.DISCONNECTED:
+            return
+        if stream.last_event_time is None:
+            self._evaluate_stream_without_events(name, stream, now)
+        else:
+            self._evaluate_stream_with_events(name, stream, now)
+
     def _check_stream_staleness(self) -> None:
         """Check all streams for staleness."""
         now = time.time()
-
         for name, stream in self._streams.items():
-            if stream.status == StreamStatus.DISCONNECTED:
-                continue
+            self._check_single_stream_staleness(name, stream, now)
 
-            if stream.last_event_time is None:
-                # Connected but no events yet - check connection time
-                if stream.connected_since:
-                    since_connect = now - stream.connected_since
-                    if since_connect > self._stale_threshold:
-                        stream.status = StreamStatus.STALE
-                        STREAM_STATUS.labels(stream=name).set(0.5)
-            else:
-                since_event = now - stream.last_event_time
-                if since_event > self._stale_threshold:
-                    stream.status = StreamStatus.STALE
-                    STREAM_STATUS.labels(stream=name).set(0.5)
-                else:
-                    stream.status = StreamStatus.ACTIVE
-                    STREAM_STATUS.labels(stream=name).set(1.0)
+    def _has_degraded_stream(self) -> bool:
+        return any(
+            stream.status in (StreamStatus.DISCONNECTED, StreamStatus.STALE)
+            for stream in self._streams.values()
+        )
+
+    def _all_disconnected(self) -> bool:
+        return all(stream.status == StreamStatus.DISCONNECTED for stream in self._streams.values())
 
     def _determine_overall_status(self) -> HealthStatus:
         """Determine overall health status based on stream states.
@@ -302,20 +317,29 @@ class HealthMonitor:
             Overall health status.
         """
         if not self._streams:
-            return HealthStatus.HEALTHY  # No streams = healthy (nothing to monitor)
-
-        statuses = [s.status for s in self._streams.values()]
-
-        if all(s == StreamStatus.DISCONNECTED for s in statuses):
+            return HealthStatus.HEALTHY
+        if self._all_disconnected():
             return HealthStatus.UNHEALTHY
-
-        if any(s == StreamStatus.DISCONNECTED for s in statuses):
+        if self._has_degraded_stream():
             return HealthStatus.DEGRADED
-
-        if any(s == StreamStatus.STALE for s in statuses):
-            return HealthStatus.DEGRADED
-
         return HealthStatus.HEALTHY
+
+    def _update_stream_metrics(self) -> float:
+        total_eps = 0.0
+        for name, stream in self._streams.items():
+            eps = self._calculate_throughput(name)
+            stream.events_per_second = eps
+            EVENTS_PER_SECOND.labels(stream=name).set(eps)
+            total_eps += eps
+        return total_eps
+
+    def _set_prometheus_health_status(self, overall_status: HealthStatus) -> None:
+        status_map = {
+            HealthStatus.HEALTHY: 1.0,
+            HealthStatus.DEGRADED: 0.5,
+            HealthStatus.UNHEALTHY: 0.0,
+        }
+        HEALTH_STATUS.set(status_map.get(overall_status, 0.0))
 
     def get_health_report(self) -> HealthReport:
         """Generate a comprehensive health report.
@@ -324,27 +348,11 @@ class HealthMonitor:
             HealthReport with current status of all streams.
         """
         self._check_stream_staleness()
-
-        # Update throughput metrics
-        total_eps = 0.0
-        for name, stream in self._streams.items():
-            eps = self._calculate_throughput(name)
-            stream.events_per_second = eps
-            EVENTS_PER_SECOND.labels(stream=name).set(eps)
-            total_eps += eps
-
+        total_eps = self._update_stream_metrics()
         overall_status = self._determine_overall_status()
-        HEALTH_STATUS.set(
-            1.0
-            if overall_status == HealthStatus.HEALTHY
-            else 0.5 if overall_status == HealthStatus.DEGRADED else 0.0
-        )
+        self._set_prometheus_health_status(overall_status)
 
-        uptime = 0.0
-        if self._start_time:
-            uptime = time.time() - self._start_time
-
-        # Deep copy streams to prevent mutations affecting internal state
+        uptime = time.time() - self._start_time if self._start_time else 0.0
         streams_copy = {name: copy.copy(stream) for name, stream in self._streams.items()}
 
         return HealthReport(
@@ -355,27 +363,33 @@ class HealthMonitor:
             uptime_seconds=uptime,
         )
 
+    async def _notify_health_change(self, report: HealthReport) -> None:
+        if not self._on_health_change or report.status == self._last_health_status:
+            return
+        self._last_health_status = report.status
+        try:
+            await self._on_health_change(report)
+        except Exception as e:
+            logger.error("Error in health change callback: %s", e)
+
+    async def _run_health_check_step(self) -> None:
+        try:
+            report = self.get_health_report()
+            await self._notify_health_change(report)
+            await asyncio.sleep(self._health_check_interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error("Error in health check loop: %s", e)
+            await asyncio.sleep(1)
+
     async def _health_check_loop(self) -> None:
         """Background task for periodic health checks."""
         while self._running:
             try:
-                report = self.get_health_report()
-
-                # Notify on status change
-                if self._on_health_change and report.status != self._last_health_status:
-                    self._last_health_status = report.status
-                    try:
-                        await self._on_health_change(report)
-                    except Exception as e:
-                        logger.error("Error in health change callback: %s", e)
-
-                await asyncio.sleep(self._health_check_interval)
-
+                await self._run_health_check_step()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error("Error in health check loop: %s", e)
-                await asyncio.sleep(1)
 
     async def start(self) -> None:
         """Start the health monitor.

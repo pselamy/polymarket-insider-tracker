@@ -75,6 +75,31 @@ class GammaClientError(Exception):
     """Raised when gamma-api returns an unrecoverable error."""
 
 
+def _try_parse_item(raw: object) -> GammaMarketStats | None:
+    if isinstance(raw, dict):
+        return _parse_market(cast(dict[str, object], raw))
+    return None
+
+
+def _parse_page_items(page: list[object], results: dict[str, GammaMarketStats]) -> None:
+    for raw in page:
+        parsed = _try_parse_item(raw)
+        if parsed is not None:
+            results[parsed.condition_id] = parsed
+
+
+def _aggregate_pages(pages: list[list[object]]) -> dict[str, GammaMarketStats]:
+    """Merge every fetched page into one mapping keyed by condition id.
+
+    Every page is already fetched by the time this runs, so no page is
+    skipped: a failed or empty page never hides a later page that succeeded.
+    """
+    results: dict[str, GammaMarketStats] = {}
+    for page in pages:
+        _parse_page_items(page, results)
+    return results
+
+
 class GammaClient:
     """Async client for the public gamma-api markets endpoint.
 
@@ -103,6 +128,28 @@ class GammaClient:
         self._max_retries = max_retries
         self._retry_base = retry_base_delay_seconds
 
+    @staticmethod
+    async def _fetch_page_payload(
+        client: httpx.AsyncClient,
+        path: str,
+        params: dict[str, str | int],
+    ) -> list[object]:
+        resp = await client.get(path, params=params)
+        resp.raise_for_status()
+        payload: object = resp.json()
+        if not isinstance(payload, list):
+            raise GammaClientError(
+                f"Unexpected gamma response shape for {path}: {type(payload).__name__}"
+            )
+        return cast(list[object], payload)
+
+    @staticmethod
+    async def _retry_sleep(attempt: int, max_retries: int, delay: float) -> float:
+        if attempt < max_retries - 1:
+            await asyncio.sleep(delay)
+            return delay * 2
+        return delay
+
     async def _get_with_retry(
         self,
         client: httpx.AsyncClient,
@@ -113,14 +160,7 @@ class GammaClient:
         delay = self._retry_base
         for attempt in range(self._max_retries):
             try:
-                resp = await client.get(path, params=params)
-                resp.raise_for_status()
-                payload: object = resp.json()
-                if not isinstance(payload, list):
-                    raise GammaClientError(
-                        f"Unexpected gamma response shape for {path}: {type(payload).__name__}"
-                    )
-                return cast(list[object], payload)
+                return await self._fetch_page_payload(client, path, params)
             except (httpx.HTTPError, ValueError) as exc:
                 last_exc = exc
                 logger.warning(
@@ -130,12 +170,47 @@ class GammaClient:
                     self._max_retries,
                     exc,
                 )
-                if attempt < self._max_retries - 1:
-                    await asyncio.sleep(delay)
-                    delay *= 2
+                delay = await self._retry_sleep(attempt, self._max_retries, delay)
         raise GammaClientError(
             f"gamma {path} failed after {self._max_retries} attempts: {last_exc}"
         )
+
+    async def _fetch_single_page(
+        self,
+        client: httpx.AsyncClient,
+        sem: asyncio.Semaphore,
+        stop: asyncio.Event,
+        page_index: int,
+    ) -> list[object]:
+        if stop.is_set():
+            return []
+        params: dict[str, str | int] = {
+            "limit": self._page_limit,
+            "offset": page_index * self._page_limit,
+            "active": "true",
+            "closed": "false",
+            "order": "volume24hr",
+            "ascending": "false",
+        }
+        async with sem:
+            if stop.is_set():
+                return []
+            try:
+                return await self._get_with_retry(client, "/markets", params)
+            except GammaClientError as exc:
+                logger.debug("gamma stop at page %d: %s", page_index, exc)
+                stop.set()
+                return []
+
+    async def _fetch_all_pages(self, client: httpx.AsyncClient) -> list[list[object]]:
+        sem = asyncio.Semaphore(self._page_concurrency)
+        stop = asyncio.Event()
+        tasks = [
+            asyncio.create_task(self._fetch_single_page(client, sem, stop, i))
+            for i in range(self._max_pages)
+        ]
+        pages = await asyncio.gather(*tasks)
+        return list(pages)
 
     async def get_active_market_stats(self) -> dict[str, GammaMarketStats]:
         """Fetch volume/liquidity for the most-traded active markets.
@@ -148,59 +223,13 @@ class GammaClient:
         Returns:
             Mapping condition_id -> GammaMarketStats.
         """
-        results: dict[str, GammaMarketStats] = {}
-        sem = asyncio.Semaphore(self._page_concurrency)
-        stop = asyncio.Event()
-
         async with httpx.AsyncClient(
             base_url=self._host,
             timeout=self._timeout,
             headers={"User-Agent": "polymarket-insider-tracker/0.1"},
         ) as client:
+            pages = await self._fetch_all_pages(client)
 
-            async def fetch_page(page_index: int) -> list[object]:
-                if stop.is_set():
-                    return []
-                params: dict[str, str | int] = {
-                    "limit": self._page_limit,
-                    "offset": page_index * self._page_limit,
-                    "active": "true",
-                    "closed": "false",
-                    "order": "volume24hr",
-                    "ascending": "false",
-                }
-                async with sem:
-                    if stop.is_set():
-                        return []
-                    try:
-                        return await self._get_with_retry(client, "/markets", params)
-                    except GammaClientError as exc:
-                        # Gamma rejects offsets past its hard cap with a
-                        # validation error; treat that as a clean stop.
-                        logger.debug("gamma stop at page %d: %s", page_index, exc)
-                        stop.set()
-                        return []
-
-            tasks = [asyncio.create_task(fetch_page(i)) for i in range(self._max_pages)]
-            pages = await asyncio.gather(*tasks)
-
-        empty_streak = 0
-        for page in pages:
-            if not page:
-                empty_streak += 1
-                continue
-            empty_streak = 0
-            for raw in page:
-                if not isinstance(raw, dict):
-                    continue
-                parsed = _parse_market(cast(dict[str, object], raw))
-                if parsed is not None:
-                    results[parsed.condition_id] = parsed
-            if len(page) < self._page_limit:
-                # short page — we walked past the end of the active set
-                empty_streak += 1
-            if empty_streak >= 2:
-                break
-
+        results = _aggregate_pages(pages)
         logger.info("gamma sync: fetched stats for %d active markets", len(results))
         return results

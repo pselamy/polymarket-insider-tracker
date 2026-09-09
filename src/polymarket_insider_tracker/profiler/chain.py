@@ -204,6 +204,66 @@ class PolygonClient:
             return self._w3
         return self._w3_fallback or self._w3
 
+    async def _sleep_retry_backoff(self, attempt: int, delay: float) -> float:
+        if attempt < self._max_retries - 1:
+            await asyncio.sleep(delay)
+            return delay * 2
+        return delay
+
+    async def _try_rpc_provider(
+        self,
+        w3: AsyncWeb3[AsyncHTTPProvider],
+        provider_name: str,
+        func_name: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> tuple[bool, Any, Exception | None]:
+        delay = self._retry_delay
+        last_error: Exception | None = None
+        for attempt in range(self._max_retries):
+            try:
+                method = getattr(w3.eth, func_name)
+                result = await method(*args, **kwargs)
+                return True, result, None
+            except Web3Exception as e:
+                last_error = e
+                logger.warning(
+                    "%s RPC %s failed (attempt %d/%d): %s",
+                    provider_name,
+                    func_name,
+                    attempt + 1,
+                    self._max_retries,
+                    e,
+                )
+                delay = await self._sleep_retry_backoff(attempt, delay)
+        return False, None, last_error
+
+    async def _try_primary_rpc(
+        self, func_name: str, *args: Any, **kwargs: Any
+    ) -> tuple[bool, Any, Exception | None]:
+        if not self._should_try_primary():
+            return False, None, None
+        ok, res, err = await self._try_rpc_provider(self._w3, "Primary", func_name, *args, **kwargs)
+        if ok:
+            self._primary_healthy = True
+            return True, res, None
+        self._primary_healthy = False
+        self._last_primary_check = time.monotonic()
+        return False, None, err
+
+    async def _try_fallback_rpc(
+        self, func_name: str, *args: Any, **kwargs: Any
+    ) -> tuple[bool, Any, Exception | None]:
+        if not self._w3_fallback:
+            return False, None, None
+        ok, res, err = await self._try_rpc_provider(
+            self._w3_fallback, "Fallback", func_name, *args, **kwargs
+        )
+        if ok:
+            logger.info("Fallback RPC succeeded for %s", func_name)
+            return True, res, None
+        return False, None, err
+
     async def _execute_with_retry(
         self,
         func_name: str,
@@ -224,57 +284,17 @@ class PolygonClient:
             RPCError: If all retries and failover fail.
         """
         await self._rate_limiter.acquire()
+        ok, res, err = await self._try_primary_rpc(func_name, *args, **kwargs)
+        if ok:
+            return res
 
-        last_error: Exception | None = None
-        delay = self._retry_delay
+        fallback_ok, fallback_res, fallback_err = await self._try_fallback_rpc(
+            func_name, *args, **kwargs
+        )
+        if fallback_ok:
+            return fallback_res
 
-        # Try primary RPC
-        if self._should_try_primary():
-            for attempt in range(self._max_retries):
-                try:
-                    method = getattr(self._w3.eth, func_name)
-                    result = await method(*args, **kwargs)
-                    self._primary_healthy = True
-                    return result
-                except Web3Exception as e:
-                    last_error = e
-                    logger.warning(
-                        "Primary RPC %s failed (attempt %d/%d): %s",
-                        func_name,
-                        attempt + 1,
-                        self._max_retries,
-                        e,
-                    )
-                    if attempt < self._max_retries - 1:
-                        await asyncio.sleep(delay)
-                        delay *= 2  # Exponential backoff
-
-            # Mark primary as unhealthy
-            self._primary_healthy = False
-            self._last_primary_check = time.monotonic()
-
-        # Try fallback RPC
-        if self._w3_fallback:
-            delay = self._retry_delay
-            for attempt in range(self._max_retries):
-                try:
-                    method = getattr(self._w3_fallback.eth, func_name)
-                    result = await method(*args, **kwargs)
-                    logger.info("Fallback RPC succeeded for %s", func_name)
-                    return result
-                except Web3Exception as e:
-                    last_error = e
-                    logger.warning(
-                        "Fallback RPC %s failed (attempt %d/%d): %s",
-                        func_name,
-                        attempt + 1,
-                        self._max_retries,
-                        e,
-                    )
-                    if attempt < self._max_retries - 1:
-                        await asyncio.sleep(delay)
-                        delay *= 2
-
+        last_error = fallback_err or err
         raise RPCError(f"RPC call {func_name} failed after all retries: {last_error}")
 
     async def get_transaction_count(self, address: str) -> int:
@@ -304,6 +324,28 @@ class PolygonClient:
 
         return int(count)
 
+    async def _resolve_nonce(self, address: str) -> tuple[str, int, bool]:
+        cache_key = self._cache_key("nonce", address)
+        cached = await self._get_cached(cache_key)
+        if cached is not None:
+            return address.lower(), int(cached), True
+        return address, 0, False
+
+    def _record_query_result(self, results: dict[str, int], addr: str, count_or_exc: Any) -> None:
+        if isinstance(count_or_exc, BaseException):
+            logger.warning("Failed to get nonce for %s: %s", addr, count_or_exc)
+            results[addr.lower()] = 0
+        else:
+            results[addr.lower()] = count_or_exc
+
+    async def _query_uncached_nonces(self, results: dict[str, int], uncached: list[str]) -> None:
+        if not uncached:
+            return
+        tasks = [self.get_transaction_count(addr) for addr in uncached]
+        counts = await asyncio.gather(*tasks, return_exceptions=True)
+        for addr, count in zip(uncached, counts, strict=True):
+            self._record_query_result(results, addr, count)
+
     async def get_transaction_counts(
         self,
         addresses: Sequence[str],
@@ -321,28 +363,14 @@ class PolygonClient:
 
         results: dict[str, int] = {}
         uncached: list[str] = []
-
-        # Check cache for each address
         for address in addresses:
-            cache_key = self._cache_key("nonce", address)
-            cached = await self._get_cached(cache_key)
-            if cached is not None:
-                results[address.lower()] = int(cached)
+            addr_key, nonce, hit = await self._resolve_nonce(address)
+            if hit:
+                results[addr_key] = nonce
             else:
                 uncached.append(address)
 
-        # Query uncached addresses concurrently
-        if uncached:
-            tasks = [self.get_transaction_count(addr) for addr in uncached]
-            counts = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for addr, count in zip(uncached, counts, strict=True):
-                if isinstance(count, BaseException):
-                    logger.warning("Failed to get nonce for %s: %s", addr, count)
-                    results[addr.lower()] = 0
-                else:
-                    results[addr.lower()] = count
-
+        await self._query_uncached_nonces(results, uncached)
         return results
 
     async def get_balance(self, address: str) -> Decimal:
