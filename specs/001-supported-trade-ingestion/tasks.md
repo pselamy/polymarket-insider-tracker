@@ -237,17 +237,22 @@ owned gaps, and hand off for review.
   Evidence (2026-09-10): `tests/tooling/test_trades_smoke.py` (21 tests), witnessed red with `FileNotFoundError`.
 - [x] T023 Implement `run_smoke` and the CLI in `scripts/trades_smoke.py` [FR-013, SC-005]
   Evidence (2026-09-10): `scripts/trades_smoke.py`.
-- [ ] T024 Run the explicit bounded live-safe smoke (`--live --coverage both --window-seconds 5`) plus
+- [x] T024 Run the explicit bounded live-safe smoke (`--live --coverage both --window-seconds 5`) plus
   twelve consecutive five-second poller cycles against the real endpoint from a disposable local Redis,
   evaluate every product stop-gate condition, and append the redacted commands, records, and verdict to
   `specs/001-supported-trade-ingestion/evidence/smoke.md`; stop for Patrick if any condition trips
   [FR-013, FR-016, FR-019, SC-005, SC-007]
-  Status (2026-09-10): **stopped at the product stop gate (condition 3)**. Smoke and twelve five-second cycles ran; the provider's `outcomeIndex` placeholder makes retained identities vanish. Evidence and the requested decision are in `evidence/smoke.md`. Not complete.
-- [ ] T025 Run `uv run python scripts/verify.py --profile static`, `--profile compatibility` on
+  Evidence (2026-09-10): the first run stopped on condition 3; Patrick approved the stable-identity
+  revision, and the repeated smoke plus twelve proof cycles held all six stop conditions. See
+  `evidence/smoke.md`.
+- [x] T025 Run `uv run python scripts/verify.py --profile static`, `--profile compatibility` on
   isolated Python 3.11/3.12/3.13, and `--env-file .env --profile services` with local PostgreSQL 15 and
   Redis 7; record results in `specs/001-supported-trade-ingestion/evidence/verification.md`
   [Constitution §V, Contract §Required Gates]
-  Status (2026-09-10): static and isolated 3.11/3.12/3.13 compatibility passed; the full `.env.example` profile fails at the PostgreSQL probe on this host (no credentials, no Docker socket); Redis parity proven on a disposable real Redis; migrations not exercised locally. Recorded in `evidence/verification.md`. Not complete until the services profile runs against real PostgreSQL 15.
+  Evidence (2026-09-10): the exact all profile passed against loopback PostgreSQL and Redis,
+  including 1,113 tests, 37 fake/real Redis contracts, and the migration round trip. Earlier
+  compatibility runs passed independently on Python 3.11, 3.12, and 3.13. See
+  `evidence/verification.md`.
 - [x] T026 Update only G-001, G-002, G-003, G-004, G-005, G-006, G-013b, G-030b, G-031, and G-032 with
   implementation and evidence dispositions in `specs/audit/gap-register.md` [Constitution §Development Workflow 8]
   Evidence (2026-09-10): gap register entries updated (see specs/audit/gap-register.md).

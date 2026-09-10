@@ -72,3 +72,29 @@ See [smoke.md](smoke.md). Verdict: product stop gate condition 3 tripped by the 
 - T025 services profile: PostgreSQL probe and migrations could not run on this host; Redis parity was
   proven against a disposable real Redis instead.
 - T027 and T028 are reserved for the independent review and PR preparation.
+
+## Approved correction and final local gates (2026-09-10)
+
+Patrick approved removing mutable `outcomeIndex` from identity and treating missing or out-of-range
+indexes as unknown, repairable enrichment. The corrective pass also resolved every independent
+review finding: stable emission floor, retry-safe restart re-anchor, all-valid-row outcome counting,
+terminal-state preservation, Redis key-type/WATCH atomicity, anonymous non-redirecting HTTP requests,
+transport-error redaction, saturated-page quality, and the six new typing suppressions.
+
+Two independent final reviews returned `SHIP`. Their focused suites passed 196 and 201 tests; the
+second reviewer also ran all 37 shared Redis scenarios against both fakeredis and the actual loopback
+Redis service.
+
+```bash
+uv run --env-file .env.example python scripts/verify.py --profile all
+```
+
+Result: passed in 40.11 seconds. Black, Ruff, mypy, Pyright, Vulture, and Complexipy (maximum 5) all
+passed; the compatibility suite passed with 1,113 tests and 2 skips; both runtime services were
+reachable; all 37 fake/real Redis contract cases passed; and the PostgreSQL migration sequence
+`002_risk_assessments -> 001_initial -> 002_risk_assessments` plus an async query and cleanup passed.
+This supersedes the earlier host-prerequisite failure recorded above.
+
+The corrected live run is recorded in `evidence/smoke.md`; all six product stop conditions held.
+The coverage-enforcement gap is intentionally reserved for its own focused follow-up PR: this slice
+does not claim that the current test command collects or enforces near-100% line and branch coverage.

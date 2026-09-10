@@ -19,12 +19,13 @@ from typing import Any, Protocol, cast
 
 from redis.asyncio import Redis
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 LOSS_EVENT_RETENTION = 50
 KEY_PREFIX = "polymarket:ingest:"
 _REQUIRED_FIELDS = (
     "schema_version",
     "boundary_time",
+    "emission_floor",
     "boundary_origin",
     "written_at",
     "coverage",
@@ -34,6 +35,12 @@ _REQUIRED_FIELDS = (
 
 class BoundaryPipeline(Protocol):
     """The transactional pipeline surface the boundary queues commands on."""
+
+    def watch(self, *names: str) -> Awaitable[bool]: ...
+
+    def type(self, name: str) -> Awaitable[bytes]: ...
+
+    def multi(self) -> None: ...
 
     def hset(self, name: str, *, mapping: Mapping[str, str | int]) -> object: ...
 
@@ -93,6 +100,7 @@ class Checkpoint:
     """The durable complete-through boundary."""
 
     boundary_time: int
+    emission_floor: int
     boundary_origin: BoundaryOrigin
     written_at: int
     coverage: str
@@ -102,6 +110,7 @@ class Checkpoint:
         return {
             "schema_version": SCHEMA_VERSION,
             "boundary_time": self.boundary_time,
+            "emission_floor": self.emission_floor,
             "boundary_origin": self.boundary_origin.value,
             "written_at": self.written_at,
             "coverage": self.coverage,
@@ -128,6 +137,7 @@ class Checkpoint:
             )
         return cls(
             boundary_time=int(fields["boundary_time"]),
+            emission_floor=int(fields["emission_floor"]),
             boundary_origin=BoundaryOrigin(fields["boundary_origin"]),
             written_at=int(fields["written_at"]),
             coverage=fields["coverage"],
@@ -302,8 +312,14 @@ class ObservationBoundary:
         loss_events: Sequence[LossEvent] = (),
     ) -> Checkpoint:
         """Move the durable boundary in one transaction; memory changes only after success."""
+        emission_floor = (
+            self._checkpoint.emission_floor
+            if origin is BoundaryOrigin.PROVEN and self._checkpoint is not None
+            else boundary_time
+        )
         checkpoint = Checkpoint(
             boundary_time=boundary_time,
+            emission_floor=emission_floor,
             boundary_origin=origin,
             written_at=int(self._clock()),
             coverage=self._coverage,
@@ -311,6 +327,8 @@ class ObservationBoundary:
         )
         floor = boundary_time - self._horizon
         async with self._redis.pipeline(transaction=True) as pipe:
+            await self._watch_and_validate(pipe, require_checkpoint=False)
+            pipe.multi()
             pipe.hset(self.checkpoint_key, mapping=checkpoint.to_mapping())
             self._queue_identities(pipe, identities, floor)
             self._queue_loss_events(pipe, loss_events)
@@ -325,12 +343,33 @@ class ObservationBoundary:
     ) -> None:
         """Retain identities and record the request cursor without moving the boundary."""
         async with self._redis.pipeline(transaction=True) as pipe:
+            await self._watch_and_validate(pipe, require_checkpoint=True)
+            pipe.multi()
             pipe.hset(self.checkpoint_key, mapping={"last_request_end": last_request_end})
             self._queue_identities(pipe, identities, trim_floor)
             await pipe.execute()
         if self._checkpoint is not None:
             self._checkpoint = replace(self._checkpoint, last_request_end=last_request_end)
         self._apply_identities(identities, trim_floor)
+
+    async def _watch_and_validate(
+        self, pipe: BoundaryPipeline, *, require_checkpoint: bool
+    ) -> None:
+        """Validate watched key types before queuing an all-or-nothing write."""
+        keys = (self.checkpoint_key, self.identities_key, self.loss_events_key)
+        await pipe.watch(*keys)
+        expected = ((b"hash", not require_checkpoint), (b"zset", True), (b"list", True))
+        for key, (kind, allow_none) in zip(keys, expected, strict=True):
+            self._validate_key_type(key, await pipe.type(key), kind, allow_none)
+
+    @staticmethod
+    def _validate_key_type(key: str, actual: bytes, expected: bytes, allow_none: bool) -> None:
+        if actual == expected or (actual == b"none" and allow_none):
+            return
+        rendered = actual.decode(errors="replace")
+        raise BoundarySchemaError(
+            f"boundary key {key} has type {rendered}; expected {expected.decode()}"
+        )
 
     def _queue_identities(
         self, pipe: BoundaryPipeline, identities: Mapping[str, int], floor: int

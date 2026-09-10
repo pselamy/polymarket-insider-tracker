@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
-from fakeredis import FakeAsyncRedis
+from fakeredis import FakeAsyncRedis, FakeServer
 from prometheus_client import REGISTRY
 
 from polymarket_insider_tracker.config import PolymarketSettings
@@ -20,6 +21,7 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
 from polymarket_insider_tracker.ingestor.trade_poller import (
     IngestionState,
     IngestionStatus,
+    PageAnalysis,
     TradePoller,
 )
 from polymarket_insider_tracker.ingestor.trade_rows import RowDisposition
@@ -36,6 +38,7 @@ from tests.fakes import (
     timeout,
     trade_row,
 )
+from tests.fakes.trades import Fault
 
 NOW = 1_788_983_720.0
 T0 = int(NOW)
@@ -122,9 +125,9 @@ def _seed_history(server: FakeTradesServer, *, count: int = 5, newest: int = T0 
         server.publish(trade_row(timestamp=newest - offset * 60, transaction=offset, wallet=offset))
 
 
-async def _run_until(predicate: object, *, cycles: int = 2000) -> None:
+async def _run_until(predicate: Callable[[], bool], *, cycles: int = 2000) -> None:
     for _ in range(cycles):
-        if predicate():  # type: ignore[operator]
+        if predicate():
             return
         await asyncio.sleep(0)
     raise AssertionError("condition was not reached")
@@ -205,11 +208,11 @@ class TestHealthyCycles:
             synthetic_wallet(3),
         ]
         assert second.counts[RowDisposition.EMITTED.value] == 3
-        assert second.counts[RowDisposition.DUPLICATE.value] == 5
+        assert second.counts[RowDisposition.DUPLICATE.value] == 1
         assert second.boundary_time == T0 + 3
         assert second.boundary_origin is BoundaryOrigin.PROVEN
         assert third.counts[RowDisposition.EMITTED.value] == 3
-        assert third.counts[RowDisposition.DUPLICATE.value] == 13
+        assert third.counts[RowDisposition.DUPLICATE.value] == 5
         assert len(callback.trades) == 3
         assert dict(poller.boundary.window) == {
             member.decode(): int(score)
@@ -244,7 +247,7 @@ class TestHealthyCycles:
         ]
         assert {trade.trade_id for trade in callback.trades} == {taker["transactionHash"]}
         assert poller.status.counts[RowDisposition.EMITTED.value] == 2
-        assert poller.status.counts[RowDisposition.DUPLICATE.value] == 3
+        assert poller.status.counts[RowDisposition.DUPLICATE.value] == 2
 
     async def test_rows_newer_than_the_cutoff_are_deferred_then_reacquired(
         self,
@@ -314,7 +317,7 @@ class TestHealthyCycles:
             ("", 0),
             ("Yes", 0),
         ]
-        assert poller.status.outcome_counts == {"provided": 1, "repaired": 1, "unknown": 1}
+        assert poller.status.outcome_counts == {"provided": 5, "repaired": 1, "unknown": 1}
 
     async def test_callback_errors_are_counted_and_do_not_stop_the_cycle(
         self,
@@ -387,7 +390,7 @@ class TestStatusAndMetrics:
         }
         assert status.counts["polls"] == 2
         assert status.counts["recovery_pages"] == 0
-        assert status.outcome_counts == {"provided": 1, "repaired": 0, "unknown": 0}
+        assert status.outcome_counts == {"provided": 7, "repaired": 0, "unknown": 0}
         assert status.page_rows == 4
         assert status.page_span_seconds == 4 + 10 + 120
         assert status.loss_events == ()
@@ -514,11 +517,11 @@ class TestTransientFailures:
         settings: PolymarketSettings,
         callback: RecordingTradeCallback,
         states: RecordingStateCallback,
-        fault: object,
+        fault: Fault,
         fragment: str,
     ) -> None:
         poller = await _anchored(server, clock, fake_redis, settings, callback, states=states)
-        server.fail_next(fault, times=5)  # type: ignore[arg-type]
+        server.fail_next(fault, times=5)
 
         await poller.run_cycle()
         degraded = poller.status
@@ -576,11 +579,11 @@ class TestTerminalFailures:
         settings: PolymarketSettings,
         callback: RecordingTradeCallback,
         states: RecordingStateCallback,
-        fault: object,
+        fault: Fault,
         fragment: str,
     ) -> None:
         poller = await _anchored(server, clock, fake_redis, settings, callback, states=states)
-        server.fail_next(fault)  # type: ignore[arg-type]
+        server.fail_next(fault)
         requests_before = len(server.requests)
 
         await poller.run_cycle()
@@ -611,13 +614,37 @@ class TestTerminalFailures:
 
         await asyncio.wait_for(poller.start(), timeout=1.0)
 
-        assert poller.state is IngestionState.STOPPED
+        assert poller.state is IngestionState.FAILED
         assert poller.status.last_error is not None
         assert "HTTP 403" in poller.status.last_error
         assert len(server.requests) == 1
 
 
 class TestRowQuality:
+    async def test_recovery_placeholder_cannot_replace_a_complete_primary_outcome(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        poller = _poller(server, clock, fake_redis, settings, callback)
+        analysis = PageAnalysis(cutoff=T0)
+        analysis.add_rows([trade_row(timestamp=T0, outcome="No", outcome_index=1)], now=T0)
+        await poller._resolve_and_count_outcomes(analysis)
+        analysis.add_rows([trade_row(timestamp=T0, outcome="No", outcome_index=999)], now=T0)
+
+        await poller._resolve_and_count_outcomes(analysis)
+
+        observation = next(iter(analysis.observations.values()))
+        assert (observation.event.outcome, observation.event.outcome_index) == ("No", 1)
+        assert poller.status.outcome_counts == {
+            "provided": 1,
+            "repaired": 0,
+            "unknown": 1,
+        }
+
     async def test_invalid_rows_are_counted_per_field_while_valid_rows_flow(
         self,
         server: FakeTradesServer,
@@ -698,6 +725,37 @@ class TestRowQuality:
 
 
 class TestRestart:
+    async def test_failed_reanchor_is_retried_without_replaying_history(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        settings: PolymarketSettings,
+    ) -> None:
+        redis_server = FakeServer()
+        fake_redis = FakeAsyncRedis(server=redis_server)
+        original = await _anchored(server, clock, fake_redis, settings, RecordingTradeCallback())
+        await original.stop()
+        clock.advance(700)
+        server.publish(trade_row(timestamp=T0 + 650, transaction=650))
+        callback = RecordingTradeCallback()
+        restarted = _poller(server, clock, fake_redis, settings, callback)
+        await restarted._ensure_loaded()
+        vars(redis_server)["connected"] = False
+
+        await restarted.run_cycle()
+
+        assert restarted.status.state is IngestionState.DEGRADED
+        assert restarted.status.loss_events == ()
+        assert callback.trades == []
+        vars(redis_server)["connected"] = True
+        await restarted.run_cycle()
+
+        assert restarted.status.state is IngestionState.RUNNING
+        assert restarted.status.boundary_origin is BoundaryOrigin.RE_ANCHORED
+        assert len(restarted.status.loss_events) == 1
+        assert callback.trades == []
+        await fake_redis.aclose()
+
     async def test_restart_inside_the_horizon_delivers_only_missed_observations(
         self,
         server: FakeTradesServer,
@@ -721,7 +779,7 @@ class TestRestart:
 
         assert first_run.timestamps() == [T0 + 1, T0 + 2]
         assert second_run.timestamps() == [T0 + 100, T0 + 101]
-        assert restarted.status.counts[RowDisposition.DUPLICATE.value] == 4
+        assert restarted.status.counts[RowDisposition.DUPLICATE.value] == 3
         assert restarted.status.boundary_time == T0 + 101
         assert restarted.status.boundary_origin is BoundaryOrigin.PROVEN
         assert restarted.status.loss_events == ()
@@ -772,6 +830,41 @@ class TestRestart:
 
 
 class TestSaturation:
+    async def test_recovery_rows_are_repaired_and_counted(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        metadata = FakeMetadataSync()
+        metadata.markets["0xmarket"] = MarketMetadata(
+            condition_id="0xmarket",
+            question="Synthetic?",
+            description="",
+            tokens=(
+                Token(token_id="asset-no", outcome="No"),
+                Token(token_id="asset-yes", outcome="Yes"),
+            ),
+        )
+        server.page_limit = 2
+        _seed_history(server, count=2)
+        poller = _poller(server, clock, fake_redis, settings, callback, metadata=metadata)
+        await poller.run_cycle()
+        clock.advance(5)
+        server.publish(trade_row(timestamp=T0 + 1, transaction=1, outcome=None, outcome_index=None))
+        server.publish(trade_row(timestamp=T0 + 2, transaction=2))
+        server.publish(trade_row(timestamp=T0 + 3, transaction=3))
+
+        await poller.run_cycle()
+
+        repaired = next(
+            trade for trade in callback.trades if int(trade.timestamp.timestamp()) == T0 + 1
+        )
+        assert (repaired.outcome, repaired.outcome_index) == ("Yes", 1)
+        assert poller.status.outcome_counts["repaired"] == 1
+
     async def test_recovery_page_proves_a_saturated_primary_page(
         self,
         server: FakeTradesServer,
@@ -939,6 +1032,27 @@ class TestSaturation:
 
 
 class TestPreStartHistory:
+    async def test_sparse_window_does_not_hide_a_late_unseen_post_start_row(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        server.publish(trade_row(timestamp=T0 - 2, transaction=0))
+        server.publish(trade_row(timestamp=T0 - 1, transaction=1))
+        poller = _poller(server, clock, fake_redis, settings, callback)
+        await poller.run_cycle()
+        clock.advance(655)
+        server.publish(trade_row(timestamp=T0 + 650, transaction=650))
+        await poller.run_cycle()
+        server.publish(trade_row(timestamp=T0 + 620, transaction=620))
+
+        await poller.run_cycle()
+
+        assert callback.timestamps() == [T0 + 650, T0 + 620]
+
     async def test_recovery_page_never_replays_history_older_than_the_anchor(
         self,
         server: FakeTradesServer,
@@ -965,7 +1079,7 @@ class TestPreStartHistory:
         assert status.state is IngestionState.RUNNING
         assert status.boundary_time == T0 + 1
         assert status.counts["recovery_pages"] == 1
-        assert status.counts[RowDisposition.PADDING.value] == 1
+        assert status.counts[RowDisposition.PADDING.value] == 2
         assert status.counts[RowDisposition.EMITTED.value] == 1
 
 

@@ -14,13 +14,14 @@ starts a fresh boundary with first-start semantics rather than mixing identity s
 
 | Key | Type | Content |
 |---|---|---|
-| `checkpoint` | hash | `schema_version`, `boundary_time`, `boundary_origin`, `written_at`, `coverage`, `last_request_end` |
+| `checkpoint` | hash | `schema_version=2`, `boundary_time`, `emission_floor`, `boundary_origin`, `written_at`, `coverage`, `last_request_end` |
 | `identities` | sorted set | member = observation identity, score = provider timestamp |
 | `loss-events` | list | newest-first JSON loss events, trimmed to 50 |
 
-Every boundary advance writes `checkpoint`, the new `identities` members, the `identities` trim, and any
-`loss-events` push in one `MULTI`/`EXEC` pipeline. A failed write leaves the previous checkpoint intact
-and the cycle is reported as a failure.
+Every boundary advance watches and validates all three key types, then writes `checkpoint`, the new
+`identities` members, the `identities` trim, and any `loss-events` push in one `MULTI`/`EXEC`
+transaction. A failed validation or write leaves the previous checkpoint intact and the cycle is
+reported as a failure.
 
 ## Proof Before Advance
 
@@ -50,8 +51,10 @@ durable `T` is a complete-through claim, not a newest-seen watermark.
 
 ## Candidate Selection and Emission
 
-- Candidate rows are valid rows with `timestamp >= newest_accepted - horizon`; older rows are
-  `padding`.
+- Candidate rows are valid rows with
+  `timestamp >= max(newest_accepted - horizon, emission_floor)`; older rows are `padding`.
+- `emission_floor` is set to the newest timestamp on first start and re-anchor and is preserved on
+  normal proven advances. It therefore cannot drift when a sparse identity window is trimmed.
 - A candidate whose identity is in `W` is a `duplicate`; otherwise it is emitted oldest-first through
   the trade callback, then its identity is added to `W` and to the pending pipeline write.
 - Multiple rows sharing a transaction hash are distinct observations unless their full identity tuple is
@@ -76,7 +79,7 @@ durable `T` is a complete-through claim, not a newest-seen watermark.
 | Situation | Behavior |
 |---|---|
 | No checkpoint, or a checkpoint whose `coverage` differs from the configuration | First start: fetch one page, `T = newest accepted`, retain identities within the horizon, emit nothing, `boundary_origin = first-start` |
-| Checkpoint with an unknown `schema_version` | Terminal configuration error; the poller enters `failed` and touches nothing |
+| Checkpoint with a schema version other than `2` | Terminal configuration error; the poller enters `failed` and touches nothing; version 1 cannot reconstruct the stable emission floor or revised identity space |
 | Checkpoint age `now - T <= horizon` | Reload `W` from Redis, then run the normal proof; if reachable, emitted rows are exactly the candidates not in `W`; otherwise enter `possible-data-loss` |
 | Checkpoint age `now - T > horizon` | Write a loss event `[T, newest accepted]` with reason `restart-beyond-horizon`, re-anchor without emission |
 

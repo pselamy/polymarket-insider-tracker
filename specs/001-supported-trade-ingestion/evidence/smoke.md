@@ -187,3 +187,32 @@ gate is green and the live evidence above is complete.
 
 Every record above was grep-checked for 40-hex-character addresses before commit (zero matches
 outside the synthetic test fixtures); response bodies were hashed and discarded.
+
+## Approved identity revision and converged rerun (07:04:46Z–07:11:06Z)
+
+Patrick approved option 1: `outcomeIndex` was removed from identity, and missing or out-of-range
+indexes became unknown, repairable enrichment. Checkpoint schema version 2 adds a durable
+`emission_floor`; version 1 fails closed because it cannot reconstruct the revised identity space.
+
+The bounded smoke was repeated exactly:
+
+```bash
+uv run python scripts/trades_smoke.py --live --coverage both --window-seconds 5 --json
+```
+
+Both anonymous requests returned HTTP 200 with 10,000 valid rows and zero invalid rows. `all`
+contained 293 in-window rows with 1.820 s lag; `taker-only` contained 165 with 0.691 s lag. Both
+records passed, retained no wallet identifiers, and sent no credentials.
+
+The aggregate-only poller driver was then repeated against empty Redis database 14 on the existing
+loopback service. Cycle 0 anchored at `1789024201`; all twelve subsequent cycles remained `running`
+with `boundary_origin=proven`. Every page contained 10,000 rows, spanned 324–342 seconds, and had
+provider lag 1.86–3.34 seconds. No recovery request, retry, invalid row, failure, or loss event
+occurred. The boundary advanced on every proof cycle to `1789024261`, and 2,235 observations were
+delivered exactly once. Outcome totals covered all 130,000 valid raw rows: 128,735 complete pairs
+and 1,265 unknown placeholder/incomplete pairs. The two created checkpoint keys were deleted in the
+driver's `finally` block.
+
+All six product stop-gate conditions held on the rerun. In particular, condition 3 converged: no
+cycle entered `possible-data-loss`, confirming that the approved stable identity removes the false
+continuity gaps without weakening the reach-plus-continuity proof. T024 is complete.

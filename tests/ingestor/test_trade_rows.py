@@ -218,7 +218,6 @@ class TestCompositeIdentity:
             {"asset": "asset-no"},
             {"conditionId": "0xother"},
             {"side": "SELL"},
-            {"outcomeIndex": 1},
         ],
     )
     def test_any_identity_tuple_difference_is_a_distinct_observation(
@@ -229,11 +228,12 @@ class TestCompositeIdentity:
 
         assert _observation(base).identity != _observation(changed).identity
 
-    def test_missing_outcome_index_is_empty_in_identity(self) -> None:
-        with_index = _observation(trade_row(timestamp=NOW, outcome_index=0))
+    def test_outcome_index_is_not_part_of_identity(self) -> None:
+        placeholder = _observation(trade_row(timestamp=NOW, outcome_index=999))
+        corrected = _observation(trade_row(timestamp=NOW, outcome_index=1))
         without = _observation(trade_row(timestamp=NOW, outcome=None, outcome_index=None))
 
-        assert with_index.identity != without.identity
+        assert placeholder.identity == corrected.identity == without.identity
 
 
 class TestOutcomeRepair:
@@ -278,12 +278,34 @@ class TestOutcomeRepair:
         assert repaired is observation
         assert repaired.outcome_resolution is OutcomeResolution.PROVIDED
 
-    def test_outcome_index_alone_marks_resolution_provided(self) -> None:
+    def test_outcome_index_alone_is_unknown_and_repairable(self) -> None:
         observation = _observation(trade_row(timestamp=NOW, outcome=None, outcome_index=1))
 
-        assert observation.outcome_resolution is OutcomeResolution.PROVIDED
+        assert observation.outcome_resolution is OutcomeResolution.UNKNOWN
         assert observation.event.outcome == ""
-        assert observation.event.outcome_index == 1
+        assert observation.event.outcome_index == 0
+
+    def test_outcome_text_without_index_is_repaired_as_a_complete_pair(self) -> None:
+        observation = _observation(trade_row(timestamp=NOW, outcome="No", outcome_index=None))
+
+        repaired = repair_outcome(observation, _market(("asset-no", "No"), ("asset-yes", "Yes")))
+
+        assert observation.outcome_resolution is OutcomeResolution.UNKNOWN
+        assert (repaired.event.outcome, repaired.event.outcome_index) == ("Yes", 1)
+        assert repaired.outcome_resolution is OutcomeResolution.REPAIRED
+
+    def test_placeholder_outcome_index_is_unknown_and_repairable(self) -> None:
+        observation = _observation(trade_row(timestamp=NOW, outcome="Yes", outcome_index=999))
+
+        assert observation.outcome_resolution is OutcomeResolution.UNKNOWN
+        assert observation.event.outcome_index == 0
+
+        repaired = repair_outcome(observation, _market(("asset-no", "No"), ("asset-yes", "Yes")))
+
+        assert repaired.outcome_resolution is OutcomeResolution.REPAIRED
+        assert repaired.event.outcome == "Yes"
+        assert repaired.event.outcome_index == 1
+        assert repaired.identity == observation.identity
 
 
 class TestDispositions:

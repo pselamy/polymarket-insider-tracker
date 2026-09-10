@@ -24,9 +24,15 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from fakeredis import FakeAsyncRedis
+from fakeredis import FakeAsyncRedis, FakeServer
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
+from redis.exceptions import ResponseError, WatchError
+
+from polymarket_insider_tracker.ingestor.observation_boundary import (
+    BoundaryOrigin,
+    BoundarySchemaError,
+    ObservationBoundary,
+)
 
 RUNTIME_SERVICES_PATH = Path(__file__).parents[2] / "scripts" / "runtime_services.py"
 LOCAL_REDIS_URL = "redis://localhost:6379"
@@ -61,9 +67,12 @@ async def _connect_real_redis() -> Redis:
 class ContractRedis:
     """A Redis client plus the unique namespace this test may write to."""
 
-    def __init__(self, client: Redis, implementation: str) -> None:
+    def __init__(
+        self, client: Redis, implementation: str, fake_server: FakeServer | None = None
+    ) -> None:
         self.client = client
         self.implementation = implementation
+        self.fake_server = fake_server
         self.prefix = f"pit-contract:{uuid.uuid4().hex}:"
 
     def key(self, name: str) -> str:
@@ -85,8 +94,13 @@ class ContractRedis:
 @pytest.fixture(params=IMPLEMENTATIONS)
 async def contract(request: pytest.FixtureRequest) -> AsyncIterator[ContractRedis]:
     implementation = str(request.param)
-    client = FakeAsyncRedis() if implementation == "fake" else await _connect_real_redis()
-    scoped = ContractRedis(client, implementation)
+    fake_server = FakeServer() if implementation == "fake" else None
+    client = (
+        FakeAsyncRedis(server=fake_server)
+        if fake_server is not None
+        else await _connect_real_redis()
+    )
+    scoped = ContractRedis(client, implementation, fake_server)
     try:
         yield scoped
     finally:
@@ -312,19 +326,21 @@ async def test_checkpoint_hash_round_trips_as_bytes(contract: ContractRedis) -> 
         await redis.hset(
             key,
             mapping={
-                "schema_version": 1,
+                "schema_version": 2,
                 "boundary_time": 1788983716,
+                "emission_floor": 1788983716,
                 "boundary_origin": "first-start",
                 "written_at": 1788983720,
                 "coverage": "all",
                 "last_request_end": 1788983720,
             },
         )
-        == 6
+        == 7
     )
     assert await redis.hgetall(key) == {
-        b"schema_version": b"1",
+        b"schema_version": b"2",
         b"boundary_time": b"1788983716",
+        b"emission_floor": b"1788983716",
         b"boundary_origin": b"first-start",
         b"written_at": b"1788983720",
         b"coverage": b"all",
@@ -398,3 +414,69 @@ async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedi
     assert await redis.hget(checkpoint, "boundary_time") == b"950"
     assert await redis.zcard(identities) == 4
     assert await redis.lrange(losses, 0, -1) == [b'{"reason": "restart-beyond-horizon"}']
+
+
+async def test_watched_type_change_aborts_before_transaction_writes(
+    contract: ContractRedis,
+) -> None:
+    redis = contract.client
+    watched = contract.key("watched")
+    transaction_owned = contract.key("transaction-owned")
+    competitor = (
+        FakeAsyncRedis(server=contract.fake_server)
+        if contract.fake_server is not None
+        else await _connect_real_redis()
+    )
+    try:
+        async with redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(watched)
+            assert await pipe.type(watched) == b"none"
+            await competitor.set(watched, "wrong-type")
+            pipe.multi()
+            pipe.hset(watched, mapping={"field": "value"})
+            pipe.set(transaction_owned, "must-not-exist")
+            with pytest.raises(WatchError):
+                await pipe.execute()
+        assert await redis.get(watched) == b"wrong-type"
+        assert await redis.exists(transaction_owned) == 0
+    finally:
+        await competitor.aclose()
+
+
+@pytest.mark.parametrize("key_name", ["checkpoint_key", "identities_key", "loss_events_key"])
+async def test_observation_boundary_rejects_wrong_key_types_atomically(
+    contract: ContractRedis, key_name: str
+) -> None:
+    boundary = ObservationBoundary(
+        contract.client,
+        trades_url=f"https://trades.invalid/{contract.prefix}",
+        coverage="all",
+        horizon_seconds=600,
+        clock=lambda: 1_000.0,
+    )
+    keys = (boundary.checkpoint_key, boundary.identities_key, boundary.loss_events_key)
+    try:
+        await contract.client.set(getattr(boundary, key_name), "wrong-type")
+
+        with pytest.raises(BoundarySchemaError, match="has type string"):
+            await boundary.advance(
+                boundary_time=1_000,
+                origin=BoundaryOrigin.FIRST_START,
+                last_request_end=1_000,
+                identities={"new": 1_000},
+            )
+
+        assert boundary.checkpoint is None
+        assert await contract.client.exists(boundary.checkpoint_key) == (
+            1 if key_name == "checkpoint_key" else 0
+        )
+        await contract.client.delete(*keys)
+        checkpoint = await boundary.advance(
+            boundary_time=1_000,
+            origin=BoundaryOrigin.FIRST_START,
+            last_request_end=1_000,
+            identities={"new": 1_000},
+        )
+        assert checkpoint.boundary_time == 1_000
+    finally:
+        await contract.client.delete(*keys)

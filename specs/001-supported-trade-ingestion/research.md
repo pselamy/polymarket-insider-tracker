@@ -111,13 +111,16 @@ than leaving a gap, because new rows shift older rows to higher offsets.
 ## Decision 5: Composite observation identity
 
 **Decision**: The observation identity is a SHA-256 digest of the canonical tuple
-(`transactionHash`, lowercase `proxyWallet`, `conditionId`, `asset`, `side`, `outcomeIndex`, canonical
-decimal `price`, canonical decimal `size`, integer `timestamp`). Exact repeats of that tuple are
+(`transactionHash`, lowercase `proxyWallet`, `conditionId`, `asset`, `side`, canonical decimal
+`price`, canonical decimal `size`, integer `timestamp`). Exact repeats of that tuple are
 duplicates; any difference is a distinct observation.
 
 **Rationale**: FR-005. All-participant transactions contain several legitimate wallet rows; two exact
 repeated composite rows appeared in 763 in-window observations and 69–72 per 10,000-row page, so
 transaction hash alone is not identity and exact repeats do occur.
+The live stop-gate showed that `outcomeIndex` is mutable enrichment: fresh rows can carry `999` and
+later carry `0` or `1` while every stable identity field is unchanged. The `asset` already identifies
+the market token, so excluding the index prevents false continuity gaps and duplicate delivery.
 
 **Alternatives considered**:
 
@@ -228,9 +231,11 @@ seconds of all-participant history, so a five-second cycle consumes about 3% of 
 
 **Decision**: A row is structurally valid when every identity-bearing field parses (`transactionHash`, `proxyWallet`,
 `conditionId`, `asset`, `side` in `{BUY, SELL}`, decimal `price`, decimal `size`, integer `timestamp`).
-Missing `outcome`/`outcomeIndex` is repaired from the cached market metadata token whose id equals
+Missing or out-of-range `outcomeIndex` is treated as unknown and, with missing outcome data, repaired
+from the cached market metadata token whose id equals
 `asset`; when metadata is absent the observation is emitted with an empty outcome and increments the
-`unknown` outcome-resolution count. Invalid rows are counted per missing or malformed field; a bounded number of
+`unknown` outcome-resolution count. Outcome resolution is counted for every structurally valid raw
+row, regardless of its disposition. Invalid rows are counted per missing or malformed field; a bounded number of
 wallet-free diagnostics (row hash, field name) is logged per cycle. Rows more than 60 seconds ahead of
 the local clock are invalid `future-timestamp` rows. A structurally valid row newer than the cycle cutoff
 is `deferred:future-cycle` and cannot emit or advance the durable boundary until reacquired.

@@ -308,7 +308,8 @@ contract:
 - Deprecation of `POLYMARKET_WS_URL` is an annotated field validator (`DeprecatedWebSocketUrl`),
   the same mechanism as the other URL rules, so the warning fires once per load only when set.
 
-Live finding requiring a decision: the provider serves newest rows with a placeholder
-`outcomeIndex` of `999` that is corrected within seconds; with `outcomeIndex` inside the identity
-tuple this produces continuity mismatches and duplicate emission. See
-[evidence/smoke.md](evidence/smoke.md).
+Live finding and approved resolution: the provider serves newest rows with a placeholder
+`outcomeIndex` of `999` that is corrected within seconds. The index is therefore repairable
+enrichment rather than identity; the stable asset token remains in the tuple. The durable checkpoint
+schema advances to version 2 and adds an emission floor so the revised identity space fails closed.
+See [evidence/smoke.md](evidence/smoke.md).

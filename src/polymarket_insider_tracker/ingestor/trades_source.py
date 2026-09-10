@@ -134,8 +134,13 @@ class RequestAttempt:
 
 
 def redacted_url(url: str) -> str:
-    """Return ``url`` without its query string or fragment."""
-    return urlsplit(url)._replace(query="", fragment="").geturl()
+    """Return ``url`` without credentials, query string, or fragment."""
+    parsed = urlsplit(url)
+    host = parsed.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
+    return parsed._replace(netloc=netloc, query="", fragment="").geturl()
 
 
 def start_for(boundary_time: int | None, horizon_seconds: int) -> int:
@@ -184,6 +189,9 @@ class TradesSourceClient:
         max_retries: int = MAX_RETRIES,
         on_attempt: Callable[[RequestAttempt], None] | None = None,
     ) -> None:
+        parsed_url = urlsplit(url)
+        if parsed_url.username is not None or parsed_url.password is not None:
+            raise ValueError("trades URL must not contain credentials")
         self._client = client
         self._url = url
         self._taker_only = coverage == "taker-only"
@@ -270,16 +278,18 @@ class TradesSourceClient:
     ) -> TradesPage | TradesTransientError:
         started = self._clock()
         try:
-            response = await self._client.get(
+            outgoing = httpx.Request(
+                "GET",
                 self._url,
                 params=request.params(),
                 headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-                timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS),
+                extensions={"timeout": httpx.Timeout(REQUEST_TIMEOUT_SECONDS).as_dict()},
             )
-        except httpx.TimeoutException as exc:
-            return self._transient(started, attempt, None, "timeout", f"timeout: {exc}")
-        except httpx.TransportError as exc:
-            return self._transient(started, attempt, None, "transport", f"transport error: {exc}")
+            response = await self._client.send(outgoing, auth=None, follow_redirects=False)
+        except httpx.TimeoutException:
+            return self._transient(started, attempt, None, "timeout", "timeout")
+        except httpx.TransportError:
+            return self._transient(started, attempt, None, "transport", "transport error")
         return self._classify(response, request, started, attempt)
 
     def _classify(

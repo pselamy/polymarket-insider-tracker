@@ -238,6 +238,23 @@ class TestSevenCases:
         assert "not" in record.warning and "loss" in record.warning
         assert smoke.exit_code_for([record]) == smoke.EXIT_PASSED
 
+    async def test_saturation_does_not_override_the_row_quality_floor(
+        self, smoke: ModuleType, server: FakeTradesServer, clock: FakeClock
+    ) -> None:
+        for offset in range(PAGE_LIMIT):
+            row = trade_row(timestamp=T0 - 1, transaction=offset)
+            if offset < PAGE_LIMIT // 10:
+                del row["price"]
+            server.publish(row)
+
+        record = await _run(smoke, server, clock)
+
+        assert record.case == "possible-page-saturation"
+        assert record.page_saturated is True
+        assert record.passed is False
+        assert record.invalid_rows == PAGE_LIMIT // 10
+        assert smoke.exit_code_for([record]) == smoke.EXIT_FAILED
+
     async def test_a_full_page_reaching_the_window_start_is_not_saturation(
         self, smoke: ModuleType, server: FakeTradesServer, clock: FakeClock
     ) -> None:
@@ -316,9 +333,11 @@ class TestRecordPrivacy:
 
 
 class TestCommandLine:
-    def test_live_is_required_and_explained(self, smoke: ModuleType, capsys: object) -> None:
+    def test_live_is_required_and_explained(
+        self, smoke: ModuleType, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         assert smoke.main([]) == smoke.EXIT_USAGE
-        captured = capsys.readouterr()  # type: ignore[attr-defined]
+        captured = capsys.readouterr()
         assert "--live" in captured.err
 
     def test_invalid_options_are_usage_errors(self, smoke: ModuleType) -> None:
@@ -338,14 +357,14 @@ class TestCommandLine:
         smoke: ModuleType,
         server: FakeTradesServer,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: object,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         monkeypatch.setenv("POLYMARKET_TRADES_URL", URL)
         server.publish(trade_row(timestamp=int(NOW) - 1, transaction=1))
 
         code = smoke.main(["--live", "--coverage", "both", "--json"], client_factory=server.client)
 
-        out = capsys.readouterr().out  # type: ignore[attr-defined]
+        out = capsys.readouterr().out
         payloads = [json.loads(line) for line in out.strip().splitlines()]
         assert code == smoke.EXIT_PASSED
         assert [payload["coverage"] for payload in payloads] == ["all", "taker-only"]

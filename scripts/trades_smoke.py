@@ -148,8 +148,8 @@ def _classify_page(aggregate: _Aggregate, row_count: int, window_start: int) -> 
 
 
 def _page_verdict(case: SmokeCase, aggregate: _Aggregate, row_count: int) -> bool:
-    """Empty and saturated pages pass by definition; otherwise valid rows must dominate."""
-    if case in ("valid-empty", "possible-page-saturation"):
+    """Empty pages pass; every non-empty page must meet the same row-quality floor."""
+    if case == "valid-empty":
         return True
     share = aggregate.invalid_rows / row_count
     return aggregate.valid_rows > 0 and share <= MAX_INVALID_SHARE

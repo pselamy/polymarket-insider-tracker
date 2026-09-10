@@ -181,6 +181,8 @@ class PageAnalysis:
 
     cutoff: int
     observations: dict[str, TradeObservation] = field(default_factory=dict[str, TradeObservation])
+    outcomes: list[TradeObservation] = field(default_factory=list[TradeObservation])
+    resolved_outcomes: int = 0
     invalid: list[InvalidRow] = field(default_factory=list[InvalidRow])
     deferred: int = 0
     repeats: int = 0
@@ -196,14 +198,21 @@ class PageAnalysis:
         if isinstance(parsed, InvalidRow):
             self.invalid.append(parsed)
             return
+        self.outcomes.append(parsed)
         self.latest_seen = max(parsed.provider_timestamp, self.latest_seen or 0)
         if parsed.provider_timestamp > self.cutoff:
             self.deferred += 1
             return
-        if parsed.identity in self.observations:
-            self.repeats += 1
+        self._remember_observation(parsed)
+
+    def _remember_observation(self, parsed: TradeObservation) -> None:
+        existing = self.observations.get(parsed.identity)
+        if existing is None:
+            self.observations[parsed.identity] = parsed
             return
-        self.observations[parsed.identity] = parsed
+        self.repeats += 1
+        if existing.outcome_resolution is OutcomeResolution.UNKNOWN:
+            self.observations[parsed.identity] = parsed
 
     @property
     def oldest(self) -> int | None:
@@ -356,7 +365,8 @@ class TradePoller:
         finally:
             self._running = False
             await self._close_client()
-            self._set_state(IngestionState.STOPPED)
+            if self._state is not IngestionState.FAILED:
+                self._set_state(IngestionState.STOPPED)
             self._stopped.set()
 
     async def stop(self) -> None:
@@ -478,6 +488,7 @@ class TradePoller:
         INGEST_PAGE_SPAN.set(analysis.span_seconds)
 
     async def _process(self, page: TradesPage, analysis: PageAnalysis) -> None:
+        await self._resolve_and_count_outcomes(analysis)
         if analysis.newest is None:
             self._tallies.counts["empty_responses"] += 1
             self._mark_healthy()
@@ -494,9 +505,11 @@ class TradePoller:
         """True once, on the first non-empty page after a restart older than the horizon."""
         if not self._restart_check_pending:
             return False
-        self._restart_check_pending = False
         assert self.boundary.checkpoint is not None
-        return int(self._clock()) - self.boundary.checkpoint.boundary_time > self._horizon
+        beyond_horizon = int(self._clock()) - self.boundary.checkpoint.boundary_time > self._horizon
+        if not beyond_horizon:
+            self._restart_check_pending = False
+        return beyond_horizon
 
     async def _anchor_after_lost_restart(self, page: TradesPage, analysis: PageAnalysis) -> None:
         assert self.boundary.checkpoint is not None and analysis.newest is not None
@@ -509,8 +522,9 @@ class TradePoller:
             recorded_at=now,
             pages_examined=self._cycle_pages,
         )
-        self._log_loss(event)
         await self._anchor(page, analysis, BoundaryOrigin.RE_ANCHORED, (event,))
+        self._restart_check_pending = False
+        self._log_loss(event)
 
     async def _prove_and_advance(self, page: TradesPage, analysis: PageAnalysis) -> None:
         """Prove against the durable boundary, recover once if needed, else freeze or continue."""
@@ -534,6 +548,7 @@ class TradePoller:
         assert isinstance(recovery, TradesPage)
         self._tallies.counts["recovery_pages"] += 1
         self._absorb(recovery, analysis)
+        await self._resolve_and_count_outcomes(analysis)
         return self._prove(analysis, None)
 
     def _prove(self, analysis: PageAnalysis, boundary_time: int | None) -> ProofResult:
@@ -670,14 +685,15 @@ class TradePoller:
         return RowDisposition.ANCHOR_HISTORY
 
     def _candidate_floor(self, newest: int) -> int:
-        """Rows older than the horizon, or older than anything ever retained, are padding.
+        """Rows older than the horizon or the durable start/re-anchor floor are padding.
 
-        The second bound keeps FR-007 true after an anchor: a deeper recovery page can reveal rows
-        inside the horizon that no earlier page reached, and those are pre-start history, not new
-        activity. Once the tracker has run longer than the horizon the two bounds coincide.
+        The durable emission floor does not drift when sparse retained identities are trimmed.
+        Once the tracker has run longer than the horizon the two bounds coincide.
         """
         horizon_floor = newest - self._horizon
-        return max(horizon_floor, min(self.boundary.window.values(), default=horizon_floor))
+        checkpoint = self.boundary.checkpoint
+        assert checkpoint is not None
+        return max(horizon_floor, checkpoint.emission_floor)
 
     async def _advance_proven(self, page: TradesPage, analysis: PageAnalysis) -> None:
         newest = analysis.newest
@@ -717,8 +733,6 @@ class TradePoller:
         return delivered
 
     async def _deliver_one(self, observation: TradeObservation) -> None:
-        observation = await self._repair(observation)
-        self._tallies.outcome_counts[observation.outcome_resolution.value] += 1
         started = self._clock()
         try:
             await self._on_trade(observation.event)
@@ -731,6 +745,26 @@ class TradePoller:
             observation.provider_timestamp, self._tallies.last_trade_at or 0
         )
         self._count(RowDisposition.EMITTED)
+
+    async def _resolve_and_count_outcomes(self, analysis: PageAnalysis) -> None:
+        """Resolve every valid raw row, independently of its eventual disposition."""
+        resolved_by_identity: dict[str, TradeObservation] = {}
+        for observation in analysis.outcomes[analysis.resolved_outcomes :]:
+            resolved = await self._repair(observation)
+            self._tallies.outcome_counts[resolved.outcome_resolution.value] += 1
+            self._remember_resolved(resolved_by_identity, resolved)
+        analysis.resolved_outcomes = len(analysis.outcomes)
+        for identity, resolved in resolved_by_identity.items():
+            if identity in analysis.observations:
+                self._remember_resolved(analysis.observations, resolved)
+
+    @staticmethod
+    def _remember_resolved(
+        observations: dict[str, TradeObservation], candidate: TradeObservation
+    ) -> None:
+        current = observations.get(candidate.identity)
+        if current is None or current.outcome_resolution is OutcomeResolution.UNKNOWN:
+            observations[candidate.identity] = candidate
 
     async def _repair(self, observation: TradeObservation) -> TradeObservation:
         if observation.outcome_known or self._metadata is None:

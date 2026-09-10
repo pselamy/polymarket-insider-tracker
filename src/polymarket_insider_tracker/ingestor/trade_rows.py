@@ -213,18 +213,18 @@ def _optional_text(raw: dict[str, Any], key: str) -> str:
 
 
 def _optional_index(value: object) -> int | None:
-    if isinstance(value, int) and not isinstance(value, bool):
+    if isinstance(value, int) and not isinstance(value, bool) and value in (0, 1):
         return value
     return None
 
 
 def _initial_resolution(outcome: str, outcome_index: int | None) -> OutcomeResolution:
-    if outcome or outcome_index is not None:
+    if outcome and outcome_index is not None:
         return OutcomeResolution.PROVIDED
     return OutcomeResolution.UNKNOWN
 
 
-def observation_identity(fields: _IdentityFields, outcome_index: int | None) -> str:
+def observation_identity(fields: _IdentityFields) -> str:
     """SHA-256 of the canonical identity tuple defined by the data model."""
     parts = (
         fields.transaction_hash,
@@ -232,7 +232,6 @@ def observation_identity(fields: _IdentityFields, outcome_index: int | None) -> 
         fields.condition_id,
         fields.asset,
         fields.side,
-        "" if outcome_index is None else str(outcome_index),
         canonical_decimal(fields.price),
         canonical_decimal(fields.size),
         str(fields.timestamp),
@@ -241,8 +240,11 @@ def observation_identity(fields: _IdentityFields, outcome_index: int | None) -> 
 
 
 def _build_observation(raw: dict[str, Any], fields: _IdentityFields) -> TradeObservation:
-    outcome = _optional_text(raw, "outcome")
     outcome_index = _optional_index(raw.get("outcomeIndex"))
+    outcome = _optional_text(raw, "outcome")
+    if not outcome or outcome_index is None:
+        outcome = ""
+        outcome_index = None
     event = TradeEvent(
         market_id=fields.condition_id,
         trade_id=fields.transaction_hash,
@@ -262,7 +264,7 @@ def _build_observation(raw: dict[str, Any], fields: _IdentityFields) -> TradeObs
     )
     return TradeObservation(
         event=event,
-        identity=observation_identity(fields, outcome_index),
+        identity=observation_identity(fields),
         provider_timestamp=fields.timestamp,
         outcome_resolution=_initial_resolution(outcome, outcome_index),
     )

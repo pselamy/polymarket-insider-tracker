@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -471,9 +472,9 @@ class TestPipelineContextManager:
         assert transitions == ["start", "stop"]
 
 
-async def _run_until(predicate: object, *, cycles: int = 5000) -> None:
+async def _run_until(predicate: Callable[[], bool], *, cycles: int = 5000) -> None:
     for _ in range(cycles):
-        if predicate():  # type: ignore[operator]
+        if predicate():
             return
         await asyncio.sleep(0)
     raise AssertionError("condition was not reached")

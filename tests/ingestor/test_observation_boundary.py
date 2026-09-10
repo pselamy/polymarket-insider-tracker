@@ -99,6 +99,7 @@ class TestLoad:
 
         assert written == Checkpoint(
             boundary_time=NOW,
+            emission_floor=NOW,
             boundary_origin=BoundaryOrigin.FIRST_START,
             written_at=NOW + 7,
             coverage="all",
@@ -107,6 +108,7 @@ class TestLoad:
         assert await fake_redis.hgetall(boundary.checkpoint_key) == {
             b"schema_version": str(SCHEMA_VERSION).encode(),
             b"boundary_time": str(NOW).encode(),
+            b"emission_floor": str(NOW).encode(),
             b"boundary_origin": b"first-start",
             b"written_at": str(NOW + 7).encode(),
             b"coverage": b"all",
@@ -127,6 +129,7 @@ class TestLoad:
             mapping={
                 "schema_version": SCHEMA_VERSION,
                 "boundary_time": NOW,
+                "emission_floor": NOW,
                 "boundary_origin": "proven",
                 "written_at": NOW,
                 "coverage": "taker-only",
@@ -304,6 +307,50 @@ class TestWrites:
         assert dict(boundary.window) == await _zset(fake_redis, boundary.identities_key)
         assert boundary.checkpoint is not None
         assert boundary.checkpoint.last_request_end == 1_001
+        assert boundary.checkpoint.emission_floor == 1_000
+
+    async def test_reanchor_replaces_the_emission_floor(self, fake_redis: FakeAsyncRedis) -> None:
+        boundary = _boundary(fake_redis)
+        await boundary.advance(
+            boundary_time=1_000,
+            origin=BoundaryOrigin.FIRST_START,
+            last_request_end=1_000,
+            identities={"anchor": 1_000},
+        )
+
+        checkpoint = await boundary.advance(
+            boundary_time=2_000,
+            origin=BoundaryOrigin.RE_ANCHORED,
+            last_request_end=2_000,
+            identities={"new-anchor": 2_000},
+        )
+
+        assert checkpoint.emission_floor == 2_000
+
+    @pytest.mark.parametrize(
+        ("key_name", "value"),
+        [("checkpoint_key", "bad"), ("identities_key", "bad"), ("loss_events_key", "bad")],
+    )
+    async def test_wrong_key_type_rejects_advance_without_partial_writes(
+        self, fake_redis: FakeAsyncRedis, key_name: str, value: str
+    ) -> None:
+        boundary = _boundary(fake_redis)
+        key = getattr(boundary, key_name)
+        await fake_redis.set(key, value)
+
+        with pytest.raises(BoundarySchemaError, match="has type string"):
+            await boundary.advance(
+                boundary_time=1_000,
+                origin=BoundaryOrigin.FIRST_START,
+                last_request_end=1_000,
+                identities={"new": 1_000},
+                loss_events=[_event(1)],
+            )
+
+        assert boundary.checkpoint is None
+        assert await fake_redis.exists(boundary.checkpoint_key) == (
+            1 if key_name == "checkpoint_key" else 0
+        )
 
     async def test_retain_writes_identities_without_moving_the_boundary(
         self, fake_redis: FakeAsyncRedis
@@ -330,6 +377,28 @@ class TestWrites:
         assert await fake_redis.hget(boundary.checkpoint_key, "last_request_end") == b"1500"
         assert dict(boundary.window) == {"anchor": 1_000, "gap-side": 1_500}
         assert dict(boundary.window) == await _zset(fake_redis, boundary.identities_key)
+
+    async def test_retain_requires_a_checkpoint_and_valid_key_types(
+        self, fake_redis: FakeAsyncRedis
+    ) -> None:
+        boundary = _boundary(fake_redis)
+        with pytest.raises(BoundarySchemaError, match="expected hash"):
+            await boundary.retain(identities={}, trim_floor=0, last_request_end=1)
+
+        await boundary.advance(
+            boundary_time=1_000,
+            origin=BoundaryOrigin.FIRST_START,
+            last_request_end=1_000,
+            identities={"anchor": 1_000},
+        )
+        await fake_redis.delete(boundary.identities_key)
+        await fake_redis.set(boundary.identities_key, "wrong-type")
+
+        with pytest.raises(BoundarySchemaError, match="expected zset"):
+            await boundary.retain(identities={"new": 1_001}, trim_floor=400, last_request_end=1_001)
+
+        assert boundary.checkpoint is not None
+        assert boundary.checkpoint.last_request_end == 1_000
 
     async def test_loss_events_are_capped_newest_first(self, fake_redis: FakeAsyncRedis) -> None:
         boundary = _boundary(fake_redis)

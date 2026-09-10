@@ -23,6 +23,7 @@ from polymarket_insider_tracker.ingestor.trades_source import (
     TradesTerminalError,
     TradesTransientError,
     parse_retry_after,
+    redacted_url,
     start_for,
 )
 from tests.fakes import (
@@ -76,6 +77,88 @@ def _query(server: FakeTradesServer, index: int = -1) -> dict[str, str]:
 
 
 class TestRequestShape:
+    def test_redacted_url_removes_credentials_query_and_fragment(self) -> None:
+        assert (
+            redacted_url("https://user:secret@trades.invalid:8443/trades?token=x#fragment")
+            == "https://trades.invalid:8443/trades"
+        )
+
+    def test_source_rejects_url_credentials(
+        self, server: FakeTradesServer, clock: FakeClock
+    ) -> None:
+        with pytest.raises(ValueError, match="must not contain credentials"):
+            TradesSourceClient(
+                server.client(),
+                url="https://user:secret@trades.invalid/trades",
+                coverage="all",
+                clock=clock,
+            )
+
+    async def test_request_ignores_inherited_auth_and_cookies(
+        self, server: FakeTradesServer, clock: FakeClock
+    ) -> None:
+        client = httpx.AsyncClient(
+            transport=server.transport(),
+            auth=("user", "secret"),
+            cookies={"session": "secret"},
+            headers={"X-API-Key": "secret"},
+        )
+        source = TradesSourceClient(client, url=URL, coverage="all", clock=clock)
+
+        await source.fetch_primary(boundary_time=None, horizon_seconds=600)
+
+        assert "authorization" not in server.requests[-1].headers
+        assert "cookie" not in server.requests[-1].headers
+        assert "x-api-key" not in server.requests[-1].headers
+        await client.aclose()
+
+    async def test_response_cookie_is_not_replayed_on_the_next_request(
+        self, clock: FakeClock
+    ) -> None:
+        seen: list[httpx.Headers] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            seen.append(request.headers)
+            headers = {"Set-Cookie": "session=provider-secret"} if len(seen) == 1 else {}
+            return httpx.Response(200, json=[], headers=headers, request=request)
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(respond), auth=("user", "secret"))
+        source = TradesSourceClient(client, url=URL, coverage="all", clock=clock)
+
+        await source.fetch_primary(boundary_time=None, horizon_seconds=600)
+        await source.fetch_primary(boundary_time=None, horizon_seconds=600)
+
+        assert all("authorization" not in headers for headers in seen)
+        assert all("cookie" not in headers for headers in seen)
+        await client.aclose()
+
+    async def test_client_redirect_policy_cannot_redirect_or_replay_cookies(
+        self, clock: FakeClock
+    ) -> None:
+        seen: list[httpx.Request] = []
+
+        def redirect(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(
+                302,
+                headers={
+                    "Location": "https://other.invalid/collect",
+                    "Set-Cookie": "session=provider-secret",
+                },
+                request=request,
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(redirect), follow_redirects=True)
+        source = TradesSourceClient(client, url=URL, coverage="all", clock=clock)
+
+        with pytest.raises(TradesTerminalError) as excinfo:
+            await source.fetch_primary(boundary_time=None, horizon_seconds=600)
+
+        assert excinfo.value.status == 302
+        assert len(seen) == 1
+        assert seen[0].url.host == "trades.invalid"
+        await client.aclose()
+
     async def test_primary_request_sends_exactly_the_documented_parameters(
         self, server: FakeTradesServer, clock: FakeClock
     ) -> None:
@@ -327,6 +410,28 @@ class TestClassification:
         assert excinfo.value.timeout is False
         assert excinfo.value.status is None
         assert [attempt.outcome for attempt in client.attempts] == ["transient", "transient"]
+
+    async def test_transport_exception_details_are_not_exposed(self, clock: FakeClock) -> None:
+        def refuse(request: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout(
+                "request failed at https://trades.invalid?token=synthetic-secret",
+                request=request,
+            )
+
+        client = TradesSourceClient(
+            httpx.AsyncClient(transport=httpx.MockTransport(refuse)),
+            url=URL,
+            coverage="all",
+            clock=clock,
+            sleeper=clock.sleep,
+            max_retries=0,
+        )
+
+        with pytest.raises(TradesTransientError) as excinfo:
+            await client.fetch_primary(boundary_time=None, horizon_seconds=600)
+
+        assert "synthetic-secret" not in str(excinfo.value)
+        assert "token" not in str(excinfo.value)
 
 
 class TestBackoff:
