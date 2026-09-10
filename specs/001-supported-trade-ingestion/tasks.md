@@ -261,8 +261,11 @@ owned gaps, and hand off for review.
   `specs/001-supported-trade-ingestion/evidence/verification.md` [AGENTS.md §Review and delivery]
   Evidence (2026-09-10): Fable first pass `eb8a21d`; corrective pass `876e4e3`; two independent
   adversarial reviewers returned `SHIP` after their findings were fixed and re-tested.
-- [ ] T028 Prepare the pull request only after T024–T027 converge; verify required checks at the exact
+- [x] T028 Prepare the pull request only after T024–T027 converge; verify required checks at the exact
   head; do not merge without Patrick's approval [Constitution §Development Workflow 9]
+  Evidence (2026-09-10): PR #121 opened only after local convergence; all required push and pull
+  checks passed at the exact final head. The implementation PR remains unmerged pending Patrick's
+  separate approval.
 
 ---
 
