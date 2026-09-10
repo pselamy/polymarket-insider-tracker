@@ -85,15 +85,17 @@ None. T001 (human gate), T025 (required gates), T026 (gap register), T027 (revie
 `checklists/requirements.md`: 16/16 → 16/16 items passing after the 2026-09-09 clarifications; no
 marker changed. The reviewer-owned `checklists/ingestion.md` has 36 items, all unchecked.
 
-## Decisions Deferred to Patrick (not analysis findings)
+## Decisions Approved by Patrick (not analysis findings)
 
-1. Aged-gap behavior: record a loss event and keep monitoring (recommended) versus stall until restart.
-2. Acceptance of the 10-minute horizon as retention/loss detection rather than a complete-recovery
-   guarantee, given the 20,000-row reachable depth.
-3. The deprecation window for `POLYMARKET_WS_URL` and the retained deprecated WebSocket export.
+On 2026-09-10 Patrick approved the recommended package with “merge and continue”:
+
+1. Record a loss event and keep monitoring after an aged gap.
+2. Treat the 10-minute horizon as retention/loss detection rather than a complete-recovery guarantee,
+   given the 20,000-row reachable depth.
+3. Use the deprecation window for `POLYMARKET_WS_URL` and retain the deprecated WebSocket export.
 
 ## Next Actions
 
 - No CRITICAL or HIGH finding remains; the package may proceed to human validation.
-- After Patrick's decisions, if any answer changes the planned behavior, re-run `$speckit-clarify` to
-  encode it in `spec.md` before `$speckit-implement`.
+- Patrick approved the recommended behavior without changes; implementation may begin from the merged
+  planning package while the product stop gate remains binding.

@@ -2,8 +2,8 @@
 
 This is the target validation sequence for slice 001 after implementation. Commands prove the
 supported ingestion contract; nothing here places a trade, sends a real alert, or requires a
-Polymarket credential. Until Patrick authorizes implementation, only the feasibility record and the
-planning artifacts exist.
+Polymarket credential. Patrick authorized implementation on 2026-09-10; until implementation lands,
+the commands below describe the target validation contract rather than current runtime behavior.
 
 ## Prerequisites
 

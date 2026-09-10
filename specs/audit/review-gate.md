@@ -126,3 +126,10 @@ planning package records bounded live evidence, contracts, a reviewer-owned unch
 and independent analysis. This authorizes preparation of the planning pull request only. Slice-001
 implementation remains blocked until Patrick approves the three decisions in its plan; no checklist
 marker is changed by this record.
+
+On 2026-09-10 Patrick responded **“merge and continue”** after receiving the three recommended
+slice-001 decisions. This approves durable recording of aged gaps while monitoring continues, the
+10-minute setting as a retention/loss-detection horizon rather than a completeness guarantee, and the
+`POLYMARKET_WS_URL` deprecation window with retained deprecated Python exports. It authorizes merging
+the planning package and starting slice-001 implementation. It does not authorize merging the later
+implementation pull request without a separate approval. The reviewer-owned checklist remains unchanged.

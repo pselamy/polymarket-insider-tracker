@@ -4,8 +4,8 @@
 
 **Input**: Feature specification from `specs/001-supported-trade-ingestion/spec.md`, Decision A1
 approved by Patrick on 2026-09-06, and the feasibility record in
-[evidence/feasibility.md](evidence/feasibility.md). Implementation is not authorized until Patrick
-validates this package.
+[evidence/feasibility.md](evidence/feasibility.md). Patrick approved the three recommended decisions and
+authorized implementation with “merge and continue” on 2026-09-10.
 
 ## Summary
 
@@ -262,15 +262,16 @@ constitution requires.
 
 No constitution violation requires justification.
 
-## Items Requiring Patrick's Decision Before Implementation
+## Patrick's Approved Implementation Decisions
 
-1. Confirm the aged-gap behavior (record a loss event and keep monitoring) versus stalling until
-   restart (Design Decision 3).
-2. Confirm that the 10-minute horizon is a retention/loss-detection bound, not a complete-recovery
+Patrick approved the recommended package on 2026-09-10:
+
+1. Record aged gaps as durable loss events and keep monitoring rather than stalling until restart.
+2. Treat the 10-minute horizon as a retention/loss-detection bound, not a complete-recovery
    guarantee: reachable depth is 20,000 rows (about 5–7 minutes at observed rates), so an outage can
    produce a visible loss event before it is 10 minutes old.
-3. Confirm the deprecation window for `POLYMARKET_WS_URL` and the retained `TradeStreamHandler`
-   export instead of immediate rejection and removal.
+3. Use the deprecation window for `POLYMARKET_WS_URL` and retain the deprecated `TradeStreamHandler`
+   export instead of immediately rejecting and removing it.
 
 ## Product Stop Gate
 

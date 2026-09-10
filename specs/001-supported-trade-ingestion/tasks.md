@@ -23,7 +23,8 @@ Requirement identifiers in brackets trace each task to `spec.md`.
 
 **Purpose**: No task below starts before this phase is complete.
 
-- [ ] T001 Patrick validates the 2026-09-09 planning package and answers the three items in
+- [x] T001 Patrick validated the 2026-09-09 planning package with “merge and continue” on 2026-09-10,
+  approving the three recommended items in
   `specs/001-supported-trade-ingestion/plan.md` (aged-gap behavior, recovery-horizon acceptance,
   `POLYMARKET_WS_URL` deprecation window); record the decision text and date in
   `specs/audit/review-gate.md` [FR-016, FR-019, Constitution §Development Workflow 3]

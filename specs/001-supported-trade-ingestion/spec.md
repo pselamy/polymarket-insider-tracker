@@ -5,7 +5,8 @@
 **Created**: 2026-09-06
 
 **Status**: Decision A1 approved by Patrick on 2026-09-06; clarified and planned on 2026-09-09 with the
-feasibility record in [evidence/feasibility.md](evidence/feasibility.md); implementation is not yet authorized
+feasibility record in [evidence/feasibility.md](evidence/feasibility.md); Patrick approved the recommended
+planning decisions and authorized implementation with “merge and continue” on 2026-09-10
 
 **Input**: User description: "Restore a current, supported, wallet-bearing public Polymarket trade feed and make startup, replay, and provider failure behavior truthful and testable."
 
