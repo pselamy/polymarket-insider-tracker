@@ -22,3 +22,9 @@ class FakeMetadataSync:
         if condition_id in self.failures:
             raise self.failures[condition_id]
         return self.markets.get(condition_id, self.fallback)
+
+    async def get_cached_market(self, condition_id: str) -> MarketMetadata | None:
+        """The cache-only lookup: known markets answer, everything else is absent."""
+        if condition_id in self.failures:
+            raise self.failures[condition_id]
+        return self.markets.get(condition_id)

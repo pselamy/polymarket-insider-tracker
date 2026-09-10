@@ -25,6 +25,9 @@ planning decisions and authorized implementation with “merge and continue” o
   outcome and counted as unrepaired. A row missing any identity-bearing field (`transactionHash`,
   `proxyWallet`, `conditionId`, `asset`, `side`, `price`, `size`, `timestamp`) is invalid, counted per
   field, quarantined as aggregate diagnostics, and never repaired by invention.
+- Q: Is `outcomeIndex` part of observation identity? → A: No. The provider temporarily publishes
+  out-of-range placeholder indexes and later corrects them. Identity uses the stable asset token;
+  missing or out-of-range indexes are unknown, repairable enrichment and never create a second row.
 - Q: Which provider time bounds are trusted? → A: Neither is trusted as a server-side filter. The
   requested upper bound is also the cycle cutoff and a strictly increasing cache key. Rows newer than
   it are deferred and reacquired in a later cycle; they do not emit or advance the complete-through
@@ -161,6 +164,7 @@ verify the documented result, warning, or actionable failure.
   otherwise emitted with an unknown outcome and counted as unrepaired. A row missing any
   identity-bearing field is invalid, counted per missing field, and quarantined as aggregate
   diagnostics without wallet identifiers.
+  Outcome-resolution counts cover every structurally valid raw row independently of disposition.
 - **FR-005**: The tracker MUST preserve distinct rows that share a transaction hash and MUST suppress
   exact repeated observations within the recovery horizon.
 - **FR-006**: The tracker MUST maintain a durable complete-through boundary and recent identity window

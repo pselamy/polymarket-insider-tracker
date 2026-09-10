@@ -6,7 +6,7 @@
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Real-time detection of suspicious trading patterns on Polymarket: fresh wallets, unusual sizing, niche-market activity, and funding chain analysis. Streams trades via WebSocket, profiles wallets on-chain (Polygon), scores risk with ML + heuristics, and dispatches alerts to Discord/Telegram.
+Near-real-time detection of suspicious trading patterns on Polymarket: fresh wallets, unusual sizing, niche-market activity, and funding chain analysis. Polls the documented public trades query for wallet-bearing trades, profiles wallets on-chain (Polygon), scores risk with ML + heuristics, and dispatches alerts to Discord/Telegram.
 
 ---
 
@@ -108,8 +108,12 @@ python -m polymarket_insider_tracker --help
 | `REDIS_URL` | No | `redis://localhost:6379` | Redis connection string |
 | `POLYGON_RPC_URL` | No | `https://polygon-rpc.com` | Polygon RPC (public default works) |
 | `POLYGON_FALLBACK_RPC_URL` | No | — | Fallback RPC endpoint |
-| `POLYMARKET_WS_URL` | No | `wss://ws-live-data.polymarket.com` | WebSocket endpoint |
-| `POLYMARKET_API_KEY` | No | — | Optional API key for higher rate limits |
+| `POLYMARKET_TRADES_URL` | No | `https://data-api.polymarket.com/trades` | Documented anonymous public trades query |
+| `POLYMARKET_TRADES_COVERAGE` | No | `all` | `all` public participant observations, or the provider's `taker-only` subset |
+| `POLYMARKET_TRADES_POLL_INTERVAL_SECONDS` | No | `5` | Seconds between acquisition cycles (1–60) |
+| `POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS` | No | `600` | Identity retention and loss-detection horizon (60–3600) |
+| `POLYMARKET_WS_URL` | No | — | **Deprecated.** Accepted only with `ws://`/`wss://`, warns, never used |
+| `POLYMARKET_API_KEY` | No | — | Optional API key consumed by the CLOB client only |
 | `DISCORD_WEBHOOK_URL` | No | — | Discord alerts |
 | `TELEGRAM_BOT_TOKEN` | No | — | Telegram alerts (needs `TELEGRAM_CHAT_ID` too) |
 | `TELEGRAM_CHAT_ID` | No | — | Telegram chat for alerts |
@@ -117,7 +121,43 @@ python -m polymarket_insider_tracker --help
 | `DRY_RUN` | No | `false` | Skip sending alerts |
 | `HEALTH_PORT` | No | `8080` | Health check HTTP port |
 
-No API keys are needed for basic operation — the Polymarket WebSocket and CLOB REST APIs are public.
+No API keys are needed for basic operation — the Polymarket public trades query and CLOB REST APIs are
+public, and no credential is ever sent to the trades endpoint.
+
+### Trade Ingestion
+
+The tracker acquires trades by **near-real-time polling** of the documented public trades query, not by
+push delivery. Every cycle (default every 5 seconds, about 1% of the published limit of 200 requests per
+10 seconds; the configurable 1-second minimum stays at 5%) requests one full 10,000-row page with a
+strictly increasing `end` cutoff so the provider's shared cache never serves a stale page, sorts and
+validates rows on the client, de-duplicates by a composite observation identity, and delivers each new
+observation to the detection pipeline exactly once, oldest first. Coverage defaults to all public
+participant observations (`takerOnly=false`); several wallet rows per transaction are legitimate and
+distinct, while exact repeats are suppressed.
+
+A durable complete-through boundary, the recent identity window, and loss events live in Redis. A page
+advances the boundary only when it provably reaches the previous boundary (its oldest row is older than
+the boundary and every retained newer identity reappears); otherwise the tracker fetches the single
+documented recovery page (`offset=10000`) and, if the page still cannot be proven, enters the visible
+`possible-data-loss` state with a frozen boundary while new observations keep flowing. A gap that ages
+past the recovery horizon, or a restart older than it, is written as a durable, logged loss event
+(`horizon-expired`, `restart-beyond-horizon`, `continuity-mismatch`) before the boundary re-anchors.
+The 10-minute horizon is a retention and loss-detection bound: reachable depth is two 10,000-row pages
+(roughly five to seven minutes at observed rates), so an outage can produce a recorded loss event before
+it is 10 minutes old. Acquisition starts before the market-metadata crawl finishes; metadata only
+repairs missing outcomes and enriches detection.
+
+Status exposes the lifecycle state (`running`, `degraded`, `possible-data-loss`, `failed`), last success
+and last trade times, provider timestamp lag (freshness, not first-publication latency), duplicate and
+invalid-row counts, and recent loss events; Prometheus metrics use the `polymarket_ingest_` prefix.
+`POLYMARKET_WS_URL` is deprecated: it is accepted only with a WebSocket scheme, produces an actionable
+warning at load and in `--config-check`, and is never used or reinterpreted as an HTTP source.
+
+A bounded, aggregate-only live-safe smoke check is available on demand and never runs in tests or CI:
+
+```bash
+uv run --env-file .env python scripts/trades_smoke.py --live --window-seconds 5 --json
+```
 
 ---
 
@@ -160,17 +200,17 @@ Confidence: HIGH (3/4 signals triggered)
 ## Architecture
 
 ```
-Polymarket WebSocket ──> Ingestor ──> Profiler ──> Detector ──> Alerter
-(wss://ws-live-data)    (trades)    (on-chain)   (scoring)   (Discord/TG)
-                                        |
-                                   Polygon RPC
+Public trades query ──> Ingestor ──> Profiler ──> Detector ──> Alerter
+(data-api, polled)     (poller)    (on-chain)   (scoring)   (Discord/TG)
+        |                                |
+   Redis boundary                   Polygon RPC
 ```
 
 ### Components
 
 | Module | Purpose |
 |--------|---------|
-| `ingestor/` | WebSocket trade stream + CLOB REST client with rate limiting |
+| `ingestor/` | Near-real-time trade poller (strict rows, durable Redis boundary, loss detection) + CLOB REST client with rate limiting; deprecated WebSocket handler retained |
 | `profiler/` | Polygon wallet analysis, entity identification, funding chain tracing |
 | `detector/` | Fresh wallet, size anomaly, sniper cluster detection, composite risk scorer |
 | `alerter/` | Multi-channel dispatch (Discord webhooks, Telegram bot) with dedup |
@@ -241,11 +281,24 @@ visible in verifier output and `--help`.
 
 ## Troubleshooting
 
-**No trades received / silent connection**
-The WebSocket subscription requires `action: "subscribe"` in the envelope. If you're on an older version, update — this was fixed in the WebSocket protocol alignment (see #89).
+**No trades received**
+Check the ingestion state in the logs. `degraded` means transient provider failures are being retried
+with bounded backoff; `failed` means a terminal response (HTTP 400/401/403/404/410 or an incompatible
+body) stopped acquisition and needs a configuration or provider-contract fix. A quiet interval shows
+`last_success_at` advancing while `last_trade_at` does not. Run the live-safe smoke check above to
+confirm reachability and schema compatibility.
+
+**`possible-data-loss` in the logs**
+Two full pages could not prove continuity to the durable boundary, usually because more than 20,000
+rows were published since it. Monitoring continues behind a frozen boundary; once the gap ages past the
+recovery horizon it is recorded as a loss event and the boundary re-anchors. Investigate the recorded
+interval rather than assuming coverage.
+
+**`POLYMARKET_WS_URL` deprecation warning**
+The WebSocket setting is no longer used. Remove it and configure the `POLYMARKET_TRADES_*` settings.
 
 **Connection timeout / DNS errors**
-Verify `wss://ws-live-data.polymarket.com` is reachable from your network. Some corporate firewalls block WebSocket connections.
+Verify `https://data-api.polymarket.com` is reachable from your network.
 
 **Database migration errors**
 Ensure PostgreSQL is healthy with `docker compose ps` and that `.env` contains a loopback

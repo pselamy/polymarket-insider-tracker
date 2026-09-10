@@ -8,7 +8,9 @@ environment variables at startup.
 from __future__ import annotations
 
 import logging
+import warnings
 from collections.abc import Callable
+from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Literal, cast
 
@@ -97,23 +99,92 @@ class PolygonSettings(BaseSettings):
     )
 
 
+class TradesCoverage(StrEnum):
+    """Which public participant observations the trades query returns."""
+
+    ALL = "all"
+    TAKER_ONLY = "taker-only"
+
+
+class WebSocketSettingDeprecationWarning(UserWarning):
+    """``POLYMARKET_WS_URL`` is deprecated and never used for acquisition."""
+
+
+TRADES_REPLACEMENT_VARIABLES = (
+    "POLYMARKET_TRADES_URL",
+    "POLYMARKET_TRADES_COVERAGE",
+    "POLYMARKET_TRADES_POLL_INTERVAL_SECONDS",
+    "POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS",
+)
+
+
+def websocket_deprecation_message() -> str:
+    """The actionable, value-free text emitted when the legacy WebSocket setting is set."""
+    return (
+        "POLYMARKET_WS_URL is deprecated and not used for trade acquisition; the tracker polls "
+        "the documented public trades query. Remove it and configure "
+        + ", ".join(TRADES_REPLACEMENT_VARIABLES)
+        + " instead."
+    )
+
+
+def _warn_about_deprecated_websocket_url(value: str) -> str:
+    """Accept a legacy WebSocket URL with the deprecation warning; the value is never printed."""
+    warnings.warn(websocket_deprecation_message(), WebSocketSettingDeprecationWarning, stacklevel=2)
+    return value
+
+
+DeprecatedWebSocketUrl = Annotated[
+    WebSocketEndpointUrl, AfterValidator(_warn_about_deprecated_websocket_url)
+]
+
+
 class PolymarketSettings(BaseSettings):
-    """Polymarket API settings."""
+    """Polymarket public data source settings."""
 
     model_config = SettingsConfigDict(
         env_prefix="POLYMARKET_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    ws_url: WebSocketEndpointUrl = Field(
-        default="wss://ws-subscriptions-clob.polymarket.com/ws/market",
+    trades_url: HttpEndpointUrl = Field(
+        default="https://data-api.polymarket.com/trades",
+        alias="POLYMARKET_TRADES_URL",
+        description="Documented anonymous public trades query",
+    )
+    trades_coverage: TradesCoverage = Field(
+        default=TradesCoverage.ALL,
+        alias="POLYMARKET_TRADES_COVERAGE",
+        description="all participant observations (default) or the provider's taker-only subset",
+    )
+    trades_poll_interval_seconds: int = Field(
+        default=5,
+        alias="POLYMARKET_TRADES_POLL_INTERVAL_SECONDS",
+        description="Seconds between acquisition cycles; 1 keeps the budget at 5% of the limit",
+        ge=1,
+        le=60,
+    )
+    trades_recovery_horizon_seconds: int = Field(
+        default=600,
+        alias="POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS",
+        description="Identity retention and loss-detection horizon; not a completeness guarantee",
+        ge=60,
+        le=3600,
+    )
+    ws_url: DeprecatedWebSocketUrl | None = Field(
+        default=None,
         alias="POLYMARKET_WS_URL",
-        description="Polymarket WebSocket URL for live data",
+        description="Deprecated legacy WebSocket URL; accepted with a warning and never used",
     )
     api_key: SecretStr | None = Field(
         default=None,
         alias="POLYMARKET_API_KEY",
         description="Optional Polymarket API key",
     )
+
+    @property
+    def ws_url_disposition(self) -> str:
+        """Render the legacy setting's state without its value."""
+        return "(deprecated, set)" if self.ws_url is not None else "(not set)"
 
 
 class DiscordSettings(BaseSettings):
@@ -264,7 +335,11 @@ class Settings(BaseSettings):
                 "fallback_rpc_url": self.polygon.fallback_rpc_url or "(not set)",
             },
             "polymarket": {
-                "ws_url": self.polymarket.ws_url,
+                "trades_url": self.polymarket.trades_url,
+                "coverage": self.polymarket.trades_coverage.value,
+                "poll_interval_seconds": str(self.polymarket.trades_poll_interval_seconds),
+                "recovery_horizon_seconds": str(self.polymarket.trades_recovery_horizon_seconds),
+                "ws_url": self.polymarket.ws_url_disposition,
                 "api_key": "(set)" if self.polymarket.api_key else "(not set)",
             },
             "discord_enabled": str(self.discord.enabled),

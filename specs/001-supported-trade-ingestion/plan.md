@@ -278,3 +278,38 @@ Patrick approved the recommended package on 2026-09-10:
 Implementation stops for a product decision, without substituting any undocumented feed, if any
 condition in the stop gate of [evidence/feasibility.md](evidence/feasibility.md#product-stop-gate)
 is observed during implementation or the pre-convergence live-safe smoke run.
+
+## Implementation Notes (2026-09-10, first implementation pass)
+
+Additive deviations from the design above, each covered by tests and none changing an approved
+contract:
+
+- `MarketMetadataSync.get_cached_market()` (cache-only lookup) is the outcome-repair surface so
+  ingestion never triggers a CLOB fetch; `tests/fakes/metadata.py::FakeMetadataSync` mirrors it.
+- `ObservationBoundary.retain()` writes identities, the trim, and `last_request_end` without moving
+  the boundary while a gap is open; `prove(ignored=...)` lets the provisional continuity check skip
+  identities already attributed to an open gap so one provider rewrite is one gap. The durable proof
+  never ignores anything.
+- The candidate floor is `max(newest - horizon, oldest retained identity)` so a recovery page cannot
+  replay history deeper than any page the tracker has observed (FR-007); the live run found the
+  replay before this bound existed.
+- `TradePoller.stop()` joins the running loop when called from another task so an in-progress
+  callback and its identity write complete before the pipeline cancels the task; called from inside
+  the callback it only signals.
+- `RequestAttempt.attempt` (0-based) lets the poller count `retries` exactly; `counts` gains
+  `callback_errors`.
+- `tests/fakes/gamma.py::FakeGammaClient` is shared and injected by `wire_pipeline`;
+  `FakeBaseClobClient.crawl_gate` holds the metadata crawl for the startup-order test;
+  `FakeTradesServer.page_limit` shrinks the page so saturation is testable, with the documented
+  recovery offset addressing the second page of that size; `retract()` models a provider rewrite.
+- The smoke record carries `coverage`, `reachable`, `transient`, `timeout`, `retry_after_honoured`,
+  `in_window_rows`, `window_seconds`, `warning`, and `error` in addition to the data-model fields;
+  the exit status is `0` only when every record passed and was reachable.
+- Deprecation of `POLYMARKET_WS_URL` is an annotated field validator (`DeprecatedWebSocketUrl`),
+  the same mechanism as the other URL rules, so the warning fires once per load only when set.
+
+Live finding and approved resolution: the provider serves newest rows with a placeholder
+`outcomeIndex` of `999` that is corrected within seconds. The index is therefore repairable
+enrichment rather than identity; the stable asset token remains in the tuple. The durable checkpoint
+schema advances to version 2 and adds an emission floor so the revised identity space fails closed.
+See [evidence/smoke.md](evidence/smoke.md).

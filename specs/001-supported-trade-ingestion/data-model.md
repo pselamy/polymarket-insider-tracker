@@ -32,12 +32,14 @@ the downstream contract; the observation wraps it with its identity and provenan
 ### Identity tuple
 
 ```text
-transactionHash | lowercase(proxyWallet) | conditionId | asset | side | outcomeIndex-or-empty |
+transactionHash | lowercase(proxyWallet) | conditionId | asset | side |
 canonical(price) | canonical(size) | timestamp
 ```
 
 `canonical()` renders a decimal without exponent or trailing zeros so `0.50` and `0.5` are the same
-observation. Two rows with the same tuple are one observation; any difference is a distinct observation.
+observation. Two rows with the same tuple are one observation; any difference is a distinct
+observation. `outcome` and `outcomeIndex` are mutable enrichment, not identity fields; a missing or
+out-of-range index is unknown and repairable.
 
 ## Row Disposition
 
@@ -57,8 +59,10 @@ Every parsed row receives exactly one disposition. Counts are exposed in status 
 An invalid row is described by a bounded, wallet-free diagnostic: the SHA-256 of the raw row JSON and
 the failing field name.
 
-Outcome resolution (`provided`, `repaired`, or `unknown`) is an independent attribute and counter, not
-a second row disposition. This keeps every row in exactly one disposition bucket.
+Outcome resolution (`provided`, `repaired`, or `unknown`) is an independent attribute and counter,
+not a second row disposition. It is counted for every structurally valid raw row, including anchors,
+padding, deferred rows, repeats, and retained duplicates. This keeps every row in exactly one
+disposition bucket while making enrichment quality independently observable.
 
 ## Observation Boundary
 
@@ -70,8 +74,9 @@ transactional pipeline.
 
 | Field | Type | Rule |
 |---|---|---|
-| `schema_version` | integer | `1`; an unknown version is a terminal configuration error |
+| `schema_version` | integer | `2`; any other version is a terminal configuration error |
 | `boundary_time` | integer epoch seconds | Complete-through timestamp of the last proven page; not merely the newest observed row |
+| `emission_floor` | integer epoch seconds | Newest timestamp at first start or the last re-anchor; preserved across proven advances so trimming sparse identities cannot redefine pre-start history |
 | `boundary_origin` | enum | `first-start`, `proven`, `re-anchored` |
 | `written_at` | integer epoch seconds | Local clock at write time |
 | `coverage` | enum | `all` or `taker-only`; must match configuration or the boundary is treated as absent |

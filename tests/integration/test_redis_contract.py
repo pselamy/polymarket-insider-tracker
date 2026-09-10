@@ -9,7 +9,8 @@ flushed.
 Covered because the product relies on it: string values and their bytes encoding, ``SET NX EX``
 deduplication and TTL rules, sorted-set score ranges and ordering, transactional pipelines, stream
 append/consumer-group/pending/ack/trim lifecycles including deleted-entry tombstones, error types,
-and pattern scans.
+pattern scans, and the ingestion boundary operations: the checkpoint hash, identity sorted-set
+range/trim/cardinality, loss-event list push/trim/range, and the transactional advance pipeline.
 """
 
 from __future__ import annotations
@@ -23,9 +24,15 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
-from fakeredis import FakeAsyncRedis
+from fakeredis import FakeAsyncRedis, FakeServer
 from redis.asyncio import Redis
-from redis.exceptions import ResponseError
+from redis.exceptions import ResponseError, WatchError
+
+from polymarket_insider_tracker.ingestor.observation_boundary import (
+    BoundaryOrigin,
+    BoundarySchemaError,
+    ObservationBoundary,
+)
 
 RUNTIME_SERVICES_PATH = Path(__file__).parents[2] / "scripts" / "runtime_services.py"
 LOCAL_REDIS_URL = "redis://localhost:6379"
@@ -60,9 +67,12 @@ async def _connect_real_redis() -> Redis:
 class ContractRedis:
     """A Redis client plus the unique namespace this test may write to."""
 
-    def __init__(self, client: Redis, implementation: str) -> None:
+    def __init__(
+        self, client: Redis, implementation: str, fake_server: FakeServer | None = None
+    ) -> None:
         self.client = client
         self.implementation = implementation
+        self.fake_server = fake_server
         self.prefix = f"pit-contract:{uuid.uuid4().hex}:"
 
     def key(self, name: str) -> str:
@@ -84,8 +94,13 @@ class ContractRedis:
 @pytest.fixture(params=IMPLEMENTATIONS)
 async def contract(request: pytest.FixtureRequest) -> AsyncIterator[ContractRedis]:
     implementation = str(request.param)
-    client = FakeAsyncRedis() if implementation == "fake" else await _connect_real_redis()
-    scoped = ContractRedis(client, implementation)
+    fake_server = FakeServer() if implementation == "fake" else None
+    client = (
+        FakeAsyncRedis(server=fake_server)
+        if fake_server is not None
+        else await _connect_real_redis()
+    )
+    scoped = ContractRedis(client, implementation, fake_server)
     try:
         yield scoped
     finally:
@@ -300,3 +315,168 @@ async def test_scan_matches_only_the_requested_pattern(contract: ContractRedis) 
     ]
     others = [key async for key in redis.scan_iter(match=contract.key("other"), count=1)]
     assert others == [contract.key("other").encode()]
+
+
+async def test_checkpoint_hash_round_trips_as_bytes(contract: ContractRedis) -> None:
+    """The ingestion checkpoint is a hash of integer and enum fields read back as bytes."""
+    redis, key = contract.client, contract.key("ingest:checkpoint")
+
+    assert await redis.hgetall(key) == {}
+    assert (
+        await redis.hset(
+            key,
+            mapping={
+                "schema_version": 2,
+                "boundary_time": 1788983716,
+                "emission_floor": 1788983716,
+                "boundary_origin": "first-start",
+                "written_at": 1788983720,
+                "coverage": "all",
+                "last_request_end": 1788983720,
+            },
+        )
+        == 7
+    )
+    assert await redis.hgetall(key) == {
+        b"schema_version": b"2",
+        b"boundary_time": b"1788983716",
+        b"emission_floor": b"1788983716",
+        b"boundary_origin": b"first-start",
+        b"written_at": b"1788983720",
+        b"coverage": b"all",
+        b"last_request_end": b"1788983720",
+    }
+    assert await redis.hset(key, mapping={"boundary_time": 1788983800}) == 0
+    assert await redis.hget(key, "boundary_time") == b"1788983800"
+    assert await redis.hget(key, "absent") is None
+
+
+async def test_identity_window_trim_and_cardinality(contract: ContractRedis) -> None:
+    """Identities are scored by provider timestamp, trimmed below a floor, and counted."""
+    redis, key = contract.client, contract.key("ingest:identities")
+    members = {f"id-{n}": float(1000 + n) for n in range(6)}
+
+    assert await redis.zadd(key, members) == 6
+    assert await redis.zadd(key, {"id-0": 1000.0}) == 0
+    assert await redis.zcard(key) == 6
+    assert await redis.zrangebyscore(key, 1003, "+inf") == [b"id-3", b"id-4", b"id-5"]
+    scored = await redis.zrangebyscore(key, "-inf", "+inf", withscores=True)
+    assert scored[:2] == [(b"id-0", 1000.0), (b"id-1", 1001.0)]
+    assert await redis.zremrangebyscore(key, "-inf", "(1002") == 2
+    assert await redis.zcard(key) == 4
+    assert await redis.zrangebyscore(key, "-inf", "+inf") == [b"id-2", b"id-3", b"id-4", b"id-5"]
+    assert await redis.zcard(contract.key("absent")) == 0
+
+
+async def test_loss_event_list_is_newest_first_and_bounded(contract: ContractRedis) -> None:
+    """Loss events are pushed newest-first and trimmed to a bounded retention."""
+    redis, key = contract.client, contract.key("ingest:loss-events")
+
+    assert await redis.lrange(key, 0, -1) == []
+    assert await redis.lpush(key, '{"n": 1}') == 1
+    assert await redis.lpush(key, '{"n": 2}', '{"n": 3}') == 3
+    assert await redis.lrange(key, 0, -1) == [b'{"n": 3}', b'{"n": 2}', b'{"n": 1}']
+    assert await redis.ltrim(key, 0, 1) is True
+    assert await redis.lrange(key, 0, -1) == [b'{"n": 3}', b'{"n": 2}']
+    assert await redis.lrange(key, 0, 4) == [b'{"n": 3}', b'{"n": 2}']
+    assert await redis.llen(key) == 2
+
+
+async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedis) -> None:
+    """One MULTI/EXEC pipeline writes the checkpoint, identities, trim, and loss events."""
+    redis = contract.client
+    checkpoint = contract.key("ingest:checkpoint")
+    identities = contract.key("ingest:identities")
+    losses = contract.key("ingest:loss-events")
+    await redis.zadd(identities, {"old": 100.0, "kept": 500.0})
+
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.hset(checkpoint, mapping={"boundary_time": 900, "boundary_origin": "proven"})
+        pipe.zadd(identities, {"new-a": 850.0, "new-b": 900.0})
+        pipe.zremrangebyscore(identities, "-inf", "(300")
+        pipe.lpush(losses, '{"reason": "horizon-expired"}')
+        pipe.ltrim(losses, 0, 49)
+        results = await pipe.execute()
+
+    assert results == [2, 2, 1, 1, True]
+    assert await redis.hget(checkpoint, "boundary_time") == b"900"
+    assert await redis.zrangebyscore(identities, "-inf", "+inf") == [b"kept", b"new-a", b"new-b"]
+    assert await redis.lrange(losses, 0, -1) == [b'{"reason": "horizon-expired"}']
+
+    async with redis.pipeline(transaction=True) as pipe:
+        pipe.hset(checkpoint, mapping={"boundary_time": 950})
+        pipe.zadd(identities, {"new-c": 950.0})
+        pipe.zremrangebyscore(identities, "-inf", "(350")
+        pipe.lpush(losses, '{"reason": "restart-beyond-horizon"}')
+        pipe.ltrim(losses, 0, 0)
+        assert await pipe.execute() == [0, 1, 0, 2, True]
+
+    assert await redis.hget(checkpoint, "boundary_time") == b"950"
+    assert await redis.zcard(identities) == 4
+    assert await redis.lrange(losses, 0, -1) == [b'{"reason": "restart-beyond-horizon"}']
+
+
+async def test_watched_type_change_aborts_before_transaction_writes(
+    contract: ContractRedis,
+) -> None:
+    redis = contract.client
+    watched = contract.key("watched")
+    transaction_owned = contract.key("transaction-owned")
+    competitor = (
+        FakeAsyncRedis(server=contract.fake_server)
+        if contract.fake_server is not None
+        else await _connect_real_redis()
+    )
+    try:
+        async with redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(watched)
+            assert await pipe.type(watched) == b"none"
+            await competitor.set(watched, "wrong-type")
+            pipe.multi()
+            pipe.hset(watched, mapping={"field": "value"})
+            pipe.set(transaction_owned, "must-not-exist")
+            with pytest.raises(WatchError):
+                await pipe.execute()
+        assert await redis.get(watched) == b"wrong-type"
+        assert await redis.exists(transaction_owned) == 0
+    finally:
+        await competitor.aclose()
+
+
+@pytest.mark.parametrize("key_name", ["checkpoint_key", "identities_key", "loss_events_key"])
+async def test_observation_boundary_rejects_wrong_key_types_atomically(
+    contract: ContractRedis, key_name: str
+) -> None:
+    boundary = ObservationBoundary(
+        contract.client,
+        trades_url=f"https://trades.invalid/{contract.prefix}",
+        coverage="all",
+        horizon_seconds=600,
+        clock=lambda: 1_000.0,
+    )
+    keys = (boundary.checkpoint_key, boundary.identities_key, boundary.loss_events_key)
+    try:
+        await contract.client.set(getattr(boundary, key_name), "wrong-type")
+
+        with pytest.raises(BoundarySchemaError, match="has type string"):
+            await boundary.advance(
+                boundary_time=1_000,
+                origin=BoundaryOrigin.FIRST_START,
+                last_request_end=1_000,
+                identities={"new": 1_000},
+            )
+
+        assert boundary.checkpoint is None
+        assert await contract.client.exists(boundary.checkpoint_key) == (
+            1 if key_name == "checkpoint_key" else 0
+        )
+        await contract.client.delete(*keys)
+        checkpoint = await boundary.advance(
+            boundary_time=1_000,
+            origin=BoundaryOrigin.FIRST_START,
+            last_request_end=1_000,
+            identities={"new": 1_000},
+        )
+        assert checkpoint.boundary_time == 1_000
+    finally:
+        await contract.client.delete(*keys)

@@ -15,7 +15,11 @@ from polymarket_insider_tracker.__main__ import (
     run_config_check,
     validate_config,
 )
-from polymarket_insider_tracker.config import Settings
+from polymarket_insider_tracker.config import (
+    Settings,
+    WebSocketSettingDeprecationWarning,
+    websocket_deprecation_message,
+)
 
 
 class TestCreateParser:
@@ -134,6 +138,42 @@ class TestRunConfigCheck:
         captured = capsys.readouterr()
         assert "Configuration is valid!" in captured.out
         assert "Configuration:" in captured.out
+
+    def test_config_check_prints_the_trades_source_and_legacy_disposition(
+        self, monkeypatch, capsys
+    ):
+        """The check names the supported source settings and reports no WebSocket host."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.delenv("POLYMARKET_WS_URL", raising=False)
+        settings = validate_config()
+        assert settings is not None
+
+        run_config_check(settings)
+
+        out = capsys.readouterr().out
+        assert "Trades URL: https://data-api.polymarket.com/trades" in out
+        assert "Trades Coverage: all" in out
+        assert "Trades Poll Interval: 5s" in out
+        assert "Trades Recovery Horizon: 600s" in out
+        assert "WebSocket URL: (not set)" in out
+        assert "deprecated" not in out.lower()
+
+    def test_config_check_repeats_the_deprecation_warning_when_legacy_url_is_set(
+        self, monkeypatch, capsys
+    ):
+        """A set POLYMARKET_WS_URL is reported as deprecated with the replacement variables."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("POLYMARKET_WS_URL", "wss://legacy.invalid/ws")
+        with pytest.warns(WebSocketSettingDeprecationWarning):
+            settings = validate_config()
+        assert settings is not None
+
+        run_config_check(settings)
+
+        out = capsys.readouterr().out
+        assert "WebSocket URL: (deprecated, set)" in out
+        assert websocket_deprecation_message() in out
+        assert "legacy.invalid" not in out
 
 
 class TestMain:

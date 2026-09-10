@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from py_clob_client.clob_types import BookParams, OrderBookSummary, OrderSummary
@@ -31,6 +32,7 @@ class FakeBaseClobClient:
 
     def __init__(self, pages: list[dict[str, Any]] | None = None) -> None:
         self.pages = pages if pages is not None else _default_pages()
+        self.crawl_gate: threading.Event | None = None
         self.health_error: Exception | None = None
         self.market_error: Exception | None = None
         self.midpoint_error: Exception | None = None
@@ -48,6 +50,9 @@ class FakeBaseClobClient:
         return 1704067200000
 
     def get_simplified_markets(self, next_cursor: str | None = None) -> dict[str, Any]:
+        """Serve one page; when ``crawl_gate`` is set, the API answers only once it is released."""
+        if self.crawl_gate is not None:
+            self.crawl_gate.wait()
         self.page_requests.append(next_cursor)
         cursors = [None] + [page["next_cursor"] for page in self.pages[:-1]]
         return self.pages[cursors.index(next_cursor)]
