@@ -567,6 +567,14 @@ class RiskAssessmentDTO:
     wallet_age_hours: Decimal | None
     should_alert: bool
     threshold_at_eval: Decimal
+    delivery_disposition: str = "dry_run"
+    delivery_channels: str | None = None
+    dry_run: bool = False
+    volume_available: bool | None = None
+    market_daily_volume: Decimal | None = None
+    book_depth_available: bool | None = None
+    wallet_tx_count: int | None = None
+    wallet_age_known: bool | None = None
     created_at: datetime | None = None
 
 
@@ -601,6 +609,14 @@ class RiskAssessmentRepository:
             wallet_age_hours=dto.wallet_age_hours,
             should_alert=dto.should_alert,
             threshold_at_eval=dto.threshold_at_eval,
+            delivery_disposition=dto.delivery_disposition,
+            delivery_channels=dto.delivery_channels,
+            dry_run=dto.dry_run,
+            volume_available=dto.volume_available,
+            market_daily_volume=dto.market_daily_volume,
+            book_depth_available=dto.book_depth_available,
+            wallet_tx_count=dto.wallet_tx_count,
+            wallet_age_known=dto.wallet_age_known,
         )
         self.session.add(model)
         await self.session.flush()

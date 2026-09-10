@@ -159,6 +159,20 @@ class RiskAssessmentModel(Base):
     should_alert: Mapped[bool] = mapped_column(Boolean, nullable=False)
     threshold_at_eval: Mapped[Decimal] = mapped_column(Numeric(4, 3), nullable=False)
 
+    # Slice 003 Safe Observable Operation fields
+    delivery_disposition: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="dry_run", default="dry_run"
+    )
+    delivery_channels: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    dry_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
+    volume_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    market_daily_volume: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
+    book_depth_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    wallet_tx_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wallet_age_known: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
@@ -168,4 +182,5 @@ class RiskAssessmentModel(Base):
         Index("idx_risk_assessments_market", "market_id"),
         Index("idx_risk_assessments_trade_ts", "trade_timestamp"),
         Index("idx_risk_assessments_score", "weighted_score"),
+        Index("idx_risk_assessments_disposition", "delivery_disposition"),
     )

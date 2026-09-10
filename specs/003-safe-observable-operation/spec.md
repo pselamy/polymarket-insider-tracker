@@ -1,12 +1,22 @@
 # Feature Specification: Safe Observable Operation
 
-**Feature Branch**: `codex/spec-kit-brownfield-adoption`
+**Feature Branch**: `feat/slice-003-safe-observable-operation`
 
 **Created**: 2026-09-06
 
-**Status**: Proposed for Patrick review; implementation is not yet authorized
+**Status**: Authorized by Patrick's 2026-09-10 instruction
 
 **Input**: User description: "Make health, readiness, failure propagation, dry-run behavior, alert deduplication, and end-to-end pipeline evidence accurate and safe."
+
+## Clarifications
+
+### Session 2026-09-10
+
+- Q: How does delivery deduplication separate from risk qualification? → A: RiskScorer qualifies or rejects trades based purely on score and threshold; it never mutates Redis or marks delivery state. Delivery deduplication is handled exclusively at alert dispatch time by AlertHistory per channel using the key format `alert:dedup:{channel}:{wallet}:{market}`. Dry-run mode evaluates scoring and records a `dry_run` disposition without calling external channels or writing dedup keys.
+- Q: What is the behavior for multi-channel dispatch when one channel fails or times out? → A: Deduplication keys are written strictly per-channel after confirmed successful delivery. A confirmed failure leaves the channel eligible for immediate retry. An ambiguous outcome (e.g. timeout where delivery status is uncertain) sets a temporary 60-second ambiguity suppression key (`alert:ambiguous:{channel}:{wallet}:{market}`) to prevent rapid retries, after which the channel is eligible for retry while logging an explicit possible-duplicate warning.
+- Q: What is the distinction between `--config-check`, `/live`, and `/ready`? → A: `--config-check` is an offline validation tool that verifies syntax, field types, and config shapes without network I/O; its output clarifies that offline syntax passed and runtime readiness requires reachable services. `/live` indicates the HTTP server process is running and responsive. `/ready` performs active, bounded checks against required local dependencies (PostgreSQL, Redis, and trade acquisition); it fails (503) if any required dependency is unreachable or if the ingestion worker has terminally failed.
+- Q: How does background worker failure propagate to process exit? → A: The pipeline orchestrator monitors background workers (trade poller and metadata sync). If a required worker (such as the trade poller) terminates with an error or unhandled exception, the pipeline transitions to `PipelineState.ERROR`, updates `/ready` to return 503, signals graceful shutdown of remaining services, and causes `__main__.py` to exit with a nonzero status code (EXIT_ERROR = 1).
+- Q: What is the unified risk assessment schema for slice 003 and slice 004? → A: Slice 003 introduces Alembic revision `003_safe_observable_operation` adding columns to `risk_assessments`: `delivery_disposition` (VARCHAR(32)), `delivery_channels` (TEXT/JSON), `dry_run` (BOOLEAN), `volume_available` (BOOLEAN), `market_daily_volume` (NUMERIC(20, 6)), `book_depth_available` (BOOLEAN), `wallet_tx_count` (INTEGER), and `wallet_age_known` (BOOLEAN). This satisfies FR-012, FR-019, and G-033 so that slice 004 requires no conflicting schema migration.
 
 ## User Scenarios & Testing *(mandatory)*
 

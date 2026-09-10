@@ -9,7 +9,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from polymarket_insider_tracker.alerter.history import AlertHistory
     from polymarket_insider_tracker.alerter.models import FormattedAlert
+    from polymarket_insider_tracker.detector.models import RiskAssessment
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,9 @@ class DispatchResult:
     success_count: int
     failure_count: int
     channel_results: dict[str, bool] = field(default_factory=dict[str, bool])
+    channel_statuses: dict[str, str] = field(default_factory=dict[str, str])
+    disposition: str = "delivered"
+    dry_run: bool = False
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
@@ -63,6 +68,8 @@ class AlertDispatcher:
         self,
         channels: list[AlertChannel],
         *,
+        history: AlertHistory | None = None,
+        dry_run: bool = False,
         failure_threshold: int = 5,
         recovery_timeout_seconds: int = 60,
         half_open_max_attempts: int = 3,
@@ -71,11 +78,15 @@ class AlertDispatcher:
 
         Args:
             channels: List of alert channels to dispatch to.
+            history: Optional alert history tracker for channel-scoped deduplication.
+            dry_run: If True, do not send network requests or write deduplication state.
             failure_threshold: Number of consecutive failures before opening circuit.
             recovery_timeout_seconds: Time to wait before half-opening circuit.
             half_open_max_attempts: Number of test attempts in half-open state.
         """
         self.channels = channels
+        self.history = history
+        self.dry_run = dry_run
         self.failure_threshold = failure_threshold
         self.recovery_timeout_seconds = recovery_timeout_seconds
         self.half_open_max_attempts = half_open_max_attempts
@@ -132,59 +143,180 @@ class AlertDispatcher:
                 f"Circuit opened for {channel_name} after {state.failure_count} failures"
             )
 
-    async def _send_to_channel(
+    def _create_dry_run_result(self) -> DispatchResult:
+        statuses = {ch.name: "dry_run" for ch in self.channels}
+        results = {ch.name: False for ch in self.channels}
+        return DispatchResult(
+            success_count=0,
+            failure_count=0,
+            channel_results=results,
+            channel_statuses=statuses,
+            disposition="dry_run",
+            dry_run=True,
+        )
+
+    @staticmethod
+    def _extract_wallet_market(
+        wallet_address: str | None,
+        market_id: str | None,
+        assessment: RiskAssessment | None,
+    ) -> tuple[str, str]:
+        if assessment is not None:
+            return assessment.wallet_address, assessment.market_id
+        return wallet_address or "", market_id or ""
+
+    async def _check_channel_suppression(
+        self, channel_name: str, wallet: str, market: str
+    ) -> str | None:
+        if not (self.history and wallet and market):
+            return None
+        suppressed, reason = await self.history.is_channel_suppressed(channel_name, wallet, market)
+        if not suppressed:
+            return None
+        return reason
+
+    async def _record_channel_outcome(
+        self, channel_name: str, status: str, wallet: str, market: str
+    ) -> None:
+        if not (self.history and wallet and market):
+            return
+        if status == "delivered":
+            await self.history.record_channel_delivery(channel_name, wallet, market)
+        elif status == "ambiguous":
+            await self.history.record_channel_ambiguous(channel_name, wallet, market)
+
+    async def _execute_channel_send(
         self, channel: AlertChannel, alert: FormattedAlert
-    ) -> tuple[str, bool]:
-        """Send alert to a single channel with circuit breaker."""
+    ) -> tuple[bool, str]:
         channel_name = channel.name
-
         if not self._should_attempt(channel_name):
-            logger.debug(f"Skipping {channel_name} - circuit open")
-            return (channel_name, False)
-
+            logger.debug("Skipping %s - circuit open", channel_name)
+            return False, "circuit_open"
         try:
             success = await channel.send(alert)
             if success:
                 self._record_success(channel_name)
-            else:
-                self._record_failure(channel_name)
-            return (channel_name, success)
-        except Exception as e:
-            logger.error(f"Error sending to {channel_name}: {e}")
+                return True, "delivered"
             self._record_failure(channel_name)
-            return (channel_name, False)
+            return False, "failed"
+        except TimeoutError:
+            logger.warning("Timeout delivering alert to channel %s", channel_name)
+            self._record_failure(channel_name)
+            return False, "ambiguous"
+        except Exception as e:
+            logger.error("Error sending to %s: %s", channel_name, e)
+            self._record_failure(channel_name)
+            return False, "failed"
 
-    async def dispatch(self, alert: FormattedAlert) -> DispatchResult:
+    async def _send_to_channel_with_history(
+        self, channel: AlertChannel, alert: FormattedAlert, wallet: str, market: str
+    ) -> tuple[str, bool, str]:
+        channel_name = channel.name
+        suppression = await self._check_channel_suppression(channel_name, wallet, market)
+        if suppression is not None:
+            return channel_name, False, suppression
+
+        success, status = await self._execute_channel_send(channel, alert)
+        await self._record_channel_outcome(channel_name, status, wallet, market)
+        return channel_name, success, status
+
+    @staticmethod
+    def _is_all_duplicate(statuses: list[str]) -> bool:
+        return bool(statuses) and all(s == "duplicate" for s in statuses)
+
+    @staticmethod
+    def _is_all_ambiguous(statuses: list[str]) -> bool:
+        return bool(statuses) and all(s in ("ambiguous", "ambiguous_timeout") for s in statuses)
+
+    @staticmethod
+    def _classify_mixed_statuses(statuses: list[str]) -> str:
+        delivered = "delivered" in statuses
+        failed = any(s in ("failed", "ambiguous", "circuit_open") for s in statuses)
+        if delivered and failed:
+            return "partial_failure"
+        if delivered:
+            return "delivered"
+        return "failed"
+
+    @classmethod
+    def _compute_disposition(cls, statuses: list[str]) -> str:
+        if cls._is_all_duplicate(statuses):
+            return "duplicate"
+        if cls._is_all_ambiguous(statuses):
+            return "ambiguous"
+        return cls._classify_mixed_statuses(statuses)
+
+    async def _dispatch_to_channels(
+        self, alert: FormattedAlert, wallet: str, market: str
+    ) -> list[tuple[str, bool, str]]:
+        tasks = [
+            self._send_to_channel_with_history(ch, alert, wallet, market) for ch in self.channels
+        ]
+        return await asyncio.gather(*tasks)
+
+    @staticmethod
+    def _aggregate_results(
+        results: list[tuple[str, bool, str]],
+    ) -> tuple[dict[str, bool], dict[str, str], int, int]:
+        channel_results: dict[str, bool] = {}
+        channel_statuses: dict[str, str] = {}
+        success_count = 0
+        failure_count = 0
+        for name, succ, stat in results:
+            channel_results[name] = succ
+            channel_statuses[name] = stat
+            if succ:
+                success_count += 1
+            elif stat in ("failed", "ambiguous", "circuit_open"):
+                failure_count += 1
+        return channel_results, channel_statuses, success_count, failure_count
+
+    async def dispatch(
+        self,
+        alert: FormattedAlert,
+        wallet_address: str | None = None,
+        market_id: str | None = None,
+        *,
+        assessment: RiskAssessment | None = None,
+    ) -> DispatchResult:
         """Dispatch alert to all channels concurrently.
 
         Args:
             alert: Formatted alert to send.
+            wallet_address: Optional trader wallet address for deduplication.
+            market_id: Optional market ID for deduplication.
+            assessment: Optional risk assessment for extracting wallet and market.
 
         Returns:
             DispatchResult with per-channel status.
         """
+        if self.dry_run:
+            return self._create_dry_run_result()
+
         if not self.channels:
             logger.warning("No channels configured for dispatch")
             return DispatchResult(success_count=0, failure_count=0)
 
-        # Send to all channels concurrently
-        tasks = [self._send_to_channel(ch, alert) for ch in self.channels]
-        results = await asyncio.gather(*tasks)
+        wallet, market = self._extract_wallet_market(wallet_address, market_id, assessment)
+        results = await self._dispatch_to_channels(alert, wallet, market)
+        res, stats, succ_count, fail_count = self._aggregate_results(results)
+        disposition = self._compute_disposition(list(stats.values()))
 
-        # Aggregate results
-        channel_results = dict(results)
-        success_count = sum(1 for success in channel_results.values() if success)
-        failure_count = len(channel_results) - success_count
-
-        result = DispatchResult(
-            success_count=success_count,
-            failure_count=failure_count,
-            channel_results=channel_results,
+        logger.info(
+            "Dispatch complete: %s (%d/%d succeeded)",
+            disposition,
+            succ_count,
+            len(self.channels),
         )
 
-        logger.info(f"Dispatch complete: {success_count}/{len(channel_results)} succeeded")
-
-        return result
+        return DispatchResult(
+            success_count=succ_count,
+            failure_count=fail_count,
+            channel_results=res,
+            channel_statuses=stats,
+            disposition=disposition,
+            dry_run=False,
+        )
 
     async def dispatch_batch(self, alerts: list[FormattedAlert]) -> list[DispatchResult]:
         """Dispatch multiple alerts sequentially.

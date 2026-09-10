@@ -38,3 +38,5 @@
   accidental implementation-plan leak.
 - Validation iteration 2 defines delivery identity and ambiguous outcomes, assigns assessment-schema and
   end-to-end-harness ownership, and makes the documentation consistency check executable and bounded.
+- Clarification session 2026-09-10 recorded Patrick's authorization, deduplication separation, multi-channel failure/ambiguity semantics, readiness distinction, failure propagation, and unified risk assessment schema.
+

@@ -6,7 +6,7 @@ multiple detectors into a unified risk assessment with weighted scoring.
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from decimal import Decimal
 
 from redis.asyncio import Redis
 
@@ -125,14 +125,35 @@ class RiskScorer:
         self._dedup_window = dedup_window_seconds
         self._key_prefix = key_prefix
 
+    @staticmethod
+    def _extract_size_diagnostics(
+        signal: SizeAnomalySignal | None,
+    ) -> tuple[bool | None, Decimal | None, bool | None]:
+        if signal is None:
+            return None, None, None
+        meta = signal.market_metadata
+        vol_avail = meta.daily_volume is not None
+        market_vol = meta.daily_volume
+        book_avail = signal.book_impact > 0.0 or meta.liquidity is not None
+        return vol_avail, market_vol, book_avail
+
+    @staticmethod
+    def _extract_fresh_diagnostics(
+        signal: FreshWalletSignal | None,
+    ) -> tuple[int | None, bool | None]:
+        if signal is None:
+            return None, None
+        profile = signal.wallet_profile
+        return profile.nonce, profile.age_hours is not None
+
     async def assess(self, bundle: SignalBundle) -> RiskAssessment:
-        """Assess a trade's risk based on all available signals.
+        """Assess risk for a trade event with its detected signals.
 
         This method:
         1. Counts triggered signals
         2. Calculates weighted score with bonuses
-        3. Checks deduplication
-        4. Creates RiskAssessment
+        3. Evaluates alert threshold
+        4. Creates RiskAssessment with signal diagnostics
 
         Args:
             bundle: SignalBundle containing trade and all signals.
@@ -143,18 +164,8 @@ class RiskScorer:
         # Calculate weighted score
         weighted_score, signals_triggered = self.calculate_weighted_score(bundle)
 
-        # Determine if should alert (before dedup check)
-        meets_threshold = weighted_score >= self._alert_threshold
-
-        # Check deduplication
-        is_duplicate = False
-        if meets_threshold:
-            is_duplicate = await self._check_and_set_dedup(
-                bundle.wallet_address,
-                bundle.market_id,
-            )
-
-        should_alert = meets_threshold and not is_duplicate
+        # Determine if should alert based purely on risk score threshold
+        should_alert = weighted_score >= self._alert_threshold
 
         # Log assessment
         if should_alert:
@@ -165,12 +176,11 @@ class RiskScorer:
                 weighted_score,
                 signals_triggered,
             )
-        elif is_duplicate:
-            logger.debug(
-                "Risk assessment deduplicated: wallet=%s, market=%s",
-                bundle.wallet_address[:10] + "...",
-                bundle.market_id[:10] + "...",
-            )
+
+        vol_avail, market_vol, book_avail = self._extract_size_diagnostics(
+            bundle.size_anomaly_signal
+        )
+        tx_count, age_known = self._extract_fresh_diagnostics(bundle.fresh_wallet_signal)
 
         return RiskAssessment(
             trade_event=bundle.trade_event,
@@ -181,6 +191,11 @@ class RiskScorer:
             signals_triggered=signals_triggered,
             weighted_score=weighted_score,
             should_alert=should_alert,
+            volume_available=vol_avail,
+            market_daily_volume=market_vol,
+            book_depth_available=book_avail,
+            wallet_tx_count=tx_count,
+            wallet_age_known=age_known,
         )
 
     def _score_fresh_wallet(self, bundle: SignalBundle) -> tuple[float, int]:
@@ -231,55 +246,6 @@ class RiskScorer:
         score += self._score_niche_market(bundle)
         score = self._apply_multi_signal_bonus(score, signals_triggered)
         return min(score, 1.0), signals_triggered
-
-    async def _check_and_set_dedup(
-        self,
-        wallet_address: str,
-        market_id: str,
-    ) -> bool:
-        """Check if this wallet/market combo was recently alerted.
-
-        If not a duplicate, sets the dedup key with TTL.
-
-        Args:
-            wallet_address: The trader's wallet address.
-            market_id: The market condition ID.
-
-        Returns:
-            True if this is a duplicate (already alerted), False otherwise.
-        """
-        key = f"{self._key_prefix}{wallet_address}:{market_id}"
-
-        # Try to set with NX (only if not exists)
-        was_set = await self._redis.set(
-            key,
-            datetime.now(UTC).isoformat(),
-            nx=True,
-            ex=self._dedup_window,
-        )
-
-        # If was_set is None/False, key already existed = duplicate
-        return not was_set
-
-    async def clear_dedup(
-        self,
-        wallet_address: str,
-        market_id: str,
-    ) -> bool:
-        """Clear dedup key for a wallet/market combo.
-
-        Useful for testing or manual override.
-
-        Args:
-            wallet_address: The trader's wallet address.
-            market_id: The market condition ID.
-
-        Returns:
-            True if key was deleted, False if it didn't exist.
-        """
-        key = f"{self._key_prefix}{wallet_address}:{market_id}"
-        deleted = await self._redis.delete(key)
-        return int(deleted) > 0
 
     async def assess_batch(self, bundles: list[SignalBundle]) -> list[RiskAssessment]:
         """Assess multiple trade bundles.

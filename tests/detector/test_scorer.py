@@ -514,14 +514,14 @@ class TestAssessMethod:
         assert await fake_redis.dbsize() == 0
 
     @pytest.mark.asyncio
-    async def test_assess_deduplication(
+    async def test_assess_does_not_deduplicate_or_touch_redis(
         self,
         fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
-        """Test assess deduplicates repeated alerts."""
+        """Test that RiskScorer evaluates risk only, does not deduplicate, and writes zero Redis keys."""
         scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
@@ -529,13 +529,12 @@ class TestAssessMethod:
             size_anomaly_signal=size_anomaly_signal,
         )
 
-        # First assessment should alert
         assessment1 = await scorer.assess(bundle)
-        # Second assessment should be deduplicated
         assessment2 = await scorer.assess(bundle)
 
         assert assessment1.should_alert is True
-        assert assessment2.should_alert is False
+        assert assessment2.should_alert is True
+        assert await fake_redis.dbsize() == 0
 
     @pytest.mark.asyncio
     async def test_assess_preserves_signals(
@@ -555,46 +554,6 @@ class TestAssessMethod:
 
         assert assessment.fresh_wallet_signal == fresh_wallet_signal
         assert assessment.size_anomaly_signal is None
-
-
-# ============================================================================
-# Deduplication Tests
-# ============================================================================
-
-
-class TestDeduplication:
-    """Tests for deduplication functionality."""
-
-    @pytest.mark.asyncio
-    async def test_check_and_set_dedup_new_key(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test dedup returns False for new key."""
-        scorer = RiskScorer(fake_redis)
-        is_dup = await scorer._check_and_set_dedup("0xwallet", "market123")
-
-        assert is_dup is False
-        key = f"{scorer._key_prefix}0xwallet:market123"
-        assert await fake_redis.exists(key) == 1
-
-    @pytest.mark.asyncio
-    async def test_check_and_set_dedup_existing_key(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test dedup returns True for existing key."""
-        scorer = RiskScorer(fake_redis)
-        key = f"{scorer._key_prefix}0xwallet:market123"
-        await fake_redis.set(key, "existing")
-        is_dup = await scorer._check_and_set_dedup("0xwallet", "market123")
-
-        assert is_dup is True
-
-    @pytest.mark.asyncio
-    async def test_clear_dedup(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test clearing dedup key."""
-        scorer = RiskScorer(fake_redis)
-        key = f"{scorer._key_prefix}0xwallet:market123"
-        await fake_redis.set(key, "existing")
-        cleared = await scorer.clear_dedup("0xwallet", "market123")
-
-        assert cleared is True
-        assert await fake_redis.exists(key) == 0
 
 
 # ============================================================================

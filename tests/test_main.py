@@ -7,6 +7,7 @@ import pytest
 import polymarket_insider_tracker.__main__ as cli
 from polymarket_insider_tracker.__main__ import (
     EXIT_CONFIG_ERROR,
+    EXIT_ERROR,
     EXIT_SUCCESS,
     configure_logging,
     create_parser,
@@ -175,9 +176,56 @@ class TestRunConfigCheck:
         assert websocket_deprecation_message() in out
         assert "legacy.invalid" not in out
 
+    def test_config_check_states_offline_syntax_only(self, monkeypatch, capsys):
+        """Config check must explicitly state it is an offline syntax check and not claim ready to run."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        result = run_config_check(settings)
+        assert result == EXIT_SUCCESS
+
+        out = capsys.readouterr().out
+        assert "Offline syntax and structure checks passed." in out
+        assert (
+            "Note: --config-check validates syntax and configuration only; runtime readiness" in out
+        )
+        assert "All checks passed. Ready to run." not in out
+
 
 class TestMain:
     """Tests for main entry point."""
+
+    def test_main_with_health_port_override(self, monkeypatch):
+        """Main should pass overridden health port to settings and run_pipeline."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        runs: list[tuple[Settings, bool]] = []
+
+        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
+            runs.append((settings, dry_run))
+            return EXIT_SUCCESS
+
+        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--health-port", "9090", "--dry-run"])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert len(runs) == 1
+        settings, dry_run = runs[0]
+        assert settings.health_port == 9090
+        assert dry_run is True
+
+    def test_main_with_invalid_health_port(self, monkeypatch, capsys):
+        """Main should reject out-of-range health port and exit with config error."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--health-port", "99999"])
+
+        assert exc_info.value.code == EXIT_CONFIG_ERROR
+        err = capsys.readouterr().err
+        assert "health_port" in err
 
     def test_main_with_config_check(self, monkeypatch):
         """Main should exit successfully with --config-check."""
@@ -224,6 +272,29 @@ class TestMain:
         assert [(settings.database.url, dry_run) for settings, dry_run in runs] == [
             ("postgresql+psycopg://localhost/test", True)
         ]
+
+    def test_main_exits_with_error_when_pipeline_encounters_worker_error(self, monkeypatch):
+        """Main should exit with EXIT_ERROR (code 1) when run_pipeline reports worker error."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+
+        async def run_pipeline(_settings: Settings, _dry_run: bool) -> int:
+            return EXIT_ERROR
+
+        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([])
+
+        assert exc_info.value.code == EXIT_ERROR
+
+    def test_exit_code_for_pipeline_returns_error_on_pipeline_error_state(self):
+        """_exit_code_for_pipeline returns EXIT_ERROR when pipeline state is ERROR."""
+        from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
+        from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
+
+        pipeline = Pipeline()
+        pipeline._state = PipelineState.ERROR
+        assert _exit_code_for_pipeline(pipeline) == EXIT_ERROR
 
 
 class TestIntegration:

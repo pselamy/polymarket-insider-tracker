@@ -242,6 +242,24 @@ class TestPolygonSettings:
         ):
             PolygonSettings()
 
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "https://wss://polygon.io",
+            "https://http://polygon.io",
+            "http://",
+            "https://",
+            "https:///path",
+        ],
+    )
+    def test_malformed_http_url_diagnostics(self, bad_url: str) -> None:
+        """Malformed or multi-protocol URLs must be rejected with actionable diagnostics."""
+        with (
+            env_context({"POLYGON_RPC_URL": bad_url}),
+            pytest.raises(ValidationError),
+        ):
+            PolygonSettings()
+
 
 TRADES_REPLACEMENT_VARIABLES = (
     "POLYMARKET_TRADES_URL",
@@ -353,6 +371,23 @@ class TestPolymarketSettings:
         with (
             env_context({"POLYMARKET_WS_URL": "http://polymarket.com"}),
             pytest.raises(ValidationError, match="ws://"),
+        ):
+            PolymarketSettings()
+
+    @pytest.mark.parametrize(
+        "bad_ws_url",
+        [
+            "wss://https://legacy.invalid/ws",
+            "ws://wss://legacy.invalid/ws",
+            "ws://",
+            "wss://",
+        ],
+    )
+    def test_malformed_ws_url_raises(self, bad_ws_url: str) -> None:
+        """Test that malformed WebSocket URL raises validation error."""
+        with (
+            env_context({"POLYMARKET_WS_URL": bad_ws_url}),
+            pytest.raises(ValidationError),
         ):
             PolymarketSettings()
 

@@ -25,7 +25,7 @@ from polymarket_insider_tracker.config import (
     get_settings,
     websocket_deprecation_message,
 )
-from polymarket_insider_tracker.pipeline import Pipeline
+from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.shutdown import GracefulShutdown
 
 # Application info
@@ -195,16 +195,35 @@ def _print_validation_errors(exc: ValidationError) -> None:
         print(f"  {field}: {msg}", file=sys.stderr)
 
 
-def validate_config() -> Settings | None:
+def _validate_health_port(health_port: int | None) -> bool:
+    if health_port is None:
+        return True
+    return 1 <= health_port <= 65535
+
+
+def validate_config(health_port: int | None = None) -> Settings | None:
     """Validate and load configuration.
+
+    Args:
+        health_port: Optional CLI override for health port.
 
     Returns:
         Settings instance if valid, None if invalid.
     """
+    if not _validate_health_port(health_port):
+        print("Configuration validation failed:", file=sys.stderr)
+        print(
+            f"  health_port: Port must be between 1 and 65535, got {health_port}",
+            file=sys.stderr,
+        )
+        return None
     try:
         # Clear cache to force reload
         clear_settings_cache()
-        return get_settings()
+        settings = get_settings()
+        if health_port is not None:
+            settings.health_port = health_port
+        return settings
     except ValidationError as e:
         _print_validation_errors(e)
         return None
@@ -219,7 +238,11 @@ def run_config_check(settings: Settings) -> int:
     Returns:
         Exit code (0 for success).
     """
-    print("Configuration is valid!")
+    print("Configuration is valid! Offline syntax and structure checks passed.")
+    print(
+        "Note: --config-check validates syntax and configuration only; runtime readiness"
+        " requires reachable PostgreSQL, Redis, and trade acquisition sources."
+    )
     print()
     print_config_summary(settings, dry_run=False)
 
@@ -238,8 +261,28 @@ def run_config_check(settings: Settings) -> int:
     else:
         print("  Telegram: not configured")
 
-    print()
-    print("All checks passed. Ready to run.")
+    return EXIT_SUCCESS
+
+
+def _build_wait_tasks(shutdown: GracefulShutdown, pipeline: Pipeline) -> list[asyncio.Task[object]]:
+    tasks: list[asyncio.Task[object]] = [asyncio.create_task(shutdown.wait())]
+    if pipeline.stop_event is not None:
+        tasks.append(asyncio.create_task(pipeline.stop_event.wait()))
+    return tasks
+
+
+async def _wait_for_stop_or_shutdown(shutdown: GracefulShutdown, pipeline: Pipeline) -> None:
+    tasks = _build_wait_tasks(shutdown, pipeline)
+    _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+
+
+def _exit_code_for_pipeline(pipeline: Pipeline) -> int:
+    if pipeline.state == PipelineState.ERROR:
+        return EXIT_ERROR
+    if pipeline.stats.errors > 0 and pipeline.stats.last_error:
+        return EXIT_ERROR
     return EXIT_SUCCESS
 
 
@@ -273,13 +316,12 @@ async def run_pipeline(
 
             logger.info("Pipeline running. Press Ctrl+C to stop.")
 
-            # Wait for shutdown signal
-            await shutdown.wait()
+            await _wait_for_stop_or_shutdown(shutdown, pipeline)
 
             logger.info("Shutdown signal received, stopping pipeline...")
             await pipeline.stop()
 
-        return EXIT_SUCCESS
+        return _exit_code_for_pipeline(pipeline)
     except KeyboardInterrupt:
         logger.info("Interrupted by user")
         return EXIT_INTERRUPTED
@@ -297,8 +339,8 @@ def main(argv: list[str] | None = None) -> NoReturn:
     parser = create_parser()
     args = parser.parse_args(argv)
 
-    # Validate configuration first
-    settings = validate_config()
+    # Validate configuration first with CLI health port override
+    settings = validate_config(health_port=args.health_port)
     if settings is None:
         sys.exit(EXIT_CONFIG_ERROR)
 

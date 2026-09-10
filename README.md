@@ -92,11 +92,26 @@ verification above.
 ```bash
 python -m polymarket_insider_tracker --help
   --version          Show version
-  --config-check     Validate configuration and exit
+  --config-check     Validate offline configuration syntax and exit
   --log-level DEBUG  Override log level
-  --dry-run          Run pipeline without sending alerts
-  --health-port 8080 Override health check port
+  --dry-run          Run pipeline without sending alerts or writing dedup keys
+  --health-port 8080 Override health check HTTP port
 ```
+
+### Health & Observability Endpoints
+
+When running, the tracker serves HTTP health and metrics endpoints on `--health-port` (default `8080` or `HEALTH_PORT`):
+
+- **`/live`**: HTTP 200 `{"live": true}` while the event loop runs.
+- **`/ready`**: HTTP 200 `{"ready": true}` when PostgreSQL, Redis, and trade acquisition are healthy; HTTP 503 if any core dependency is degraded or stopped.
+- **`/health`**: Detailed JSON report with component statuses (`up`, `down`, `degraded`), probe latencies, acquisition timestamps, and quiet-period indicators.
+- **`/metrics`**: Prometheus metrics (`polymarket_ingest_*`, pipeline statistics, component status).
+
+### Safe Alert Delivery & Deduplication
+
+- **`--dry-run`**: Processes all trades and persists risk assessments with `delivery_disposition="dry_run"` while making zero external notification calls and writing zero deduplication keys to Redis.
+- **Channel-Scoped Deduplication**: Delivery history is tracked per channel (`alert:dedup:<channel>:<wallet>:<market>`). If delivery fails for one channel, it remains eligible for retry while successful channels are deduplicated.
+- **Ambiguity Suppression Window**: On channel delivery timeout, a 60-second window (`alert:ambiguous:<channel>:<wallet>:<market>`) suppresses immediate duplicate alerts while downstream delivery is indeterminate.
 
 ---
 

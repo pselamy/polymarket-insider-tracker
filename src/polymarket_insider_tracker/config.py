@@ -13,6 +13,7 @@ from collections.abc import Callable
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Literal, cast
+from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -20,25 +21,48 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from polymarket_insider_tracker.storage.database_url import normalize_database_url
 
 
+def _check_url_scheme(value: str, allowed_schemes: tuple[str, ...], name: str) -> None:
+    expected_prefixes = tuple(f"{s}://" for s in allowed_schemes)
+    if value.startswith(expected_prefixes):
+        return
+    if "ws" in allowed_schemes:
+        raise ValueError(f"{name} must start with ws:// or wss://")
+    raise ValueError(f"{name} must be an HTTP(S) endpoint")
+
+
+def _check_nested_schemes(netloc: str, name: str, value: str) -> None:
+    for s in ("http:", "https:", "ws:", "wss:"):
+        if s in netloc:
+            raise ValueError(f"{name} contains malformed nested scheme in host: {value}")
+
+
+def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: str) -> str:
+    _check_url_scheme(value, allowed_schemes, name)
+    parts = urlsplit(value)
+    if not parts.hostname:
+        raise ValueError(f"{name} must include a valid hostname")
+    _check_nested_schemes(parts.netloc, name, value)
+    return value
+
+
 def _validate_redis_url(value: str) -> str:
     """Validate Redis URL format."""
     if not value.startswith("redis://"):
         raise ValueError("REDIS_URL must start with redis://")
+    parts = urlsplit(value)
+    if not parts.hostname:
+        raise ValueError("REDIS_URL must include a valid hostname")
     return value
 
 
 def _validate_http_url(value: str) -> str:
     """Validate RPC URL format."""
-    if not value.startswith(("http://", "https://")):
-        raise ValueError("RPC URL must be an HTTP(S) endpoint")
-    return value
+    return _check_url_components(value, ("http", "https"), "RPC URL")
 
 
 def _validate_websocket_url(value: str) -> str:
     """Validate WebSocket URL format."""
-    if not value.startswith(("ws://", "wss://")):
-        raise ValueError("WebSocket URL must start with ws:// or wss://")
-    return value
+    return _check_url_components(value, ("ws", "wss"), "WebSocket URL")
 
 
 # Field-level validation is attached through annotated types so each rule is an ordinary function

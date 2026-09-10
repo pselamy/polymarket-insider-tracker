@@ -11,6 +11,7 @@ from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel, AlertDispatcher
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
+from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.config import (
     DatabaseSettings,
     DetectorSettings,
@@ -58,6 +59,7 @@ def make_test_settings(
     trades_coverage: str = "all",
     trades_poll_interval_seconds: int = 5,
     trades_recovery_horizon_seconds: int = 600,
+    health_port: int = 8080,
 ) -> Settings:
     """Create a fully validated ``Settings`` value without reading the environment."""
     return Settings(
@@ -98,7 +100,7 @@ def make_test_settings(
             DETECTOR_DEDUP_WINDOW_SECONDS=3600,
         ),
         LOG_LEVEL="INFO",
-        HEALTH_PORT=8080,
+        HEALTH_PORT=health_port,
         DRY_RUN=dry_run,
     )
 
@@ -167,7 +169,11 @@ async def wire_pipeline(
         dedup_window_seconds=settings.detector.dedup_window_seconds,
     )
     pipeline._alert_formatter = AlertFormatter(verbosity="detailed")
-    pipeline._alert_dispatcher = AlertDispatcher(list(channels))
+    dedup_hours = max(1, settings.detector.dedup_window_seconds // 3600)
+    pipeline._alert_history = AlertHistory(redis, dedup_window_hours=dedup_hours)
+    pipeline._alert_dispatcher = AlertDispatcher(
+        list(channels), history=pipeline._alert_history, dry_run=pipeline._dry_run
+    )
     if trades is not None:
         pipeline._trade_poller = _wire_poller(pipeline, redis, trades, poll_clock, log)
     return pipeline

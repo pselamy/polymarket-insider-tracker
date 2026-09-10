@@ -136,6 +136,53 @@ class AlertHistory:
         self._dedup_ttl = dedup_window_hours * 3600
         self._retention_ttl = retention_days * 86400
 
+    KEY_PREFIX_AMBIGUOUS = "alert:ambiguous:"
+
+    @classmethod
+    def get_channel_dedup_key(cls, channel: str, wallet: str, market: str) -> str:
+        """Get channel-scoped delivery deduplication Redis key."""
+        return f"{cls.KEY_PREFIX_DEDUP}{channel}:{wallet.lower()}:{market}"
+
+    @classmethod
+    def get_channel_ambiguous_key(cls, channel: str, wallet: str, market: str) -> str:
+        """Get channel-scoped ambiguity temporary Redis key."""
+        return f"{cls.KEY_PREFIX_AMBIGUOUS}{channel}:{wallet.lower()}:{market}"
+
+    async def is_channel_suppressed(
+        self, channel: str, wallet: str, market: str
+    ) -> tuple[bool, str | None]:
+        """Check if delivery to a channel is suppressed.
+
+        Returns:
+            (True, "duplicate") if already delivered.
+            (True, "ambiguous_timeout") if in 60s ambiguity window.
+            (False, None) if eligible for delivery.
+        """
+        dedup_key = self.get_channel_dedup_key(channel, wallet, market)
+        if await self.redis.exists(dedup_key):
+            return True, "duplicate"
+
+        ambiguous_key = self.get_channel_ambiguous_key(channel, wallet, market)
+        if await self.redis.exists(ambiguous_key):
+            return True, "ambiguous_timeout"
+
+        return False, None
+
+    async def record_channel_delivery(
+        self, channel: str, wallet: str, market: str, ttl: int | None = None
+    ) -> None:
+        """Record confirmed delivery for a channel with TTL."""
+        key = self.get_channel_dedup_key(channel, wallet, market)
+        effective_ttl = ttl or self._dedup_ttl
+        await self.redis.set(key, datetime.now(UTC).isoformat(), ex=effective_ttl)
+
+    async def record_channel_ambiguous(
+        self, channel: str, wallet: str, market: str, ttl: int = 60
+    ) -> None:
+        """Record ambiguous delivery attempt with 60s window."""
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        await self.redis.set(key, datetime.now(UTC).isoformat(), ex=ttl)
+
     def _get_dedup_key(self, assessment: RiskAssessment) -> str:
         """Get deduplication key for an assessment."""
         now = datetime.now(UTC)

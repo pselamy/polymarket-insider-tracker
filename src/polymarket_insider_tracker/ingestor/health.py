@@ -55,6 +55,28 @@ class StreamHealth:
 
 
 @dataclass
+class ComponentStatus:
+    """Health and latency status of an external dependency or worker."""
+
+    status: str  # "up" or "down"
+    latency_ms: float | None = None
+    last_error: str | None = None
+
+    @property
+    def is_up(self) -> bool:
+        """Return True if component status is up."""
+        return self.status == "up"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert component status to dictionary."""
+        return {
+            "status": self.status,
+            "latency_ms": self.latency_ms,
+            "last_error": self.last_error,
+        }
+
+
+@dataclass
 class HealthReport:
     """Comprehensive health report for all streams."""
 
@@ -68,6 +90,7 @@ class HealthReport:
 
 # Type aliases
 HealthCallback = Callable[[HealthReport], Awaitable[None]]
+ComponentChecker = Callable[[], Awaitable[ComponentStatus]]
 
 
 # Prometheus metrics
@@ -165,10 +188,37 @@ class HealthMonitor:
         self._app: web.Application | None = None
         self._runner: web.AppRunner | None = None
 
+        # Component checkers & freshness tracking
+        self._component_checkers: dict[str, ComponentChecker] = {}
+        self._last_acquisition_time: float | None = None
+        self._last_trade_time: float | None = None
+
     @property
     def is_running(self) -> bool:
         """Return True if the monitor is running."""
         return self._running
+
+    @property
+    def last_acquisition_time(self) -> float | None:
+        """Return timestamp of last polling acquisition."""
+        return self._last_acquisition_time
+
+    @property
+    def last_trade_time(self) -> float | None:
+        """Return timestamp of last trade arrival."""
+        return self._last_trade_time
+
+    def set_component_checker(self, name: str, checker: ComponentChecker) -> None:
+        """Register an async health checker for a component."""
+        self._component_checkers[name] = checker
+
+    def record_acquisition(self, timestamp: float | None = None) -> None:
+        """Record a polling acquisition cycle timestamp."""
+        self._last_acquisition_time = time.time() if timestamp is None else timestamp
+
+    def record_trade_arrival(self, timestamp: float | None = None) -> None:
+        """Record trade arrival timestamp."""
+        self._last_trade_time = time.time() if timestamp is None else timestamp
 
     def register_stream(self, name: str) -> None:
         """Register a stream for monitoring.
@@ -224,6 +274,8 @@ class HealthMonitor:
         """
         self.register_stream(stream_name)
         now = time.time()
+        if stream_name == "trades":
+            self._last_trade_time = now
 
         stream = self._streams[stream_name]
         stream.events_received += 1
@@ -422,59 +474,141 @@ class HealthMonitor:
 
     # HTTP Server methods
 
-    async def _handle_health(self, _request: web.Request) -> web.Response:
-        """Handle /health endpoint."""
+    async def _evaluate_single_component(self, checker: ComponentChecker) -> ComponentStatus:
+        try:
+            return await checker()
+        except Exception as exc:
+            return ComponentStatus(status="down", last_error=str(exc))
+
+    async def evaluate_components(self) -> dict[str, ComponentStatus]:
+        """Evaluate all registered component health checks."""
+        results: dict[str, ComponentStatus] = {}
+        for name, checker in self._component_checkers.items():
+            results[name] = await self._evaluate_single_component(checker)
+        return results
+
+    @staticmethod
+    def _reason_for_component(name: str) -> str:
+        if name == "ingestion":
+            return "ingestion_worker_failed"
+        return f"{name}_unreachable"
+
+    @classmethod
+    def first_failure_reason(cls, components: dict[str, ComponentStatus]) -> str:
+        for name, comp in components.items():
+            if not comp.is_up:
+                return cls._reason_for_component(name)
+        return "unhealthy"
+
+    def _legacy_ready_response(self) -> web.Response:
         report = self.get_health_report()
+        if report.status == HealthStatus.UNHEALTHY:
+            return web.json_response({"ready": False, "reason": "unhealthy"}, status=503)
+        return web.json_response({"ready": True}, status=200)
 
-        status_code = 200 if report.status == HealthStatus.HEALTHY else 503
+    async def _handle_ready(self, _request: web.Request) -> web.Response:
+        """Handle /ready endpoint for readiness probe."""
+        if not self._component_checkers:
+            return self._legacy_ready_response()
 
-        body: dict[str, Any] = {
-            "status": report.status.value,
-            "uptime_seconds": report.uptime_seconds,
-            "total_events_received": report.total_events_received,
-            "total_events_per_second": round(report.total_events_per_second, 2),
-            "streams": {},
-        }
+        components = await self.evaluate_components()
+        comp_summary = self.components_summary(components)
+        if not self.all_components_up(components):
+            reason = self.first_failure_reason(components)
+            return web.json_response(
+                {"ready": False, "reason": reason, "components": comp_summary},
+                status=503,
+            )
 
-        for name, stream in report.streams.items():
-            body["streams"][name] = {
+        return web.json_response({"ready": True, "components": comp_summary}, status=200)
+
+    @classmethod
+    def all_components_up(cls, components: dict[str, ComponentStatus]) -> bool:
+        return not cls._has_unhealthy_component(components)
+
+    @staticmethod
+    def components_summary(components: dict[str, ComponentStatus]) -> dict[str, str]:
+        return {name: comp.status for name, comp in components.items()}
+
+    @staticmethod
+    def _has_unhealthy_component(components: dict[str, ComponentStatus]) -> bool:
+        return any(not comp.is_up for comp in components.values())
+
+    @classmethod
+    def _determine_health_status(
+        cls,
+        report_status: HealthStatus,
+        components: dict[str, ComponentStatus],
+    ) -> HealthStatus:
+        if components and cls._has_unhealthy_component(components):
+            return HealthStatus.UNHEALTHY
+        return report_status
+
+    @staticmethod
+    def _compute_freshness(timestamp: float | None, now: float) -> float | None:
+        if timestamp is None:
+            return None
+        return round(now - timestamp, 1)
+
+    @staticmethod
+    def _format_streams(streams: dict[str, StreamHealth]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for name, stream in streams.items():
+            result[name] = {
                 "status": stream.status.value,
                 "events_received": stream.events_received,
                 "events_per_second": round(stream.events_per_second, 2),
                 "last_event_time": stream.last_event_time,
                 "last_error": stream.last_error,
             }
+        return result
 
-        return web.json_response(body, status=status_code)
+    def _build_health_body(
+        self,
+        report: HealthReport,
+        components: dict[str, ComponentStatus],
+        overall_status: HealthStatus,
+        now: float,
+    ) -> dict[str, Any]:
+        return {
+            "status": overall_status.value,
+            "uptime_seconds": round(report.uptime_seconds, 1),
+            "last_acquisition_time": self._last_acquisition_time,
+            "last_trade_time": self._last_trade_time,
+            "acquisition_freshness_seconds": self._compute_freshness(
+                self._last_acquisition_time, now
+            ),
+            "trade_freshness_seconds": self._compute_freshness(self._last_trade_time, now),
+            "total_events_received": report.total_events_received,
+            "total_events_per_second": round(report.total_events_per_second, 2),
+            "components": {name: c.to_dict() for name, c in components.items()},
+            "streams": self._format_streams(report.streams),
+            "timestamp": now,
+        }
 
-    async def _handle_metrics(self, _request: web.Request) -> web.Response:
-        """Handle /metrics endpoint (Prometheus format)."""
-        # Ensure latest values are calculated
-        self.get_health_report()
-
-        metrics = generate_latest()
-        return web.Response(
-            body=metrics,
-            content_type="text/plain",
-            charset="utf-8",
-        )
-
-    async def _handle_ready(self, _request: web.Request) -> web.Response:
-        """Handle /ready endpoint for k8s readiness probe."""
+    async def _handle_health(self, _request: web.Request) -> web.Response:
+        """Handle /health diagnostic endpoint."""
         report = self.get_health_report()
+        components = await self.evaluate_components()
+        overall_status = self._determine_health_status(report.status, components)
+        status_code = 503 if overall_status == HealthStatus.UNHEALTHY else 200
 
-        if report.status == HealthStatus.UNHEALTHY:
-            return web.json_response(
-                {"ready": False, "reason": "unhealthy"},
-                status=503,
-            )
-
-        return web.json_response({"ready": True}, status=200)
+        now = time.time()
+        body = self._build_health_body(report, components, overall_status, now)
+        return web.json_response(body, status=status_code)
 
     async def _handle_live(self, _request: web.Request) -> web.Response:
         """Handle /live endpoint for k8s liveness probe."""
-        # Always return 200 if the server is running
         return web.json_response({"live": True}, status=200)
+
+    async def _handle_metrics(self, _request: web.Request) -> web.Response:
+        """Handle /metrics endpoint (Prometheus format)."""
+        self.get_health_report()
+        metrics = generate_latest()
+        return web.Response(
+            body=metrics,
+            headers={"Content-Type": "text/plain; version=0.0.4; charset=utf-8"},
+        )
 
     def _create_app(self) -> web.Application:
         """Create the aiohttp application."""
@@ -499,7 +633,7 @@ class HealthMonitor:
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
 
-        site = web.TCPSite(self._runner, "0.0.0.0", port)
+        site = web.TCPSite(self._runner, "0.0.0.0", port, reuse_address=True, reuse_port=True)
         await site.start()
 
         logger.info("Health HTTP server started on port %d", port)

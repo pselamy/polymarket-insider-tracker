@@ -472,11 +472,11 @@ class TestPipelineContextManager:
         assert transitions == ["start", "stop"]
 
 
-async def _run_until(predicate: Callable[[], bool], *, cycles: int = 5000) -> None:
+async def _run_until(predicate: Callable[[], bool], *, cycles: int = 25000) -> None:
     for _ in range(cycles):
         if predicate():
             return
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.0005)
     raise AssertionError("condition was not reached")
 
 
@@ -689,3 +689,41 @@ class TestIngestionRestart:
         )
         assert len(first_channel.deliveries) == 1
         assert status.counts["emitted"] == 3
+
+
+class TestWorkerSupervision:
+    """Tests for background worker failure propagation (G-016, FR-006, SC-002)."""
+
+    async def test_worker_crash_transitions_pipeline_to_error_and_fails_readiness(
+        self,
+        fake_redis: FakeAsyncRedis,
+    ) -> None:
+        """When trade poller crashes, pipeline state becomes ERROR and readiness fails."""
+        from tests.fakes import terminal
+
+        clock = FakeClock(POLL_START)
+        server = FakeTradesServer(clock=clock)
+        server.fail_next(terminal(401))
+
+        settings = make_test_settings(health_port=19201)
+        pipeline = await wire_pipeline(
+            settings,
+            redis=fake_redis,
+            eth=FakeEth(),
+            trades=server,
+            poll_clock=clock,
+        )
+        pipeline._state = PipelineState.RUNNING
+        await pipeline._start_background_services()
+
+        try:
+            await _run_until(lambda: pipeline.state is PipelineState.ERROR)
+            assert pipeline.state is PipelineState.ERROR
+            assert pipeline.stats.errors >= 1
+            assert pipeline.health_monitor is not None
+
+            ready_status, reason, components = await pipeline.check_readiness()
+            assert ready_status is False
+            assert components.get("ingestion") == "down"
+        finally:
+            await pipeline._stop_background_services()

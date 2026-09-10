@@ -324,6 +324,11 @@ class TradePoller:
         return self._state
 
     @property
+    def is_running(self) -> bool:
+        """Return True if poller loop is running."""
+        return self._running
+
+    @property
     def status(self) -> IngestionStatus:
         """A snapshot of every documented status field."""
         tallies = self._tallies

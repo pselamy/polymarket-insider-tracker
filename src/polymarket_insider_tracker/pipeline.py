@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
+import json
 import logging
+import time
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -18,13 +22,19 @@ from redis.asyncio import Redis
 
 from polymarket_insider_tracker.alerter.channels.discord import DiscordChannel
 from polymarket_insider_tracker.alerter.channels.telegram import TelegramChannel
-from polymarket_insider_tracker.alerter.dispatcher import AlertChannel, AlertDispatcher
+from polymarket_insider_tracker.alerter.dispatcher import (
+    AlertChannel,
+    AlertDispatcher,
+    DispatchResult,
+)
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
+from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.config import Settings, get_settings
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
+from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
@@ -61,6 +71,12 @@ class RedisFactory(Protocol):
 
     @classmethod
     def from_url(cls, url: str) -> Redis: ...
+
+
+class Pingable(Protocol):
+    """Protocol for health ping check on Redis."""
+
+    def ping(self) -> Awaitable[bool]: ...
 
 
 class PipelineState(StrEnum):
@@ -141,9 +157,12 @@ class Pipeline:
         self._size_anomaly_detector: SizeAnomalyDetector | None = None
         self._risk_scorer: RiskScorer | None = None
         self._alert_formatter: AlertFormatter | None = None
+        self._alert_history: AlertHistory | None = None
         self._alert_dispatcher: AlertDispatcher | None = None
         self._trade_poller: TradePoller | None = None
         self._funding_tracer: FundingTracer | None = None
+        self._health_monitor: HealthMonitor = HealthMonitor()
+        self._wire_health_monitor()
 
         # Synchronization
         self._stop_event: asyncio.Event | None = None
@@ -164,6 +183,81 @@ class Pipeline:
     def is_running(self) -> bool:
         """Check if pipeline is running."""
         return self._state == PipelineState.RUNNING
+
+    @property
+    def health_monitor(self) -> HealthMonitor:
+        """Return the pipeline's health monitor."""
+        return self._health_monitor
+
+    @property
+    def stop_event(self) -> asyncio.Event | None:
+        """Event signaled when the pipeline stops or encounters an unrecoverable worker failure."""
+        return self._stop_event
+
+    def _wire_health_monitor(self) -> None:
+        self._health_monitor.set_component_checker("database", self._check_database)
+        self._health_monitor.set_component_checker("redis", self._check_redis)
+        self._health_monitor.set_component_checker("ingestion", self._check_ingestion)
+
+    async def _check_database(self) -> ComponentStatus:
+        if not self._db_manager:
+            return ComponentStatus(status="down", last_error="Database manager not initialized")
+        start = time.perf_counter()
+        try:
+            import sqlalchemy as sa
+
+            async with self._db_manager.get_async_session() as session:
+                await session.execute(sa.text("SELECT 1"))
+            latency = (time.perf_counter() - start) * 1000.0
+            return ComponentStatus(status="up", latency_ms=round(latency, 2))
+        except Exception as exc:
+            return ComponentStatus(status="down", last_error=str(exc))
+
+    async def _check_redis(self) -> ComponentStatus:
+        if not self._redis:
+            return ComponentStatus(status="down", last_error="Redis client not initialized")
+        start = time.perf_counter()
+        try:
+            ping_client = cast(Pingable, self._redis)
+            await ping_client.ping()
+            latency = (time.perf_counter() - start) * 1000.0
+            return ComponentStatus(status="up", latency_ms=round(latency, 2))
+        except Exception as exc:
+            return ComponentStatus(status="down", last_error=str(exc))
+
+    def _sync_poller_timestamps(self) -> None:
+        if not self._trade_poller or not self._health_monitor:
+            return
+        status = self._trade_poller.status
+        if status.last_acquisition_at is not None:
+            self._health_monitor.record_acquisition(status.last_acquisition_at.timestamp())
+        if status.last_trade_at is not None:
+            self._health_monitor.record_trade_arrival(status.last_trade_at.timestamp())
+
+    async def _check_ingestion(self) -> ComponentStatus:
+        self._sync_poller_timestamps()
+        if not self._trade_poller:
+            return ComponentStatus(status="down", last_error="Trade poller not initialized")
+        if self._state == PipelineState.ERROR or self._trade_poller.state is IngestionState.FAILED:
+            error = (
+                self._trade_poller.status.last_error
+                or self._stats.last_error
+                or "ingestion_worker_failed"
+            )
+            return ComponentStatus(status="down", last_error=error)
+        if not self._trade_poller.is_running:
+            return ComponentStatus(status="down", last_error="Trade poller stopped")
+        return ComponentStatus(status="up")
+
+    async def check_readiness(self) -> tuple[bool, str | None, dict[str, str]]:
+        """Evaluate current readiness across all dependencies."""
+        components = await self._health_monitor.evaluate_components()
+        all_up = HealthMonitor.all_components_up(components)
+        summary = HealthMonitor.components_summary(components)
+        reason = None
+        if not all_up:
+            reason = HealthMonitor.first_failure_reason(components)
+        return all_up, reason, summary
 
     async def start(self) -> None:
         """Start the pipeline.
@@ -202,6 +296,7 @@ class Pipeline:
         if self._state == PipelineState.STOPPED:
             return
 
+        was_error = self._state == PipelineState.ERROR
         self._state = PipelineState.STOPPING
         logger.info("Stopping pipeline...")
 
@@ -211,7 +306,7 @@ class Pipeline:
         await self._stop_background_services()
         await self._cleanup()
 
-        self._state = PipelineState.STOPPED
+        self._state = PipelineState.ERROR if was_error else PipelineState.STOPPED
         logger.info("Pipeline stopped")
 
     async def _initialize_components(self) -> None:
@@ -286,7 +381,13 @@ class Pipeline:
         logger.debug("Initializing alerting components...")
         self._alert_formatter = AlertFormatter(verbosity="detailed")
         channels = self._build_alert_channels()
-        self._alert_dispatcher = AlertDispatcher(channels)
+        dedup_hours = max(1, settings.detector.dedup_window_seconds // 3600)
+        self._alert_history = AlertHistory(self._redis, dedup_window_hours=dedup_hours)
+        self._alert_dispatcher = AlertDispatcher(
+            channels,
+            history=self._alert_history,
+            dry_run=self._dry_run,
+        )
 
         # Initialize the trade poller over the documented public trades query
         logger.debug("Initializing trade poller...")
@@ -330,8 +431,24 @@ class Pipeline:
 
         return channels
 
+    async def _start_health_server(self) -> None:
+        self._wire_health_monitor()
+        assert self._health_monitor is not None
+        await self._health_monitor.start()
+        try:
+            await self._health_monitor.start_http_server(port=self._settings.health_port)
+        except OSError as exc:
+            logger.error(
+                "Failed to bind health server on port %d: %s",
+                self._settings.health_port,
+                exc,
+            )
+            raise
+
     async def _start_background_services(self) -> None:
         """Start the poller first, then the metadata crawl as a tracked background task."""
+        await self._start_health_server()
+
         if self._trade_poller:
             logger.debug("Starting trade poller...")
             self._poller_task = asyncio.create_task(self._run_trade_poller())
@@ -339,6 +456,15 @@ class Pipeline:
         if self._metadata_sync:
             logger.debug("Starting metadata sync service in the background...")
             self._metadata_task = asyncio.create_task(self._run_metadata_sync())
+
+    def _handle_worker_failure(self, error: str) -> None:
+        """Handle background worker crash or terminal failure."""
+        if self._state == PipelineState.RUNNING:
+            self._state = PipelineState.ERROR
+        self._stats.errors += 1
+        self._stats.last_error = error
+        if self._stop_event and not self._stop_event.is_set():
+            self._stop_event.set()
 
     async def _run_trade_poller(self) -> None:
         """Run the poller in a task; a terminal failure is reported through the state callback."""
@@ -350,8 +476,7 @@ class Pipeline:
             logger.debug("Trade poller task cancelled")
         except Exception as e:
             logger.error("Trade poller error: %s", e)
-            self._stats.last_error = str(e)
-            self._stats.errors += 1
+            self._handle_worker_failure(str(e))
 
     async def _run_metadata_sync(self) -> None:
         """Run the initial metadata crawl without delaying acquisition."""
@@ -370,8 +495,8 @@ class Pipeline:
         """Record terminal ingestion failures on the pipeline statistics."""
         if state is not IngestionState.FAILED or not self._trade_poller:
             return
-        self._stats.errors += 1
-        self._stats.last_error = self._trade_poller.status.last_error
+        error = self._trade_poller.status.last_error or "ingestion_worker_failed"
+        self._handle_worker_failure(error)
 
     async def _stop_background_services(self) -> None:
         """Stop the poller and its task before the metadata task and sync."""
@@ -387,6 +512,9 @@ class Pipeline:
             logger.debug("Stopping metadata sync...")
             await self._metadata_sync.stop()
 
+        if self._health_monitor:
+            await self._health_monitor.stop()
+
     @staticmethod
     async def _cancel_task(task: asyncio.Task[None] | None) -> None:
         if task is None:
@@ -397,6 +525,8 @@ class Pipeline:
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
+        await self._health_monitor.stop()
+
         # Close database connections
         if self._db_manager:
             await self._db_manager.dispose_async()
@@ -423,6 +553,8 @@ class Pipeline:
         """
         self._stats.trades_processed += 1
         self._stats.last_trade_time = datetime.now(UTC)
+        if self._health_monitor:
+            self._health_monitor.record_event("trades")
 
         try:
             # Run detectors in parallel
@@ -540,9 +672,9 @@ class Pipeline:
 
     async def _dispatch_alert(
         self, formatted_alert: FormattedAlert, assessment: RiskAssessment
-    ) -> None:
+    ) -> DispatchResult:
         assert self._alert_dispatcher is not None
-        result = await self._alert_dispatcher.dispatch(formatted_alert)
+        result = await self._alert_dispatcher.dispatch(formatted_alert, assessment=assessment)
         if result.all_succeeded:
             self._stats.alerts_sent += 1
             logger.info(
@@ -550,14 +682,16 @@ class Pipeline:
                 assessment.wallet_address[:10] + "...",
                 assessment.weighted_score,
             )
-        else:
+        elif not self._dry_run and result.disposition != "duplicate":
             logger.warning(
-                "Alert partially failed: %d/%d channels succeeded",
+                "Alert dispatch disposition=%s (%d/%d succeeded)",
+                result.disposition,
                 result.success_count,
                 result.success_count + result.failure_count,
             )
+        return result
 
-    async def _send_or_dry_run_alert(self, assessment: RiskAssessment) -> None:
+    async def _send_or_dry_run_alert(self, assessment: RiskAssessment) -> DispatchResult:
         assert self._alert_formatter is not None
         formatted_alert = self._alert_formatter.format(assessment)
         if self._dry_run:
@@ -566,8 +700,35 @@ class Pipeline:
                 assessment.wallet_address[:10] + "...",
                 assessment.weighted_score,
             )
-            return
-        await self._dispatch_alert(formatted_alert, assessment)
+        return await self._dispatch_alert(formatted_alert, assessment)
+
+    async def _handle_below_threshold(
+        self, bundle: SignalBundle, assessment: RiskAssessment
+    ) -> None:
+        assessment = dataclasses.replace(
+            assessment,
+            delivery_disposition="below_threshold",
+            dry_run=self._dry_run,
+        )
+        if self._settings.detector.persist_assessments:
+            await self._persist_assessment(assessment)
+        logger.debug(
+            "Trade %s below alert threshold (score=%.2f)",
+            bundle.trade_event.trade_id,
+            assessment.weighted_score,
+        )
+
+    async def _handle_above_threshold(self, assessment: RiskAssessment) -> None:
+        result = await self._send_or_dry_run_alert(assessment)
+        channels_str = json.dumps(result.channel_statuses) if result.channel_statuses else None
+        assessment = dataclasses.replace(
+            assessment,
+            delivery_disposition=result.disposition,
+            delivery_channels=channels_str,
+            dry_run=self._dry_run,
+        )
+        if self._settings.detector.persist_assessments:
+            await self._persist_assessment(assessment)
 
     async def _score_and_alert(self, bundle: SignalBundle) -> None:
         """Score signals, persist the assessment, and send alert if above threshold."""
@@ -576,18 +737,11 @@ class Pipeline:
         assert self._risk_scorer is not None
 
         assessment = await self._risk_scorer.assess(bundle)
-        if self._settings.detector.persist_assessments:
-            await self._persist_assessment(assessment)
-
         if not assessment.should_alert:
-            logger.debug(
-                "Trade %s below alert threshold (score=%.2f)",
-                bundle.trade_event.trade_id,
-                assessment.weighted_score,
-            )
+            await self._handle_below_threshold(bundle, assessment)
             return
 
-        await self._send_or_dry_run_alert(assessment)
+        await self._handle_above_threshold(assessment)
 
     async def _persist_assessment(self, assessment: RiskAssessment) -> None:
         """Write the assessment row. Best-effort; never raises."""
@@ -630,6 +784,14 @@ class Pipeline:
             wallet_age_hours=wallet_age,
             should_alert=assessment.should_alert,
             threshold_at_eval=_D(str(round(self._settings.detector.alert_threshold, 3))),
+            delivery_disposition=assessment.delivery_disposition,
+            delivery_channels=assessment.delivery_channels,
+            dry_run=assessment.dry_run,
+            volume_available=assessment.volume_available,
+            market_daily_volume=assessment.market_daily_volume,
+            book_depth_available=assessment.book_depth_available,
+            wallet_tx_count=assessment.wallet_tx_count,
+            wallet_age_known=assessment.wallet_age_known,
         )
         try:
             async with self._db_manager.get_async_session() as session:
