@@ -85,6 +85,10 @@ Two independent final reviews returned `SHIP`. Their focused suites passed 196 a
 second reviewer also ran all 37 shared Redis scenarios against both fakeredis and the actual loopback
 Redis service.
 
+Review commits: Fable first pass `eb8a21d71e0115858b23f833bb8fd500ebc69ff0`; reviewed corrective
+pass `876e4e3`. Agy's requested Gemini 3.8 Flash first pass could not start because that provider
+returned quota exhaustion before execution, so it produced no commit or unreviewed edits.
+
 ```bash
 uv run --env-file .env.example python scripts/verify.py --profile all
 ```

@@ -256,9 +256,11 @@ owned gaps, and hand off for review.
 - [x] T026 Update only G-001, G-002, G-003, G-004, G-005, G-006, G-013b, G-030b, G-031, and G-032 with
   implementation and evidence dispositions in `specs/audit/gap-register.md` [Constitution §Development Workflow 8]
   Evidence (2026-09-10): gap register entries updated (see specs/audit/gap-register.md).
-- [ ] T027 Complete the ordered review sequence recorded in `AGENTS.md` (first pass, corrective pass,
+- [x] T027 Complete the ordered review sequence recorded in `AGENTS.md` (first pass, corrective pass,
   independent adversarial review), resolve or record every finding, and record commit hashes in
   `specs/001-supported-trade-ingestion/evidence/verification.md` [AGENTS.md §Review and delivery]
+  Evidence (2026-09-10): Fable first pass `eb8a21d`; corrective pass `876e4e3`; two independent
+  adversarial reviewers returned `SHIP` after their findings were fixed and re-tested.
 - [ ] T028 Prepare the pull request only after T024–T027 converge; verify required checks at the exact
   head; do not merge without Patrick's approval [Constitution §Development Workflow 9]
 
