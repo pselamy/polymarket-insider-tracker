@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -15,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.detector.models import FreshWalletSignal, SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import SignalBundle
+from polymarket_insider_tracker.ingestor.metadata_sync import SyncState
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
+from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
@@ -24,10 +27,16 @@ from tests.fakes import (
     BarrierDetector,
     FailingDetector,
     FakeAlertChannel,
+    FakeClock,
     FakeEth,
+    FakeTradesServer,
     make_test_settings,
+    metadata_state,
+    trade_row,
     wire_pipeline,
 )
+
+POLL_START = 1_788_983_720.0
 
 
 @pytest.fixture
@@ -460,3 +469,222 @@ class TestPipelineContextManager:
             assert transitions == ["start"]
 
         assert transitions == ["start", "stop"]
+
+
+async def _run_until(predicate: object, *, cycles: int = 5000) -> None:
+    for _ in range(cycles):
+        if predicate():  # type: ignore[operator]
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition was not reached")
+
+
+def _seeded_server(clock: FakeClock) -> FakeTradesServer:
+    """A provider with two rows of history so the first cycle can anchor and later pages reach."""
+    server = FakeTradesServer(clock=clock)
+    server.publish(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1))
+    server.publish(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2))
+    return server
+
+
+def _pipeline_row(sample_trade_event: TradeEvent, clock: FakeClock) -> dict[str, object]:
+    """A wallet-bearing row for the sample market, timestamped just inside the next cutoff."""
+    row = trade_row(
+        timestamp=int(clock.now) + 1,
+        transaction=9,
+        market=sample_trade_event.market_id,
+        asset=sample_trade_event.asset_id,
+        price="0.65",
+        size="5000",
+    )
+    row["proxyWallet"] = sample_trade_event.wallet_address
+    return row
+
+
+class TestIngestionWiring:
+    """The poller is a background service that starts before the metadata crawl finishes."""
+
+    async def test_poller_delivers_before_a_blocked_metadata_crawl_completes(
+        self,
+        test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
+        sample_trade_event: TradeEvent,
+        mainstream_market: MarketMetadata,
+    ) -> None:
+        clock = FakeClock(POLL_START)
+        server = _seeded_server(clock)
+        gate = threading.Event()
+        log: list[str] = []
+        pipeline = await wire_pipeline(
+            test_settings,
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=100),
+            market=mainstream_market,
+            trades=server,
+            poll_clock=clock,
+            crawl_gate=gate,
+            state_log=log,
+        )
+
+        try:
+            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+            await _run_until(lambda: len(server.requests) >= 1)
+            server.publish(_pipeline_row(sample_trade_event, clock))
+            await _run_until(lambda: pipeline.stats.trades_processed >= 1)
+
+            assert metadata_state(pipeline) in {SyncState.STARTING, SyncState.SYNCING}
+            assert pipeline.stats.trades_processed == 1
+            assert pipeline.stats.errors == 0
+            assert "poller:running" in log
+            assert "metadata:idle" not in log
+        finally:
+            gate.set()
+            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
+
+        poller_stopped = log.index("poller:stopped")
+        metadata_stopping = log.index("metadata:stopping")
+        assert poller_stopped < metadata_stopping
+        assert pipeline._trade_poller is not None
+        assert pipeline._trade_poller.state is IngestionState.STOPPED
+
+    async def test_polled_observations_reach_detection_scoring_persistence_and_delivery(
+        self,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+        niche_market: MarketMetadata,
+    ) -> None:
+        clock = FakeClock(POLL_START)
+        server = _seeded_server(clock)
+        channel = FakeAlertChannel("discord")
+        pipeline = await wire_pipeline(
+            make_test_settings(alert_threshold=0.4),
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=0),
+            market=niche_market,
+            db_manager=db_manager,
+            channels=[channel],
+            trades=server,
+            poll_clock=clock,
+        )
+
+        try:
+            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+            await _run_until(lambda: len(server.requests) >= 1)
+            server.publish(_pipeline_row(sample_trade_event, clock))
+            await _run_until(lambda: len(channel.deliveries) >= 1)
+            await _run_until(lambda: len(server.requests) >= 4)
+        finally:
+            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
+
+        rows = await _persisted_assessments(async_engine)
+        assert [row.should_alert for row in rows] == [True]
+        assert rows[0].wallet_address == sample_trade_event.wallet_address.lower()
+        assert rows[0].trade_id == trade_row(timestamp=0, transaction=9)["transactionHash"]
+        assert [alert.links["wallet"] for alert in channel.deliveries] == [
+            f"https://polygonscan.com/address/{sample_trade_event.wallet_address}"
+        ]
+        assert pipeline.stats.trades_processed == 1
+        assert pipeline.stats.alerts_sent == 1
+
+    async def test_terminal_ingestion_failure_is_recorded_on_pipeline_stats(
+        self,
+        test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
+    ) -> None:
+        clock = FakeClock(POLL_START)
+        server = FakeTradesServer(clock=clock)
+        pipeline = await wire_pipeline(
+            test_settings, redis=fake_redis, eth=FakeEth(), trades=server, poll_clock=clock
+        )
+        assert pipeline._trade_poller is not None
+        from tests.fakes import terminal
+
+        server.fail_next(terminal(401))
+
+        await pipeline._trade_poller.run_cycle()
+
+        assert pipeline._trade_poller.state is IngestionState.FAILED
+        assert pipeline.stats.errors == 1
+        assert pipeline.stats.last_error is not None
+        assert "401" in pipeline.stats.last_error
+        assert pipeline.state is PipelineState.STOPPED
+
+
+class TestIngestionRestart:
+    """Slice 001's contribution to the end-to-end harness: a restart inside the horizon."""
+
+    async def test_restart_delivers_every_missed_trade_once_and_replays_nothing(
+        self,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+        niche_market: MarketMetadata,
+    ) -> None:
+        clock = FakeClock(POLL_START)
+        server = _seeded_server(clock)
+        first_channel = FakeAlertChannel("discord")
+        first = await wire_pipeline(
+            make_test_settings(alert_threshold=0.4),
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=0),
+            market=niche_market,
+            db_manager=db_manager,
+            channels=[first_channel],
+            trades=server,
+            poll_clock=clock,
+        )
+        try:
+            await asyncio.wait_for(first._start_background_services(), timeout=2.0)
+            await _run_until(lambda: len(server.requests) >= 1)
+            server.publish(_pipeline_row(sample_trade_event, clock))
+            await _run_until(lambda: len(first_channel.deliveries) >= 1)
+        finally:
+            await asyncio.wait_for(first._stop_background_services(), timeout=2.0)
+        assert first._trade_poller is not None
+        boundary_at_stop = first._trade_poller.status.boundary_time
+
+        clock.advance(120)
+        missed = [
+            dict(_pipeline_row(sample_trade_event, clock), timestamp=int(clock.now) - 30 + n)
+            for n in range(3)
+        ]
+        for index, row in enumerate(missed):
+            row["transactionHash"] = "0x" + f"{100 + index:064x}"
+        server.publish(missed[2])
+        server.publish(missed[0])
+        server.publish(missed[1])
+        second_channel = FakeAlertChannel("discord")
+        second = await wire_pipeline(
+            make_test_settings(alert_threshold=0.4),
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=0),
+            market=niche_market,
+            db_manager=db_manager,
+            channels=[second_channel],
+            trades=server,
+            poll_clock=clock,
+        )
+        try:
+            await asyncio.wait_for(second._start_background_services(), timeout=2.0)
+            await _run_until(lambda: second.stats.trades_processed >= 3)
+            await _run_until(lambda: len(server.requests) >= 8)
+        finally:
+            await asyncio.wait_for(second._stop_background_services(), timeout=2.0)
+
+        assert second._trade_poller is not None
+        status = second._trade_poller.status
+        assert boundary_at_stop is not None
+        assert status.boundary_time is not None and status.boundary_time > boundary_at_stop
+        assert status.loss_events == ()
+        assert second.stats.trades_processed == 3
+        assert first.stats.trades_processed == 1
+        rows = await _persisted_assessments(async_engine)
+        assert sorted(row.trade_id for row in rows) == sorted(
+            [trade_row(timestamp=0, transaction=9)["transactionHash"]]
+            + [row["transactionHash"] for row in missed]
+        )
+        assert len(first_channel.deliveries) == 1
+        assert status.counts["emitted"] == 3

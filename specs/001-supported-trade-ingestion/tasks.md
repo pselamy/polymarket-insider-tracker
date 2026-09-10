@@ -38,15 +38,17 @@ Requirement identifiers in brackets trace each task to `spec.md`.
 
 **Purpose**: Give every later test a faithful provider and prove the Redis operations the boundary needs.
 
-- [ ] T002 [P] Add `FakeTradesServer` behind `httpx.MockTransport` per `contracts/source-acquisition.md`
+- [x] T002 [P] Add `FakeTradesServer` behind `httpx.MockTransport` per `contracts/source-acquisition.md`
   (newest-first synthetic ledger, `offset` support, identical body for identical URL, injectable 429
   with `Retry-After`, 5xx, timeout, malformed row, missing `outcome`, exact repeat, row newer than `end`,
   non-list body, request log, synthetic wallets only) in `tests/fakes/trades.py` and export it from
   `tests/fakes/__init__.py` [FR-012, SC-006]
-- [ ] T003 [P] Add checkpoint hash, identity sorted-set range/trim/cardinality, loss-event list
+  Evidence (2026-09-10): `tests/fakes/trades.py` (`FakeTradesServer`, `FakeClock`, fault factories, `retract`), exported from `tests/fakes/__init__.py`; exercised by every ingestor test.
+- [x] T003 [P] Add checkpoint hash, identity sorted-set range/trim/cardinality, loss-event list
   push/trim/range, and combined transactional-pipeline scenarios inside a unique namespace to
   `tests/integration/test_redis_contract.py`; run them against `fakeredis` and, with
   `RUN_SERVICE_TESTS=1`, the loopback Redis [FR-006, Contract §Real and Fake Parity]
+  Evidence (2026-09-10): `tests/integration/test_redis_contract.py` checkpoint hash, identity trim/cardinality, loss-event list, and transactional advance scenarios; 29 passed against fakeredis and the disposable real Redis (see evidence/verification.md).
 
 **Checkpoint**: The fake provider reproduces every observed provider behavior in
 `evidence/feasibility.md`; the Redis contract passes on both implementations.
@@ -59,30 +61,36 @@ Requirement identifiers in brackets trace each task to `spec.md`.
 
 **⚠️ CRITICAL**: No user-story behavior starts until these modules have failing tests and implementations.
 
-- [ ] T004 [P] Add failing tests for strict parsing of every identity-bearing field, `side` validation,
+- [x] T004 [P] Add failing tests for strict parsing of every identity-bearing field, `side` validation,
   decimal canonicalization, mutually exclusive row dispositions, outcome-resolution counters,
   `deferred:future-cycle` reacquisition, composite identity equality across `0.50`/`0.5`, distinct identities for
   maker and taker rows sharing a transaction hash, exact-repeat identity equality, `outcome` repair from
   a `MarketMetadata` token matching `asset`, `unknown` outcome resolution when metadata is absent,
   `future-timestamp`, and wallet-free diagnostics in `tests/ingestor/test_trade_rows.py` [FR-004, FR-005]
-- [ ] T005 Implement `TradeObservation`, `RowDisposition`, `parse_trade_row`, `observation_identity`,
+  Evidence (2026-09-10): `tests/ingestor/test_trade_rows.py` (49 tests), witnessed red with `ModuleNotFoundError` before T005.
+- [x] T005 Implement `TradeObservation`, `RowDisposition`, `parse_trade_row`, `observation_identity`,
   and the metadata repair helper in `src/polymarket_insider_tracker/ingestor/trade_rows.py` [FR-004, FR-005]
-- [ ] T006 [P] Add failing tests for exact request parameters, explicit `takerOnly`, strictly increasing
+  Evidence (2026-09-10): `src/polymarket_insider_tracker/ingestor/trade_rows.py`; 49 passed.
+- [x] T006 [P] Add failing tests for exact request parameters, explicit `takerOnly`, strictly increasing
   `end` (including a clock that has not advanced), `start` derivation, single `offset=10000` recovery
   request, transient-versus-terminal classification by status and transport error, retry count, backoff
   bounds with an injected random source, `Retry-After` cap, timeout, empty-list success, non-list body as
   terminal, and per-attempt request accounting in `tests/ingestor/test_trades_source.py` [FR-001, FR-002, FR-008, FR-012, FR-015, FR-018]
-- [ ] T007 Implement `TradesSourceClient`, `TradesPage`, `TradesSourceError`, `TradesTransientError`,
+  Evidence (2026-09-10): `tests/ingestor/test_trades_source.py` (36 tests), witnessed red before T007.
+- [x] T007 Implement `TradesSourceClient`, `TradesPage`, `TradesSourceError`, `TradesTransientError`,
   `TradesTerminalError`, and `Retry-After` parsing over `httpx.AsyncClient` in
   `src/polymarket_insider_tracker/ingestor/trades_source.py` [FR-001, FR-002, FR-008, FR-015, FR-018]
-- [ ] T008 [P] Add failing tests with `fakeredis` for the source-id namespace, first-start anchoring,
+  Evidence (2026-09-10): `src/polymarket_insider_tracker/ingestor/trades_source.py`; 36 passed.
+- [x] T008 [P] Add failing tests with `fakeredis` for the source-id namespace, first-start anchoring,
   reload of the identity window, the proof rule (reach, continuity, equal-second rows, empty page),
   trim relative to the newest accepted timestamp, transactional write atomicity using a closed-port
   `redis.asyncio.Redis` as the failure injector, loss-event list cap of 50, coverage mismatch treated as
   absent, unknown schema version as terminal, and mirror-equals-Redis after every cycle in
   `tests/ingestor/test_observation_boundary.py` [FR-005, FR-006, FR-007, FR-017]
-- [ ] T009 Implement `ObservationBoundary` (checkpoint, identity window, loss events, proof evaluation,
+  Evidence (2026-09-10): `tests/ingestor/test_observation_boundary.py` (22 tests), witnessed red before T009.
+- [x] T009 Implement `ObservationBoundary` (checkpoint, identity window, loss events, proof evaluation,
   transactional advance) in `src/polymarket_insider_tracker/ingestor/observation_boundary.py` [FR-005, FR-006, FR-007, FR-017]
+  Evidence (2026-09-10): `src/polymarket_insider_tracker/ingestor/observation_boundary.py`; 22 passed.
 
 **Checkpoint**: Rows, requests, and the boundary each have red-then-green coverage; every function and
 module scores at most 5 in Complexipy; strict mypy and Pyright are clean.
@@ -101,26 +109,30 @@ preserved, and acquisition starts before the metadata sync finishes.
 
 ### Tests for User Story 1
 
-- [ ] T010 [P] [US1] Add failing tests for healthy cycles: oldest-first delivery, each distinct
+- [x] T010 [P] [US1] Add failing tests for healthy cycles: oldest-first delivery, each distinct
   observation delivered once, exact repeats suppressed, maker and taker rows preserved, overlapping
   pages, cadence timing with an injected clock and sleeper, `IngestionStatus` counters and fields,
   state transitions with `on_state_change`, and metric values in `tests/ingestor/test_trade_poller.py`
   [US1 AC2–AC4, FR-004, FR-005, FR-009, FR-012, SC-001]
-- [ ] T011 [P] [US1] Add failing tests proving the poller task starts and delivers before a metadata
+  Evidence (2026-09-10): `tests/ingestor/test_trade_poller.py` healthy-cycle, status, metrics, and lifecycle classes; witnessed red before T012.
+- [x] T011 [P] [US1] Add failing tests proving the poller task starts and delivers before a metadata
   sync blocked behind an `asyncio.Barrier` completes its initial crawl, that observations reach
   detectors, scorer, and persistence through `wire_pipeline` with `FakeAlertChannel`, and that stop
   cancels the poller before the metadata task in `tests/test_pipeline.py` [US1 AC1, FR-003, SC-002]
+  Evidence (2026-09-10): `tests/test_pipeline.py::TestIngestionWiring`; witnessed red (`TimeoutError` while start blocked on the crawl) before T013.
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement `TradePoller` (cycle loop, `IngestionState`, `IngestionStatus`, delivery
+- [x] T012 [US1] Implement `TradePoller` (cycle loop, `IngestionState`, `IngestionStatus`, delivery
   order, identity-after-callback, checkpoint-after-page, metrics, clean cancellation) in
   `src/polymarket_insider_tracker/ingestor/trade_poller.py` [FR-003, FR-004, FR-005, FR-009, SC-001]
-- [ ] T013 [US1] Construct the poller, start it before the metadata task, track and cancel both tasks,
+  Evidence (2026-09-10): `src/polymarket_insider_tracker/ingestor/trade_poller.py`.
+- [x] T013 [US1] Construct the poller, start it before the metadata task, track and cancel both tasks,
   and record terminal ingestion errors on `PipelineStats` in
   `src/polymarket_insider_tracker/pipeline.py`; extend `wire_pipeline` with the poller and the fake
   server in `tests/fakes/pipeline.py`; export the new names from
   `src/polymarket_insider_tracker/ingestor/__init__.py` [FR-003, FR-009, SC-002]
+  Evidence (2026-09-10): `pipeline.py` poller-first startup, tracked metadata task, ordered stop, `_on_ingestion_state`; `tests/fakes/pipeline.py::wire_pipeline` gains the poller, clock, crawl gate, gamma fake, and state log; exports in `ingestor/__init__.py`.
 
 **Checkpoint**: User Story 1 runs independently: fixture pages produce exactly-once downstream
 delivery while the metadata crawl is still blocked.
@@ -139,12 +151,13 @@ explicit states, recorded loss events, and deterministic catch-up.
 
 ### Tests for User Story 2
 
-- [ ] T014 [P] [US2] Add failing tests for 429 with `Retry-After`, 5xx, and timeout leading to bounded
+- [x] T014 [P] [US2] Add failing tests for 429 with `Retry-After`, 5xx, and timeout leading to bounded
   retries then `degraded`, recovery on the next success, 401/404/non-list body leading to `failed` with a
   redacted error, invalid rows counted per field while valid rows in the same page are delivered,
   out-of-order and equal-second rows, and an empty response updating `last_success_at` without
   emission in `tests/ingestor/test_trade_poller.py` [US2 AC1, US2 AC4, FR-008, FR-010, FR-012, SC-003]
-- [ ] T015 [P] [US2] Add failing tests for first start with no emission, restart inside the horizon
+  Evidence (2026-09-10): `TestTransientFailures`, `TestTerminalFailures`, `TestRowQuality` in `tests/ingestor/test_trade_poller.py`; the invalid-row test was witnessed red, the others passed on first run (recorded in evidence/verification.md).
+- [x] T015 [P] [US2] Add failing tests for first start with no emission, restart inside the horizon
   delivering only missed identities, restart beyond the horizon writing `restart-beyond-horizon` and
   emitting nothing, saturation proven by the recovery page, saturation unproven entering
   `possible-data-loss` with a frozen complete-through boundary and provisional continuity, a row beyond
@@ -153,19 +166,23 @@ explicit states, recorded loss events, and deterministic catch-up.
   checkpoint, and a callback interrupted after delivery re-delivering at most one observation in
   `tests/ingestor/test_trade_poller.py` and `tests/ingestor/test_observation_boundary.py`
   [US2 AC2–AC3, FR-004, FR-006, FR-007, FR-012, FR-017, SC-004]
+  Evidence (2026-09-10): `TestRestart`, `TestSaturation`, `TestStopAndCrash`, `TestPreStartHistory`; restart-beyond-horizon, saturation, gap close, horizon expiry, continuity mismatch, and pre-anchor replay witnessed red.
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Implement degraded and failed transitions, invalid-row accounting, and empty-response
+- [x] T016 [US2] Implement degraded and failed transitions, invalid-row accounting, and empty-response
   handling in `src/polymarket_insider_tracker/ingestor/trade_poller.py` [FR-008, FR-009, FR-010, SC-003]
-- [ ] T017 [US2] Implement the recovery page, possible-data-loss state, provisional boundary, horizon
+  Evidence (2026-09-10): degraded/failed transitions, per-field invalid accounting, empty-response handling in `trade_poller.py`.
+- [x] T017 [US2] Implement the recovery page, possible-data-loss state, provisional boundary, horizon
   expiry, restart classification, and loss-event writing in
   `src/polymarket_insider_tracker/ingestor/trade_poller.py` and
   `src/polymarket_insider_tracker/ingestor/observation_boundary.py` [FR-006, FR-007, FR-017, SC-004]
-- [ ] T018 [US2] Add the restart scenario that persists the boundary in one `fakeredis` instance across
+  Evidence (2026-09-10): recovery page, `possible-data-loss`, provisional boundary, horizon expiry, restart classification, loss events in `trade_poller.py` and `observation_boundary.py`.
+- [x] T018 [US2] Add the restart scenario that persists the boundary in one `fakeredis` instance across
   two poller lifetimes inside the real pipeline and asserts all missed fixture trades once and zero
   pre-boundary replays, as this slice's contribution to the slice 003 harness, in `tests/test_pipeline.py`
   [SC-004, Constitution §III]
+  Evidence (2026-09-10): `tests/test_pipeline.py::TestIngestionRestart` (witnessed red with one re-delivery, fixed by joining the loop on stop).
 
 **Checkpoint**: Every failure class and restart scenario in FR-012 has deterministic coverage; no
 state is silent.
@@ -183,23 +200,26 @@ warning, or failure and the configuration-check output.
 
 ### Tests for User Story 3
 
-- [ ] T019 [P] [US3] Add failing tests for the four trades settings (defaults, ranges, invalid values),
+- [x] T019 [P] [US3] Add failing tests for the four trades settings (defaults, ranges, invalid values),
   optional `POLYMARKET_WS_URL` with `WebSocketSettingDeprecationWarning` when set, unchanged rejection of
   a non-WebSocket scheme, and the redacted summary shape in `tests/test_config.py`; failing tests for
   the configuration-check output and warning text in `tests/test_main.py`; a failing test that
   `TradeStreamHandler` construction emits `DeprecationWarning` in `tests/ingestor/test_websocket.py`
   [FR-002, FR-011, FR-012, FR-015, US3 AC1–AC2]
+  Evidence (2026-09-10): config, CLI, and WebSocket deprecation tests; witnessed red.
 
 ### Implementation for User Story 3
 
-- [ ] T020 [US3] Implement the trades settings, optional deprecated `ws_url`, the warning class, and the
+- [x] T020 [US3] Implement the trades settings, optional deprecated `ws_url`, the warning class, and the
   redacted summary in `src/polymarket_insider_tracker/config.py`; print the settings and disposition in
   `src/polymarket_insider_tracker/__main__.py`; add the construction warning in
   `src/polymarket_insider_tracker/ingestor/websocket.py`; update `make_test_settings` in
   `tests/fakes/pipeline.py` [FR-002, FR-011, FR-015, US3 AC1–AC2]
-- [ ] T021 [US3] Align `README.md` (overview, environment table, architecture, troubleshooting,
+  Evidence (2026-09-10): `config.py` trades settings and `DeprecatedWebSocketUrl`, `__main__.py` trades summary, `websocket.py` construction warning, `make_test_settings`.
+- [x] T021 [US3] Align `README.md` (overview, environment table, architecture, troubleshooting,
   near-real-time wording), `.env.example` (remove `POLYMARKET_WS_URL`, add the trades settings),
   `CHANGELOG.md`, and `AGENTS.md` with `contracts/status-and-config.md` [FR-014, FR-015, SC-006, US3 AC3]
+  Evidence (2026-09-10): README, `.env.example`, CHANGELOG, AGENTS.md aligned with contracts/status-and-config.md.
 
 **Checkpoint**: A clean `.env.example` starts the tracker without a WebSocket host; every documentation
 surface describes the same behavior.
@@ -211,21 +231,26 @@ surface describes the same behavior.
 **Purpose**: Prove the contract against the real provider within bounds, run every gate, close the
 owned gaps, and hand off for review.
 
-- [ ] T022 [P] Add failing tests for the seven named smoke cases, wallet-free record serialization,
+- [x] T022 [P] Add failing tests for the seven named smoke cases, wallet-free record serialization,
   `--live` required by default, exit codes, and no Redis or alert construction in
   `tests/tooling/test_trades_smoke.py` [FR-013, SC-005]
-- [ ] T023 Implement `run_smoke` and the CLI in `scripts/trades_smoke.py` [FR-013, SC-005]
+  Evidence (2026-09-10): `tests/tooling/test_trades_smoke.py` (21 tests), witnessed red with `FileNotFoundError`.
+- [x] T023 Implement `run_smoke` and the CLI in `scripts/trades_smoke.py` [FR-013, SC-005]
+  Evidence (2026-09-10): `scripts/trades_smoke.py`.
 - [ ] T024 Run the explicit bounded live-safe smoke (`--live --coverage both --window-seconds 5`) plus
   twelve consecutive five-second poller cycles against the real endpoint from a disposable local Redis,
   evaluate every product stop-gate condition, and append the redacted commands, records, and verdict to
   `specs/001-supported-trade-ingestion/evidence/smoke.md`; stop for Patrick if any condition trips
   [FR-013, FR-016, FR-019, SC-005, SC-007]
+  Status (2026-09-10): **stopped at the product stop gate (condition 3)**. Smoke and twelve five-second cycles ran; the provider's `outcomeIndex` placeholder makes retained identities vanish. Evidence and the requested decision are in `evidence/smoke.md`. Not complete.
 - [ ] T025 Run `uv run python scripts/verify.py --profile static`, `--profile compatibility` on
   isolated Python 3.11/3.12/3.13, and `--env-file .env --profile services` with local PostgreSQL 15 and
   Redis 7; record results in `specs/001-supported-trade-ingestion/evidence/verification.md`
   [Constitution §V, Contract §Required Gates]
-- [ ] T026 Update only G-001, G-002, G-003, G-004, G-005, G-006, G-013b, G-030b, G-031, and G-032 with
+  Status (2026-09-10): static and isolated 3.11/3.12/3.13 compatibility passed; the full `.env.example` profile fails at the PostgreSQL probe on this host (no credentials, no Docker socket); Redis parity proven on a disposable real Redis; migrations not exercised locally. Recorded in `evidence/verification.md`. Not complete until the services profile runs against real PostgreSQL 15.
+- [x] T026 Update only G-001, G-002, G-003, G-004, G-005, G-006, G-013b, G-030b, G-031, and G-032 with
   implementation and evidence dispositions in `specs/audit/gap-register.md` [Constitution §Development Workflow 8]
+  Evidence (2026-09-10): gap register entries updated (see specs/audit/gap-register.md).
 - [ ] T027 Complete the ordered review sequence recorded in `AGENTS.md` (first pass, corrective pass,
   independent adversarial review), resolve or record every finding, and record commit hashes in
   `specs/001-supported-trade-ingestion/evidence/verification.md` [AGENTS.md §Review and delivery]

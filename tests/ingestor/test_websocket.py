@@ -81,6 +81,16 @@ class TestStreamStats:
         assert stats.last_error is None
 
 
+class TestDeprecation:
+    """The WebSocket handler stays importable but is not the supported acquisition path."""
+
+    def test_construction_emits_a_deprecation_warning(self) -> None:
+        with pytest.warns(DeprecationWarning, match="TradeStreamHandler is deprecated") as caught:
+            TradeStreamHandler(on_trade=RecordingTradeCallback())
+
+        assert "TradePoller" in str(caught[0].message)
+
+
 class TestTradeStreamHandler:
     """Tests for TradeStreamHandler."""
 

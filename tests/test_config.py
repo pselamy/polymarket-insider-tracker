@@ -21,8 +21,11 @@ from polymarket_insider_tracker.config import (
     RedisSettings,
     Settings,
     TelegramSettings,
+    TradesCoverage,
+    WebSocketSettingDeprecationWarning,
     clear_settings_cache,
     get_settings,
+    websocket_deprecation_message,
 )
 from polymarket_insider_tracker.storage.database_url import DatabaseUrlMigrationWarning
 
@@ -240,15 +243,103 @@ class TestPolygonSettings:
             PolygonSettings()
 
 
+TRADES_REPLACEMENT_VARIABLES = (
+    "POLYMARKET_TRADES_URL",
+    "POLYMARKET_TRADES_COVERAGE",
+    "POLYMARKET_TRADES_POLL_INTERVAL_SECONDS",
+    "POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS",
+)
+
+
 class TestPolymarketSettings:
     """Tests for PolymarketSettings."""
 
-    def test_default_ws_url(self) -> None:
-        """Test default Polymarket WebSocket URL."""
-        with env_context({}, clear=True):
+    def test_defaults_need_no_websocket_host(self) -> None:
+        """The supported source is the documented trades query; nothing WebSocket is required."""
+        with env_context({}, clear=True), warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             settings = PolymarketSettings()
-            assert "polymarket.com" in settings.ws_url
-            assert settings.api_key is None
+
+        assert settings.trades_url == "https://data-api.polymarket.com/trades"
+        assert settings.trades_coverage is TradesCoverage.ALL
+        assert settings.trades_poll_interval_seconds == 5
+        assert settings.trades_recovery_horizon_seconds == 600
+        assert settings.ws_url is None
+        assert settings.api_key is None
+        assert caught == []
+
+    def test_trades_settings_load_from_the_environment(self) -> None:
+        with env_context(
+            {
+                "POLYMARKET_TRADES_URL": "https://trades.invalid/trades",
+                "POLYMARKET_TRADES_COVERAGE": "taker-only",
+                "POLYMARKET_TRADES_POLL_INTERVAL_SECONDS": "1",
+                "POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS": "3600",
+            },
+            clear=True,
+        ):
+            settings = PolymarketSettings()
+
+        assert settings.trades_url == "https://trades.invalid/trades"
+        assert settings.trades_coverage is TradesCoverage.TAKER_ONLY
+        assert settings.trades_poll_interval_seconds == 1
+        assert settings.trades_recovery_horizon_seconds == 3600
+
+    @pytest.mark.parametrize(
+        ("variable", "value"),
+        [
+            ("POLYMARKET_TRADES_POLL_INTERVAL_SECONDS", "60"),
+            ("POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS", "60"),
+        ],
+    )
+    def test_trades_range_bounds_are_inclusive(self, variable: str, value: str) -> None:
+        with env_context({variable: value}, clear=True):
+            settings = PolymarketSettings()
+
+        assert value in {
+            str(settings.trades_poll_interval_seconds),
+            str(settings.trades_recovery_horizon_seconds),
+        }
+
+    @pytest.mark.parametrize(
+        ("variable", "value", "match"),
+        [
+            ("POLYMARKET_TRADES_POLL_INTERVAL_SECONDS", "0", "greater than or equal to 1"),
+            ("POLYMARKET_TRADES_POLL_INTERVAL_SECONDS", "61", "less than or equal to 60"),
+            ("POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS", "59", "greater than or equal to 60"),
+            ("POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS", "3601", "less than or equal to 3600"),
+            ("POLYMARKET_TRADES_COVERAGE", "makers", "'all' or 'taker-only'"),
+            ("POLYMARKET_TRADES_URL", "wss://trades.invalid/trades", "HTTP"),
+        ],
+    )
+    def test_invalid_trades_settings_are_rejected_actionably(
+        self, variable: str, value: str, match: str
+    ) -> None:
+        with (
+            env_context({variable: value}, clear=True),
+            pytest.raises(ValidationError, match=match),
+        ):
+            PolymarketSettings()
+
+    def test_legacy_websocket_url_warns_once_and_is_never_reinterpreted(self) -> None:
+        with (
+            env_context({"POLYMARKET_WS_URL": "wss://legacy.invalid/ws"}, clear=True),
+            warnings.catch_warnings(record=True) as caught,
+        ):
+            warnings.simplefilter("always")
+            settings = PolymarketSettings()
+
+        assert settings.ws_url == "wss://legacy.invalid/ws"
+        assert settings.trades_url == "https://data-api.polymarket.com/trades"
+        deprecations = [w for w in caught if w.category is WebSocketSettingDeprecationWarning]
+        assert len(deprecations) == 1
+        message = str(deprecations[0].message)
+        assert message == websocket_deprecation_message()
+        assert "POLYMARKET_WS_URL" in message
+        assert "not used" in message
+        assert all(variable in message for variable in TRADES_REPLACEMENT_VARIABLES)
+        assert "legacy.invalid" not in message
+        assert issubclass(WebSocketSettingDeprecationWarning, UserWarning)
 
     def test_custom_api_key(self) -> None:
         """Test custom API key (secret)."""
@@ -405,6 +496,42 @@ class TestSettings:
             assert "secretpass" not in db_url
             assert "***" in db_url
             assert "user" in db_url
+
+    def test_redacted_summary_describes_the_trades_source(self) -> None:
+        """The polymarket block names the supported source and the legacy disposition."""
+        with env_context(
+            {"DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db"}, clear=True
+        ):
+            summary = Settings().redacted_summary()["polymarket"]
+
+        assert summary == {
+            "trades_url": "https://data-api.polymarket.com/trades",
+            "coverage": "all",
+            "poll_interval_seconds": "5",
+            "recovery_horizon_seconds": "600",
+            "ws_url": "(not set)",
+            "api_key": "(not set)",
+        }
+
+    def test_redacted_summary_marks_a_set_legacy_url_without_its_value(self) -> None:
+        with (
+            env_context(
+                {
+                    "DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db",
+                    "POLYMARKET_WS_URL": "wss://legacy.invalid/ws",
+                    "POLYMARKET_API_KEY": "secret",
+                },
+                clear=True,
+            ),
+            pytest.warns(WebSocketSettingDeprecationWarning),
+        ):
+            summary = Settings().redacted_summary()["polymarket"]
+
+        assert isinstance(summary, dict)
+        assert summary["ws_url"] == "(deprecated, set)"
+        assert summary["api_key"] == "(set)"
+        assert "legacy.invalid" not in str(summary)
+        assert "secret" not in str(summary)
 
 
 class TestGetSettings:

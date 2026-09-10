@@ -12,6 +12,13 @@ is an entry point to those authorities, not a replacement for them.
   Detection signals are evidence for investigation, not proof of wrongdoing.
 - Preserve public APIs, CLI/configuration, schemas, thresholds, and behavior unless
   an approved specification explicitly authorizes a change and migration path.
+- Supported ingestion is near-real-time polling of the documented anonymous public trades
+  query with all-participant coverage by default, a 5-second cadence (about 1% of the
+  published limit), a durable complete-through boundary in Redis, and a visible
+  `possible-data-loss` state plus durable loss events when a page cannot be proven. The
+  10-minute recovery horizon is a retention and loss-detection bound, not a completeness
+  guarantee. `POLYMARKET_WS_URL` is in a deprecation window: warned, never used, never
+  reinterpreted. No Polymarket credential is required or sent to the trades endpoint.
 - Tests and verification must not accidentally contact market, chain, or notification
   services. Real Discord/Telegram delivery requires explicit authorization. Dry runs
   must neither deliver nor poison later real-delivery deduplication state.

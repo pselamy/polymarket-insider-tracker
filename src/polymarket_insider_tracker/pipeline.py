@@ -26,7 +26,7 @@ from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
-from polymarket_insider_tracker.ingestor.websocket import TradeStreamHandler
+from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import FundingTracer
@@ -93,7 +93,10 @@ class Pipeline:
     event flow from trade ingestion through profiling, detection, and alerting.
 
     Pipeline flow:
-        WebSocket Trade Stream → Wallet Profiler → Detectors → Risk Scorer → Alerter
+        Public trades query (TradePoller) → Wallet Profiler → Detectors → Risk Scorer → Alerter
+
+    The poller starts before the market-metadata crawl completes; metadata is enrichment and
+    never holds ingestion back.
 
     Example:
         ```python
@@ -139,12 +142,13 @@ class Pipeline:
         self._risk_scorer: RiskScorer | None = None
         self._alert_formatter: AlertFormatter | None = None
         self._alert_dispatcher: AlertDispatcher | None = None
-        self._trade_stream: TradeStreamHandler | None = None
+        self._trade_poller: TradePoller | None = None
         self._funding_tracer: FundingTracer | None = None
 
         # Synchronization
         self._stop_event: asyncio.Event | None = None
-        self._stream_task: asyncio.Task[None] | None = None
+        self._poller_task: asyncio.Task[None] | None = None
+        self._metadata_task: asyncio.Task[None] | None = None
 
     @property
     def state(self) -> PipelineState:
@@ -284,11 +288,14 @@ class Pipeline:
         channels = self._build_alert_channels()
         self._alert_dispatcher = AlertDispatcher(channels)
 
-        # Initialize Trade Stream
-        logger.debug("Initializing trade stream handler...")
-        self._trade_stream = TradeStreamHandler(
-            on_trade=self._on_trade,
-            host=settings.polymarket.ws_url,
+        # Initialize the trade poller over the documented public trades query
+        logger.debug("Initializing trade poller...")
+        self._trade_poller = TradePoller(
+            self._on_trade,
+            redis=self._redis,
+            settings=settings.polymarket,
+            metadata=self._metadata_sync,
+            on_state_change=self._on_ingestion_state,
         )
 
         logger.info("All components initialized")
@@ -324,49 +331,69 @@ class Pipeline:
         return channels
 
     async def _start_background_services(self) -> None:
-        """Start background services."""
-        # Start metadata sync
+        """Start the poller first, then the metadata crawl as a tracked background task."""
+        if self._trade_poller:
+            logger.debug("Starting trade poller...")
+            self._poller_task = asyncio.create_task(self._run_trade_poller())
+
         if self._metadata_sync:
-            logger.debug("Starting metadata sync service...")
-            await self._metadata_sync.start()
+            logger.debug("Starting metadata sync service in the background...")
+            self._metadata_task = asyncio.create_task(self._run_metadata_sync())
 
-        # Start trade stream in background task
-        if self._trade_stream:
-            logger.debug("Starting trade stream...")
-            self._stream_task = asyncio.create_task(self._run_trade_stream())
-
-    async def _run_trade_stream(self) -> None:
-        """Run the trade stream in a task."""
-        if not self._trade_stream:
+    async def _run_trade_poller(self) -> None:
+        """Run the poller in a task; a terminal failure is reported through the state callback."""
+        if not self._trade_poller:
             return
-
         try:
-            await self._trade_stream.start()
+            await self._trade_poller.start()
         except asyncio.CancelledError:
-            logger.debug("Trade stream task cancelled")
+            logger.debug("Trade poller task cancelled")
         except Exception as e:
-            logger.error("Trade stream error: %s", e)
+            logger.error("Trade poller error: %s", e)
             self._stats.last_error = str(e)
             self._stats.errors += 1
 
+    async def _run_metadata_sync(self) -> None:
+        """Run the initial metadata crawl without delaying acquisition."""
+        if not self._metadata_sync:
+            return
+        try:
+            await self._metadata_sync.start()
+        except asyncio.CancelledError:
+            logger.debug("Metadata sync task cancelled")
+        except Exception as e:
+            logger.error("Metadata sync error: %s", e)
+            self._stats.last_error = str(e)
+            self._stats.errors += 1
+
+    def _on_ingestion_state(self, state: IngestionState) -> None:
+        """Record terminal ingestion failures on the pipeline statistics."""
+        if state is not IngestionState.FAILED or not self._trade_poller:
+            return
+        self._stats.errors += 1
+        self._stats.last_error = self._trade_poller.status.last_error
+
     async def _stop_background_services(self) -> None:
-        """Stop background services."""
-        # Stop trade stream
-        if self._trade_stream:
-            logger.debug("Stopping trade stream...")
-            await self._trade_stream.stop()
+        """Stop the poller and its task before the metadata task and sync."""
+        if self._trade_poller:
+            logger.debug("Stopping trade poller...")
+            await self._trade_poller.stop()
+        await self._cancel_task(self._poller_task)
+        await self._cancel_task(self._metadata_task)
+        self._poller_task = None
+        self._metadata_task = None
 
-        # Cancel stream task
-        if self._stream_task:
-            self._stream_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._stream_task
-            self._stream_task = None
-
-        # Stop metadata sync
         if self._metadata_sync:
             logger.debug("Stopping metadata sync...")
             await self._metadata_sync.stop()
+
+    @staticmethod
+    async def _cancel_task(task: asyncio.Task[None] | None) -> None:
+        if task is None:
+            return
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
@@ -392,7 +419,7 @@ class Pipeline:
         4. Send alert if threshold exceeded
 
         Args:
-            trade: The trade event from the WebSocket stream.
+            trade: The trade observation delivered by the poller.
         """
         self._stats.trades_processed += 1
         self._stats.last_trade_time = datetime.now(UTC)

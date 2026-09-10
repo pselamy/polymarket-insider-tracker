@@ -19,7 +19,12 @@ from typing import NoReturn
 from pydantic import ValidationError
 
 from polymarket_insider_tracker import __version__
-from polymarket_insider_tracker.config import Settings, clear_settings_cache, get_settings
+from polymarket_insider_tracker.config import (
+    Settings,
+    clear_settings_cache,
+    get_settings,
+    websocket_deprecation_message,
+)
 from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.shutdown import GracefulShutdown
 
@@ -157,12 +162,25 @@ def print_config_summary(settings: Settings, dry_run: bool) -> None:
     print("Configuration:")
     print(f"  Database: {summary['database_url']}")
     print(f"  Redis: {summary['redis_url']}")
+    print_trades_source_summary(settings)
     print(f"  Log Level: {summary['log_level']}")
     print(f"  Health Port: {summary['health_port']}")
     print(f"  Dry Run: {dry_run}")
     print(f"  Discord: {'enabled' if summary['discord_enabled'] == 'True' else 'disabled'}")
     print(f"  Telegram: {'enabled' if summary['telegram_enabled'] == 'True' else 'disabled'}")
     print()
+
+
+def print_trades_source_summary(settings: Settings) -> None:
+    """Print the supported trade source settings and the legacy WebSocket disposition."""
+    polymarket = settings.polymarket
+    print(f"  Trades URL: {polymarket.trades_url}")
+    print(f"  Trades Coverage: {polymarket.trades_coverage.value}")
+    print(f"  Trades Poll Interval: {polymarket.trades_poll_interval_seconds}s")
+    print(f"  Trades Recovery Horizon: {polymarket.trades_recovery_horizon_seconds}s")
+    print(f"  WebSocket URL: {polymarket.ws_url_disposition}")
+    if polymarket.ws_url is not None:
+        print(f"  WARNING: {websocket_deprecation_message()}")
 
 
 def _format_error_field(loc: tuple[int | str, ...]) -> str:

@@ -1,4 +1,4 @@
-"""Data ingestion layer - Real-time Polymarket trade streaming."""
+"""Data ingestion layer - near-real-time acquisition of public Polymarket trades."""
 
 from polymarket_insider_tracker.ingestor.clob_client import (
     ClobClient,
@@ -32,6 +32,17 @@ from polymarket_insider_tracker.ingestor.publisher import (
     EventPublisher,
     PublisherError,
     StreamEntry,
+)
+from polymarket_insider_tracker.ingestor.trade_poller import (
+    IngestionState,
+    IngestionStatus,
+    TradePoller,
+)
+from polymarket_insider_tracker.ingestor.trade_rows import TradeObservation
+from polymarket_insider_tracker.ingestor.trades_source import (
+    TradesSourceError,
+    TradesTerminalError,
+    TradesTransientError,
 )
 from polymarket_insider_tracker.ingestor.websocket import (
     ConnectionState,
@@ -71,7 +82,15 @@ __all__ = [
     "EventPublisher",
     "PublisherError",
     "StreamEntry",
-    # WebSocket
+    # Trade acquisition
+    "IngestionState",
+    "IngestionStatus",
+    "TradePoller",
+    "TradeObservation",
+    "TradesSourceError",
+    "TradesTerminalError",
+    "TradesTransientError",
+    # WebSocket (deprecated; retained for the deprecation window)
     "ConnectionState",
     "WebSocketStreamStats",
     "TradeStreamError",

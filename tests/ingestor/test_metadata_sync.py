@@ -3,7 +3,6 @@
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -23,6 +22,7 @@ from polymarket_insider_tracker.ingestor.models import (
     Token,
     derive_category,
 )
+from tests.fakes import FakeGammaClient
 
 
 class FakeClobClient:
@@ -44,23 +44,6 @@ class FakeClobClient:
         if self._raise_error is not None:
             raise self._raise_error
         return next((m for m in self._markets if m.condition_id == condition_id), None)
-
-
-class FakeGammaClient:
-    """Fake Gamma client providing market volume stats."""
-
-    def __init__(
-        self,
-        stats: dict[str, Any] | None = None,
-        raise_error: Exception | None = None,
-    ) -> None:
-        self._stats = stats or {}
-        self._raise_error = raise_error
-
-    async def get_active_market_stats(self) -> dict[str, Any]:
-        if self._raise_error is not None:
-            raise self._raise_error
-        return dict(self._stats)
 
 
 # Test fixtures
@@ -342,6 +325,29 @@ class TestMarketMetadataSync:
         assert result.condition_id == "cond123"
 
         await sync.stop()
+
+    async def test_get_cached_market_reads_only_the_cache(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_market: Market,
+        sample_metadata: MarketMetadata,
+        fake_gamma: FakeGammaClient,
+    ) -> None:
+        """The cache-only lookup used by ingestion never fetches from the CLOB API."""
+        sync = MarketMetadataSync(
+            redis=fake_redis, clob_client=FakeClobClient([sample_market]), gamma_client=fake_gamma
+        )
+
+        assert await sync.get_cached_market("cond123") is None
+        assert await fake_redis.get(f"{DEFAULT_REDIS_KEY_PREFIX}cond123") is None
+
+        await fake_redis.set(
+            f"{DEFAULT_REDIS_KEY_PREFIX}cond123", json.dumps(sample_metadata.to_dict())
+        )
+        cached = await sync.get_cached_market("cond123")
+
+        assert cached is not None
+        assert cached.tokens == sample_metadata.tokens
 
     @pytest.mark.asyncio
     async def test_get_market_cache_miss(

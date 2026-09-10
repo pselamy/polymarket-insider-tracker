@@ -340,6 +340,17 @@ class MarketMetadataSync:
         value = json.dumps(metadata.to_dict())
         await self._redis.setex(key, self._cache_ttl, value)
 
+    async def get_cached_market(self, condition_id: str) -> MarketMetadata | None:
+        """Return cached metadata only; never fetch, so ingestion is never held by the API."""
+        cached = await self._redis.get(f"{self._key_prefix}{condition_id}")
+        if not cached:
+            return None
+        try:
+            return MarketMetadata.from_dict(json.loads(cached))
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to parse cached market {condition_id}: {e}")
+            return None
+
     async def get_market(self, condition_id: str) -> MarketMetadata | None:
         """Get market metadata with cache-first lookup.
 

@@ -1,9 +1,14 @@
-"""WebSocket client for streaming Polymarket trade events."""
+"""Deprecated WebSocket client for the withdrawn Polymarket trade activity feed.
+
+The class stays importable during the deprecation window but is no longer constructed by the
+pipeline; the supported acquisition path is ``ingestor.trade_poller.TradePoller``.
+"""
 
 import asyncio
 import json
 import logging
 import time
+import warnings
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -99,6 +104,11 @@ class TradeStreamHandler:
             event_filter: Optional event slug to filter trades by event.
             market_filter: Optional market slug to filter trades by market.
         """
+        warnings.warn(
+            "TradeStreamHandler is deprecated; the tracker acquires trades with TradePoller",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._on_trade = on_trade
         self._on_state_change = on_state_change
         self._host = host
