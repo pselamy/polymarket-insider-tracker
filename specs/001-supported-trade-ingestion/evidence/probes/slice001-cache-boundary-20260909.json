@@ -1,0 +1,99 @@
+{
+  "endpoint": "https://data-api.polymarket.com/trades",
+  "request_count": 4,
+  "results": [
+    {
+      "age": null,
+      "boundary_crossed": true,
+      "cache_control": "public, max-age=300",
+      "captured_at": "2026-09-09T19:46:25.548686+00:00",
+      "cf_cache_status": "MISS",
+      "elapsed_ms": 907.6,
+      "http_status": 200,
+      "in_window_count": 305,
+      "label": "fixed-repeat-1",
+      "missing_required_fields": {
+        "outcome": 80
+      },
+      "newest_at_or_before_end": 1788983184,
+      "response_sha256": "df694a2975a6aa055d25b22a1c7feb999070fe9948207daae96bb2f65529fc37",
+      "row_count": 10000,
+      "rows_newer_than_end": 0,
+      "window": {
+        "end": 1788983184,
+        "seconds": 5,
+        "start": 1788983179
+      }
+    },
+    {
+      "age": "2",
+      "boundary_crossed": true,
+      "cache_control": "public, max-age=300",
+      "captured_at": "2026-09-09T19:46:27.959829+00:00",
+      "cf_cache_status": "HIT",
+      "elapsed_ms": 402.1,
+      "http_status": 200,
+      "in_window_count": 305,
+      "label": "fixed-repeat-2",
+      "missing_required_fields": {
+        "outcome": 80
+      },
+      "newest_at_or_before_end": 1788983184,
+      "response_sha256": "df694a2975a6aa055d25b22a1c7feb999070fe9948207daae96bb2f65529fc37",
+      "row_count": 10000,
+      "rows_newer_than_end": 0,
+      "window": {
+        "end": 1788983184,
+        "seconds": 5,
+        "start": 1788983179
+      }
+    },
+    {
+      "age": "4",
+      "boundary_crossed": true,
+      "cache_control": "public, max-age=300",
+      "captured_at": "2026-09-09T19:46:30.356630+00:00",
+      "cf_cache_status": "HIT",
+      "elapsed_ms": 387.9,
+      "http_status": 200,
+      "in_window_count": 305,
+      "label": "fixed-repeat-3",
+      "missing_required_fields": {
+        "outcome": 80
+      },
+      "newest_at_or_before_end": 1788983184,
+      "response_sha256": "df694a2975a6aa055d25b22a1c7feb999070fe9948207daae96bb2f65529fc37",
+      "row_count": 10000,
+      "rows_newer_than_end": 0,
+      "window": {
+        "end": 1788983184,
+        "seconds": 5,
+        "start": 1788983179
+      }
+    },
+    {
+      "age": null,
+      "boundary_crossed": true,
+      "cache_control": "public, max-age=300",
+      "captured_at": "2026-09-09T19:46:33.609042+00:00",
+      "cf_cache_status": "MISS",
+      "elapsed_ms": 1243.4,
+      "http_status": 200,
+      "in_window_count": 61,
+      "label": "one-second",
+      "missing_required_fields": {
+        "outcome": 94
+      },
+      "newest_at_or_before_end": 1788983184,
+      "response_sha256": "78eb9c80ba463c978af62230e564cf0c1871f895748afd75ee6fadb555a1008b",
+      "row_count": 10000,
+      "rows_newer_than_end": 214,
+      "window": {
+        "end": 1788983184,
+        "seconds": 1,
+        "start": 1788983183
+      }
+    }
+  ],
+  "retained_wallet_identifiers": false
+}

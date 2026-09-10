@@ -22,7 +22,7 @@ Current RTDS documentation covers comments and crypto prices, not trade activity
 tracker needs wallet identity, which the public trades query currently supplies.
 
 Approval is conditional on a bounded feasibility record proving sustainable cadence, ordering/replay handling,
-publication lag, cache behavior, and visible page-saturation/loss detection against the provider's documented
+timestamp freshness (while stating the limit of publication-latency measurement), cache behavior, and visible page-saturation/loss detection against the provider's documented
 10,000-row pagination boundary and 200-requests-per-10-seconds rate limit. The 2026-09-06 probe saturated a
 10,000-row response and found rows outside requested time bounds, so these are not theoretical concerns.
 
@@ -120,3 +120,16 @@ Patrick then responded **“approve recommended slice 002 plan”** on 2026-09-0
 recommended analysis remediations, accepts the reviewer-owned runtime checklist for implementation entry
 without changing its markers, and authorizes slice-002 implementation. It does not authorize a merge or
 implementation of slices 001, 003, or 004.
+
+On 2026-09-09 Patrick directed work to continue into slice-001 feasibility and planning. The resulting
+planning package records bounded live evidence, contracts, a reviewer-owned unchecked checklist, tasks,
+and independent analysis. This authorizes preparation of the planning pull request only. Slice-001
+implementation remains blocked until Patrick approves the three decisions in its plan; no checklist
+marker is changed by this record.
+
+On 2026-09-10 Patrick responded **“merge and continue”** after receiving the three recommended
+slice-001 decisions. This approves durable recording of aged gaps while monitoring continues, the
+10-minute setting as a retention/loss-detection horizon rather than a completeness guarantee, and the
+`POLYMARKET_WS_URL` deprecation window with retained deprecated Python exports. It authorizes merging
+the planning package and starting slice-001 implementation. It does not authorize merging the later
+implementation pull request without a separate approval. The reviewer-owned checklist remains unchanged.

@@ -4,9 +4,41 @@
 
 **Created**: 2026-09-06
 
-**Status**: Proposed for Patrick review; implementation is not yet authorized
+**Status**: Decision A1 approved by Patrick on 2026-09-06; clarified and planned on 2026-09-09 with the
+feasibility record in [evidence/feasibility.md](evidence/feasibility.md); Patrick approved the recommended
+planning decisions and authorized implementation with “merge and continue” on 2026-09-10
 
 **Input**: User description: "Restore a current, supported, wallet-bearing public Polymarket trade feed and make startup, replay, and provider failure behavior truthful and testable."
+
+## Clarifications
+
+### Session 2026-09-09
+
+- Q: What proves that a full result page reached the prior durable boundary instead of merely padding
+  with older history? → A: After client-side ordering, the page's oldest timestamp is strictly older
+  than the boundary time, and every retained identity newer than that oldest row reappears in the
+  page. The only recovery is the provider's documented second page (offset 10,000). If proof still
+  fails, the tracker enters the visible possible-data-loss state and freezes the durable boundary;
+  page length alone never proves absence of loss.
+- Q: How is a row that lacks `outcome` handled? → A: `outcome`/`outcomeIndex` are repairable from
+  cached asset metadata; when metadata is absent the observation is still emitted with an unknown
+  outcome and counted as unrepaired. A row missing any identity-bearing field (`transactionHash`,
+  `proxyWallet`, `conditionId`, `asset`, `side`, `price`, `size`, `timestamp`) is invalid, counted per
+  field, quarantined as aggregate diagnostics, and never repaired by invention.
+- Q: Which provider time bounds are trusted? → A: Neither is trusted as a server-side filter. The
+  requested upper bound is also the cycle cutoff and a strictly increasing cache key. Rows newer than
+  it are deferred and reacquired in a later cycle; they do not emit or advance the complete-through
+  boundary. A row more than 60 seconds ahead of the local clock is invalid (`future-timestamp`). The
+  lower bound is enforced by the client as the recovery horizon.
+- Q: What happens when an unresolved gap, or a restart, exceeds the recovery horizon? → A: The
+  interval is recorded durably as a loss event with its reason, exposed in status and logs, and the
+  boundary re-anchors at the newest proven page without emitting pre-anchor history. Nothing is
+  recovered silently and nothing pre-anchor is emitted as new activity.
+- Q: What is the compatibility disposition of the obsolete WebSocket setting and Python surface? → A:
+  A deprecation window. `POLYMARKET_WS_URL` no longer defaults to a host, is accepted only with a
+  `ws://`/`wss://` scheme, produces an actionable warning at configuration load and configuration
+  check, and is never used for acquisition. The WebSocket handler stays importable but warns on
+  construction. Rejection or removal requires a later approved change with its own migration note.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -56,8 +88,10 @@ catch-up behavior.
 1. **Given** a transient provider or network error, **When** acquisition fails, **Then** the tracker
    reports a degraded source with the last success and error, retries with bounded backoff, and does
    not fabricate events.
-2. **Given** a saved observation checkpoint and a restart within the recovery window, **When** the
-   tracker resumes, **Then** it processes distinct missed trades and suppresses already processed ones.
+2. **Given** a saved observation checkpoint and a restart within the recovery horizon, **When** the
+   provider's reachable pages prove continuity to that checkpoint, **Then** the tracker processes
+   distinct missed trades and suppresses already processed ones; otherwise it freezes the
+   complete-through boundary and reports possible data loss.
 3. **Given** no checkpoint on a first-ever start, **When** recent history is used to establish the
    starting boundary, **Then** pre-start rows are not emitted as a burst of new monitoring events.
 4. **Given** an invalid trade row among valid rows, **When** the batch is read, **Then** the invalid row
@@ -101,6 +135,14 @@ verify the documented result, warning, or actionable failure.
 - The local clock may differ from provider timestamps; event eligibility must not depend on exact clock equality.
 - A metadata record may be absent when a trade arrives; that must not block base trade ingestion.
 - A first start and a restart with a durable checkpoint have intentionally different replay behavior.
+- A row may carry a timestamp newer than the requested upper bound; it is deferred until a later cycle,
+  while a timestamp far ahead of the local clock is invalid.
+- A row may lack `outcome` while every identity-bearing field is present; it is repairable from cached
+  asset metadata and must not be discarded or invented.
+- The provider may serve an identical request from a shared cache; each request must be distinguishable
+  so that a stale cached page is never mistaken for a fresh acquisition.
+- An unresolved gap or an outage may outlast the recovery horizon; the lost interval must be recorded
+  and visible rather than silently skipped.
 
 ## Requirements *(mandatory)*
 
@@ -112,12 +154,19 @@ verify the documented result, warning, or actionable failure.
   credentials and MUST remain read-only.
 - **FR-003**: Source acquisition MUST begin independently of a complete metadata refresh; metadata
   enrichment MAY become more complete after ingestion has started.
-- **FR-004**: Every valid source row MUST either produce one normalized trade observation or a recorded
-  duplicate decision; it MUST NOT disappear silently.
+- **FR-004**: Every source row MUST receive one recorded disposition. Every eligible row MUST either
+  produce one normalized trade observation or a duplicate disposition; anchor history, padding,
+  future-cycle rows, and invalid rows MUST be counted rather than disappear silently. A row missing
+  only `outcome`/`outcomeIndex` is valid: it is repaired from cached asset metadata when available and
+  otherwise emitted with an unknown outcome and counted as unrepaired. A row missing any
+  identity-bearing field is invalid, counted per missing field, and quarantined as aggregate
+  diagnostics without wallet identifiers.
 - **FR-005**: The tracker MUST preserve distinct rows that share a transaction hash and MUST suppress
-  exact repeated observations within the active replay horizon.
-- **FR-006**: The tracker MUST maintain a durable observation boundary sufficient to resume a bounded
-  recent window without a duplicate-processing storm.
+  exact repeated observations within the recovery horizon.
+- **FR-006**: The tracker MUST maintain a durable complete-through boundary and recent identity window
+  sufficient to resume when the provider's reachable pages prove continuity, without a
+  duplicate-processing storm. The recovery horizon is a retention and loss-detection bound, not a
+  guarantee that every interval of that duration is reachable from the provider.
 - **FR-007**: On a first-ever start, the tracker MUST establish a current boundary without emitting
   pre-start history as new activity. A configured explicit backfill is outside this slice.
 - **FR-008**: Provider calls MUST be rate-bounded and MUST retry transient failures with capped backoff
@@ -127,22 +176,35 @@ verify the documented result, warning, or actionable failure.
 - **FR-010**: An empty successful response MUST update source reachability without pretending that a
   trade was received.
 - **FR-011**: The obsolete WebSocket configuration MUST have a documented compatibility policy. It MUST
-  be rejected or deprecated explicitly and MUST NOT be silently reinterpreted.
+  be rejected or deprecated explicitly and MUST NOT be silently reinterpreted. In this slice the policy
+  is a deprecation window: the setting no longer defaults to a host, is accepted only with a WebSocket
+  scheme, produces an actionable warning at load and configuration check, and is never used for
+  acquisition; the obsolete WebSocket Python surface stays importable but warns on construction.
 - **FR-012**: Deterministic tests MUST cover overlap, equal timestamps, out-of-order data, malformed
   rows, throttling, transient recovery, terminal failure, first start, restart, and graceful stop.
 - **FR-013**: A live-safe smoke check MUST read only public data, MUST send no alert, and MUST report
-  source reachability, schema compatibility, latest observed provider timestamp, and measured lag.
-- **FR-014**: README, example configuration, troubleshooting, architecture text, and the tracked skill
-  MUST describe the same supported ingestion behavior and limitations.
+  source reachability, schema compatibility, latest observed provider timestamp, and its clock-relative
+  timestamp lag without presenting that value as first-publication latency.
+- **FR-014**: README, example configuration, troubleshooting, architecture text, changelog, and root
+  agent guidance MUST describe the same supported ingestion behavior and limitations. The former tracked
+  documentation skill was removed on 2026-09-09 and is no longer a documentation surface.
 - **FR-015**: The default coverage contract MUST include all publicly returned participant observations,
   not silently inherit a taker-only provider default. A taker-only mode MAY exist only as an explicit,
   visible operator choice.
 - **FR-016**: Before implementation planning is approved, a bounded feasibility record MUST measure
-  current all-market row rate, provider publication lag, ordering, time-window behavior, page saturation,
-  cache behavior, and throttling against the official request limit without retaining wallet identities.
+  current all-market row rate, newest-row timestamp freshness, ordering, time-window behavior, page
+  saturation, cache behavior, and request distance from the official limit without retaining wallet
+  identities. It MUST state that first-publication latency is not measurable without repeated identity
+  sampling.
+  The 2026-09-09 record in [evidence/feasibility.md](evidence/feasibility.md) satisfies this requirement
+  for planning; implementation entry MUST re-run the bounded live-safe smoke check before convergence.
 - **FR-017**: Acquisition MUST detect when a full page does not reach the last durable observation boundary.
-  It MUST attempt a bounded documented recovery or enter a visible possible-data-loss state; it MUST NOT
-  advance the durable boundary past an unresolved gap.
+  Reaching the boundary means the client-ordered page's oldest timestamp is strictly older than the
+  boundary time and every retained identity newer than that oldest row reappears in the page. It MUST
+  attempt the bounded documented recovery (the provider's single additional page) or enter a visible
+  possible-data-loss state; it MUST NOT advance the durable boundary past an unresolved gap. A gap that
+  ages beyond the recovery horizon MUST become a durably recorded, visible loss event before the boundary
+  re-anchors.
 - **FR-018**: The default request cadence MUST remain at or below 5% of the provider's published endpoint
   limit under normal operation. Retry and catch-up bursts MUST remain within the published limit.
 - **FR-019**: If the feasibility gate cannot demonstrate bounded loss detection and sustainable coverage,
@@ -154,11 +216,12 @@ verify the documented result, warning, or actionable failure.
 - **Trade Observation**: One normalized public trade row, including its wallet, market, asset, side,
   outcome, price, size, provider timestamp, transaction identity, and a stable composite observation identity.
 - **Observation Boundary**: Durable state identifying the newest fully considered time region plus the
-  recent identities retained to make overlapping acquisition safe.
+  recent identities retained to make overlapping acquisition safe, and the recorded loss events that
+  explain any interval the tracker could not prove it covered.
 - **Ingestion Status**: Current lifecycle state and evidence of freshness, failure, retries, invalid data,
   duplicates, and throughput.
-- **Source Configuration**: The selected public trade source, acquisition cadence, retry bounds, replay
-  horizon, and legacy-setting disposition, with secrets excluded.
+- **Source Configuration**: The selected public trade source, coverage mode, acquisition cadence, retry
+  bounds, recovery horizon, and legacy-setting disposition, with secrets excluded.
 
 ## Success Criteria *(mandatory)*
 
@@ -170,8 +233,10 @@ verify the documented result, warning, or actionable failure.
   of local dependency readiness and a newly returned trade reaches the pipeline within 10 seconds.
 - **SC-003**: After each simulated transient failure class, acquisition recovers without operator action
   and without duplicates; after a terminal failure, the process reports failure instead of remaining healthy.
-- **SC-004**: A restart inside the configured recovery horizon processes all distinct missed fixture
-  trades exactly once and emits zero pre-boundary replay events.
+- **SC-004**: A restart fixture whose pages prove continuity processes all distinct missed fixture
+  trades exactly once and emits zero pre-boundary replay events; a fixture inside the configured
+  horizon but beyond reachable page depth enters `possible-data-loss` without advancing the durable
+  complete-through boundary.
 - **SC-005**: The live-safe smoke check reports the correct pass/fail result for seven named cases: a
   valid wallet-bearing response, a valid empty response, throttling, timeout, malformed row, incompatible
   top-level schema, and possible page saturation. It retains no wallet identifiers in its evidence output.
@@ -179,8 +244,9 @@ verify the documented result, warning, or actionable failure.
   credential behavior, coverage modes, and freshness semantics. Contributor documentation describes
   those tested behaviors without being reparsed by a bespoke contract checker.
 - **SC-007**: A timestamped feasibility report records at least three bounded live samples and reports
-  row rate, in-window ratio, oldest/newest timestamps, page saturation, ordering, provider lag, response
-  caching, and distance from the published rate limit; any unresolved loss condition blocks approval.
+  row rate, in-window ratio, oldest/newest timestamps, page saturation, ordering, newest-row timestamp
+  freshness, response caching, and distance from the published rate limit; it explicitly records the
+  unmeasured first-publication latency and any unresolved loss condition blocks approval.
 
 ## Assumptions
 
@@ -196,9 +262,20 @@ verify the documented result, warning, or actionable failure.
 - A 2026-09-06 five-second aggregate probe returned a full 10,000-row page even though only 83 taker-only
   or 259 all-participant rows had timestamps inside the requested window; some rows were outside the
   documented bounds. Client-side boundary and saturation evidence is therefore mandatory.
+- The 2026-09-09 feasibility record confirmed those semantics with six five-second samples, one
+  ten-second sample, and a cache probe: every response was a full 10,000-row page ordered newest-first,
+  in-window all-participant rates were roughly 76–109 rows per second, identical URLs were served from a
+  shared cache for up to 300 seconds while a moving upper bound was not, rows newer than the requested
+  upper bound appeared, every all-participant transaction carried several wallet observations, and a small
+  share of rows lacked `outcome`. A five-second cadence uses about 1% of the published request limit and
+  leaves an order of magnitude of page headroom at observed rates.
+- The recovery horizon is a retention and loss-detection bound, while reachable depth is rate-dependent:
+  one page covered roughly 160–220 seconds of all-participant history and both documented pages reached
+  roughly 320–440 seconds in the bounded probes. A restart or outage can therefore produce a recorded
+  loss event even while its age is less than the 10-minute horizon.
 - “Real-time” will be replaced with “near-real-time” where users could otherwise infer push delivery.
-  Internal processing is bounded after a source response; provider publication lag is measured and
-  reported rather than falsely guaranteed.
+  Internal processing is bounded after a source response; newest-row timestamp freshness is measured,
+  while first-publication latency is explicitly reported as unmeasured rather than falsely guaranteed.
 - The default recovery horizon is 10 minutes. Full historical import and user-selected backfill are out
   of scope for this slice.
 - Existing normalized trade consumers remain compatible even if the acquisition mechanism changes.

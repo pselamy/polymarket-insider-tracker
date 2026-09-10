@@ -1,0 +1,23 @@
+{
+  "captured_at": "2026-09-09T20:01:16.642543+00:00",
+  "elapsed_ms": 1722.5,
+  "endpoint": "https://data-api.polymarket.com/trades",
+  "http_status": 200,
+  "newest_timestamp": 1788983893,
+  "oldest_timestamp": 1788983650,
+  "params": {
+    "end": 1788983634,
+    "limit": 10000,
+    "offset": 10000,
+    "start": 1788983474,
+    "takerOnly": false
+  },
+  "request_budget_percent_of_200_per_10s": 0.5,
+  "request_count": 1,
+  "retained_raw_rows": false,
+  "retained_wallet_identifiers": false,
+  "row_count": 10000,
+  "rows_after_end": 10000,
+  "rows_before_start": 0,
+  "rows_inside_window": 0
+}
