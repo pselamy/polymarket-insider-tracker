@@ -7,7 +7,7 @@ import warnings
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
-from polymarket_insider_tracker.redaction import redact_url
+from polymarket_insider_tracker.redaction import is_scannable_url_text, redact_url
 
 CANONICAL_DRIVER = "postgresql+psycopg"
 LEGACY_DRIVERS = frozenset({"postgresql", "postgresql+asyncpg"})
@@ -46,7 +46,23 @@ def _validate_url_fields(url: URL) -> None:
         raise DatabaseUrlError("DATABASE_URL must include a database name")
 
 
+def _check_scannable(value: str) -> None:
+    """Reject raw characters the text-redaction scanner treats as URL boundaries.
+
+    Inside diagnostic text the central policy can only mask this URL while it
+    stays one scan match; a raw whitespace, control, double-quote, or angle
+    character would end the match early and let the tail — possibly a
+    credential — escape as prose. No such character is valid raw URI text;
+    percent-encoded forms remain accepted. The message never echoes the value.
+    """
+    if not is_scannable_url_text(value):
+        raise DatabaseUrlError(
+            "DATABASE_URL contains raw whitespace, control, or quote/angle characters"
+        )
+
+
 def _parse_database_url(value: str) -> URL:
+    _check_scannable(value)
     try:
         url = make_url(value)
         port = url.port

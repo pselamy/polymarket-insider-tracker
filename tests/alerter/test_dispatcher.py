@@ -166,6 +166,73 @@ class TestChannelErrorRedaction:
         assert token not in caplog.text
         assert secret not in caplog.text
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("style", ["escaped-slashes", "bare-token", "quoted-path"])
+    async def test_discord_response_echo_forms_never_reach_the_log(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        style: str,
+    ) -> None:
+        """Round-21 N-R21-3: a response may echo the credential in a form the
+        URL-shaped scan cannot attribute — a JSON ``\\/``-escaped URL, the bare
+        token component alone, or a quote-joined path; component replacement
+        plus the central policy masks every form.
+        """
+        secret = "R21-DISCORD-TOKEN-SECRET"
+        webhook = f"https://discord.invalid/api/webhooks/987654/{secret}"
+        message = {
+            "escaped-slashes": webhook.replace("/", "\\/"),
+            "bare-token": f"unknown token {secret}",
+            "quoted-path": f"https://rpc.invalid/v2/prefix'{secret}",
+        }[style]
+        channel = DiscordChannel(webhook_url=webhook, max_retries=1, retry_delay=0.0)
+        server = discord_webhook(failure=httpx.Response(400, json={"message": message}))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert "Discord webhook failed" in caplog.text
+        assert secret not in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("style", ["escaped-slashes", "bare-token", "quoted-path"])
+    async def test_telegram_response_echo_forms_never_reach_the_log(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        style: str,
+    ) -> None:
+        """Round-21 N-R21-3: the Telegram ``description`` may echo the token in
+        escaped, bare, or quote-joined form; every form is masked.
+        """
+        secret = "R21-TELEGRAM-TOKEN-SECRET"
+        token = f"987654:{secret}"
+        api_url = f"https://api.telegram.org/bot{token}/sendMessage"
+        message = {
+            "escaped-slashes": api_url.replace("/", "\\/"),
+            "bare-token": f"unauthorized token {token}",
+            "quoted-path": f"https://rpc.invalid/v2/prefix'{token}",
+        }[style]
+        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
+        server = telegram_bot_api(
+            failure=httpx.Response(
+                200, json={"ok": False, "error_code": 400, "description": message}
+            )
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert "Telegram API error" in caplog.text
+        assert secret not in caplog.text
+
 
 class TestDiscordChannel:
     """Tests for Discord channel."""

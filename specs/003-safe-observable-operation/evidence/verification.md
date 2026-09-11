@@ -950,3 +950,144 @@ secret read (the worktree `.env` was left unread and untouched); the only
 service mutations were a new disposable database in the existing
 verification cluster and the temporary migration database
 `runtime_services` itself creates and drops.
+
+## 17. Round-21 Final-Review Correction — N-R21-1 through N-R21-5 (2026-09-11, Claude Fable 5 correction lane)
+
+Escalated correction at exact reviewed head
+`038bac61456f9c4055bc11950e73e42cfd9e17eb` (tree `fe0b3d70…`), driven by the
+independent GPT-6 REVISE report and executed probes preserved at
+`/home/dev/dispatch-state/polymarket-gpt6-final-r21-20260911/executed-evidence/`
+(left byte-for-byte untouched; probes were copied out before execution). All
+five findings were first reproduced behaviorally at that head: the
+adversarial suite gave the report's exact 15 failed / 24 passed, the real
+`/health` probe leaked the synthetic secret in log, stored status, and the
+HTTP 503 body for both bytes and quoted-URL shapes, and the exception-graph
+probe died in `RecursionError` with 0 bytes emitted.
+
+- **N-R21-1 (Medium) — CLOSED.** The two omitted poller failure sinks are
+  converted: `_degrade` and `_fail` now render through the new
+  `redact_failure()` (argument-aware `redact_exception_message` first, then
+  the same wallet/query/bare-port scrub as `redact_error`). Failure counts,
+  state transitions (`DEGRADED` for transient, `FAILED` for terminal), the
+  log failure-class lines, and the visible `/health` 503 degradation are
+  asserted unchanged by the new controls. §16's N-R18-2 sentence "Every
+  `redact_text(str(<exception>))` sink was converted (… `trade_poller` …)"
+  is corrected by this appended evidence: it was true of that exact
+  spelling, but the poller's two central sinks stringified through
+  `redact_error(str(exc))`, a sibling spelling the sweep missed, so the
+  class was not closed at `038bac61`. It is closed at this head and the
+  real-poller controls below are red on the `038bac61` product code.
+- **N-R21-2 (High) — CLOSED as one consistent accepted class.** The central
+  text scanner no longer stops a URL match at a single quote (valid raw URI
+  text; a purely trailing quote is still trimmed as prose), so the accepted
+  endpoint `https://host/v2/prefix'KEY` masks whole in text. Every
+  character the scanner does treat as a match boundary (whitespace,
+  controls, `"`, `<`, `>` — none of them valid raw URI text) is now rejected
+  by validation with a value-free failure class in every configured URL
+  field: HTTP/WS endpoints, `REDIS_URL`, `DATABASE_URL`
+  (`normalize_database_url`), and `DISCORD_WEBHOOK_URL` (new scannability
+  validator on the secret field). The shared invariant lives in
+  `redaction.is_scannable_url_text`: validation accepts only text the scan
+  keeps in one match. Percent-encoded `%27`/`%20` siblings remain accepted
+  and masked; no example-string replacement list was added.
+- **N-R21-3 (High) — CLOSED.** Channel `_redact` no longer replaces only
+  the complete configured URL: `redaction.url_credential_components()`
+  derives every credential-bearing component (full URL, userinfo parts,
+  path segments, query, fragment — each in raw, JSON `\/`-escaped, and
+  percent-encoded spelling, longest-first) and
+  `redact_text_with_secrets()` replaces them before the central URL-shaped
+  scan. Discord and Telegram both use it (Telegram also keeps the bare and
+  percent-encoded token explicitly). The `_redact` docstrings now state the
+  actual mechanism instead of the falsified partial-form promise. Escaped,
+  bare-token, and quote-joined response echoes are covered by new
+  behavioral response-sink controls; transport behavior (one request,
+  `send` returning False, retry counting) is asserted unchanged.
+- **N-R21-4 (Medium) — CLOSED.** `_sanitized_exception` is graph-aware:
+  an iterative traversal collects every reachable cause/context node once
+  (identity memoization), clones each with redacted message/notes, and a
+  second pass re-links the clones — self-causes, mutual-context cycles, the
+  ordinary catch → wrap → re-raise-original shape, shared cause/context
+  nodes (one clone, no duplicate expansion), and 2500-deep linear chains
+  all render through the production handler. `_failsafe_sanitized_exception`
+  guarantees sanitization never raises out of the logging path: a
+  pathological exception (raising `args` property) yields a fully masked
+  placeholder record instead of suppressing the record. The fallback clone
+  no longer attaches the raw original as its `__cause__`.
+- **N-R21-5 (Low) — CLOSED for both instances.** The flagged
+  `NonStringExplodingPipeline(Pipeline)` and the older sibling
+  `ExplodingPipeline(Pipeline)` are removed; both startup regressions now
+  monkeypatch the real `Redis.from_url` factory boundary the real
+  `Pipeline.start` crosses, preserving the message-line and
+  formatted-exception assertions. No product-class subclass remains under
+  `tests/`. §16's sentence "failure injection uses the established
+  instance-attribute boundary idiom on `fakeredis`/fake clients only" is
+  corrected by this appended evidence: the round-20 startup test replaced
+  `start` on a `Pipeline` subclass, violating test-quality contract §2;
+  at this head failure injection is on `fakeredis` instances, fake
+  clients/transports, and the `Redis.from_url` module boundary only.
+
+Probe conversion: the independent controls are now maintainable behavioral
+tests — `TestPollerFailureSinkRedaction` (six non-string boundary shapes ×
+transient/terminal over the real wired poller, plus two real-`aiohttp`
+`/health` HTTP-boundary controls through the production console handler),
+`TestQuotedEndpointTextRedaction` (quote-joined masking, percent-encoded
+siblings, prose preservation, and the real-`run_pipeline` quoted-endpoint
+startup control), `TestExceptionGraphSanitization` (self-cause, mutual
+context, natural re-raise shape, shared-node identity, deep chain, notes,
+fail-safe guard), `TestScannableUrlValidation` (thirty value-free
+rejection controls across all five URL fields × six boundary characters,
+direct control-character checks, and accepted-spelling controls), and six
+channel response-echo controls in `TestChannelErrorRedaction`. No mocks,
+no product subclasses, no source-text assertions, no suppressions.
+
+Regression-red control (disposable `git archive` copy of the `038bac61`
+product code with only this round's three changed test files overlaid; no
+new test-module imports, so collection succeeds — behavioral reds, not
+import errors): **53 failed, 219 passed**, mapping exactly to N-R21-1
+(6 poller-sink + 2 health-HTTP), N-R21-2 (30 field rejections + 3 control
+characters + quoted-text + quoted-startup), N-R21-3 (3 Discord echo forms;
+the Telegram forms pass there because its token replacement pre-exists, as
+the review recorded), and N-R21-4 (7 graph controls). The N-R21-5
+conversions pass on that product by design (compliance conversion of
+behavior already fixed in round 20 and proven red there).
+
+Fresh verification (this exact working tree, all run this round):
+
+- `verify.py --profile static`: PASS — all 7 gates (lock, Black, Ruff,
+  isolated strict mypy, Pyright, Vulture, fail-closed Complexipy launcher
+  at max 5 including module scope).
+- `verify.py --profile compatibility` (py3.13): **1429 passed, 3 skipped**.
+- Isolated locked full suite `--python 3.11`: 1429 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1429 passed, 3 skipped.
+- `verify.py --profile services` with explicit loopback values
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r21`,
+  `redis://127.0.0.1:6379/0`): PASS — probe, real-Redis contract suite,
+  migrations `003 → 002 → 003` in a temporary database with cleanup, in
+  the disposable `pit-s003-verify` cluster; the fresh
+  `polymarket_tracker_r21` database was dropped afterwards.
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q` with the same explicit
+  values: 75 passed.
+- Missing-env services control (clean archive copy, `env -i`, no `.env`):
+  exit 2 naming the missing URLs before any downstream gate.
+- The review's own adversarial suite (verbatim copy): **37 passed** of 39;
+  the two remaining "failures" are the `"`/space variants of
+  `test_real_pipeline_quoted_endpoint_failure`, which now fail at settings
+  construction because that input class is rejected by validation with a
+  value-free message — the intended consistent closure (the probe asserts
+  the class is *accepted*, which is no longer true). The `'`, `%27`, and
+  `%20` variants pass end-to-end.
+- The review's `/health` probe: both shapes now report
+  `leak_in_log/leak_in_poller_status/leak_in_health_response = false` with
+  the 503 degradation intact. The review's cycle probe: returns normally
+  with the record rendered (previously `RecursionError`, 0 bytes).
+- `git diff --check`: clean.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules; the accepted-URL
+narrowing is the fail-closed correction the round-21 review ordered, closes
+only RFC-invalid raw characters, and is regression-covered. No push, merge,
+deploy, live provider call, notification, trade, or secret read (the
+worktree `.env` was left unread and untouched); the only service mutations
+were the disposable `polymarket_tracker_r21` database (created and dropped)
+and the temporary migration database `runtime_services` itself creates and
+drops. Original review evidence preserved unmodified.

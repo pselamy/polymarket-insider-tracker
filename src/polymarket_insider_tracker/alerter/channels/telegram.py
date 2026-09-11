@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import httpx
 
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_text_with_secrets, url_credential_components
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
@@ -54,6 +55,17 @@ class TelegramChannel:
         self.name = "telegram"
 
         self._api_url = TELEGRAM_API_BASE.format(token=bot_token)
+        # The bot token itself is a component the URL derivation cannot see
+        # bare (the path segment carries a ``bot`` prefix), so it is added
+        # explicitly — raw and percent-encoded — alongside every spelling
+        # derived from the API URL.
+        self._secret_components = tuple(
+            sorted(
+                {*url_credential_components(self._api_url), bot_token, quote(bot_token, safe="")},
+                key=len,
+                reverse=True,
+            )
+        )
 
         # Rate limiting state
         self._request_times: list[float] = []
@@ -132,14 +144,14 @@ class TelegramChannel:
     def _redact(self, text: str) -> str:
         """Hide the bot token and the token-bearing API URL inside diagnostic text.
 
-        The exact configured values are replaced first, then the central policy
-        masks every remaining URL-shaped substring, so a respelled or partial
-        form of the token-bearing URL cannot survive either.
+        The configured URL, the bare token, and every credential-bearing
+        component derived from the URL (path segments — each also in its
+        JSON-escaped and percent-encoded spelling) are replaced first,
+        because a server response may echo the credential in a form the
+        URL-shaped scan cannot attribute; the central policy then masks
+        every remaining URL-shaped substring.
         """
-        replaced = text.replace(self._api_url, "<redacted api url>").replace(
-            self.bot_token, "<redacted token>"
-        )
-        return redact_text(replaced)
+        return redact_text_with_secrets(text, self._secret_components)
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:

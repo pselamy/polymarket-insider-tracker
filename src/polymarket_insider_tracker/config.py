@@ -18,8 +18,23 @@ from urllib.parse import urlsplit
 from pydantic import AfterValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from polymarket_insider_tracker.redaction import redact_url
+from polymarket_insider_tracker.redaction import is_scannable_url_text, redact_url
 from polymarket_insider_tracker.storage.database_url import normalize_database_url
+
+
+def _check_url_scannable(value: str, name: str) -> None:
+    """Reject raw characters the text-redaction scanner treats as URL boundaries.
+
+    The central policy can only mask a credential-bearing endpoint inside
+    diagnostic text while the whole URL stays one scan match; a raw
+    whitespace, control, double-quote, or angle character would end the match
+    early and let the tail — possibly a path credential — escape as prose.
+    No such character is valid raw URI text, so rejection is fail-closed and
+    lossless: percent-encoded forms remain accepted. The message never echoes
+    the value.
+    """
+    if not is_scannable_url_text(value):
+        raise ValueError(f"{name} contains raw whitespace, control, or quote/angle characters")
 
 
 def _check_url_scheme(value: str, allowed_schemes: tuple[str, ...], name: str) -> None:
@@ -57,6 +72,7 @@ def _check_port(value: str, name: str) -> None:
 
 
 def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: str) -> str:
+    _check_url_scannable(value, name)
     _check_url_scheme(value, allowed_schemes, name)
     parts = urlsplit(value)
     if not parts.hostname:
@@ -68,6 +84,7 @@ def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: st
 
 def _validate_redis_url(value: str) -> str:
     """Validate Redis URL format."""
+    _check_url_scannable(value, "REDIS_URL")
     if not value.startswith("redis://"):
         raise ValueError("REDIS_URL must start with redis://")
     parts = urlsplit(value)
@@ -87,12 +104,25 @@ def _validate_websocket_url(value: str) -> str:
     return _check_url_components(value, ("ws", "wss"), "WebSocket URL")
 
 
+def _validate_webhook_url_secret(value: SecretStr) -> SecretStr:
+    """An enabled webhook URL must satisfy the same scannability invariant.
+
+    A blank value means the channel is disabled and stays accepted. The
+    check never echoes the secret value.
+    """
+    secret = value.get_secret_value()
+    if secret.strip():
+        _check_url_scannable(secret, "DISCORD_WEBHOOK_URL")
+    return value
+
+
 # Field-level validation is attached through annotated types so each rule is an ordinary function
 # whose use is visible to readers and static tooling alike.
 CanonicalDatabaseUrl = Annotated[str, AfterValidator(normalize_database_url)]
 RedisUrl = Annotated[str, AfterValidator(_validate_redis_url)]
 HttpEndpointUrl = Annotated[str, AfterValidator(_validate_http_url)]
 WebSocketEndpointUrl = Annotated[str, AfterValidator(_validate_websocket_url)]
+DiscordWebhookUrl = Annotated[SecretStr, AfterValidator(_validate_webhook_url_secret)]
 
 
 class DatabaseSettings(BaseSettings):
@@ -256,7 +286,7 @@ class DiscordSettings(BaseSettings):
         hide_input_in_errors=True,
     )
 
-    webhook_url: SecretStr | None = Field(
+    webhook_url: DiscordWebhookUrl | None = Field(
         default=None,
         alias="DISCORD_WEBHOOK_URL",
         description="Discord webhook URL for alerts",

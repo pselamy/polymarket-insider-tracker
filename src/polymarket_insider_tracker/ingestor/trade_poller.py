@@ -270,7 +270,24 @@ def redact_error(text: str) -> str:
     (for example an httpx ``Invalid port`` quoting the token) is masked to
     its failure class.
     """
-    scrubbed = _WALLET_PATTERN.sub("0x…", _QUERY_PATTERN.sub("?…", redact_text(text)))
+    return _scrub_poller_text(redact_text(text))
+
+
+def redact_failure(exc: BaseException) -> str:
+    """Sanitize a failure exception before it reaches logs or stored status.
+
+    ``str(exc)`` interpolates raw arguments, so a bytes or container
+    argument would re-emit its secret verbatim before any text-level scrub
+    could see it; the argument-aware central renderer runs first, and the
+    rendered text then takes the same wallet/query/bare-port scrub as any
+    other poller diagnostic.
+    """
+    return _scrub_poller_text(redact_exception_message(exc))
+
+
+def _scrub_poller_text(text: str) -> str:
+    """The wallet/query scrub plus the bare-port mask over centrally redacted text."""
+    scrubbed = _WALLET_PATTERN.sub("0x…", _QUERY_PATTERN.sub("?…", text))
     return _mask_bare_port_token(scrubbed)
 
 
@@ -853,13 +870,13 @@ class TradePoller:
 
     def _degrade(self, exc: Exception) -> None:
         self._tallies.consecutive_failures += 1
-        self._tallies.last_error = redact_error(str(exc))
+        self._tallies.last_error = redact_failure(exc)
         logger.warning("acquisition cycle failed: %s", self._tallies.last_error)
         self._set_state(IngestionState.DEGRADED)
 
     def _fail(self, exc: Exception) -> None:
         self._tallies.consecutive_failures += 1
-        self._tallies.last_error = redact_error(str(exc))
+        self._tallies.last_error = redact_failure(exc)
         logger.error("acquisition stopped: %s", self._tallies.last_error)
         self._set_state(IngestionState.FAILED)
 

@@ -66,6 +66,9 @@ QUERY_URL_SECRET = "explicit-query-secret-r10"
 FRAGMENT_URL_SECRET = "explicit-fragment-secret-r10"
 MALFORMED_NESTED_SECRET = "nested-path-secret-r10"
 TRAILING_PAREN_FRAGMENT_SECRET = "trailing-paren-fragment-secret-r10"
+R21_POLLER_SECRET = "poller-sink-secret-r21"
+R21_QUOTED_SECRET = "quoted-endpoint-secret-r21"
+R21_GRAPH_SECRET = "graph-bytes-secret-r21"
 
 
 def _detector_trade() -> TradeEvent:
@@ -1678,22 +1681,26 @@ class TestAdjacentSinkRedaction:
 
     @pytest.mark.asyncio
     async def test_run_pipeline_startup_failure_is_redacted(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import logging as stdlib_logging
 
+        import polymarket_insider_tracker.pipeline as pipeline_module
         from polymarket_insider_tracker.__main__ import run_pipeline
-        from polymarket_insider_tracker.pipeline import Pipeline
         from polymarket_insider_tracker.redaction import redact_text
         from tests.fakes import make_test_settings
 
         settings = make_test_settings()
 
-        class ExplodingPipeline(Pipeline):
-            async def start(self) -> None:
-                raise RuntimeError(
-                    "could not connect to " f"postgresql://tracker:{MAIN_SECRET}@db:5432/x"
-                ) from ValueError(f"inner https://rpc.internal/v2/{MAIN_SECRET}")
+        # The Redis factory is the first external boundary the real Pipeline
+        # crosses during start; raising there drives the production startup
+        # failure route without subclassing any product class.
+        def exploding_from_url(_url: str) -> object:
+            raise RuntimeError(
+                "could not connect to " f"postgresql://tracker:{MAIN_SECRET}@db:5432/x"
+            ) from ValueError(f"inner https://rpc.internal/v2/{MAIN_SECRET}")
+
+        monkeypatch.setattr(pipeline_module.Redis, "from_url", exploding_from_url)
 
         rendered: list[str] = []
 
@@ -1708,7 +1715,7 @@ class TestAdjacentSinkRedaction:
         try:
             with caplog.at_level(logging.ERROR):
                 caplog.clear()
-                code = await run_pipeline(settings, False, pipeline_factory=ExplodingPipeline)
+                code = await run_pipeline(settings, False)
         finally:
             target.removeHandler(handler)
 
@@ -1726,29 +1733,32 @@ class TestAdjacentSinkRedaction:
 
     @pytest.mark.asyncio
     async def test_run_pipeline_nonstring_failure_never_renders_on_the_message_line(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Round-18 N-R18-2: a bytes/container payload cannot render at the message line.
 
         ``str(e)`` before the filter re-emitted non-string arguments verbatim
         while the traceback clone was already masked; the message line now
-        composes through the fail-closed exception renderer.
+        composes through the fail-closed exception renderer. Round-21
+        N-R21-5: the failure is injected at the Redis factory boundary the
+        real Pipeline crosses during start — never via a Pipeline subclass.
         """
         import logging as stdlib_logging
 
+        import polymarket_insider_tracker.pipeline as pipeline_module
         from polymarket_insider_tracker.__main__ import run_pipeline
-        from polymarket_insider_tracker.pipeline import Pipeline
         from tests.fakes import make_test_settings
 
         secret = "nonstring-mainline-secret-r18"
         settings = make_test_settings()
 
-        class NonStringExplodingPipeline(Pipeline):
-            async def start(self) -> None:
-                raise RuntimeError(
-                    f"prefix-{secret}-suffix".encode(),
-                    {"url": f"https://x.internal?k={secret}"},
-                )
+        def exploding_from_url(_url: str) -> object:
+            raise RuntimeError(
+                f"prefix-{secret}-suffix".encode(),
+                {"url": f"https://x.internal?k={secret}"},
+            )
+
+        monkeypatch.setattr(pipeline_module.Redis, "from_url", exploding_from_url)
 
         rendered: list[str] = []
 
@@ -1763,9 +1773,7 @@ class TestAdjacentSinkRedaction:
         try:
             with caplog.at_level(logging.ERROR):
                 caplog.clear()
-                code = await run_pipeline(
-                    settings, False, pipeline_factory=NonStringExplodingPipeline
-                )
+                code = await run_pipeline(settings, False)
         finally:
             target.removeHandler(handler)
 
@@ -1896,3 +1904,357 @@ def _sync_probe_markets() -> list[Market]:
 def _sync_probe_metadata() -> MarketMetadata:
     """The cached form of the probe market for the direct ``_cache_market`` path."""
     return MarketMetadata.from_market(_sync_probe_markets()[0])
+
+
+class TestPollerFailureSinkRedaction:
+    """Round-21 N-R21-1: the central poller failure sinks render argument-aware.
+
+    ``_degrade`` and ``_fail`` stringified the exception before redaction, so
+    a bytes or container argument re-emitted its secret verbatim into
+    ``status.last_error``, the acquisition log line, and from there the real
+    ``/health`` response body. Both sinks now render through the fail-closed
+    exception renderer before the poller's wallet/query/bare-port scrub.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("terminal", [False, True])
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            f"prefix-{R21_POLLER_SECRET}".encode(),
+            {"secret": R21_POLLER_SECRET},
+            [R21_POLLER_SECRET],
+        ],
+    )
+    async def test_nonstring_boundary_failure_never_reaches_log_or_status(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+        terminal: bool,
+        payload: object,
+    ) -> None:
+        from polymarket_insider_tracker.ingestor.observation_boundary import BoundarySchemaError
+        from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
+        from tests.fakes import (
+            FakeClock,
+            FakeEth,
+            FakeTradesServer,
+            make_test_settings,
+            wire_pipeline,
+        )
+
+        clock = FakeClock(1_788_983_720.0)
+        redis = FakeAsyncRedis()
+        pipeline = await wire_pipeline(
+            make_test_settings(),
+            redis=redis,
+            eth=FakeEth(),
+            trades=FakeTradesServer(clock=clock),
+            poll_clock=clock,
+        )
+        poller = pipeline._trade_poller
+
+        async def failing_hgetall(_key: object) -> dict[bytes, bytes]:
+            raise BoundarySchemaError(payload) if terminal else RuntimeError(payload)
+
+        monkeypatch.setattr(redis, "hgetall", failing_hgetall)
+
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            await poller.run_cycle()
+
+        status = poller.status
+        assert status.state is (IngestionState.FAILED if terminal else IngestionState.DEGRADED)
+        assert status.consecutive_failures == 1
+        assert status.last_error
+        assert R21_POLLER_SECRET not in status.last_error
+        assert R21_POLLER_SECRET not in caplog.text
+        assert ("acquisition stopped" if terminal else "acquisition cycle failed") in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            f"prefix-{R21_POLLER_SECRET}".encode(),
+            f"request https://rpc.invalid/v2/prefix'{R21_POLLER_SECRET}",
+        ],
+    )
+    async def test_health_endpoint_reports_failure_without_the_secret(
+        self, monkeypatch: pytest.MonkeyPatch, payload: object
+    ) -> None:
+        """The real ``/health`` body keeps the 503 degradation visible, never the secret."""
+        import io
+        import logging as stdlib_logging
+
+        from polymarket_insider_tracker.__main__ import configure_logging
+        from polymarket_insider_tracker.ingestor.observation_boundary import BoundarySchemaError
+        from tests.fakes import (
+            FakeClock,
+            FakeEth,
+            FakeTradesServer,
+            make_test_settings,
+            wire_pipeline,
+        )
+
+        clock = FakeClock(1_788_983_720.0)
+        redis = FakeAsyncRedis()
+        pipeline = await wire_pipeline(
+            make_test_settings(),
+            redis=redis,
+            eth=FakeEth(),
+            trades=FakeTradesServer(clock=clock),
+            poll_clock=clock,
+        )
+
+        async def failing_hgetall(_key: object) -> dict[bytes, bytes]:
+            raise BoundarySchemaError(payload)
+
+        monkeypatch.setattr(redis, "hgetall", failing_hgetall)
+
+        configure_logging("WARNING")
+        console = next(
+            handler
+            for handler in stdlib_logging.getLogger().handlers
+            if isinstance(handler, stdlib_logging.StreamHandler)
+        )
+        capture = io.StringIO()
+        previous = console.setStream(capture)
+        monitor = pipeline.health_monitor
+        try:
+            await pipeline._trade_poller.run_cycle()
+            await monitor.start_http_server(port=0)
+            port = monitor.http_addresses[0][1]
+            async with (
+                aiohttp.ClientSession() as session,
+                session.get(f"http://127.0.0.1:{port}/health") as response,
+            ):
+                status_code = response.status
+                body = await response.text()
+        finally:
+            if previous is not None:
+                console.setStream(previous)
+            await monitor.stop_http_server()
+            await redis.aclose()
+
+        assert status_code == 503
+        assert R21_POLLER_SECRET not in body
+        assert R21_POLLER_SECRET not in capture.getvalue()
+        last_error = pipeline._trade_poller.status.last_error
+        assert last_error
+        assert R21_POLLER_SECRET not in last_error
+
+
+class TestQuotedEndpointTextRedaction:
+    """Round-21 N-R21-2: an accepted quote-bearing endpoint cannot split the text scan.
+
+    ``redact_text`` stopped a URL match at a single quote, so the accepted
+    endpoint ``https://host/v2/prefix'KEY`` re-emitted everything after the
+    quote as prose in exception/log/status text. A single quote is valid raw
+    URI text and now stays inside the match (a purely trailing quote is still
+    prose punctuation); the characters that must terminate a match are no
+    longer accepted in any configured URL, so validation, whole-value
+    redaction, and text redaction agree on one accepted class.
+    """
+
+    def test_quote_joined_path_credential_is_fully_masked_in_text(self) -> None:
+        message = f"dial failed for https://rpc.invalid/v2/prefix'{R21_QUOTED_SECRET} (refused)"
+
+        redacted = redact_text(message)
+
+        assert R21_QUOTED_SECRET not in redacted
+        assert "dial failed for" in redacted
+        assert "(refused)" in redacted
+        assert "rpc.invalid" in redacted
+        assert redact_text(redacted) == redacted
+
+    @pytest.mark.parametrize("encoded", ["%27", "%20"])
+    def test_percent_encoded_separators_stay_masked(self, encoded: str) -> None:
+        message = f"dial failed for https://rpc.invalid/v2/prefix{encoded}{R21_QUOTED_SECRET}"
+
+        redacted = redact_text(message)
+
+        assert R21_QUOTED_SECRET not in redacted
+        assert "rpc.invalid" in redacted
+
+    def test_prose_quoted_url_keeps_its_surrounding_prose(self) -> None:
+        message = f"config rejected 'https://host/{R21_QUOTED_SECRET}' at startup"
+
+        redacted = redact_text(message)
+
+        assert redacted == "config rejected 'https://host/***path***' at startup"
+
+    @pytest.mark.asyncio
+    async def test_run_pipeline_quoted_endpoint_failure_is_redacted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The accepted quote-bearing endpoint stays masked through the real startup path."""
+        import io
+        import logging as stdlib_logging
+
+        import polymarket_insider_tracker.pipeline as pipeline_module
+        from polymarket_insider_tracker.__main__ import configure_logging, run_pipeline
+        from tests.fakes import make_test_settings
+
+        endpoint = f"https://rpc.invalid/v2/prefix'{R21_QUOTED_SECRET}"
+        settings = make_test_settings(trades_url=endpoint)
+
+        def failing_from_url(_url: str) -> object:
+            raise RuntimeError(f"dial failed for {endpoint}")
+
+        monkeypatch.setattr(pipeline_module.Redis, "from_url", failing_from_url)
+
+        configure_logging("INFO")
+        console = next(
+            handler
+            for handler in stdlib_logging.getLogger().handlers
+            if isinstance(handler, stdlib_logging.StreamHandler)
+        )
+        capture = io.StringIO()
+        previous = console.setStream(capture)
+        try:
+            code = await run_pipeline(settings, False)
+        finally:
+            if previous is not None:
+                console.setStream(previous)
+
+        output = capture.getvalue()
+        assert code == 1
+        assert "Pipeline failed" in output
+        assert R21_QUOTED_SECRET not in output
+
+
+def _natural_reraise_graph() -> RuntimeError:
+    """The exact links an ordinary catch → wrap → re-raise-original sequence leaves.
+
+    Captured from really raising it: re-raising the original inside the
+    wrapper's handler sets ``original.__context__ = wrapper`` while the
+    interpreter's context-cycle trim clears ``wrapper.__context__``, so the
+    two nodes still form a cycle through ``wrapper.__cause__``. The links are
+    constructed directly because a literal re-raise inside a handler is
+    lint-prohibited (B904) in this repository.
+    """
+    original = RuntimeError("ordinary failure")
+    wrapper = ValueError("wrapping")
+    wrapper.__cause__ = original
+    wrapper.__suppress_context__ = True
+    original.__context__ = wrapper
+    return original
+
+
+class _HostileArgsError(RuntimeError):
+    """An exception whose ``args`` access itself raises; sanitization must not crash."""
+
+    @property
+    def args(self) -> tuple[object, ...]:
+        raise ValueError("args access exploded")
+
+
+class TestExceptionGraphSanitization:
+    """Round-21 N-R21-4: valid exception graphs must never crash the shared handler.
+
+    Cause/context links legally form cycles — a self-cause, or the mutual
+    pair an ordinary catch → wrap → re-raise-original sequence leaves behind
+    — and may share one node between ``__cause__`` and ``__context__``. The
+    recursive clone in ``_RedactingLogFilter`` recursed without memoization,
+    so the production handler died in ``RecursionError`` and emitted nothing.
+    Python's own traceback machinery accepts these graphs; the sanitizer now
+    memoizes node identity, links clones iteratively, and fails safe to a
+    masked placeholder rather than raising out of the logging path.
+    """
+
+    def _render_through_production_handler(self, error: BaseException) -> str:
+        import io
+        import logging as stdlib_logging
+
+        from polymarket_insider_tracker.__main__ import configure_logging
+
+        configure_logging("INFO")
+        console = next(
+            handler
+            for handler in stdlib_logging.getLogger().handlers
+            if isinstance(handler, stdlib_logging.StreamHandler)
+        )
+        capture = io.StringIO()
+        previous = console.setStream(capture)
+        try:
+            stdlib_logging.getLogger("polymarket_insider_tracker.pipeline").error(
+                "failed graph", exc_info=(type(error), error, None)
+            )
+        finally:
+            if previous is not None:
+                console.setStream(previous)
+        return capture.getvalue()
+
+    def test_self_cause_cycle_renders_and_masks_the_bytes_argument(self) -> None:
+        error = RuntimeError(R21_GRAPH_SECRET.encode())
+        error.__cause__ = error
+
+        output = self._render_through_production_handler(error)
+
+        assert "failed graph" in output
+        assert R21_GRAPH_SECRET not in output
+
+    def test_mutual_context_cycle_renders_both_types(self) -> None:
+        error = RuntimeError(R21_GRAPH_SECRET.encode())
+        other = ValueError([R21_GRAPH_SECRET])
+        error.__context__ = other
+        other.__context__ = error
+
+        output = self._render_through_production_handler(error)
+
+        assert "failed graph" in output
+        assert "RuntimeError" in output
+        assert "ValueError" in output
+        assert R21_GRAPH_SECRET not in output
+
+    def test_natural_reraise_graph_renders_the_record(self) -> None:
+        error = _natural_reraise_graph()
+
+        output = self._render_through_production_handler(error)
+
+        assert "failed graph" in output
+        assert "ordinary failure" in output
+
+    def test_shared_cause_and_context_node_stays_one_clone(self) -> None:
+        from polymarket_insider_tracker.__main__ import _sanitized_exception
+
+        shared = ValueError("shared diagnostic")
+        error = RuntimeError("outer failure")
+        error.__cause__ = shared
+        error.__context__ = shared
+
+        clone = _sanitized_exception(error)
+
+        assert clone.__cause__ is clone.__context__
+        assert clone.__cause__ is not shared
+
+    def test_deep_linear_chain_renders_without_recursion(self) -> None:
+        error: BaseException = RuntimeError("leaf failure")
+        for depth in range(2500):
+            wrapper: BaseException = RuntimeError(f"level {depth}")
+            wrapper.__context__ = error
+            error = wrapper
+
+        output = self._render_through_production_handler(error)
+
+        assert "failed graph" in output
+        assert "leaf failure" in output
+
+    def test_notes_survive_redacted_inside_a_cycle(self) -> None:
+        error = RuntimeError(R21_GRAPH_SECRET.encode())
+        error.add_note(f"see https://host/path/{R21_GRAPH_SECRET}")
+        error.add_note("plain operational note")
+        error.__cause__ = error
+
+        output = self._render_through_production_handler(error)
+
+        assert R21_GRAPH_SECRET not in output
+        assert "plain operational note" in output
+
+    def test_pathological_arguments_fail_safe_to_a_masked_record(self) -> None:
+        error = _HostileArgsError("boom")
+
+        output = self._render_through_production_handler(error)
+
+        assert "failed graph" in output
+        assert "exception sanitization failed" in output

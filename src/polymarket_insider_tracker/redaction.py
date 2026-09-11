@@ -12,7 +12,8 @@ full credential-bearing URLs).
 from __future__ import annotations
 
 import re
-from urllib.parse import parse_qsl, urlsplit, urlunsplit
+from collections.abc import Iterable
+from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 MASK = "***"
 
@@ -23,8 +24,15 @@ MASK = "***"
 # redacted output would lose that character. An ``@``-terminated token inside
 # the path position (``https://host/<segment>@...``) is credential-shaped under
 # this policy's contract, so it stays inside the match: ``@`` must not act as
-# a boundary that lets the path secret after it escape into prose.
-_URL_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"<>]+")
+# a boundary that lets the path secret after it escape into prose. A single
+# quote likewise stays inside the match: it is valid raw URI text, so an
+# accepted endpoint path may carry one ahead of a credential tail
+# (``/v2/prefix'KEY``), and stopping there would re-emit that tail as prose;
+# a purely trailing quote is prose punctuation and is trimmed back off. The
+# remaining boundary characters (whitespace, control, ``"``, ``<``, ``>``)
+# are not valid raw URI text, and ``is_scannable_url_text`` keeps configured
+# endpoint URLs inside exactly this accepted set.
+_URL_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s\"<>]+")
 _URL_TRAILING_TRIM = ")]}\"'<>.,;:!?"
 # Fallbacks when a URL cannot be parsed: credentials before an ``@`` and
 # everything after a ``?`` may both carry secrets. A path-like segment after an
@@ -366,6 +374,71 @@ def redact_text(text: str) -> str:
         lambda match: _redact_url_match(match.group(0)),
         text,
     )
+
+
+def is_scannable_url_text(value: str) -> bool:
+    """True when every character of ``value`` stays inside one text-scan match.
+
+    This is the consistency invariant between validation and text redaction:
+    a configured endpoint URL containing a raw character that terminates a
+    ``redact_text`` match (whitespace, ``"``, ``<``, ``>``) or a control
+    character would split at that character inside diagnostic text, and the
+    tail — possibly a path credential — would escape the mask as prose. No
+    such character is valid raw URI text; percent-encoded forms stay
+    scannable and accepted.
+    """
+    return not any(_is_scan_boundary_char(char) for char in value)
+
+
+def _is_scan_boundary_char(char: str) -> bool:
+    """A character the text scanner cannot keep inside a URL-shaped match."""
+    return char.isspace() or not char.isprintable() or char in '"<>'
+
+
+def redact_text_with_secrets(text: str, secrets: Iterable[str]) -> str:
+    """Mask known secret substrings, then every URL-shaped substring.
+
+    The exact replacements catch forms the URL scanner cannot see — a bare
+    credential component on its own, or a JSON-escaped or percent-encoded
+    echo of it — and the central text policy then masks anything still
+    URL-shaped. ``secrets`` must be ordered longest-first so a shorter
+    component never splits a longer one before that longer form is replaced.
+    """
+    for secret in secrets:
+        text = text.replace(secret, MASK)
+    return redact_text(text)
+
+
+def url_credential_components(url: str) -> tuple[str, ...]:
+    """Every substring of a configured URL that must never reach diagnostics.
+
+    A server response can echo the request credential in partial or
+    re-encoded form the URL scanner cannot attribute: the bare token alone,
+    a JSON ``\\/``-escaped spelling of the URL, or a percent-encoded one.
+    Escaping splits only at slashes, so masking each slash-free component
+    (userinfo parts, path segments, query, fragment) independently — in each
+    of its raw, percent-encoded, and escaped spellings — covers those forms.
+    Components are ordered longest-first for ``redact_text_with_secrets``.
+    """
+    components: set[str] = set()
+    for component in _raw_credential_components(url):
+        components.add(component)
+        components.add(quote(component, safe=""))
+        components.add(component.replace("/", "\\/"))
+    return tuple(sorted(components, key=len, reverse=True))
+
+
+def _raw_credential_components(url: str) -> set[str]:
+    """The URL itself plus each structural component that may be the credential."""
+    components = {url}
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return components
+    candidates = [parts.username, parts.password, parts.query, parts.fragment]
+    candidates.extend(parts.path.split("/"))
+    components.update(part for part in candidates if part)
+    return components
 
 
 def _redact_url_match(matched: str) -> str:

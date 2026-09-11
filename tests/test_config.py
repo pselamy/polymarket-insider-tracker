@@ -376,6 +376,84 @@ class TestPolygonSettings:
         assert "port" in str(exc_info.value).lower()
 
 
+class TestScannableUrlValidation:
+    """Round-21 N-R21-2: accepted URLs must survive text-scan redaction whole.
+
+    ``redact_text`` can only mask a credential-bearing endpoint while the
+    whole URL stays one scan match. A raw whitespace, control, double-quote,
+    or angle character terminates the match, so a configured value carrying
+    one would re-emit its tail — possibly a path credential — as prose in
+    diagnostic text. No such character is valid raw URI text; every URL
+    field now rejects them with a value-free failure class, while the
+    URI-valid single quote and percent-encoded forms stay accepted and are
+    masked by the text policy.
+    """
+
+    SECRET = "SCAN_BOUNDARY_SECRET_R21"
+
+    @pytest.mark.parametrize("separator", ['"', " ", "\t", "\n", "<", ">"])
+    @pytest.mark.parametrize(
+        ("field", "url_template", "settings_factory"),
+        [
+            (
+                "POLYMARKET_TRADES_URL",
+                "https://rpc.invalid/v2/prefix{sep}{secret}",
+                PolymarketSettings,
+            ),
+            ("POLYGON_RPC_URL", "https://rpc.invalid/v2/prefix{sep}{secret}", PolygonSettings),
+            ("REDIS_URL", "redis://cache.invalid:6379/0{sep}{secret}", RedisSettings),
+            (
+                "DATABASE_URL",
+                "postgresql+psycopg://tracker@db.invalid:5432/x{sep}{secret}",
+                DatabaseSettings,
+            ),
+            (
+                "DISCORD_WEBHOOK_URL",
+                "https://discord.invalid/api/webhooks/1/{sep}{secret}",
+                DiscordSettings,
+            ),
+        ],
+    )
+    def test_every_url_field_rejects_scan_boundary_characters_without_echo(
+        self,
+        separator: str,
+        field: str,
+        url_template: str,
+        settings_factory: Callable[[], BaseSettings],
+    ) -> None:
+        url = url_template.format(sep=separator, secret=self.SECRET)
+
+        with env_context({field: url}), pytest.raises(ValidationError) as exc_info:
+            settings_factory()
+
+        message = str(exc_info.value)
+        assert self.SECRET not in message
+        assert url not in message
+
+    @pytest.mark.parametrize("char", ["\x00", "\x1b", "\x7f"])
+    def test_control_characters_are_rejected_by_the_shared_check(self, char: str) -> None:
+        """Control bytes cannot be set through the environment but must still fail closed."""
+        import polymarket_insider_tracker.config as config_module
+
+        with pytest.raises(ValueError) as exc_info:
+            config_module._validate_http_url(f"https://rpc.invalid/v2/k{char}{self.SECRET}")
+
+        assert self.SECRET not in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "tail",
+        ["prefix'QUOTE_TAIL", "prefix%27QUOTE_TAIL", "prefix%20QUOTE_TAIL"],
+    )
+    def test_uri_valid_spellings_stay_accepted(self, tail: str) -> None:
+        """The single quote is valid raw URI text; encoded forms stay accepted too."""
+        url = f"https://rpc.invalid/v2/{tail}"
+
+        with env_context({"POLYMARKET_TRADES_URL": url}):
+            settings = PolymarketSettings()
+
+        assert settings.trades_url == url
+
+
 TRADES_REPLACEMENT_VARIABLES = (
     "POLYMARKET_TRADES_URL",
     "POLYMARKET_TRADES_COVERAGE",

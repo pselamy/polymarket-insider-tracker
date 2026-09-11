@@ -481,21 +481,87 @@ def _redact_record_exc_info(record: logging.LogRecord) -> None:
 def _sanitized_exc_info(
     exc_info: tuple[type[BaseException] | None, BaseException | None, object | None],
 ) -> tuple[type[BaseException] | None, BaseException | None, object | None]:
-    """Clone the exception chain with redacted messages, preserving types."""
+    """Clone the exception graph with redacted messages, preserving types."""
     exc_type, exc_value, _traceback = exc_info
     if exc_value is None:
         return (exc_type, exc_value, None)
-    return (exc_type, _sanitized_exception(exc_value), None)
+    return (exc_type, _failsafe_sanitized_exception(exc_value), None)
+
+
+def _failsafe_sanitized_exception(exc: BaseException) -> BaseException:
+    """Sanitization must never turn an error report into a new uncontrolled error.
+
+    A pathological exception object (for example a raising ``args``
+    property) could otherwise crash the shared logging handler and suppress
+    the record entirely; the fully masked placeholder keeps the record
+    emitting without re-rendering any input bytes.
+    """
+    try:
+        return _sanitized_exception(exc)
+    except Exception:
+        return RuntimeError("*** (exception sanitization failed)")
 
 
 def _sanitized_exception(exc: BaseException) -> BaseException:
-    """A sanitized clone whose message, notes, and cause/context chain are redacted."""
+    """A sanitized clone of the whole cause/context graph, cycle- and sharing-safe.
+
+    Cause and context links may legally form cycles (a self-cause, a mutual
+    context pair from an ordinary catch → wrap → re-raise-original sequence)
+    or share one node between ``__cause__`` and ``__context__``. Identity
+    memoization clones every reachable node exactly once, and an iterative
+    second pass re-links the clones, so traversal always terminates, a
+    shared node stays shared instead of expanding twice, and no chain depth
+    can exhaust the interpreter stack — Python's own traceback formatter
+    accepts these graphs and the sanitizer must too.
+    """
+    originals = _exception_graph(exc)
+    clones = {id(node): _sanitized_node(node) for node in originals}
+    for node in originals:
+        _link_clone(clones, node)
+    return clones[id(exc)]
+
+
+def _exception_graph(exc: BaseException) -> list[BaseException]:
+    """Every exception reachable through cause/context links, each exactly once."""
+    ordered: list[BaseException] = []
+    seen: set[int] = set()
+    pending = [exc]
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        ordered.append(node)
+        pending.extend(_linked_nodes(node))
+    return ordered
+
+
+def _linked_nodes(node: BaseException) -> list[BaseException]:
+    """The node's present cause/context links, ready for traversal."""
+    return [link for link in (node.__cause__, node.__context__) if link is not None]
+
+
+def _sanitized_node(exc: BaseException) -> BaseException:
+    """One node's clone with redacted message and notes, links not yet attached."""
     clone = _clone_with_redacted_message(exc)
     _copy_redacted_notes(clone, exc)
-    clone.__cause__ = _sanitized_cause(exc.__cause__)
-    clone.__context__ = _sanitized_cause(exc.__context__)
-    clone.__suppress_context__ = exc.__suppress_context__
     return clone
+
+
+def _link_clone(clones: dict[int, BaseException], node: BaseException) -> None:
+    """Attach the memoized cause/context clones, mirroring the original links."""
+    clone = clones[id(node)]
+    clone.__cause__ = _linked_clone(clones, node.__cause__)
+    clone.__context__ = _linked_clone(clones, node.__context__)
+    clone.__suppress_context__ = node.__suppress_context__
+
+
+def _linked_clone(
+    clones: dict[int, BaseException], link: BaseException | None
+) -> BaseException | None:
+    if link is None:
+        return None
+    return clones[id(link)]
 
 
 def _copy_redacted_notes(clone: BaseException, exc: BaseException) -> None:
@@ -505,12 +571,6 @@ def _copy_redacted_notes(clone: BaseException, exc: BaseException) -> None:
         return
     for note in list(notes):
         clone.add_note(_redacted_note(note))
-
-
-def _sanitized_cause(cause: BaseException | None) -> BaseException | None:
-    if cause is None:
-        return None
-    return _sanitized_exception(cause)
 
 
 def _redacted_note(note: object) -> str:
@@ -542,11 +602,11 @@ def _fallback_sanitized_error(exc: BaseException) -> BaseException:
 
     The fallback renders through the fail-closed exception renderer, never
     ``str(exc)`` directly: stringifying the original would re-emit bytes or
-    container arguments verbatim inside the sanitized clone's message.
+    container arguments verbatim inside the sanitized clone's message. The
+    raw original is never attached to the clone — the graph link pass wires
+    sanitized clones only.
     """
-    clone = RuntimeError(redact_exception_message(exc))
-    clone.__cause__ = exc
-    return clone
+    return RuntimeError(redact_exception_message(exc))
 
 
 def _carry_status(clone: BaseException, exc: BaseException) -> None:

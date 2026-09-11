@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_text_with_secrets, url_credential_components
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
@@ -47,6 +47,10 @@ class DiscordChannel:
         self.retry_delay = retry_delay
         self.timeout = timeout
         self.name = "discord"
+        # The webhook URL's path is the credential; a server response may echo
+        # it whole, escaped, encoded, or as a bare component, so every derived
+        # spelling is precomputed for the diagnostic scrub.
+        self._secret_components = url_credential_components(webhook_url)
 
         # Rate limiting state
         self._request_times: list[float] = []
@@ -120,11 +124,15 @@ class DiscordChannel:
     def _redact(self, text: str) -> str:
         """Hide the credential-bearing webhook URL inside diagnostic text.
 
-        The exact configured value is replaced first, then the central policy
-        masks every remaining URL-shaped substring, so a respelled or partial
-        form of the webhook URL cannot survive either.
+        The configured URL and every credential-bearing component derived
+        from it (path segments, userinfo, query — each also in its
+        JSON-escaped and percent-encoded spelling) are replaced first,
+        because a server response may echo the credential in a form the
+        URL-shaped scan cannot attribute (``https:\\/\\/…`` escaping, or the
+        bare token alone); the central policy then masks every remaining
+        URL-shaped substring.
         """
-        return redact_text(text.replace(self.webhook_url, "<redacted webhook url>"))
+        return redact_text_with_secrets(text, self._secret_components)
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:
