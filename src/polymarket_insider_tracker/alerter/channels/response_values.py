@@ -35,8 +35,22 @@ def validated_retry_delay(value: object) -> float:
     the delivery attempt forever.
     """
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return _bounded_delay(float(value))
+        return _bounded_delay(_float_or_infinite(value))
     return DEFAULT_RETRY_AFTER_SECONDS
+
+
+def _float_or_infinite(value: int | float) -> float:
+    """``float(value)``, with an integer beyond float range collapsing to infinity.
+
+    JSON integers carry no size limit, so ``float()`` can raise
+    ``OverflowError`` on a valid parsed value and escape the channels'
+    HTTP-error handling instead of taking the fixed fallback; a magnitude
+    the delay cannot represent is exactly as unusable as ``Infinity``.
+    """
+    try:
+        return float(value)
+    except OverflowError:
+        return math.inf
 
 
 def _bounded_delay(delay: float) -> float:

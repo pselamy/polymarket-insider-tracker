@@ -1231,3 +1231,123 @@ and untouched); the only service mutations were the disposable
 `polymarket_tracker_r24` database (created and dropped) and the temporary
 migration database `runtime_services` itself creates and drops. Original
 round-23 review evidence preserved unmodified.
+
+## 19. Round-25 Final-Review Correction — N-R25-1 through N-R25-3 (2026-09-11, Claude Fable 5 correction lane)
+
+Correction at exact reviewed head
+`f7c425f0de36e0aa03d939d59d668352633e4d55` (tree `3988f9a7…`), driven by the
+independent GPT-6 REVISE report and executed probes preserved at
+`/home/dev/dispatch-state/polymarket-gpt6-final-r25-20260911/executed-evidence/`
+(left byte-for-byte untouched; probes were copied out before execution). All
+three findings were first reproduced behaviorally at that head: the review's
+own three probe files give **11 behavioral failures / 27 passes** on the
+clean parent (`red-parent-r25-probes.log` in the round-26 correction
+dispatch directory
+`/home/dev/dispatch-state/polymarket-correction-claude-r26-20260911/executed-evidence/`),
+and with only this round's native test additions overlaid on the unchanged
+product code the touched suites give **11 behavioral failures / 14 control
+passes** (`red-parent-native-tests.log`) — every failure a secret-absence,
+delay, result, or emission assertion, none an import or harness error.
+
+- **N-R25-1 (Medium) — CLOSED by discarding the formatter cache.** The
+  report is accepted: `logging.Formatter` caches its rendered traceback on
+  `record.exc_text` and every later handler reuses that cache verbatim, so
+  a record formatted by an earlier unguarded handler (an embedding or
+  observability integration) that then propagated to the root console
+  handler re-emitted the raw rendering past the sanitized exception clone —
+  §17/§18's categorical shared-handler sentences are qualified accordingly
+  by this appended evidence. `_redact_record_exc_info` now always discards
+  the cache: with `exc_info` present the console formatter rebuilds the
+  exception text from the sanitized clone, and a preformatted
+  exception-only record (cached text with no exception object left to
+  sanitize — the socket-forwarded shape) deliberately keeps its message
+  while the unsanitizable cached text is withheld. Regression:
+  `TestCachedExceptionTextBoundary` drives a real earlier `StreamHandler`
+  with a real `Formatter` on a propagating application logger through the
+  production console handler (the earlier handler's own capture proves the
+  cache was genuinely created), covers the exception-only preformatted
+  record, and keeps an uncached single-handler control asserting the
+  sanitized exception line still renders.
+
+- **N-R25-2 (Medium) — CLOSED before conversion.** JSON integers carry no
+  size bound, so a 401-digit `retry_after` parsed normally and
+  `float(value)` raised `OverflowError` out of both channels' HTTP-error
+  handling — aborting the failed-attempt path inside `_post_payload` and
+  through public `send` — instead of completing the attempt with the
+  documented fixed 1.0 s fallback. `validated_retry_delay` now converts
+  through `_float_or_infinite`: an integer beyond float range collapses to
+  infinity and therefore to the fixed default through the existing
+  non-finite path; the finite/non-negative gate itself is unchanged and no
+  threshold was raised. Regression: `TestRetryDelayResponseBoundary` — an
+  11-case input-class matrix on the validator (huge `±10**400`, Infinity,
+  NaN, bool, string, `None`, negative, zero, ordinary int and float) plus
+  real-channel `send()` runs for both channels and both signs through the
+  repository transport fake (result `False`, exactly one request, recorded
+  delay exactly 1.0 s) and both-channel ordinary rate-limit controls
+  (0.01 s honored as requested, the retried attempt delivers).
+
+- **N-R25-3 (Medium) — CLOSED by classifying the mapping against the
+  format string.** `LogRecord` unwraps a sole nonempty dict passed to a
+  positional `%s` into the same `record.args` shape as a genuine
+  `%(name)s` mapping, so `_redact_record_args` preserved its keys and
+  string values and the container rendered verbatim — a secret used as the
+  dict key was never scrubbed at all. The filter now distinguishes the two
+  by the record's format string: only a format free of positional
+  conversions (with `%%` literals consumed before the scan) is treated as
+  named interpolation and keeps redacted values; any positional conversion
+  collapses the dict to `_MaskedPositionalMapping`, whose `str`/`repr` and
+  missing-key lookups all yield the deterministic placeholder, so mixed
+  positional/named and broken formats keep emitting without exposing keys
+  or values. Regression: `TestPositionalMappingArgumentRedaction` —
+  positional dict-value and dict-key secrets absent, mixed
+  `%s`/`%(name)s` collapse, plus named-mapping controls proving
+  `%(url)s`/`%(attempts)d` diagnostics still render with URL credentials
+  masked and that a `%%` literal does not reclassify a named mapping.
+
+Independent-probe rerun at this head: the review's own
+`test_r25_boundaries.py`, `test_r25_mapping.py`, and `test_r25_send.py`
+pass **38/38** (previously 11 behavioral failures), receipt
+`green-r25-probes.log` in the round-26 dispatch directory.
+
+Fresh verification (this exact working tree, all run this round; receipts
+in the round-26 dispatch directory):
+
+- `verify.py --profile static`: PASS — all 7 gates (lock, Black, Ruff,
+  isolated strict mypy, Pyright, Vulture, fail-closed Complexipy launcher
+  at max 5 including module scope).
+- `verify.py --profile compatibility` (py3.13): **1477 passed, 3 skipped**
+  (1452 prior + 25 added this round).
+- Isolated locked full suite `--python 3.11`: 1477 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1477 passed, 3 skipped.
+- `verify.py --profile services` from a clean copy of this tree without
+  `.env`, explicit documented loopback development values only
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r26`,
+  `redis://127.0.0.1:6379/15`): PASS — probe, 45 real-Redis contracts,
+  migrations in a temporary database with cleanup; the fresh
+  `polymarket_tracker_r26` database was dropped afterwards.
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q`, same explicit values:
+  75 passed.
+- Missing-env services control (same clean copy, no `DATABASE_URL`/
+  `REDIS_URL`): exit 2, `DATABASE_URL and REDIS_URL must be set` before
+  any dependent gate.
+
+Behavior notes, recorded honestly: an earlier unguarded handler attached by
+embedding code still emits its own raw rendering — that handler is outside
+the redactor's authority, and the change is that its cache can no longer
+defeat the console handler that does promise redaction. A preformatted
+exception-only record now emits its message without the cached exception
+text (previously the raw cache re-emitted). A sole positional dict that
+previously rendered its full contents now renders the placeholder. Retry
+delays representable as finite floats are unchanged: huge-but-representable
+values remain the pre-existing unbounded-delay class, recorded in the
+G-033 round-25 follow-up for separate hardening rather than silently
+altered here.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules; no gate, lock, CI,
+launcher, or conftest changes. No push, merge, deploy, live provider call,
+notification, trade, or secret read (the worktree `.env` was left unread
+and untouched; services ran from a copy that excluded it); the only service
+mutations were the disposable `polymarket_tracker_r26` database (created
+and dropped) and unique-namespace Redis contract keys on database 15.
+Round-25 review evidence preserved unmodified.

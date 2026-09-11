@@ -2357,3 +2357,165 @@ class TestExceptionGraphSanitization:
 
         assert output
         assert R21_GRAPH_SECRET not in output
+
+
+def _capture_console_output(emit: Callable[[], None]) -> str:
+    """Emit one record and return exactly what the production console handler wrote."""
+    import io
+    import logging as stdlib_logging
+
+    from polymarket_insider_tracker.__main__ import configure_logging
+
+    configure_logging("INFO")
+    console = next(
+        handler
+        for handler in stdlib_logging.getLogger().handlers
+        if isinstance(handler, stdlib_logging.StreamHandler)
+    )
+    capture = io.StringIO()
+    previous = console.setStream(capture)
+    try:
+        emit()
+    finally:
+        if previous is not None:
+            console.setStream(previous)
+    return capture.getvalue()
+
+
+class TestCachedExceptionTextBoundary:
+    """Round-25 N-R25-1: a formatter cache must not bypass the console scrub.
+
+    ``logging.Formatter`` caches its rendered traceback on ``record.exc_text``,
+    and every later handler reuses that cache verbatim. When an earlier
+    unguarded handler (an embedding or observability integration) formatted a
+    record that then propagated to the configured root console handler, the
+    cached raw rendering survived past the sanitized exception clone. The
+    filter now discards the cache: the console formatter rebuilds it from the
+    sanitized clone, and a preformatted exception-only record keeps its
+    message while the unsanitizable cached text is withheld.
+    """
+
+    CACHED_SECRET = "R26_CACHED_EXC_TEXT_SECRET"
+
+    def _cached_url_error(self) -> RuntimeError:
+        return RuntimeError(f"https://rpc.invalid/v2/{self.CACHED_SECRET}")
+
+    def test_record_preformatted_by_an_earlier_handler_is_rebuilt_sanitized(self) -> None:
+        import io
+
+        prior_output = io.StringIO()
+        prior = logging.StreamHandler(prior_output)
+        prior.setFormatter(logging.Formatter("%(message)s"))
+        app_logger = logging.getLogger("polymarket_insider_tracker.alerter.dispatcher")
+        app_logger.addHandler(prior)
+        error = self._cached_url_error()
+        try:
+            output = _capture_console_output(
+                lambda: app_logger.error("request failed", exc_info=(type(error), error, None))
+            )
+        finally:
+            app_logger.removeHandler(prior)
+
+        # The earlier real formatter genuinely produced and cached the raw rendering.
+        assert self.CACHED_SECRET in prior_output.getvalue()
+        assert "request failed" in output
+        assert self.CACHED_SECRET not in output
+        # The exception line is rebuilt from the sanitized clone, not silently dropped.
+        assert "RuntimeError" in output
+
+    def test_preformatted_exception_only_record_withholds_the_unsanitizable_cache(self) -> None:
+        """A record can arrive carrying only cached exception text (a
+        socket-forwarded record drops ``exc_info`` after formatting); with no
+        exception object left to sanitize, the cache is withheld deliberately
+        and the message still emits."""
+        record = logging.makeLogRecord(
+            {
+                "name": "polymarket_insider_tracker.pipeline",
+                "msg": "request failed",
+                "levelno": logging.ERROR,
+                "levelname": "ERROR",
+                "exc_text": (
+                    "Traceback (most recent call last):\n"
+                    f"RuntimeError: https://rpc.invalid/v2/{self.CACHED_SECRET}"
+                ),
+            }
+        )
+
+        output = _capture_console_output(lambda: logging.getLogger(record.name).handle(record))
+
+        assert "request failed" in output
+        assert self.CACHED_SECRET not in output
+
+    def test_uncached_exception_record_control_renders_sanitized(self) -> None:
+        """Control: the ordinary single-handler path keeps emitting the record
+        with its sanitized exception line."""
+        error = self._cached_url_error()
+
+        output = _capture_console_output(
+            lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(
+                "request failed", exc_info=(type(error), error, None)
+            )
+        )
+
+        assert "request failed" in output
+        assert "RuntimeError" in output
+        assert self.CACHED_SECRET not in output
+
+
+class TestPositionalMappingArgumentRedaction:
+    """Round-25 N-R25-3: a sole positional dict argument must collapse to the mask.
+
+    ``LogRecord`` unwraps a sole nonempty dict passed to a positional ``%s``
+    into the same ``record.args`` shape as a genuine ``%(name)s`` mapping, so
+    the filter preserved its keys and string values and the container rendered
+    verbatim through the console handler. Only a format string free of
+    positional conversions actually renders per-key; any other format now
+    collapses the dict to the deterministic placeholder, while named-mapping
+    diagnostics keep rendering with redacted values.
+    """
+
+    MAPPING_SECRET = "R26_POSITIONAL_MAPPING_SECRET"
+
+    def _emit(self, message: str, args: dict[str, object]) -> str:
+        return _capture_console_output(
+            lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(message, args)
+        )
+
+    def test_sole_positional_dict_value_never_reaches_the_console(self) -> None:
+        output = self._emit("delivery state invalid: %s", {"token": self.MAPPING_SECRET})
+
+        assert "delivery state invalid" in output
+        assert self.MAPPING_SECRET not in output
+
+    def test_sole_positional_dict_key_never_reaches_the_console(self) -> None:
+        output = self._emit("delivery state invalid: %s", {self.MAPPING_SECRET: "queued"})
+
+        assert "delivery state invalid" in output
+        assert self.MAPPING_SECRET not in output
+
+    def test_named_mapping_values_render_redacted_diagnostics(self) -> None:
+        """Control: genuine ``%(name)s`` diagnostics keep rendering, with URL
+        credentials masked and numeric values intact."""
+        output = self._emit(
+            "poll failed for %(url)s after %(attempts)d attempts",
+            {"url": f"https://key:{self.MAPPING_SECRET}@rpc.invalid/v2", "attempts": 3},
+        )
+
+        assert "after 3 attempts" in output
+        assert "rpc.invalid" in output
+        assert self.MAPPING_SECRET not in output
+
+    def test_percent_literal_does_not_reclassify_a_named_mapping(self) -> None:
+        """Control: an escaped ``%%`` literal is not a positional conversion and
+        must not cost a named mapping its diagnostics."""
+        output = self._emit("progress 100%% at %(stage)s", {"stage": "backfill"})
+
+        assert "progress 100% at backfill" in output
+
+    def test_mixed_positional_and_named_conversions_collapse_whole(self) -> None:
+        """A format mixing ``%s`` with ``%(name)s`` renders the container itself,
+        so the whole mapping collapses while the record keeps emitting."""
+        output = self._emit("state %s for %(stage)s", {"stage": self.MAPPING_SECRET})
+
+        assert "state" in output
+        assert self.MAPPING_SECRET not in output

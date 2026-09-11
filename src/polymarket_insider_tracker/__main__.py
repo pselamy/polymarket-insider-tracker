@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import logging
 import logging.config
+import re
 import sys
 from collections.abc import Callable
 from typing import NoReturn
@@ -30,6 +31,7 @@ from polymarket_insider_tracker.config import (
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.redaction import (
     FAILSAFE_EXCEPTION_MESSAGE,
+    MASK,
     redact_argument,
     redact_exception_message,
     redact_text,
@@ -470,11 +472,70 @@ def _redact_record_args(record: logging.LogRecord) -> None:
     if isinstance(record.args, tuple):
         record.args = tuple(map(redact_argument, record.args))
     elif isinstance(record.args, dict):
-        record.args = {key: redact_argument(value) for key, value in record.args.items()}
+        record.args = _redacted_mapping_args(record.msg, record.args)
+
+
+# One %-conversion that does not open a ``%(name)`` mapping key; ``%%``
+# literals are consumed before the scan so they can never look like one.
+_POSITIONAL_CONVERSION_PATTERN = re.compile(r"%[^%(]|%$")
+
+
+class _MaskedPositionalMapping(dict[str, object]):
+    """A positional dict argument that renders only as the placeholder.
+
+    ``LogRecord`` unwraps a sole nonempty mapping into ``record.args`` even
+    when the format string consumes it positionally, so the container itself
+    would render through ``%s``. Every rendering path — ``str``/``repr`` for
+    a positional conversion, key lookup for a residual named reference —
+    yields the placeholder, keeping the record emitting without exposing
+    keys or values.
+    """
+
+    def __str__(self) -> str:
+        return MASK
+
+    def __repr__(self) -> str:
+        return MASK
+
+    def __missing__(self, key: str) -> object:
+        return MASK
+
+
+def _redacted_mapping_args(msg: object, args: dict[str, object]) -> dict[str, object]:
+    """A named-interpolation mapping keeps redacted values; a positional dict collapses.
+
+    ``LogRecord`` gives a genuine ``%(name)s`` mapping and a sole nonempty
+    dict passed to a positional ``%s`` the same ``record.args`` shape; only
+    the format string tells them apart. Any positional conversion renders
+    the container itself, so the dict must collapse to the placeholder like
+    every other container argument — its keys can carry a secret too, and
+    named formatting never renders keys.
+    """
+    if _has_positional_conversion(msg):
+        return _MaskedPositionalMapping()
+    return {key: redact_argument(value) for key, value in args.items()}
+
+
+def _has_positional_conversion(msg: object) -> bool:
+    """True when the format string renders any conversion not keyed by ``%(name)``."""
+    if not isinstance(msg, str):
+        return False
+    return _POSITIONAL_CONVERSION_PATTERN.search(msg.replace("%%", "")) is not None
 
 
 def _redact_record_exc_info(record: logging.LogRecord) -> None:
-    """Replace the attached exception with its sanitized clone and no frames."""
+    """Replace the attached exception with its sanitized clone and no frames.
+
+    ``logging.Formatter`` caches its rendered traceback on ``record.exc_text``
+    and every later handler reuses that cache verbatim, so a record already
+    formatted by an earlier unguarded handler would re-emit the raw rendering
+    past the sanitized clone. The cache is always discarded: with ``exc_info``
+    present the console formatter rebuilds it from the sanitized clone, and a
+    preformatted exception-only record deliberately keeps its message while
+    the unsanitizable cached exception text is withheld.
+    """
+    if record.exc_text:
+        record.exc_text = None
     if record.exc_info and record.exc_info[0] is not None:
         record.__dict__["exc_info"] = _sanitized_exc_info(record.exc_info)
 

@@ -1,11 +1,13 @@
 """Tests for alert dispatcher and channels."""
 
+import asyncio
 from datetime import UTC, datetime
 
 import httpx
 import pytest
 
 from polymarket_insider_tracker.alerter.channels.discord import DiscordChannel
+from polymarket_insider_tracker.alerter.channels.response_values import validated_retry_delay
 from polymarket_insider_tracker.alerter.channels.telegram import TelegramChannel
 from polymarket_insider_tracker.alerter.dispatcher import (
     AlertDispatcher,
@@ -818,3 +820,142 @@ class TestAlertDispatcher:
         result = dispatcher.reset_circuit("unknown")
 
         assert result is False
+
+
+# ============================================================================
+# Retry-delay response boundary (Round-25 N-R25-2)
+# ============================================================================
+
+
+class TestRetryDelayResponseBoundary:
+    """Round-25 N-R25-2: numeric ``retry_after`` values the float type cannot
+    represent must take the documented fixed 1.0s fallback.
+
+    JSON integers carry no size bound, so a 400-digit value parses normally
+    and ``float()`` raised ``OverflowError`` out of both channels' HTTP-error
+    handling — aborting the failed-attempt path both inside the request
+    method and through public ``send`` — instead of completing the attempt
+    with the fallback delay.
+    """
+
+    @pytest.fixture
+    def recorded_sleeps(self, monkeypatch: pytest.MonkeyPatch) -> list[float]:
+        """Record every requested delay instead of really sleeping.
+
+        Narrow boundary injection: the requested delay is the observable
+        contract of the 429 path, and recording it keeps the huge-value and
+        control cases from stalling the suite.
+        """
+        sleeps: list[float] = []
+
+        async def record(delay: float) -> None:
+            sleeps.append(delay)
+
+        monkeypatch.setattr(asyncio, "sleep", record)
+        return sleeps
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (10**400, 1.0),
+            (-(10**400), 1.0),
+            (float("inf"), 1.0),
+            (float("nan"), 1.0),
+            (True, 1.0),
+            ("2", 1.0),
+            (None, 1.0),
+            (-1, 1.0),
+            (0, 0.0),
+            (3, 3.0),
+            (2.5, 2.5),
+        ],
+    )
+    def test_validated_retry_delay_input_classes(self, value: object, expected: float) -> None:
+        """Every non-representable, non-finite, negative, or non-numeric shape
+        collapses to the fixed default; ordinary finite delays survive."""
+        assert validated_retry_delay(value) == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("sign", [1, -1])
+    async def test_discord_unrepresentable_retry_after_takes_the_fixed_fallback(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        recorded_sleeps: list[float],
+        sign: int,
+    ) -> None:
+        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=1, retry_delay=0.0)
+        server = discord_webhook(failure=httpx.Response(429, json={"retry_after": sign * 10**400}))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert recorded_sleeps == [1.0]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("sign", [1, -1])
+    async def test_telegram_unrepresentable_retry_after_takes_the_fixed_fallback(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        recorded_sleeps: list[float],
+        sign: int,
+    ) -> None:
+        channel = TelegramChannel("12345:token", "chat-1", max_retries=1, retry_delay=0.0)
+        server = telegram_bot_api(
+            failure=httpx.Response(
+                429,
+                json={
+                    "ok": False,
+                    "error_code": 429,
+                    "parameters": {"retry_after": sign * 10**400},
+                },
+            )
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert recorded_sleeps == [1.0]
+
+    @pytest.mark.asyncio
+    async def test_discord_ordinary_rate_limit_still_delays_then_delivers(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        recorded_sleeps: list[float],
+    ) -> None:
+        """Control: a finite server delay is honored as requested and the
+        retried attempt still delivers."""
+        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=2, retry_delay=0.0)
+        server = discord_webhook(rate_limited_requests=1)
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is True
+        assert len(server.requests) == 2
+        assert recorded_sleeps == [0.01]
+
+    @pytest.mark.asyncio
+    async def test_telegram_ordinary_rate_limit_still_delays_then_delivers(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        recorded_sleeps: list[float],
+    ) -> None:
+        """Control: a finite server delay is honored as requested and the
+        retried attempt still delivers."""
+        channel = TelegramChannel("12345:token", "chat-1", max_retries=2, retry_delay=0.0)
+        server = telegram_bot_api(rate_limited_requests=1)
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is True
+        assert len(server.requests) == 2
+        assert recorded_sleeps == [0.01]
