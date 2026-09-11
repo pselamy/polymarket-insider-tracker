@@ -1,5 +1,9 @@
 """Add slice 003/004 observability and disposition columns to risk_assessments.
 
+Rows that exist before this migration have no recorded delivery outcome, so the
+``delivery_disposition`` server default backfills them as ``unrecorded``; labeling them
+``dry_run`` while ``dry_run`` defaults to false would assert two contradictory facts.
+
 Revision ID: 003_safe_observable_operation
 Revises: 002_risk_assessments
 Create Date: 2026-09-10 00:00:00.000000+00:00
@@ -31,7 +35,7 @@ def upgrade() -> None:
         sa.Column(
             "delivery_disposition",
             sa.String(32),
-            server_default="dry_run",
+            server_default="unrecorded",
             nullable=False,
         ),
     )

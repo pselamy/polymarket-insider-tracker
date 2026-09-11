@@ -155,3 +155,41 @@ and contract), not `NUMERIC(20, 2)`.
   warning is logged (and the `ambiguous` disposition persisted) at ambiguity time rather
   than at the later retry; README and the delivery contract document that a duplicate
   remains possible after an ambiguous acceptance.
+
+---
+
+## 7. Phase 3 Findings Repair (2026-09-11, Claude Fable 5, phase 2 rerun)
+
+The phase-3 adversarial review (`gpt-5.6-sol`) returned `FINDINGS` with seven items.
+Each was independently reproduced at head `33fdf3e` before fixing; every fix began with a
+regression test that failed at the unfixed head (the migration-backfill test runs against
+a disposable real PostgreSQL database, gated by `RUN_SERVICE_TESTS=1`).
+
+| # | Severity | Finding (reproduced) | Fix |
+|---|---|---|---|
+| 1 | Critical | `validate_loopback_database_url` checked only the URL host component; libpq honors `?hostaddr=`/`?host=`/`?service=` query parameters and `PGHOSTADDR`/`PGSERVICE`/`PGSERVICEFILE` environment defaults, so the disposable-migration cycle (CREATE/DROP DATABASE WITH FORCE) could be rerouted to a remote server. | Routing query keys (`host`, `hostaddr`, `port`, `service`) and routing environment variables are rejected as prerequisites; the Alembic subprocess additionally runs with every `PG*` variable stripped (`alembic_subprocess_environment`). |
+| 2 | High | Failed downstream processing was durably acknowledged (identity recorded, boundary advanced) while `/health` omitted the contract-promised top-level `last_error`, leaving the failure invisible. | `/health` now reports the pipeline's most recent worker/per-trade error via a `HealthMonitor` last-error provider; the at-most-once acknowledgment semantics (owned by the merged slice-001 observation-boundary contract) are now documented explicitly in the pipeline-lifecycle contract instead of being silent. |
+| 3 | High | Delivery deduplication was a non-atomic `EXISTS → send → SET` sequence: two concurrent dispatches of one identity both delivered (reproduced with a yielding fake channel). | The ambiguity key doubles as an atomic per-identity in-flight claim (`SET NX EX 60`), with the dedup key re-checked under the claim; released on confirmed outcomes, retained on ambiguous ones. Claim errors still degrade toward delivery. |
+| 4 | High | The alert decision used raw floats while persistence rounded to NUMERIC(4,3): `0.7999999999999999 < 0.8` was stored as `0.800 >= 0.800` with `should_alert=false` — unexplainable and unreplayable; weights were mutable and unpersisted. | Scoring quantizes confidences, threshold, and final score to the persisted 3-decimal precision in exact decimal arithmetic before deciding; persistence uses the same quantizer, so stored rows replay the decision exactly (regression test recomputes the stored score from stored inputs). Weights remain the code-pinned defaults in the wired pipeline; non-default weights are logged at construction. The prior float-artifact test pin was replaced with the consistency contract. |
+| 5 | Medium | `delivered` + `ambiguous_timeout` (suppressed-unknown) aggregated to disposition `delivered` with `all_succeeded=true`, falsely incrementing alert statistics; `duplicate` + `ambiguous_timeout` aggregated to `failed`. | Suppressed-unknown statuses count toward `failure_count` and downgrade a delivered aggregate to `partial_failure`; unknown-only mixes classify as `ambiguous`, never `failed` without a confirmed failure. |
+| 6 | Medium | The migration backfilled pre-existing rows as `delivery_disposition='dry_run'` with `dry_run=false` — two contradictory facts. | Server default (migration, ORM model, DTO, and domain dataclass) is now `unrecorded`, documented in the data-model disposition enumeration; verified on real PostgreSQL by inserting a row at revision 002 and reading it back after upgrading to head. |
+| 7 | Medium | `shutdown_timeout` was never enforced: `pipeline.stop()` and cleanup callbacks were unbounded awaits, so first-signal shutdown could hang indefinitely. | `run_pipeline` bounds `pipeline.stop()` with `asyncio.wait_for` (timeout → logged + exit 1) and `GracefulShutdown.run_cleanup_callbacks` bounds each coroutine callback with the configured timeout; a second signal still forces exit. |
+| 8 | Medium | Found during repair verification (pre-existing since merged PR #117): the gated real-service evidence test `test_real_postgres_redis_and_disposable_migration_cycle` always failed under `RUN_SERVICE_TESTS=1` because the harness chdirs tests into a temp directory and `RealMigrationBackend.expected_revisions` resolved Alembic's relative `script_location` against the working directory. | `expected_revisions` pins `script_location` to the repository's `alembic/` tree; regression test runs revision discovery from a foreign working directory. The whole gated integration directory now passes against real loopback services. |
+
+### Phase 3 Repair Re-Verification (post-fix)
+
+Recorded with exact results in `PHASE2_RESULT.md` (dispatch-state directory): static,
+compatibility, and services profiles, the `all` profile, the full suite with branch
+coverage, isolated 3.11/3.12 suites, and the gated real-PostgreSQL backfill test.
+
+### Behavioral changes accepted with this repair
+
+- Alert-threshold comparison now happens at the persisted 3-decimal precision; scores
+  within half a thousandth of the threshold may decide differently than the previous raw
+  float comparison, in exchange for durable records that exactly explain and replay the
+  decision (FR-012, Constitution IV). This replaced the merged float-artifact regression
+  pin `test_assess_preserves_base_addition_order_at_alert_boundary`.
+- Aggregate dispositions for mixes involving suppressed-unknown channels changed as
+  described in finding 5 (previously `delivered`/`failed`, now `partial_failure`/`ambiguous`).
+- Legacy rows migrated by `003_safe_observable_operation` now read `unrecorded` instead
+  of `dry_run`. The migration is unmerged, so no deployed data is affected.

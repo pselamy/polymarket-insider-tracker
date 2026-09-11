@@ -18,6 +18,7 @@ from polymarket_insider_tracker.detector.scorer import (
     MULTI_SIGNAL_BONUS_2,
     RiskScorer,
     SignalBundle,
+    quantize_score_value,
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
@@ -489,14 +490,20 @@ class TestAssessMethod:
         assert assessment.weighted_score == 0.0
 
     @pytest.mark.asyncio
-    async def test_assess_preserves_base_addition_order_at_alert_boundary(
+    async def test_assess_decides_at_persisted_precision_at_alert_boundary(
         self,
         fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
-        """Floating-point grouping must not turn a below-threshold score into an alert."""
+        """The decision uses the NUMERIC(4,3) precision that is persisted, so the stored
+        score, threshold, and should_alert can never contradict each other (FR-012).
+
+        This replaces the earlier float-artifact pin (score 0.7999999999999999, no alert):
+        that behavior stored 0.800 >= 0.800 with should_alert False, which the durable
+        record could not explain or replay.
+        """
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=replace(fresh_wallet_signal, confidence=0.7),
@@ -509,9 +516,46 @@ class TestAssessMethod:
 
         assessment = await RiskScorer(fake_redis).assess(bundle)
 
-        assert assessment.weighted_score == 0.7999999999999999
-        assert assessment.should_alert is False
+        assert assessment.weighted_score == 0.8
+        assert assessment.should_alert is True
+        stored_score = Decimal(str(assessment.weighted_score))
+        stored_threshold = Decimal(str(round(DEFAULT_ALERT_THRESHOLD, 3)))
+        assert assessment.should_alert is (stored_score >= stored_threshold)
         assert await fake_redis.dbsize() == 0
+
+    @pytest.mark.asyncio
+    async def test_assessment_replays_exactly_from_persisted_precision_inputs(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+    ) -> None:
+        """Recomputing from quantized confidences and the pinned default weights must
+        reproduce the stored score exactly (constitution IV: explain or replay)."""
+        fresh_conf = 0.7134567891234
+        size_conf = 0.6512345678901
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=replace(fresh_wallet_signal, confidence=fresh_conf),
+            size_anomaly_signal=replace(
+                size_anomaly_signal, confidence=size_conf, is_niche_market=True
+            ),
+        )
+
+        assessment = await RiskScorer(fake_redis).assess(bundle)
+
+        quantum = Decimal("0.001")
+        stored_fresh = quantize_score_value(fresh_conf)
+        stored_size = quantize_score_value(size_conf)
+        replayed = (
+            stored_fresh * Decimal(str(DEFAULT_WEIGHTS["fresh_wallet"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["size_anomaly"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["niche_market"]))
+        ) * Decimal(str(MULTI_SIGNAL_BONUS_2))
+        replayed = min(replayed, Decimal(1)).quantize(quantum)
+
+        assert Decimal(str(assessment.weighted_score)) == replayed
 
     @pytest.mark.asyncio
     async def test_assess_does_not_deduplicate_or_touch_redis(

@@ -106,6 +106,58 @@ def test_non_loopback_database_is_rejected_before_backend_creation() -> None:
         )
 
 
+@pytest.mark.parametrize("key", ["hostaddr", "host", "port", "service"])
+def test_libpq_routing_query_parameters_are_rejected(key: str) -> None:
+    """libpq routes via ``hostaddr``/``host``/``service`` regardless of the URL host component."""
+    module = _load_module()
+
+    with pytest.raises(module.ServicePrerequisiteError, match=key):
+        module.validate_loopback_database_url(
+            f"postgresql+psycopg://tracker:secret@localhost:5432/research?{key}=203.0.113.5"
+        )
+
+
+@pytest.mark.parametrize("variable", ["PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE"])
+def test_libpq_routing_environment_is_rejected(
+    variable: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A set libpq routing variable can silently redirect a host-pinned loopback DSN."""
+    module = _load_module()
+    monkeypatch.setenv(variable, "203.0.113.5")
+
+    with pytest.raises(module.ServicePrerequisiteError, match=variable):
+        module.validate_loopback_database_url(LOCAL_DATABASE_URL)
+
+
+def test_expected_revisions_do_not_depend_on_the_working_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The harness chdirs tests into a temp directory; revision discovery must still work."""
+    module = _load_module()
+    monkeypatch.chdir(tmp_path)
+
+    backend = module.RealMigrationBackend(LOCAL_DATABASE_URL)
+    head, previous = backend.expected_revisions()
+
+    assert head == "003_safe_observable_operation"
+    assert previous == "002_risk_assessments"
+
+
+def test_alembic_subprocess_environment_drops_libpq_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The migration subprocess must not inherit libpq variables that could reroute it."""
+    module = _load_module()
+    monkeypatch.setenv("PGHOSTADDR", "203.0.113.5")
+    monkeypatch.setenv("PGSERVICE", "remote-production")
+    monkeypatch.setenv("PGPASSWORD", "ambient-password")
+
+    environment = module.alembic_subprocess_environment(LOCAL_DATABASE_URL)
+
+    assert environment["DATABASE_URL"] == LOCAL_DATABASE_URL
+    assert not any(name.startswith("PG") for name in environment)
+
+
 def test_invalid_redis_url_is_rejected_without_echoing_credentials() -> None:
     module = _load_module()
     secret = "never-print-this-redis-password"

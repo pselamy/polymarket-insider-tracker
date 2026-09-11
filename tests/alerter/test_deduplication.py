@@ -13,6 +13,7 @@ Tests cover:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -341,3 +342,113 @@ class TestChannelScopedDeduplication:
         assert len(discord.calls) == 1
         assert result.channel_statuses["discord"] == "delivered"
         assert result.disposition == "delivered"
+
+
+class YieldingChannel:
+    """Working fake whose send yields to the event loop, exposing check-then-act races."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.sends = 0
+
+    async def send(self, alert: FormattedAlert) -> bool:
+        _ = alert
+        await asyncio.sleep(0.01)
+        self.sends += 1
+        return True
+
+
+class TestConcurrentDispatchAtomicity:
+    """The suppression check and send must be atomic per delivery identity (G-018, FR-010)."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_dispatch_of_same_identity_delivers_exactly_once(
+        self, alert_history: AlertHistory
+    ) -> None:
+        """Two concurrent dispatches for one identity must not both send to a channel."""
+        channel = YieldingChannel("discord")
+        dispatcher = AlertDispatcher([channel], history=alert_history)
+        assessment = _make_sample_assessment()
+        alert = _make_sample_alert()
+
+        first, second = await asyncio.gather(
+            dispatcher.dispatch(alert, assessment=assessment),
+            dispatcher.dispatch(alert, assessment=assessment),
+        )
+
+        assert channel.sends == 1
+        dispositions = sorted((first.disposition, second.disposition))
+        assert dispositions == ["ambiguous", "delivered"]
+
+    @pytest.mark.asyncio
+    async def test_confirmed_failure_leaves_no_claim_and_stays_immediately_eligible(
+        self, fake_redis: FakeAsyncRedis, alert_history: AlertHistory
+    ) -> None:
+        """A confirmed failure must release every delivery key so retry is immediate."""
+        channel = FakeChannel("discord", should_fail=True)
+        dispatcher = AlertDispatcher([channel], history=alert_history)
+        assessment = _make_sample_assessment()
+        alert = _make_sample_alert()
+
+        result = await dispatcher.dispatch(alert, assessment=assessment)
+
+        assert result.channel_statuses["discord"] == "failed"
+        assert await fake_redis.dbsize() == 0
+
+        channel.should_fail = False
+        retry = await dispatcher.dispatch(alert, assessment=assessment)
+        assert retry.channel_statuses["discord"] == "delivered"
+        assert len(channel.calls) == 2
+
+
+class TestSuppressedAmbiguousClassification:
+    """A suppressed-unknown channel must never count as a confirmed delivery (FR-018)."""
+
+    @pytest.mark.asyncio
+    async def test_delivered_with_suppressed_ambiguous_channel_is_partial_failure(
+        self, alert_history: AlertHistory
+    ) -> None:
+        """delivered + ambiguous_timeout is not a full success and not all_succeeded."""
+        discord = FakeChannel("discord")
+        telegram = FakeChannel("telegram")
+        dispatcher = AlertDispatcher([discord, telegram], history=alert_history)
+        assessment = _make_sample_assessment()
+        await alert_history.record_channel_ambiguous(
+            "telegram", assessment.wallet_address, assessment.market_id
+        )
+
+        result = await dispatcher.dispatch(_make_sample_alert(), assessment=assessment)
+
+        assert result.channel_statuses == {
+            "discord": "delivered",
+            "telegram": "ambiguous_timeout",
+        }
+        assert result.disposition == "partial_failure"
+        assert result.all_succeeded is False
+        assert result.failure_count == 1
+
+    @pytest.mark.asyncio
+    async def test_duplicate_with_suppressed_ambiguous_channel_is_ambiguous(
+        self, alert_history: AlertHistory
+    ) -> None:
+        """duplicate + ambiguous_timeout has no confirmed failure; it must not report failed."""
+        discord = FakeChannel("discord")
+        telegram = FakeChannel("telegram")
+        dispatcher = AlertDispatcher([discord, telegram], history=alert_history)
+        assessment = _make_sample_assessment()
+        await alert_history.record_channel_delivery(
+            "discord", assessment.wallet_address, assessment.market_id
+        )
+        await alert_history.record_channel_ambiguous(
+            "telegram", assessment.wallet_address, assessment.market_id
+        )
+
+        result = await dispatcher.dispatch(_make_sample_alert(), assessment=assessment)
+
+        assert result.channel_statuses == {
+            "discord": "duplicate",
+            "telegram": "ambiguous_timeout",
+        }
+        assert result.disposition == "ambiguous"
+        assert len(discord.calls) == 0
+        assert len(telegram.calls) == 0

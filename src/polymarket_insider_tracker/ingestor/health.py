@@ -92,6 +92,7 @@ class HealthReport:
 # Type aliases
 HealthCallback = Callable[[HealthReport], Awaitable[None]]
 ComponentChecker = Callable[[], Awaitable[ComponentStatus]]
+LastErrorProvider = Callable[[], str | None]
 
 
 # Prometheus metrics
@@ -193,6 +194,7 @@ class HealthMonitor:
         self._component_checkers: dict[str, ComponentChecker] = {}
         self._last_acquisition_time: float | None = None
         self._last_trade_time: float | None = None
+        self._last_error_provider: LastErrorProvider | None = None
 
     @property
     def is_running(self) -> bool:
@@ -212,6 +214,18 @@ class HealthMonitor:
     def set_component_checker(self, name: str, checker: ComponentChecker) -> None:
         """Register an async health checker for a component."""
         self._component_checkers[name] = checker
+
+    def set_last_error_provider(self, provider: LastErrorProvider) -> None:
+        """Register a callable that reports the pipeline's most recent error, if any."""
+        self._last_error_provider = provider
+
+    def _current_last_error(self) -> str | None:
+        if self._last_error_provider is None:
+            return None
+        try:
+            return self._last_error_provider()
+        except Exception as exc:
+            return f"last-error provider failed: {exc}"
 
     def record_acquisition(self, timestamp: float | None = None) -> None:
         """Record a polling acquisition cycle timestamp."""
@@ -589,6 +603,7 @@ class HealthMonitor:
             "total_events_per_second": round(report.total_events_per_second, 2),
             "components": {name: c.to_dict() for name, c in components.items()},
             "streams": self._format_streams(report.streams),
+            "last_error": self._current_last_error(),
             "timestamp": now,
         }
 

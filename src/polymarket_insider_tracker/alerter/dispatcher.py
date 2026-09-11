@@ -15,6 +15,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Channel statuses that are confirmed non-deliveries versus unknown outcomes. A suppressed
+# unknown ("ambiguous_timeout") is not a confirmed delivery and must never count as success.
+CONFIRMED_FAILURE_STATUSES = ("failed", "circuit_open")
+UNKNOWN_OUTCOME_STATUSES = ("ambiguous", "ambiguous_timeout")
+
+# Tri-state result of trying to acquire the per-identity in-flight delivery claim.
+CLAIM_ACQUIRED = "acquired"
+CLAIM_SUPPRESSED = "suppressed"
+CLAIM_UNVERIFIED = "unverified"
+
 
 class AlertChannel(Protocol):
     """Protocol for alert delivery channels."""
@@ -192,16 +202,65 @@ class AlertDispatcher:
             return None
         return reason
 
-    async def _record_channel_outcome(
-        self, channel_name: str, status: str, wallet: str, market: str
-    ) -> None:
+    async def _claim_channel(self, channel_name: str, wallet: str, market: str) -> str:
+        """Acquire the atomic in-flight claim, degrading toward delivery on claim errors."""
+        if not (self.history and wallet and market):
+            return CLAIM_UNVERIFIED
+        try:
+            acquired = await self.history.claim_channel_send(channel_name, wallet, market)
+        except Exception as e:
+            logger.warning(
+                "Delivery claim unavailable for %s (%s); attempting delivery,"
+                " a duplicate is possible",
+                channel_name,
+                e,
+            )
+            return CLAIM_UNVERIFIED
+        return CLAIM_ACQUIRED if acquired else CLAIM_SUPPRESSED
+
+    async def _delivered_while_claiming(
+        self, history: AlertHistory, channel_name: str, wallet: str, market: str
+    ) -> bool:
+        """Re-check the dedup key under the claim; a check error favors delivery."""
+        try:
+            return await history.is_channel_delivered(channel_name, wallet, market)
+        except Exception:
+            return False
+
+    async def _release_claim(self, channel_name: str, wallet: str, market: str) -> None:
         if not (self.history and wallet and market):
             return
         try:
-            if status == "delivered":
-                await self.history.record_channel_delivery(channel_name, wallet, market)
-            elif status == "ambiguous":
-                await self.history.record_channel_ambiguous(channel_name, wallet, market)
+            await self.history.release_channel_claim(channel_name, wallet, market)
+        except Exception as e:
+            logger.warning(
+                "Failed to release delivery claim for %s (%s); retry may stay"
+                " suppressed for up to 60s",
+                channel_name,
+                e,
+            )
+
+    async def _write_outcome_state(
+        self, history: AlertHistory, channel_name: str, status: str, wallet: str, market: str
+    ) -> None:
+        if status == "delivered":
+            await history.record_channel_delivery(channel_name, wallet, market)
+            await self._release_claim(channel_name, wallet, market)
+        elif status == "ambiguous":
+            # The claim key becomes the ambiguity marker; refresh it to the full window.
+            await history.record_channel_ambiguous(channel_name, wallet, market)
+        else:
+            # Confirmed failure (or an open circuit): the claim must not delay retry.
+            await self._release_claim(channel_name, wallet, market)
+
+    async def _record_channel_outcome(
+        self, channel_name: str, status: str, wallet: str, market: str
+    ) -> None:
+        history = self.history
+        if not (history and wallet and market):
+            return
+        try:
+            await self._write_outcome_state(history, channel_name, status, wallet, market)
         except Exception as e:
             logger.warning(
                 "Failed to record %s outcome for %s (%s); a later duplicate delivery is possible",
@@ -237,11 +296,38 @@ class AlertDispatcher:
             self._record_failure(channel_name)
             return False, "failed"
 
+    async def _duplicate_under_claim(
+        self, channel_name: str, wallet: str, market: str
+    ) -> str | None:
+        """A dedup key written between the fast-path check and the claim wins."""
+        history = self.history
+        if history is None:
+            return None
+        if not await self._delivered_while_claiming(history, channel_name, wallet, market):
+            return None
+        await self._release_claim(channel_name, wallet, market)
+        return "duplicate"
+
+    async def _suppression_before_send(
+        self, channel_name: str, wallet: str, market: str
+    ) -> str | None:
+        """Return a suppression status, or None when this dispatch may send."""
+        suppression = await self._check_channel_suppression(channel_name, wallet, market)
+        if suppression is not None:
+            return suppression
+        claim = await self._claim_channel(channel_name, wallet, market)
+        if claim == CLAIM_SUPPRESSED:
+            # A concurrent dispatch holds the claim or an ambiguity window is active.
+            return "ambiguous_timeout"
+        if claim == CLAIM_ACQUIRED:
+            return await self._duplicate_under_claim(channel_name, wallet, market)
+        return None
+
     async def _send_to_channel_with_history(
         self, channel: AlertChannel, alert: FormattedAlert, wallet: str, market: str
     ) -> tuple[str, bool, str]:
         channel_name = channel.name
-        suppression = await self._check_channel_suppression(channel_name, wallet, market)
+        suppression = await self._suppression_before_send(channel_name, wallet, market)
         if suppression is not None:
             return channel_name, False, suppression
 
@@ -254,26 +340,34 @@ class AlertDispatcher:
         return bool(statuses) and all(s == "duplicate" for s in statuses)
 
     @staticmethod
-    def _is_all_ambiguous(statuses: list[str]) -> bool:
-        return bool(statuses) and all(s in ("ambiguous", "ambiguous_timeout") for s in statuses)
+    def _has_status(statuses: list[str], group: tuple[str, ...]) -> bool:
+        return any(status in group for status in statuses)
 
-    @staticmethod
-    def _classify_mixed_statuses(statuses: list[str]) -> str:
-        delivered = "delivered" in statuses
-        failed = any(s in ("failed", "ambiguous", "circuit_open") for s in statuses)
-        if delivered and failed:
+    @classmethod
+    def _delivered_disposition(cls, statuses: list[str]) -> str:
+        """At least one channel confirmed delivery; anything unresolved makes it partial."""
+        unresolved = cls._has_status(statuses, CONFIRMED_FAILURE_STATUSES) or cls._has_status(
+            statuses, UNKNOWN_OUTCOME_STATUSES
+        )
+        if unresolved:
             return "partial_failure"
-        if delivered:
-            return "delivered"
+        return "delivered"
+
+    @classmethod
+    def _undelivered_disposition(cls, statuses: list[str]) -> str:
+        if cls._has_status(statuses, CONFIRMED_FAILURE_STATUSES):
+            return "failed"
+        if cls._has_status(statuses, UNKNOWN_OUTCOME_STATUSES):
+            return "ambiguous"
         return "failed"
 
     @classmethod
     def _compute_disposition(cls, statuses: list[str]) -> str:
         if cls._is_all_duplicate(statuses):
             return "duplicate"
-        if cls._is_all_ambiguous(statuses):
-            return "ambiguous"
-        return cls._classify_mixed_statuses(statuses)
+        if "delivered" in statuses:
+            return cls._delivered_disposition(statuses)
+        return cls._undelivered_disposition(statuses)
 
     async def _dispatch_to_channels(
         self, alert: FormattedAlert, wallet: str, market: str
@@ -296,7 +390,7 @@ class AlertDispatcher:
             channel_statuses[name] = stat
             if succ:
                 success_count += 1
-            elif stat in ("failed", "ambiguous", "circuit_open"):
+            elif stat in CONFIRMED_FAILURE_STATUSES or stat in UNKNOWN_OUTCOME_STATUSES:
                 failure_count += 1
         return channel_results, channel_statuses, success_count, failure_count
 

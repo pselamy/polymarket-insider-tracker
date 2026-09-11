@@ -198,6 +198,7 @@ class Pipeline:
         self._health_monitor.set_component_checker("database", self._check_database)
         self._health_monitor.set_component_checker("redis", self._check_redis)
         self._health_monitor.set_component_checker("ingestion", self._check_ingestion)
+        self._health_monitor.set_last_error_provider(lambda: self._stats.last_error)
 
     async def _check_database(self) -> ComponentStatus:
         if not self._db_manager:
@@ -754,6 +755,8 @@ class Pipeline:
             return
         from decimal import Decimal as _D
 
+        from polymarket_insider_tracker.detector.scorer import quantize_score_value
+
         trade = assessment.trade_event
         fresh = assessment.fresh_wallet_signal
         size_sig = assessment.size_anomaly_signal
@@ -773,13 +776,15 @@ class Pipeline:
             size=trade.size,
             notional_usdc=trade.notional_value,
             trade_timestamp=trade.timestamp,
-            weighted_score=_D(str(round(assessment.weighted_score, 3))),
+            # The scorer quantizes with the same function, so the stored score,
+            # confidences, and threshold replay the decision exactly (FR-012).
+            weighted_score=quantize_score_value(assessment.weighted_score),
             signals_triggered=assessment.signals_triggered,
             fresh_wallet_confidence=(
-                _D(str(round(fresh.confidence, 3))) if fresh is not None else None
+                quantize_score_value(fresh.confidence) if fresh is not None else None
             ),
             size_anomaly_confidence=(
-                _D(str(round(size_sig.confidence, 3))) if size_sig is not None else None
+                quantize_score_value(size_sig.confidence) if size_sig is not None else None
             ),
             is_niche_market=size_sig.is_niche_market if size_sig is not None else None,
             volume_impact=(
@@ -788,7 +793,7 @@ class Pipeline:
             book_impact=(_D(str(round(size_sig.book_impact, 4))) if size_sig is not None else None),
             wallet_age_hours=wallet_age,
             should_alert=assessment.should_alert,
-            threshold_at_eval=_D(str(round(self._settings.detector.alert_threshold, 3))),
+            threshold_at_eval=quantize_score_value(self._settings.detector.alert_threshold),
             delivery_disposition=assessment.delivery_disposition,
             delivery_channels=assessment.delivery_channels,
             dry_run=assessment.dry_run,

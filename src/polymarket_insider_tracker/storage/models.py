@@ -162,7 +162,7 @@ class RiskAssessmentModel(Base):
 
     # Slice 003 Safe Observable Operation fields
     delivery_disposition: Mapped[str] = mapped_column(
-        String(32), nullable=False, server_default="dry_run", default="dry_run"
+        String(32), nullable=False, server_default="unrecorded", default="unrecorded"
     )
     delivery_channels: Mapped[str | None] = mapped_column(Text, nullable=True)
     dry_run: Mapped[bool] = mapped_column(

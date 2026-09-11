@@ -6,7 +6,7 @@ multiple detectors into a unified risk assessment with weighted scoring.
 
 import logging
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from redis.asyncio import Redis
 
@@ -38,6 +38,16 @@ DEFAULT_WEIGHTS = {
 # Multi-signal bonuses
 MULTI_SIGNAL_BONUS_2 = 1.2  # 20% bonus for 2 signals
 MULTI_SIGNAL_BONUS_3 = 1.3  # 30% bonus for 3+ signals
+
+# Confidences, thresholds, and the final score are evaluated at the NUMERIC(4,3)
+# precision the assessment schema persists, so a stored record replays the exact
+# decision; an unrounded float decision could contradict its own stored values.
+SCORE_QUANTUM = Decimal("0.001")
+
+
+def quantize_score_value(value: float) -> Decimal:
+    """Quantize a confidence, score, or threshold to the persisted 3-decimal precision."""
+    return Decimal(str(value)).quantize(SCORE_QUANTUM, rounding=ROUND_HALF_EVEN)
 
 
 @dataclass
@@ -74,17 +84,21 @@ class RiskScorer:
     Scoring is pure computation with no Redis side effects. Delivery deduplication
     is owned exclusively by the alerter (``AlertHistory`` / ``AlertDispatcher``).
 
-    Scoring Formula:
-        weighted_score = sum(signal.confidence * weight[type] for signal in signals)
+    Scoring Formula (evaluated in exact decimal arithmetic at 3-decimal precision):
+        weighted_score = sum(quantize(signal.confidence) * weight[type] for signal in signals)
 
         # Multi-signal bonus
         if signals >= 2: weighted_score *= 1.2
         if signals >= 3: weighted_score *= 1.3
 
-        # Cap at 1.0
-        final_score = min(weighted_score, 1.0)
+        # Cap at 1.0, then quantize to the persisted NUMERIC(4,3) precision
+        final_score = quantize(min(weighted_score, 1.0))
 
-        should_alert = final_score >= alert_threshold
+        should_alert = final_score >= quantize(alert_threshold)
+
+    The quantized inputs, score, and threshold are exactly what the assessment schema
+    persists, so a stored record replays the decision. Weights are the code-pinned
+    ``DEFAULT_WEIGHTS`` in the wired pipeline; a non-default configuration is logged.
 
     Example:
         ```python
@@ -127,6 +141,10 @@ class RiskScorer:
         self._alert_threshold = alert_threshold
         self._dedup_window = dedup_window_seconds
         self._key_prefix = key_prefix
+        if self._weights != DEFAULT_WEIGHTS:
+            # The persisted assessment does not carry weights; a non-default configuration
+            # must be observable in logs for the stored scores to remain explainable.
+            logger.info("RiskScorer using non-default weights: %s", self._weights)
 
     @staticmethod
     def _extract_size_diagnostics(
@@ -164,11 +182,14 @@ class RiskScorer:
         Returns:
             RiskAssessment with final scoring and alert decision.
         """
-        # Calculate weighted score
+        # Calculate weighted score (already quantized to the persisted precision)
         weighted_score, signals_triggered = self.calculate_weighted_score(bundle)
 
-        # Determine if should alert based purely on risk score threshold
-        should_alert = weighted_score >= self._alert_threshold
+        # Decide at the same precision the assessment schema persists, so the stored
+        # score, threshold, and decision always agree (FR-012).
+        should_alert = quantize_score_value(weighted_score) >= quantize_score_value(
+            self._alert_threshold
+        )
 
         # Log assessment
         if should_alert:
@@ -201,38 +222,42 @@ class RiskScorer:
             wallet_age_known=age_known,
         )
 
-    def _score_fresh_wallet(self, bundle: SignalBundle) -> tuple[float, int]:
-        if bundle.fresh_wallet_signal is None:
-            return 0.0, 0
-        weight = self._weights.get("fresh_wallet", 0.0)
-        return bundle.fresh_wallet_signal.confidence * weight, 1
+    def _weight(self, name: str) -> Decimal:
+        return Decimal(str(self._weights.get(name, 0.0)))
 
-    def _score_size_anomaly(self, bundle: SignalBundle) -> tuple[float, int]:
+    def _score_fresh_wallet(self, bundle: SignalBundle) -> tuple[Decimal, int]:
+        if bundle.fresh_wallet_signal is None:
+            return Decimal(0), 0
+        confidence = quantize_score_value(bundle.fresh_wallet_signal.confidence)
+        return confidence * self._weight("fresh_wallet"), 1
+
+    def _score_size_anomaly(self, bundle: SignalBundle) -> tuple[Decimal, int]:
         signal = bundle.size_anomaly_signal
         if signal is None:
-            return 0.0, 0
-        weight = self._weights.get("size_anomaly", 0.0)
-        return signal.confidence * weight, 1
+            return Decimal(0), 0
+        return quantize_score_value(signal.confidence) * self._weight("size_anomaly"), 1
 
-    def _score_niche_market(self, bundle: SignalBundle) -> float:
+    def _score_niche_market(self, bundle: SignalBundle) -> Decimal:
         signal = bundle.size_anomaly_signal
         if signal is None or not signal.is_niche_market:
-            return 0.0
-        niche_weight = self._weights.get("niche_market", 0.0)
-        return signal.confidence * niche_weight
+            return Decimal(0)
+        return quantize_score_value(signal.confidence) * self._weight("niche_market")
 
     @staticmethod
-    def _apply_multi_signal_bonus(score: float, count: int) -> float:
+    def _apply_multi_signal_bonus(score: Decimal, count: int) -> Decimal:
         if count >= 3:
-            return score * MULTI_SIGNAL_BONUS_3
+            return score * Decimal(str(MULTI_SIGNAL_BONUS_3))
         if count >= 2:
-            return score * MULTI_SIGNAL_BONUS_2
+            return score * Decimal(str(MULTI_SIGNAL_BONUS_2))
         return score
 
     def calculate_weighted_score(self, bundle: SignalBundle) -> tuple[float, int]:
         """Calculate weighted score from all signals.
 
-        Applies per-signal weights and multi-signal bonuses.
+        Applies per-signal weights and multi-signal bonuses. Confidences and the final
+        score are quantized to the persisted 3-decimal precision and combined in exact
+        decimal arithmetic, so recomputing from the persisted inputs and the configured
+        weights reproduces the returned score exactly.
 
         Args:
             bundle: SignalBundle with all available signals.
@@ -244,11 +269,10 @@ class RiskScorer:
         size_score, size_count = self._score_size_anomaly(bundle)
         signals_triggered = fresh_count + size_count
 
-        score = fresh_score
-        score += size_score
-        score += self._score_niche_market(bundle)
+        score = fresh_score + size_score + self._score_niche_market(bundle)
         score = self._apply_multi_signal_bonus(score, signals_triggered)
-        return min(score, 1.0), signals_triggered
+        quantized = min(score, Decimal(1)).quantize(SCORE_QUANTUM, rounding=ROUND_HALF_EVEN)
+        return float(quantized), signals_triggered
 
     async def assess_batch(self, bundles: list[SignalBundle]) -> list[RiskAssessment]:
         """Assess multiple trade bundles.

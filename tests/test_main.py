@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 import polymarket_insider_tracker.__main__ as cli
@@ -306,6 +308,50 @@ class TestMain:
         pipeline._stats.errors = 3
         pipeline._stats.last_error = "transient trade-processing error"
         assert _exit_code_for_pipeline(pipeline) == EXIT_SUCCESS
+
+
+class HangingStopPipeline:
+    """Working fake whose graceful stop never finishes on its own."""
+
+    def __init__(self, _settings: Settings, *, dry_run: bool = False) -> None:
+        self.dry_run = dry_run
+        self.state = None
+        self._stop_event = asyncio.Event()
+
+    @property
+    def stop_event(self) -> asyncio.Event:
+        return self._stop_event
+
+    async def start(self) -> None:
+        # Simulate an immediate internal stop request so run_pipeline reaches stop().
+        self._stop_event.set()
+
+    async def stop(self) -> None:
+        await asyncio.sleep(3600)
+
+
+class TestRunPipelineShutdownTimeout:
+    """run_pipeline must enforce shutdown_timeout around pipeline.stop (US3 scenario 4)."""
+
+    async def test_hanging_pipeline_stop_is_bounded_and_exits_error(self, monkeypatch):
+        """A stop that exceeds the shutdown timeout must end the process with exit 1."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        from polymarket_insider_tracker.__main__ import run_pipeline
+
+        exit_code = await asyncio.wait_for(
+            run_pipeline(
+                settings,
+                dry_run=True,
+                shutdown_timeout=0.1,
+                pipeline_factory=HangingStopPipeline,
+            ),
+            timeout=5.0,
+        )
+
+        assert exit_code == EXIT_ERROR
 
 
 class TestIntegration:

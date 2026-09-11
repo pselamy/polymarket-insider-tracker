@@ -233,6 +233,24 @@ class TestCleanupCallbacks:
         # Should not raise
         await shutdown.run_cleanup_callbacks()
 
+    async def test_hanging_cleanup_callback_is_bounded_by_shutdown_timeout(self) -> None:
+        """A hung cleanup callback must not stall shutdown past the configured timeout."""
+        shutdown = GracefulShutdown(timeout=0.1)
+        completed: list[str] = []
+
+        async def hanging_callback() -> None:
+            await asyncio.sleep(3600)
+
+        async def later_callback() -> None:
+            completed.append("later")
+
+        shutdown.register_cleanup(hanging_callback)
+        shutdown.register_cleanup(later_callback)
+
+        await asyncio.wait_for(shutdown.run_cleanup_callbacks(), timeout=5.0)
+
+        assert completed == ["later"]
+
 
 class TestAsyncContextManager:
     """Tests for async context manager protocol."""

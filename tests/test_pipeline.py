@@ -738,3 +738,20 @@ class TestWorkerSupervision:
         assert pipeline.state is PipelineState.ERROR
         assert pipeline.stats.errors == 1
         assert pipeline.stats.last_error == "terminal poller failure during startup"
+
+
+class TestProcessingErrorVisibility:
+    """Per-trade processing failures must be visible in the detailed health report (FR-003)."""
+
+    def test_pipeline_wires_stats_last_error_into_health_body(self) -> None:
+        from polymarket_insider_tracker.ingestor.health import HealthStatus
+
+        pipeline = Pipeline(make_test_settings())
+        pipeline._stats.last_error = "scoring failed for trade t-42"
+
+        monitor = pipeline.health_monitor
+        body = monitor._build_health_body(
+            monitor.get_health_report(), {}, HealthStatus.HEALTHY, 0.0
+        )
+
+        assert body["last_error"] == "scoring failed for trade t-42"

@@ -13,7 +13,9 @@ This contract governs the shared storage schema for slice 003 and slice 004, imp
 - **Table**: `risk_assessments`
 
 ### Columns Added:
-1. `delivery_disposition`: `VARCHAR(32)`, `nullable=False`, `server_default='dry_run'`
+1. `delivery_disposition`: `VARCHAR(32)`, `nullable=False`, `server_default='unrecorded'`
+   (rows existing before the migration have no recorded delivery outcome; backfilling them
+   as `dry_run` while `dry_run` defaults to false would assert contradictory facts)
 2. `delivery_channels`: `TEXT`, `nullable=True`
 3. `dry_run`: `BOOLEAN`, `nullable=False`, `server_default='false'`
 4. `volume_available`: `BOOLEAN`, `nullable=True`

@@ -14,6 +14,7 @@ import asyncio
 import logging
 import logging.config
 import sys
+from collections.abc import Callable
 from typing import NoReturn
 
 from pydantic import ValidationError
@@ -287,17 +288,33 @@ def _exit_code_for_pipeline(pipeline: Pipeline) -> int:
     return EXIT_SUCCESS
 
 
+async def _stop_pipeline_within(pipeline: Pipeline, timeout: float) -> bool:
+    """Stop the pipeline, bounded by the shutdown timeout; True means it finished."""
+    try:
+        await asyncio.wait_for(pipeline.stop(), timeout=timeout)
+        return True
+    except TimeoutError:
+        logging.getLogger(__name__).error(
+            "Graceful pipeline stop exceeded the %.1fs shutdown timeout", timeout
+        )
+        return False
+
+
 async def run_pipeline(
     settings: Settings,
     dry_run: bool,
     shutdown_timeout: float = 30.0,
+    *,
+    pipeline_factory: Callable[..., Pipeline] = Pipeline,
 ) -> int:
     """Run the main pipeline with graceful shutdown handling.
 
     Args:
         settings: Application settings.
         dry_run: Whether to skip sending alerts.
-        shutdown_timeout: Maximum time to wait for graceful shutdown.
+        shutdown_timeout: Maximum time to wait for graceful shutdown; a stop or cleanup
+            that exceeds it is abandoned and the process exits with code 1.
+        pipeline_factory: Pipeline constructor, replaceable for lifecycle tests.
 
     Returns:
         Exit code.
@@ -307,7 +324,7 @@ async def run_pipeline(
 
     try:
         async with shutdown:
-            pipeline = Pipeline(settings, dry_run=dry_run)
+            pipeline = pipeline_factory(settings, dry_run=dry_run)
 
             # Register pipeline cleanup
             shutdown.register_cleanup(pipeline.stop)
@@ -320,8 +337,10 @@ async def run_pipeline(
             await _wait_for_stop_or_shutdown(shutdown, pipeline)
 
             logger.info("Shutdown signal received, stopping pipeline...")
-            await pipeline.stop()
+            stopped_in_time = await _stop_pipeline_within(pipeline, shutdown_timeout)
 
+        if not stopped_in_time:
+            return EXIT_ERROR
         return _exit_code_for_pipeline(pipeline)
     except KeyboardInterrupt:
         logger.info("Interrupted by user")

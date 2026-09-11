@@ -249,13 +249,28 @@ class GracefulShutdown:
         sig_enum = signal.Signals(sig)
         self._handle_signal(sig_enum)
 
+    async def _run_cleanup_callback(self, callback: Callable[[], Any]) -> None:
+        result = callback()
+        if asyncio.iscoroutine(result):
+            await asyncio.wait_for(result, timeout=self._timeout)
+
     async def run_cleanup_callbacks(self) -> None:
-        """Run all registered cleanup callbacks."""
+        """Run all registered cleanup callbacks; awaited (coroutine) work is bounded.
+
+        A coroutine callback that exceeds the shutdown timeout is abandoned with an
+        error log so a hung component cannot stall process exit indefinitely; later
+        callbacks still run. Synchronous callbacks cannot be interrupted and are
+        expected to be fast.
+        """
         for callback in self._cleanup_callbacks:
             try:
-                result = callback()
-                if asyncio.iscoroutine(result):
-                    await result
+                await self._run_cleanup_callback(callback)
+            except TimeoutError:
+                logger.error(
+                    "Cleanup callback %r exceeded the %.1fs shutdown timeout; abandoning it",
+                    callback,
+                    self._timeout,
+                )
             except Exception as e:
                 logger.error("Cleanup callback failed: %s", e)
 

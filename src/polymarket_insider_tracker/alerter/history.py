@@ -177,6 +177,11 @@ class AlertHistory:
 
         return False, None
 
+    async def is_channel_delivered(self, channel: str, wallet: str, market: str) -> bool:
+        """Return True when a confirmed delivery is recorded inside the dedup window."""
+        key = self.get_channel_dedup_key(channel, wallet, market)
+        return bool(await self.redis.exists(key))
+
     async def record_channel_delivery(
         self, channel: str, wallet: str, market: str, ttl: int | None = None
     ) -> None:
@@ -184,6 +189,25 @@ class AlertHistory:
         key = self.get_channel_dedup_key(channel, wallet, market)
         effective_ttl = ttl or self._dedup_ttl
         await self.redis.set(key, datetime.now(UTC).isoformat(), ex=effective_ttl)
+
+    async def claim_channel_send(
+        self, channel: str, wallet: str, market: str, ttl: int = 60
+    ) -> bool:
+        """Atomically claim the single in-flight send for a delivery identity.
+
+        The ambiguity key doubles as the claim: ``SET NX EX`` either acquires it (True) or
+        observes a concurrent attempt or active ambiguity window (False). The claim is
+        released on a confirmed outcome and retained on an ambiguous one, so the
+        check-then-send sequence cannot deliver the same identity twice concurrently.
+        """
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        acquired = await self.redis.set(key, datetime.now(UTC).isoformat(), nx=True, ex=ttl)
+        return acquired is not None and acquired is not False
+
+    async def release_channel_claim(self, channel: str, wallet: str, market: str) -> None:
+        """Release the in-flight claim after a confirmed success or confirmed failure."""
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        await self.redis.delete(key)
 
     async def record_channel_ambiguous(
         self, channel: str, wallet: str, market: str, ttl: int = 60

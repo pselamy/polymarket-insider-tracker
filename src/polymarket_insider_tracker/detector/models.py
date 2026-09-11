@@ -235,7 +235,7 @@ class RiskAssessment:
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     # Slice 003 Safe Observable Operation fields
-    delivery_disposition: str = "dry_run"
+    delivery_disposition: str = "unrecorded"
     delivery_channels: str | None = None
     dry_run: bool = False
     volume_available: bool | None = None

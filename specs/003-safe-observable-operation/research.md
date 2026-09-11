@@ -93,12 +93,18 @@ This directly resolves G-014 by eliminating false "Ready to run" claims when ext
    - ZERO keys are written to Redis (`alert:dedup:*`).
    - The assessment is persisted with `delivery_disposition="dry_run"`.
 4. **Channel-Scoped Outcomes**:
-   - **Success**: Write `alert:dedup:{channel}:{wallet}:{market}` with TTL.
-   - **Confirmed Failure** (HTTP 4xx/5xx or transport connection error): Do NOT write dedup key. Channel remains immediately eligible for retry.
-   - **Ambiguous Outcome** (HTTP read timeout where remote endpoint may have received the payload): Write `alert:ambiguous:{channel}:{wallet}:{market}` with 60-second TTL.
+   - **Success**: Write `alert:dedup:{channel}:{wallet}:{market}` with TTL, then release the in-flight claim.
+   - **Confirmed Failure** (HTTP 4xx/5xx or transport connection error): Do NOT write dedup key; release the in-flight claim. Channel remains immediately eligible for retry.
+   - **Ambiguous Outcome** (HTTP read timeout where remote endpoint may have received the payload): Retain `alert:ambiguous:{channel}:{wallet}:{market}` refreshed to the 60-second TTL.
      - Within 60 seconds: Dispatch to this channel is suppressed to prevent double-send.
-     - After 60 seconds: Ambiguity expires; dispatch becomes eligible with an explicit `possible_duplicate=True` flag and log.
-5. **Deduplication Path Unification**:
+     - After 60 seconds: Ambiguity expires and dispatch becomes eligible; the `ambiguous` disposition is persisted and a possible-duplicate warning is logged at ambiguity time (the expired key leaves no retry-time marker).
+5. **Atomic In-Flight Claim** (prevents concurrent duplicate delivery):
+   The ambiguity key doubles as the per-identity send claim, acquired with `SET NX EX 60`
+   before an attempt and with the dedup key re-checked under the claim. Check-then-send is
+   therefore atomic against a shared Redis: two concurrent dispatches of one identity cannot
+   both deliver. Claim-state errors degrade toward delivery with a possible-duplicate
+   warning, matching the general dedup-state degradation rule.
+6. **Deduplication Path Unification**:
    Retire or delegate competing dedup methods in `AlertHistory` so that only the canonical channel-scoped contract is operational.
 
 ---
@@ -109,7 +115,7 @@ This directly resolves G-014 by eliminating false "Ready to run" claims when ext
 Slice 003 creates Alembic migration `003_safe_observable_operation` modifying `risk_assessments`.
 
 ### Added Columns:
-- `delivery_disposition` (VARCHAR(32), nullable=False, default="dry_run")
+- `delivery_disposition` (VARCHAR(32), nullable=False, default="unrecorded" — pre-existing rows have no recorded delivery outcome, so the backfill must not claim `dry_run` while `dry_run` backfills false)
 - `delivery_channels` (TEXT/JSON, nullable=True)
 - `dry_run` (BOOLEAN, nullable=False, default=False)
 - `volume_available` (BOOLEAN, nullable=True)
@@ -141,3 +147,44 @@ Exercises:
 2. Verified dry-run: 0 external calls, 0 dedup keys, explainable persisted assessment.
 3. Verified failure: persistence failure does not block alert; channel failure leaves dedup clean.
 4. Clean shutdown without orphaned background workers.
+
+---
+
+## 8. Reproducible Scoring at Persisted Precision (FR-012, Constitution IV)
+
+### Decision
+The alert decision is made at the same NUMERIC(4,3) precision the assessment schema
+persists. `RiskScorer` quantizes each signal confidence and the alert threshold to three
+decimals (`quantize_score_value`, banker's rounding), combines them in exact decimal
+arithmetic with the code-pinned weights and multi-signal bonuses, and quantizes the final
+score before comparing it to the quantized threshold. Assessment persistence uses the same
+quantizer, so the stored confidences, score, and threshold reproduce `should_alert` exactly.
+
+### Rationale
+The previous float comparison could decide `0.7999999999999999 < 0.8` while persisting
+`0.800 >= 0.800` with `should_alert=false` — a durable research record that contradicted
+its own decision and could not be replayed. Deciding at persisted precision changes
+behavior only within half a thousandth of the threshold and makes the record
+self-explanatory; the earlier float-artifact regression pin in `tests/detector/test_scorer.py`
+was replaced accordingly. Signal weights are the code-pinned `DEFAULT_WEIGHTS` in the wired
+pipeline (the persisted schema intentionally does not carry them, per the approved column
+set); a non-default weights configuration is logged at scorer construction so stored scores
+remain explainable.
+
+---
+
+## 9. Loopback Isolation Hardening for Service Verification (Constitution IV, AGENTS.md safe effects)
+
+### Decision
+`scripts/runtime_services.py` rejects, as prerequisites, every route libpq could take past
+the loopback-resolved host component: the `host`, `hostaddr`, `port`, and `service`
+DATABASE_URL query parameters, and the `PGHOSTADDR`, `PGSERVICE`, and `PGSERVICEFILE`
+environment variables. The Alembic migration subprocess additionally runs with every
+`PG*`-prefixed variable stripped from its environment; the disposable-database URL carries
+the complete credentials.
+
+### Rationale
+libpq documents that `hostaddr` (parameter or environment default) determines the actual
+connection address while `host` is used only for authentication purposes, and that a
+service file can supply unspecified parameters. Without these checks a loopback-validated
+URL could still create, migrate, and force-drop databases on a remote server.

@@ -104,14 +104,14 @@ When running, the tracker serves HTTP health and metrics endpoints on `--health-
 
 - **`/live`**: HTTP 200 `{"live": true}` while the event loop runs.
 - **`/ready`**: HTTP 200 `{"ready": true}` when PostgreSQL, Redis, and trade acquisition are healthy; HTTP 503 if any core dependency is degraded or stopped.
-- **`/health`**: Detailed JSON report with component statuses (`up`, `down`, `degraded`), probe latencies, acquisition timestamps, and quiet-period indicators.
+- **`/health`**: Detailed JSON report with component statuses (`up`, `down`, `degraded`), probe latencies, acquisition timestamps, quiet-period indicators, and a top-level `last_error` carrying the most recent worker or per-trade processing error (`null` when none).
 - **`/metrics`**: Prometheus metrics (`polymarket_events_total`, `polymarket_events_per_second`, `polymarket_stream_status`, `polymarket_last_event_timestamp`, `polymarket_health_status`).
 
 ### Safe Alert Delivery & Deduplication
 
 - **`--dry-run`**: Processes all trades and persists risk assessments with `delivery_disposition="dry_run"` while making zero external notification calls and writing zero deduplication keys to Redis.
 - **Channel-Scoped Deduplication**: Delivery history is tracked per channel (`alert:dedup:<channel>:<wallet>:<market>`). If delivery fails for one channel, it remains eligible for retry while successful channels are deduplicated.
-- **Ambiguity Suppression Window**: On channel delivery timeout, a 60-second window (`alert:ambiguous:<channel>:<wallet>:<market>`) suppresses immediate duplicate alerts while downstream delivery is indeterminate.
+- **Ambiguity Suppression Window**: On channel delivery timeout, a 60-second window (`alert:ambiguous:<channel>:<wallet>:<market>`) suppresses immediate duplicate alerts while downstream delivery is indeterminate. The same key is acquired atomically before every send attempt (and released on a confirmed outcome), so two concurrent dispatches of one wallet/market identity cannot both deliver.
 
 ---
 

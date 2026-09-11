@@ -68,7 +68,7 @@ The HTTP health server is exposed on `0.0.0.0:<port>`, where `<port>` defaults t
     "acquisition_freshness_seconds": 4.5,
     "trade_freshness_seconds": 10.5,
     "total_events_received": 1420,
-    "events_per_second": 12.4,
+    "total_events_per_second": 12.4,
     "components": {
       "database": {
         "status": "up",
@@ -86,10 +86,24 @@ The HTTP health server is exposed on `0.0.0.0:<port>`, where `<port>` defaults t
         "last_error": null
       }
     },
+    "streams": {
+      "trades": {
+        "status": "active",
+        "events_received": 1420,
+        "events_per_second": 12.4,
+        "last_event_time": 1788983715.0,
+        "last_error": null
+      }
+    },
     "last_error": null,
     "timestamp": 1788983725.5
   }
   ```
+
+The top-level `last_error` reports the pipeline's most recent worker or per-trade processing
+error (null when none has occurred). Per-trade processing failures are counted and surfaced
+here without failing `/ready` on their own; see the pipeline-lifecycle contract for their
+acknowledgment semantics.
 
 ---
 

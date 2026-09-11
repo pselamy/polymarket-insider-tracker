@@ -43,7 +43,7 @@ def test_risk_assessment_domain_model_has_slice003_fields() -> None:
         signals_triggered=2,
         should_alert=True,
     )
-    assert assessment.delivery_disposition == "dry_run"
+    assert assessment.delivery_disposition == "unrecorded"
     assert assessment.delivery_channels is None
     assert assessment.dry_run is False
     assert assessment.volume_available is None
@@ -51,6 +51,16 @@ def test_risk_assessment_domain_model_has_slice003_fields() -> None:
     assert assessment.book_depth_available is None
     assert assessment.wallet_tx_count is None
     assert assessment.wallet_age_known is None
+
+
+def test_delivery_disposition_default_never_claims_a_dry_run() -> None:
+    """Rows without a recorded delivery outcome must not be labeled ``dry_run`` while
+    ``dry_run`` stays false; the honest default for an unrecorded outcome is ``unrecorded``."""
+    column = RiskAssessmentModel.__table__.columns["delivery_disposition"]
+
+    assert column.default is not None and column.default.arg == "unrecorded"
+    assert column.server_default is not None
+    assert getattr(column.server_default, "arg", None) == "unrecorded"
 
 
 def test_risk_assessment_model_sqlite_round_trip() -> None:

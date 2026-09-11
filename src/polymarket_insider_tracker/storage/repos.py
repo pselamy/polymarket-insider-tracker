@@ -567,7 +567,7 @@ class RiskAssessmentDTO:
     wallet_age_hours: Decimal | None
     should_alert: bool
     threshold_at_eval: Decimal
-    delivery_disposition: str = "dry_run"
+    delivery_disposition: str = "unrecorded"
     delivery_channels: str | None = None
     dry_run: bool = False
     volume_available: bool | None = None

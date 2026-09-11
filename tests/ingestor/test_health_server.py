@@ -284,3 +284,41 @@ async def test_metrics_endpoint() -> None:
             assert "polymarket_events_total" in text
     finally:
         await monitor.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_reports_pipeline_last_error() -> None:
+    """/health must surface the pipeline's most recent processing error (FR-003)."""
+    monitor = HealthMonitor()
+    monitor.set_last_error_provider(lambda: "detector exploded for trade t1")
+    port = 19109
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}/health") as resp,
+        ):
+            data = await resp.json()
+            assert data["last_error"] == "detector exploded for trade t1"
+    finally:
+        await monitor.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_last_error_is_null_without_recorded_errors() -> None:
+    """A healthy run reports an explicit null last_error, not a missing key."""
+    monitor = HealthMonitor()
+    port = 19110
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}/health") as resp,
+        ):
+            data = await resp.json()
+            assert "last_error" in data
+            assert data["last_error"] is None
+    finally:
+        await monitor.stop()
