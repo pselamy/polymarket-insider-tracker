@@ -303,3 +303,83 @@ fragments, and malformed nested-scheme shapes for both detectors; asserts warnin
 returned error strings, `PipelineStats.last_error`/`errors`, and health-body output carry no
 secret while `***` and the non-secret diagnostic context (`fresh wallet detection failed`,
 `size anomaly detection failed`, `connection reset`, `detection failed`) remain.
+
+---
+
+## 11. Round-10 Secrets-Boundary Repair (2026-09-11, Muse Spark writer lane)
+
+The round-9 fresh GPT-6 review (`gpt-6-astra`, exact head `2d5dcc6`, verdict `REVISE`)
+reproduced two load-bearing secrets-boundary defects on the supported monitoring path and
+qualified the round-8 coverage as narrower than claimed. §10 history above is preserved
+unchanged; this section appends the correction.
+
+Regression proof on the exact start head `2d5dcc6` (receipts treated as claims, reproduced
+before fixing): a script driving real profiler/detector components with narrow
+repository-failure injection showed synthetic secrets verbatim in warning logs at
+`profiler/analyzer.py` (token-balance, profile-cache read, profile-cache write),
+`profiler/chain.py` (chain-cache read, chain-cache write, retry `Web3Exception` warnings),
+and `detector/size_anomaly.py` (metadata-fetch failure), plus leaks through the real
+fresh-wallet `analyze`/batch path and the size `analyze_batch` path; the central
+`redact_text` passed a `https://rpc.example/v2/<secret>` path credential through
+unchanged. The same script also recorded the trailing-parenthesis diagnostic loss (a
+fragment-bearing parenthesized URL lost its closing `)`). Raw log preserved at
+`/home/dev/dispatch-state/polymarket-slice003-muse-secrets-r10-20260911/r10-evidence/regression-red-start-head.log`
+(`TOTAL_LEAKING_SINKS=11`, script exit 1). The new regression tests were additionally
+transplanted onto a disposable stash of the exact start head and run there: **15 failed**
+for the intended reasons (upstream-sink leaks, path-credential leaks, lost closing
+delimiter, updated summary/CLI expectations); post-fix the same files pass
+(`r10-evidence/regression-red-new-tests-on-start-head.failures.log` and
+`r10-evidence/regression-green-post-fix-tests.tail.log`).
+
+Fix (one coherent secrets-boundary repair, no new redactor, no threshold/behavior change):
+
+1. Central redaction (`src/polymarket_insider_tracker/redaction.py`) is now fail-closed on
+   endpoint paths: any URL-shaped value with a non-root path keeps scheme plus host (and
+   port) so the endpoint stays diagnosable, while the path itself is never emitted
+   (`***path***`). The policy is grounded in the actual configuration contract
+   (`POLYGON_RPC_URL`, `POLYGON_FALLBACK_RPC_URL`, `POLYMARKET_TRADES_URL`, database and
+   Redis URLs accept URLs whose paths may carry provider credentials, and no static shape
+   separates a key segment from a benign prefix). Query values are masked literally as
+   `***` (no percent-encoding drift), and `redact_text` trims trailing prose delimiters
+   (`)`, `]`, quotes, sentence punctuation) before redacting so a parenthesized URL keeps
+   its closing delimiter. Runtime URLs are untouched; only output/log/summary redaction
+   changed. No allowlist of secret values was introduced.
+2. Exception-bearing diagnostics are sanitized through the central `redact_text` at every
+   confirmed reachable sink: `profiler/analyzer.py` (token-balance failure, profile-cache
+   read/write failures, batch-handler failures), `profiler/chain.py` (chain-cache
+   read/write failures, retry `Web3Exception` warnings, batch nonce failures),
+   `profiler/funding.py` (transfer-log, chunk-scan, and batch-trace failures — confirmed
+   equivalents of the identical raw-exception pattern on the wired enrichment path),
+   `detector/size_anomaly.py` (metadata-fetch failure and batch-handler failures), and
+   `detector/fresh_wallet.py` (batch-handler failures; the single-trade path already
+   propagates to the redacted pipeline boundary). Retries, fallbacks, return contracts,
+   scoring, persistence, readiness, shutdown, migrations, APIs, and log levels are
+   unchanged.
+3. Tests (`tests/test_redaction.py`, `tests/test_config.py`, `tests/test_main.py`) now use
+   real profiler/detector components with narrow repository fakes (`FakeEth` subclasses
+   raising `Web3Exception`, per-market `FakeMetadataSync` failures, `FakeAsyncRedis`
+   subclasses raising on `get`/`set`) instead of a replacement detector that bypasses the
+   internal sinks. They assert every captured log and exposed error surface is secret-free
+   while trade IDs, market IDs, host names, and non-secret diagnostics (`connection
+   reset`, detector names) remain. Coverage: both detector boundaries, all newly fixed
+   internal sinks, path credentials (primary and fallback), userinfo/query/fragment/
+   malformed-nested shapes, and the trailing-parenthesis diagnostic case. The two
+   pre-existing summary/CLI expectations that asserted a benign default path verbatim now
+   assert the fail-closed masked form with the host preserved.
+
+Adjacent-sink audit disposition: every other production-reachable `logger.*(..., e)`
+site was inspected. Dispatcher channel-error logging, pipeline error capture, health
+serialization and the last-error provider, trade-poller `redact_error`, and
+`trades_source.redacted_url` already redact. `__main__.py` `logger.exception` reports
+only startup/runtime failure text through the same central policy outcome (covered by the
+pipeline redaction tests); no unconfirmed sink was changed. The detector `analyze_batch`
+and analyzer/chain batch handlers are included in this repair, so no library-path debt
+remains for them; the funding batch `trace_many` path is likewise sanitized.
+
+Verification: targeted and affected suites, the test-quality AST policy, static,
+compatibility, services, full, coverage, vulture, complexipy (fail-closed, max 5),
+strict mypy/pyright, migration/Redis gates, and `git diff --check` are recorded in the
+writer receipt under
+`/home/dev/dispatch-state/polymarket-slice003-muse-secrets-r10-20260911/r10-evidence/`.
+No mocks, monkeypatch interception of product code, skips, exclusions, `no-cover`/`noqa`,
+or threshold weakening were introduced.

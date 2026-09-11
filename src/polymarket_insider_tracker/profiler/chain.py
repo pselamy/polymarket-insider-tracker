@@ -24,6 +24,7 @@ from web3.exceptions import Web3Exception
 from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
+from polymarket_insider_tracker.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +172,7 @@ class PolygonClient:
                 return value.decode()
             return str(value) if value is not None else None
         except Exception as e:
-            logger.warning("Cache get failed: %s", e)
+            logger.warning("Cache get failed: %s", redact_text(str(e)))
             return None
 
     async def _set_cached(self, key: str, value: str, ttl: int | None = None) -> None:
@@ -181,7 +182,7 @@ class PolygonClient:
         try:
             await self._redis.set(key, value, ex=ttl or self._cache_ttl)
         except Exception as e:
-            logger.warning("Cache set failed: %s", e)
+            logger.warning("Cache set failed: %s", redact_text(str(e)))
 
     def _should_try_primary(self) -> bool:
         """Check if we should try the primary RPC."""
@@ -233,7 +234,7 @@ class PolygonClient:
                     func_name,
                     attempt + 1,
                     self._max_retries,
-                    e,
+                    redact_text(str(e)),
                 )
                 delay = await self._sleep_retry_backoff(attempt, delay)
         return False, None, last_error
@@ -333,7 +334,7 @@ class PolygonClient:
 
     def _record_query_result(self, results: dict[str, int], addr: str, count_or_exc: Any) -> None:
         if isinstance(count_or_exc, BaseException):
-            logger.warning("Failed to get nonce for %s: %s", addr, count_or_exc)
+            logger.warning("Failed to get nonce for %s: %s", addr, redact_text(str(count_or_exc)))
             results[addr.lower()] = 0
         else:
             results[addr.lower()] = count_or_exc

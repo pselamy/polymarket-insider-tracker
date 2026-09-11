@@ -572,7 +572,9 @@ class TestSettings:
             summary = Settings().redacted_summary()["polymarket"]
 
         assert summary == {
-            "trades_url": "https://data-api.polymarket.com/trades",
+            # Fail-closed path redaction masks even this benign path segment;
+            # the host still identifies the supported trades source.
+            "trades_url": "https://data-api.polymarket.com/***path***",
             "coverage": "all",
             "poll_interval_seconds": "5",
             "recovery_horizon_seconds": "600",
@@ -602,17 +604,24 @@ class TestSettings:
 
     def test_redacted_summary_masks_rpc_and_trades_credentials(self) -> None:
         """Round-4 finding 6: RPC and trades URLs were returned verbatim, leaking
-        userinfo and query-string credentials through the "redacted" summary."""
+        userinfo and query-string credentials through the "redacted" summary.
+
+        Round-10 extends the same boundary to credential-bearing endpoint path
+        segments: a dedicated-provider path credential must not survive the
+        primary or fallback RPC summary either.
+        """
         rpc_secret = "rpc-userinfo-secret"
         trades_user_secret = "trades-userinfo-secret"
         trades_query_secret = "trades-query-secret"
+        rpc_path_secret = "rpc-path-segment-secret-r10"
+        fallback_path_secret = "fallback-path-segment-secret-r10"
         with env_context(
             {
                 "DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db",
-                "POLYGON_RPC_URL": f"https://{rpc_secret}@rpc.example.com/v1",
+                "POLYGON_RPC_URL": f"https://{rpc_secret}@rpc.example.com",
                 "POLYGON_FALLBACK_RPC_URL": f"https://user:{rpc_secret}@fallback.example.com",
                 "POLYMARKET_TRADES_URL": (
-                    f"https://user:{trades_user_secret}@data.example.com/trades"
+                    f"https://user:{trades_user_secret}@data.example.com"
                     f"?apikey={trades_query_secret}"
                 ),
             },
@@ -627,6 +636,22 @@ class TestSettings:
         # The routable shape stays diagnosable.
         assert "rpc.example.com" in flattened
         assert "data.example.com" in flattened
+
+        with env_context(
+            {
+                "DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db",
+                "POLYGON_RPC_URL": f"https://primary.example/v2/{rpc_path_secret}",
+                "POLYGON_FALLBACK_RPC_URL": f"https://fallback.example/v2/{fallback_path_secret}",
+            },
+            clear=True,
+        ):
+            path_summary = Settings().redacted_summary()
+
+        flattened_paths = str(path_summary)
+        assert rpc_path_secret not in flattened_paths
+        assert fallback_path_secret not in flattened_paths
+        assert "primary.example" in flattened_paths
+        assert "fallback.example" in flattened_paths
 
 
 class TestGetSettings:

@@ -17,6 +17,7 @@ from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.profiler.entities import EntityRegistry
 from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer
+from polymarket_insider_tracker.redaction import redact_text
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.profiler.chain import PolygonClient
@@ -248,7 +249,7 @@ class FundingTracer:
             logger.warning(
                 "Failed to get transfer logs for %s: %s",
                 to_address,
-                e,
+                redact_text(str(e)),
             )
             return None
 
@@ -340,7 +341,7 @@ class FundingTracer:
                 chunk_start,
                 chunk_end,
                 to_address,
-                e,
+                redact_text(str(e)),
             )
             return None, False
 
@@ -495,7 +496,7 @@ class FundingTracer:
         chains: dict[str, FundingChain] = {}
         for addr, result in zip(addresses, results, strict=True):
             if isinstance(result, BaseException):
-                logger.warning("Failed to trace %s: %s", addr, result)
+                logger.warning("Failed to trace %s: %s", addr, redact_text(str(result)))
                 chains[addr.lower()] = FundingChain(
                     target_address=addr.lower(),
                     origin_type="error",

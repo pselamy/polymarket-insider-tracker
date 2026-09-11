@@ -168,7 +168,7 @@ class TestRunConfigCheck:
         run_config_check(settings)
 
         out = capsys.readouterr().out
-        assert "Trades URL: https://data-api.polymarket.com/trades" in out
+        assert "Trades URL: https://data-api.polymarket.com/***path***" in out
         assert "Trades Coverage: all" in out
         assert "Trades Poll Interval: 5s" in out
         assert "Trades Recovery Horizon: 600s" in out
@@ -200,7 +200,7 @@ class TestRunConfigCheck:
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         monkeypatch.setenv(
             "POLYMARKET_TRADES_URL",
-            f"https://user:{user_secret}@data.example.com/trades?apikey={query_secret}",
+            f"https://user:{user_secret}@data.example.com?apikey={query_secret}",
         )
         settings = validate_config()
         assert settings is not None

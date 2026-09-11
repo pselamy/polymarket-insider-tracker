@@ -11,6 +11,7 @@ from typing import Any
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
+from polymarket_insider_tracker.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +166,7 @@ class SizeAnomalyDetector:
             logger.warning(
                 "Failed to get metadata for market %s: %s",
                 trade.market_id,
-                e,
+                redact_text(str(e)),
             )
             return self._create_minimal_metadata(trade)
 
@@ -399,7 +400,7 @@ class SizeAnomalyDetector:
             logger.warning(
                 "Failed to analyze trade %s: %s",
                 trade.trade_id,
-                result,
+                redact_text(str(result)),
             )
             return None
         return result
