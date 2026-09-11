@@ -17,6 +17,8 @@ from typing import cast
 
 import httpx
 
+from polymarket_insider_tracker.redaction import redact_text
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_HOST = "https://gamma-api.polymarket.com"
@@ -168,11 +170,12 @@ class GammaClient:
                     path,
                     attempt + 1,
                     self._max_retries,
-                    exc,
+                    redact_text(str(exc)),
                 )
                 delay = await self._retry_sleep(attempt, self._max_retries, delay)
         raise GammaClientError(
-            f"gamma {path} failed after {self._max_retries} attempts: {last_exc}"
+            f"gamma {path} failed after {self._max_retries} attempts: "
+            f"{redact_text(str(last_exc))}"
         )
 
     async def _fetch_single_page(

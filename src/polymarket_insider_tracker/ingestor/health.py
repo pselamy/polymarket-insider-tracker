@@ -475,7 +475,7 @@ class HealthMonitor:
         try:
             await self._on_health_change(report)
         except Exception as e:
-            logger.error("Error in health change callback: %s", e)
+            logger.error("Error in health change callback: %s", redact_text(str(e)))
 
     async def _run_health_check_step(self) -> None:
         try:
@@ -485,7 +485,7 @@ class HealthMonitor:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error("Error in health check loop: %s", e)
+            logger.error("Error in health check loop: %s", redact_text(str(e)))
             await asyncio.sleep(1)
 
     async def _health_check_loop(self) -> None:

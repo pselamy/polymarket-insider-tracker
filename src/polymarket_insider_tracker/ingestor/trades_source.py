@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from polymarket_insider_tracker import __version__
+from polymarket_insider_tracker.redaction import redact_url as _redact_url
 
 PAGE_LIMIT = 10_000
 RECOVERY_OFFSET = 10_000
@@ -134,13 +135,14 @@ class RequestAttempt:
 
 
 def redacted_url(url: str) -> str:
-    """Return ``url`` without credentials, query string, or fragment."""
-    parsed = urlsplit(url)
-    host = parsed.hostname or ""
-    if ":" in host:
-        host = f"[{host}]"
-    netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
-    return parsed._replace(netloc=netloc, query="", fragment="").geturl()
+    """Return the operator-facing endpoint label for ``url``.
+
+    The label goes through the central redaction policy so a non-root path
+    (``POLYMARKET_TRADES_URL`` accepts a proxied path that may carry a
+    credential segment) is fail-closed while scheme/host/port stay readable.
+    Runtime requests still use the configured URL unchanged.
+    """
+    return _redact_url(url)
 
 
 def start_for(boundary_time: int | None, horizon_seconds: int) -> int:

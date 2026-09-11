@@ -27,7 +27,7 @@ from polymarket_insider_tracker.config import (
     websocket_deprecation_message,
 )
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
-from polymarket_insider_tracker.redaction import redact_url
+from polymarket_insider_tracker.redaction import redact_text, redact_url
 from polymarket_insider_tracker.shutdown import GracefulShutdown, wait_bounded
 
 # Application info
@@ -371,7 +371,7 @@ async def run_pipeline(
         logger.info("Interrupted by user")
         return EXIT_INTERRUPTED
     except Exception as e:
-        logger.exception("Pipeline failed: %s", e)
+        logger.exception("Pipeline failed: %s", redact_text(str(e)))
         return EXIT_ERROR
 
 

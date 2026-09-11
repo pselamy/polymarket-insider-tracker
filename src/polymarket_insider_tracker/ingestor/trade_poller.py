@@ -51,6 +51,7 @@ from polymarket_insider_tracker.ingestor.trades_source import (
     TradesSourceClient,
     TradesTerminalError,
 )
+from polymarket_insider_tracker.redaction import redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -253,8 +254,13 @@ class _OpenGap:
 
 
 def redact_error(text: str) -> str:
-    """Strip query strings and wallet-shaped values from an error message."""
-    return _WALLET_PATTERN.sub("0x…", _QUERY_PATTERN.sub("?…", text))
+    """Sanitize a poller error before it reaches logs or stored status.
+
+    The legacy wallet/query scrub keeps non-secret operational context
+    readable; every URL-shaped value (including a credential-bearing trades
+    endpoint path) goes through the central fail-closed policy first.
+    """
+    return _WALLET_PATTERN.sub("0x…", _QUERY_PATTERN.sub("?…", redact_text(text)))
 
 
 def _utc(timestamp: float | None) -> datetime | None:
@@ -754,7 +760,11 @@ class TradePoller:
         try:
             await self._on_trade(observation.event)
         except Exception as exc:
-            logger.error("trade callback failed for %s: %s", observation.identity[:12], exc)
+            logger.error(
+                "trade callback failed for %s: %s",
+                observation.identity[:12],
+                redact_text(str(exc)),
+            )
             self._tallies.counts["callback_errors"] += 1
         self._tallies.processing_lag += max(0.0, self._clock() - started)
         await self.boundary.record_identity(observation.identity, observation.provider_timestamp)
@@ -789,7 +799,9 @@ class TradePoller:
         try:
             metadata = await self._metadata.get_cached_market(observation.event.market_id)
         except Exception as exc:
-            logger.warning("metadata lookup failed during outcome repair: %s", exc)
+            logger.warning(
+                "metadata lookup failed during outcome repair: %s", redact_text(str(exc))
+            )
             metadata = None
         return repair_outcome(observation, metadata)
 
@@ -854,4 +866,4 @@ class TradePoller:
         try:
             self._on_state_change(new_state)
         except Exception as exc:
-            logger.error("ingestion state callback failed: %s", exc)
+            logger.error("ingestion state callback failed: %s", redact_text(str(exc)))

@@ -240,7 +240,7 @@ class AlertDispatcher:
                 "Deduplication check unavailable for %s (%s); attempting delivery,"
                 " a duplicate is possible",
                 channel_name,
-                e,
+                redact_text(str(e)),
             )
             return None
         if not suppressed:
@@ -265,7 +265,7 @@ class AlertDispatcher:
                 "Delivery claim unavailable for %s (%s); attempting delivery,"
                 " a duplicate is possible",
                 channel_name,
-                e,
+                redact_text(str(e)),
             )
             return CLAIM_UNVERIFIED, None
         if token is None:
@@ -293,7 +293,7 @@ class AlertDispatcher:
                 "Failed to release delivery claim for %s (%s); retry may stay"
                 " suppressed for up to %ds",
                 channel_name,
-                e,
+                redact_text(str(e)),
                 self.claim_ttl_seconds,
             )
             return
@@ -340,7 +340,7 @@ class AlertDispatcher:
                 "Failed to record %s outcome for %s (%s); a later duplicate delivery is possible",
                 status,
                 channel_name,
-                e,
+                redact_text(str(e)),
             )
 
     async def _execute_channel_send(
@@ -461,7 +461,11 @@ class AlertDispatcher:
                 channel_name, wallet, market, token, ttl=self.claim_ttl_seconds
             )
         except Exception as e:
-            logger.warning("Failed to renew delivery claim for %s (%s)", channel_name, e)
+            logger.warning(
+                "Failed to renew delivery claim for %s (%s)",
+                channel_name,
+                redact_text(str(e)),
+            )
             return
         if not renewed:
             logger.warning(

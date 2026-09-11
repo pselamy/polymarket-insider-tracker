@@ -594,7 +594,8 @@ class TestTerminalFailures:
         assert status.state is IngestionState.FAILED
         assert status.last_error is not None
         assert fragment in status.last_error
-        assert "trades.invalid/trades" in status.last_error
+        assert "trades.invalid" in status.last_error
+        assert "***path***" in status.last_error
         assert "?" not in status.last_error
         assert len(server.requests) == requests_before + 1
         assert states.states[-1] is IngestionState.FAILED

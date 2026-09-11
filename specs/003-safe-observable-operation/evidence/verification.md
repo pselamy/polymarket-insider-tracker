@@ -383,3 +383,155 @@ writer receipt under
 `/home/dev/dispatch-state/polymarket-slice003-muse-secrets-r10-20260911/r10-evidence/`.
 No mocks, monkeypatch interception of product code, skips, exclusions, `no-cover`/`noqa`,
 or threshold weakening were introduced.
+
+---
+
+## 12. Round-12 Secrets-Boundary Correction (2026-09-11, Muse Spark writer lane)
+
+The round-11 Fable review (`claude-fable-5`, exact head `76bd4a56`, verdict `REVISE`)
+reproduced load-bearing secrets-boundary defects under the candidate's own fail-closed
+path-credential contract and recorded that §11's adjacent-sink audit sentence claiming
+those helpers "already redact" is inaccurate for the path threat model. §10 and §11
+history above is preserved unchanged; this section appends the correction. It also
+corrects the §10 sentence naming the trade-poller `redact_error` path as already
+redacting: that helper masked only query strings and wallet shapes, not endpoint paths.
+
+Regression proof on the exact start head `76bd4a56` (claims reproduced before fixing,
+on the unmodified commit):
+- `POLYMARKET_TRADES_URL=https://proxy.example/v2/<secret>/trades` passes `Settings`
+  validation; the HTTP failure builds
+  `TradesSourceError("HTTP 500 from https://proxy.example/v2/<secret>/trades")`, which
+  the poller `_degrade`/`_fail` path logs verbatim (`LEAK: True` on both
+  `redacted_url` output and the poller error string).
+- `redact_url("https://rpc.example/v2/KEY@prod")` returned completely unredacted.
+- `redact_url("wss://https://user:PW@meta.example/v2/KEY")` masked userinfo but
+  emitted path `/v2/KEY`.
+- `redact_url("https://host?SECRETTOKEN")` preserved the bare token as a key
+  (`?SECRETTOKEN=***`).
+Raw behavior log: `/tmp/r12-evidence/regression-red-start-head-actual.log`.
+The 31 new round-12 tests transplanted onto a pristine `git archive 76bd4a5` source
+tree (with `PYTHONPATH` pointed at the archived `src` so the start-head code is what
+runs) fail as intended: **26 failed / 5 passed**
+(`/tmp/r12-evidence/new-tests-on-start-head.failures.log`). The 5 passes are the
+runtime-URL-untouched check, the pre-existing-behavior idempotency-adjacent cases, and
+the dispatcher/clob cases whose product code already sanitized that shape; post-fix the
+same files pass 31/31. Post-fix behavior log:
+`/tmp/r12-evidence/regression-red-start-head.log` (`LEAK: False` on N1, masked N3a/N3b,
+`?***` on N5).
+
+Fix (one coherent secrets-boundary correction, no new redactor, no behavior change
+beyond diagnostics):
+1. N1 — `trades_source.redacted_url` now delegates to central `redact_url`, so a
+   proxied trades path is fail-closed (`https://proxy.example/***path***`) while
+   scheme/host/port stay diagnosable; every trades-source error message
+   (`_exhausted`, `_classify`, `_parse_success`, `_transient`) inherits the policy.
+   Poller `redact_error` now runs the legacy wallet/query scrub *after* central
+   `redact_text`, so `last_error` and the `_degrade`/`_fail` logs carry the masked
+   endpoint plus the non-secret operational context (`HTTP 403/503`,
+   `incompatible-schema`). Runtime request URLs are untouched (asserted: the
+   secret-bearing URL is still sent on the wire; only diagnostics change).
+   Regression: `TestTradesBoundaryRedaction` (3 tests) drives the real `Settings`
+   → real `TradesSourceClient` error construction → real poller `_degrade`/`_fail`
+   path over `FakeTradesServer` faults. Updated expectations:
+   `tests/ingestor/test_trades_source.py` (masked endpoint form),
+   `tests/ingestor/test_trade_poller.py` (host + `***path***` instead of the raw
+   `/trades` path), `tests/tooling/test_trades_smoke.py` (smoke `endpoint` record
+   is the redacted label).
+2. N2 — every production-reachable raw-exception interpolation now passes through
+   central `redact_text` at the boundary: `metadata_sync.py` (state-change,
+   initial-sync, sync-loop, batch-cache, sync-complete callbacks, `_record_sync_failure`,
+   both cached-parse sites, fetch-market, gamma-stats fallback), `publisher.py`
+   (deserialize), `clob_client.py` (retry backoff, market/orderbook error wrapping,
+   midpoint/price/health/server-time logs), `gamma_client.py` (retry warning and
+   terminal error), `health.py` (change-callback and check-loop logs),
+   `dispatcher.py` (dedup/claim/release/outcome/renew warnings; the send-error path
+   already redacted), `trade_poller.py` (callback, repair, state-callback logs),
+   `shutdown.py` (abandoned-work, cleanup-callback, handler-install warnings), and
+   the deprecation-fenced `websocket.py` (all log/store sites, including
+   `last_error`). Exception types, chaining (`from e`), retry counts, and
+   fallback/return contracts are unchanged. Regression: `TestAdjacentSinkRedaction`
+   drives each real component with a narrow explicit fake and asserts logs plus
+   stored `last_error` exclude the synthetic secret while identifiers and
+   diagnostics survive. Honestly dispositioned as *not changed*: `observation_boundary.py:130`
+   (`BoundarySchemaError` carries only Redis-hash field names, never a URL),
+   `publisher.py:308` (`"BUSYGROUP" in str(e)` is a membership test, never emitted),
+   `dispatcher.py:448-452` (abandoned-send debug logs only the exception class name),
+   Discord/Telegram channel response bodies (`response.status_code`/`response.text`,
+   API error code/description — delivery-side surfaces with no configured-credential
+   URL on the path; the `httpx.HTTPError` catch in each channel already redacts via
+   `self._redact`), and health `ComponentStatus` timeout strings (static text).
+3. N3 — `@`-in-path shapes can no longer bypass fail-closed path masking. The
+   structured branch now only handles URLs whose `@` (if any) is a genuine netloc
+   userinfo; a path `@` without netloc `@` falls into the existing fail-closed
+   path rule (`https://rpc.example/v2/KEY@prod` →
+   `https://rpc.example/***path***`); the split-across-boundary nested scheme
+   (`wss://https://user:PW@meta.example/v2/KEY`, netloc `https:` + path
+   `//user:PW@…`) routes to the shape-based fallback, which keeps the embedded
+   host readable and masks userinfo plus path
+   (`wss://https://***@meta.example/***`). The userinfo fallback now anchors on
+   the *first* `@` after the scheme, so a real userinfo plus a path `@`
+   (`https://user:pw@h:8443/v2/K@prod`) masks both. Regression:
+   `TestAmbiguousUrlShapes` table-drives the exact Fable probes plus
+   userinfo/IPv6/port/query/fragment/nested/trailing-delimiter variants, asserts
+   the runtime URL is still sent unchanged, and asserts surrounding prose
+   delimiters survive.
+4. N4 — `__main__.py` pipeline-failure handler now logs
+   `redact_text(str(e))` through the central policy. Limitation, honestly recorded:
+   `logger.exception` still attaches the raw traceback, which may echo the
+   exception text; the message line itself is sanitized while the traceback is
+   preserved for diagnosability. Regression: `test_run_pipeline_startup_failure_is_redacted`
+   drives the real `run_pipeline` with a raising `Pipeline.start()` whose error
+   embeds a credential-bearing DSN, and asserts every `__main__` message line is
+   secret-free with `***` present. Adjacent sinks closed in the same pass:
+   trade-poller callback/repair/state-callback logs (tested with the real poller
+   plus leaky callback/lookup fakes, asserting `callback_errors` still increments
+   and repair still returns the observation).
+5. N5 — a bare query token is now fail-closed: any `parse_qsl` pair with an empty
+   value renders as a bare `***`, so `?SECRETTOKEN` → `?***` and `?a=1&FLAG&b=2`
+   → `?a=***&***&b=***` (documented in `_redacted_query`: a bare token and a
+   `key=` pair with an empty value are indistinguishable without inventing parsing
+   semantics). Fragment/trailing-punctuation handling: fragments render as `#***`
+   and prose delimiters are trimmed before redaction, so no secret characters are
+   re-emitted (`(see https://meta.example#SECRET) trailing` keeps its delimiter;
+   `#SECRET.` → `#***`). If a narrower syntax is ever required, the contract stays
+   fail-closed masking. Regression: `test_bare_query_token_is_masked_fail_closed`,
+   `test_valueless_query_pairs_are_masked_fail_closed`, and the fragment/trailing
+   cases inside `TestAmbiguousUrlShapes`.
+
+Verification (post-fix, exact commands; logs under `/tmp/r12-evidence/`,
+`r12-*.log`):
+- New round-12 tests: 31 passed (`test_redaction.py -k` selection); full
+  `test_redaction.py`: 62 passed.
+- Targeted redaction/config/main/trades/metadata/publisher/dispatcher/pipeline/health
+  suites: 396 passed.
+- AST test-quality policy (`tests/tooling/test_test_quality.py`): 29 passed.
+- Full suite minus the two environment-blocked complexipy-tooling tests:
+  1246 passed, 1 skipped (non-integration) / 1275 passed, 3 skipped (all, minus
+  complexipy tooling); integration (real local Redis): 52 passed, 2 skipped.
+- Branch coverage: TOTAL 93% (`--cov-branch`).
+- Black: clean (116 files); Ruff: clean; `git diff --check`: clean.
+- Complexipy fail-closed launcher (max 5): passed (exit 0).
+- Vulture (default confidence): exit 0.
+- Strict mypy: **not runnable here** — the pinned gate requires
+  `uv run --isolated --locked ... mypy` (Python 3.11) and this environment has no
+  `uv` binary; the direct-venv run fails on a pre-existing numpy-stub /
+  `python_version=3.11` mismatch identical on the start head (environmental,
+  unrelated to this change). Pyright: 0 errors on `src/polymarket_insider_tracker`
+  (new-version notice only).
+- `tests/tooling/test_complexipy.py` (2 tests): fail here because they shell out to
+  `uv`, which is absent (pre-existing environmental failure, identical on the start
+  head). The underlying launcher command itself was run directly and passes.
+- Services profile (PostgreSQL + migration cycling): **not run** — no loopback
+  PostgreSQL in this environment (`pg_isready`: no response); Redis-contract tests
+  against local Redis pass (52 passed). No external providers, Polymarket,
+  trading, Discord/Telegram, production, cloud, or credentials were contacted.
+
+Evidence corrections vs prior sections: §10's "`redact_error` path already redact"
+and §11's "`trades_source.redacted_url` already redact / every other
+`logger.*(..., e)` site already redact / `__main__.py` covered by pipeline tests"
+sentences were inaccurate for the path threat model and the f-string sink class;
+they are superseded by the dispositions above. Surfaces tested by execution are
+listed per finding; the "not changed" list above is reasoned from exact call paths
+(stored-value flow or emission shape), not from a mechanical enforcement gate.
+Fresh evidence in this section binds to the final commit SHA recorded in the writer
+receipt; §10/§11 results remain bound to their original heads.

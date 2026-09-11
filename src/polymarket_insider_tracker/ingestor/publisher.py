@@ -15,6 +15,8 @@ from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from redis.typing import EncodableT, FieldT
 
+from polymarket_insider_tracker.redaction import redact_text
+
 from .models import TradeEvent
 
 logger = logging.getLogger(__name__)
@@ -146,7 +148,12 @@ def _parse_stream_entry(
         event = _deserialize_trade_event(data)
         return StreamEntry(entry_id=entry_id_str, event=event)
     except Exception as e:
-        logger.warning(f"Failed to deserialize {context} {entry_id_str}: {e}")
+        logger.warning(
+            "Failed to deserialize %s %s: %s",
+            context,
+            entry_id_str,
+            redact_text(str(e)),
+        )
         return None
 
 

@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any
 
+from polymarket_insider_tracker.redaction import redact_text
+
 logger = logging.getLogger(__name__)
 
 # Default shutdown timeout in seconds
@@ -48,7 +50,10 @@ def _consume_abandoned_result(task: asyncio.Task[Any]) -> None:
         return
     exception = task.exception()
     if exception is not None:
-        logger.error("Abandoned shutdown work failed after its deadline: %s", exception)
+        logger.error(
+            "Abandoned shutdown work failed after its deadline: %s",
+            redact_text(str(exception)),
+        )
 
 
 async def wait_bounded(awaitable: Awaitable[Any], timeout: float) -> bool:
@@ -210,7 +215,9 @@ class GracefulShutdown:
                 )
                 logger.debug("Installed handler for %s", sig.name)
             except (ValueError, OSError) as e:
-                logger.warning("Could not install handler for %s: %s", sig.name, e)
+                logger.warning(
+                    "Could not install handler for %s: %s", sig.name, redact_text(str(e))
+                )
 
     def _install_windows_handlers(self) -> None:
         """Install Windows signal handlers using signal.signal."""
@@ -222,7 +229,9 @@ class GracefulShutdown:
                 )
                 logger.debug("Installed handler for %s", sig.name)
             except (ValueError, OSError) as e:
-                logger.warning("Could not install handler for %s: %s", sig.name, e)
+                logger.warning(
+                    "Could not install handler for %s: %s", sig.name, redact_text(str(e))
+                )
 
     def remove_signal_handlers(self) -> None:
         """Remove installed signal handlers and restore originals."""
@@ -302,7 +311,7 @@ class GracefulShutdown:
                     self._timeout,
                 )
             except Exception as e:
-                logger.error("Cleanup callback failed: %s", e)
+                logger.error("Cleanup callback failed: %s", redact_text(str(e)))
 
     async def __aenter__(self) -> GracefulShutdown:
         """Async context manager entry - install signal handlers."""

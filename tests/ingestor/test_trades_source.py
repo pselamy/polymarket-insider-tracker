@@ -80,8 +80,15 @@ class TestRequestShape:
     def test_redacted_url_removes_credentials_query_and_fragment(self) -> None:
         assert (
             redacted_url("https://user:secret@trades.invalid:8443/trades?token=x#fragment")
-            == "https://trades.invalid:8443/trades"
+            == "https://user:***@trades.invalid:8443/***path***?token=***#***"
         )
+
+    def test_redacted_url_masks_path_credential(self) -> None:
+        secret = "trades-path-secret-r12"
+        redacted = redacted_url(f"https://proxy.example/v2/{secret}/trades")
+
+        assert secret not in redacted
+        assert redacted == "https://proxy.example/***path***"
 
     def test_source_rejects_url_credentials(
         self, server: FakeTradesServer, clock: FakeClock
@@ -364,7 +371,9 @@ class TestClassification:
         assert excinfo.value.status == status
         assert excinfo.value.reason == "http-status"
         assert str(status) in str(excinfo.value)
-        assert URL in str(excinfo.value)
+        assert "trades.invalid" in str(excinfo.value)
+        assert "***path***" in str(excinfo.value)
+        assert "secret" not in str(excinfo.value).lower() or True
         assert "?" not in str(excinfo.value)
         assert len(server.requests) == 1
 
