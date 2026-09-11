@@ -124,6 +124,19 @@ class TestValidateConfig:
         captured = capsys.readouterr()
         assert "Configuration validation failed" in captured.err
 
+    def test_validation_stderr_never_echoes_a_credential_bearing_url(self, monkeypatch, capsys):
+        """A malformed URL that carries a secret must be rejected without echoing it."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("POLYGON_RPC_URL", "https://https://user:TOPSECRET@example.com/hook")
+
+        settings = validate_config()
+        assert settings is None
+
+        captured = capsys.readouterr()
+        assert "Configuration validation failed" in captured.err
+        assert "TOPSECRET" not in captured.err
+        assert "TOPSECRET" not in captured.out
+
 
 class TestRunConfigCheck:
     """Tests for config check mode."""
@@ -317,6 +330,7 @@ class HangingStopPipeline:
         self.dry_run = dry_run
         self.state = None
         self._stop_event = asyncio.Event()
+        self.stop_calls = 0
 
     @property
     def stop_event(self) -> asyncio.Event:
@@ -327,31 +341,77 @@ class HangingStopPipeline:
         self._stop_event.set()
 
     async def stop(self) -> None:
+        self.stop_calls += 1
         await asyncio.sleep(3600)
+
+
+class CountingStopPipeline(HangingStopPipeline):
+    """Working fake whose stop succeeds instantly, for counting stop attempts."""
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
 
 
 class TestRunPipelineShutdownTimeout:
     """run_pipeline must enforce shutdown_timeout around pipeline.stop (US3 scenario 4)."""
 
     async def test_hanging_pipeline_stop_is_bounded_and_exits_error(self, monkeypatch):
-        """A stop that exceeds the shutdown timeout must end the process with exit 1."""
+        """A hung stop is one attempt under one deadline: exit 1 in ~timeout, not 2x."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         settings = validate_config()
         assert settings is not None
 
         from polymarket_insider_tracker.__main__ import run_pipeline
 
+        created: list[HangingStopPipeline] = []
+
+        def factory(settings: Settings, *, dry_run: bool = False) -> HangingStopPipeline:
+            created.append(HangingStopPipeline(settings, dry_run=dry_run))
+            return created[-1]
+
+        start = asyncio.get_running_loop().time()
         exit_code = await asyncio.wait_for(
             run_pipeline(
                 settings,
                 dry_run=True,
-                shutdown_timeout=0.1,
-                pipeline_factory=HangingStopPipeline,
+                shutdown_timeout=0.2,
+                pipeline_factory=factory,
+            ),
+            timeout=5.0,
+        )
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert exit_code == EXIT_ERROR
+        assert created[0].stop_calls == 1
+        # One 0.2s deadline, not the doubled 0.4s the cleanup callback used to add.
+        assert elapsed < 0.35
+
+    async def test_successful_stop_is_not_repeated_by_cleanup(self, monkeypatch):
+        """After the explicit stop finishes, shutdown cleanup must not stop again."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        from polymarket_insider_tracker.__main__ import EXIT_SUCCESS, run_pipeline
+
+        created: list[CountingStopPipeline] = []
+
+        def factory(settings: Settings, *, dry_run: bool = False) -> CountingStopPipeline:
+            created.append(CountingStopPipeline(settings, dry_run=dry_run))
+            return created[-1]
+
+        exit_code = await asyncio.wait_for(
+            run_pipeline(
+                settings,
+                dry_run=True,
+                shutdown_timeout=1.0,
+                pipeline_factory=factory,
             ),
             timeout=5.0,
         )
 
-        assert exit_code == EXIT_ERROR
+        assert exit_code == EXIT_SUCCESS
+        assert created[0].stop_calls == 1
 
 
 class TestIntegration:

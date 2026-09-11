@@ -213,11 +213,8 @@ def metadata_state(pipeline: Pipeline) -> SyncState:
 
 
 class FailingDetector:
-    """A detector whose analysis raises.
-
-    Real detectors swallow their collaborator failures, so this is the only way to reach the
-    pipeline's own detector-error handling.
-    """
+    """A detector whose analysis raises, exercising the pipeline's detector-failure
+    counting and skip-disposition handling deterministically."""
 
     def __init__(self, error: Exception) -> None:
         self.error = error

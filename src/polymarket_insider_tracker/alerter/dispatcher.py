@@ -25,6 +25,13 @@ CLAIM_ACQUIRED = "acquired"
 CLAIM_SUPPRESSED = "suppressed"
 CLAIM_UNVERIFIED = "unverified"
 
+# The claim lease and the bound on a single channel send. Every send attempt is cut
+# off (as an ambiguous outcome) before its claim can expire, so two concurrent
+# dispatches of one delivery identity can never both be sending: the proven
+# send-time bound is DEFAULT_SEND_DEADLINE_SECONDS < DEFAULT_CLAIM_TTL_SECONDS.
+DEFAULT_CLAIM_TTL_SECONDS = 60
+DEFAULT_SEND_DEADLINE_SECONDS = 45.0
+
 
 class AlertChannel(Protocol):
     """Protocol for alert delivery channels."""
@@ -88,6 +95,8 @@ class AlertDispatcher:
         failure_threshold: int = 5,
         recovery_timeout_seconds: int = 60,
         half_open_max_attempts: int = 3,
+        claim_ttl_seconds: int = DEFAULT_CLAIM_TTL_SECONDS,
+        send_deadline_seconds: float = DEFAULT_SEND_DEADLINE_SECONDS,
     ) -> None:
         """Initialize the dispatcher.
 
@@ -98,13 +107,28 @@ class AlertDispatcher:
             failure_threshold: Number of consecutive failures before opening circuit.
             recovery_timeout_seconds: Time to wait before half-opening circuit.
             half_open_max_attempts: Number of test attempts in half-open state.
+            claim_ttl_seconds: Lease on the per-identity in-flight claim and the
+                ambiguity suppression window.
+            send_deadline_seconds: Bound on one channel send; it must stay below the
+                claim lease so no send can outlive its claim.
+
+        Raises:
+            ValueError: If ``send_deadline_seconds`` does not leave the claim lease
+                intact for the whole send attempt.
         """
+        if send_deadline_seconds >= claim_ttl_seconds:
+            raise ValueError(
+                "send_deadline_seconds must be smaller than claim_ttl_seconds so a"
+                " send attempt can never outlive its in-flight claim"
+            )
         self.channels = channels
         self.history = history
         self.dry_run = dry_run
         self.failure_threshold = failure_threshold
         self.recovery_timeout_seconds = recovery_timeout_seconds
         self.half_open_max_attempts = half_open_max_attempts
+        self.claim_ttl_seconds = claim_ttl_seconds
+        self.send_deadline_seconds = send_deadline_seconds
 
         # Circuit breaker state per channel
         self._circuit_state: dict[str, CircuitBreakerState] = {
@@ -202,12 +226,19 @@ class AlertDispatcher:
             return None
         return reason
 
-    async def _claim_channel(self, channel_name: str, wallet: str, market: str) -> str:
-        """Acquire the atomic in-flight claim, degrading toward delivery on claim errors."""
+    async def _claim_channel(
+        self, channel_name: str, wallet: str, market: str
+    ) -> tuple[str, str | None]:
+        """Acquire the atomic in-flight claim, degrading toward delivery on claim errors.
+
+        Returns the claim state and, when acquired, this dispatch's ownership token.
+        """
         if not (self.history and wallet and market):
-            return CLAIM_UNVERIFIED
+            return CLAIM_UNVERIFIED, None
         try:
-            acquired = await self.history.claim_channel_send(channel_name, wallet, market)
+            token = await self.history.claim_channel_send(
+                channel_name, wallet, market, ttl=self.claim_ttl_seconds
+            )
         except Exception as e:
             logger.warning(
                 "Delivery claim unavailable for %s (%s); attempting delivery,"
@@ -215,8 +246,10 @@ class AlertDispatcher:
                 channel_name,
                 e,
             )
-            return CLAIM_UNVERIFIED
-        return CLAIM_ACQUIRED if acquired else CLAIM_SUPPRESSED
+            return CLAIM_UNVERIFIED, None
+        if token is None:
+            return CLAIM_SUPPRESSED, None
+        return CLAIM_ACQUIRED, token
 
     async def _delivered_while_claiming(
         self, history: AlertHistory, channel_name: str, wallet: str, market: str
@@ -227,40 +260,60 @@ class AlertDispatcher:
         except Exception:
             return False
 
-    async def _release_claim(self, channel_name: str, wallet: str, market: str) -> None:
-        if not (self.history and wallet and market):
+    async def _release_claim(
+        self, channel_name: str, wallet: str, market: str, token: str | None
+    ) -> None:
+        if not (self.history and wallet and market) or token is None:
             return
         try:
-            await self.history.release_channel_claim(channel_name, wallet, market)
+            released = await self.history.release_channel_claim(channel_name, wallet, market, token)
         except Exception as e:
             logger.warning(
                 "Failed to release delivery claim for %s (%s); retry may stay"
-                " suppressed for up to 60s",
+                " suppressed for up to %ds",
                 channel_name,
                 e,
+                self.claim_ttl_seconds,
+            )
+            return
+        if not released:
+            logger.warning(
+                "Delivery claim for %s expired or changed owner before release;"
+                " leaving the current claim untouched",
+                channel_name,
             )
 
     async def _write_outcome_state(
-        self, history: AlertHistory, channel_name: str, status: str, wallet: str, market: str
+        self,
+        history: AlertHistory,
+        channel_name: str,
+        status: str,
+        wallet: str,
+        market: str,
+        token: str | None,
     ) -> None:
         if status == "delivered":
             await history.record_channel_delivery(channel_name, wallet, market)
-            await self._release_claim(channel_name, wallet, market)
+            await self._release_claim(channel_name, wallet, market, token)
         elif status == "ambiguous":
-            # The claim key becomes the ambiguity marker; refresh it to the full window.
-            await history.record_channel_ambiguous(channel_name, wallet, market)
+            # The claim key becomes the (ownerless) ambiguity marker for the full
+            # window; suppressing everyone, including a newer claimant, is the safe
+            # direction because it can only delay, never duplicate, a delivery.
+            await history.record_channel_ambiguous(
+                channel_name, wallet, market, ttl=self.claim_ttl_seconds
+            )
         else:
             # Confirmed failure (or an open circuit): the claim must not delay retry.
-            await self._release_claim(channel_name, wallet, market)
+            await self._release_claim(channel_name, wallet, market, token)
 
     async def _record_channel_outcome(
-        self, channel_name: str, status: str, wallet: str, market: str
+        self, channel_name: str, status: str, wallet: str, market: str, token: str | None
     ) -> None:
         history = self.history
         if not (history and wallet and market):
             return
         try:
-            await self._write_outcome_state(history, channel_name, status, wallet, market)
+            await self._write_outcome_state(history, channel_name, status, wallet, market, token)
         except Exception as e:
             logger.warning(
                 "Failed to record %s outcome for %s (%s); a later duplicate delivery is possible",
@@ -277,7 +330,11 @@ class AlertDispatcher:
             logger.debug("Skipping %s - circuit open", channel_name)
             return False, "circuit_open"
         try:
-            success = await channel.send(alert)
+            # The deadline keeps every send attempt strictly inside its claim lease;
+            # a cut-off send may already have been accepted, so it is ambiguous.
+            success = await asyncio.wait_for(
+                channel.send(alert), timeout=self.send_deadline_seconds
+            )
             if success:
                 self._record_success(channel_name)
                 return True, "delivered"
@@ -297,7 +354,7 @@ class AlertDispatcher:
             return False, "failed"
 
     async def _duplicate_under_claim(
-        self, channel_name: str, wallet: str, market: str
+        self, channel_name: str, wallet: str, market: str, token: str
     ) -> str | None:
         """A dedup key written between the fast-path check and the claim wins."""
         history = self.history
@@ -305,34 +362,35 @@ class AlertDispatcher:
             return None
         if not await self._delivered_while_claiming(history, channel_name, wallet, market):
             return None
-        await self._release_claim(channel_name, wallet, market)
+        await self._release_claim(channel_name, wallet, market, token)
         return "duplicate"
 
     async def _suppression_before_send(
         self, channel_name: str, wallet: str, market: str
-    ) -> str | None:
-        """Return a suppression status, or None when this dispatch may send."""
+    ) -> tuple[str | None, str | None]:
+        """Return (suppression status, claim token); a None status means this dispatch may send."""
         suppression = await self._check_channel_suppression(channel_name, wallet, market)
         if suppression is not None:
-            return suppression
-        claim = await self._claim_channel(channel_name, wallet, market)
+            return suppression, None
+        claim, token = await self._claim_channel(channel_name, wallet, market)
         if claim == CLAIM_SUPPRESSED:
             # A concurrent dispatch holds the claim or an ambiguity window is active.
-            return "ambiguous_timeout"
+            return "ambiguous_timeout", None
         if claim == CLAIM_ACQUIRED:
-            return await self._duplicate_under_claim(channel_name, wallet, market)
-        return None
+            assert token is not None
+            return await self._duplicate_under_claim(channel_name, wallet, market, token), token
+        return None, None
 
     async def _send_to_channel_with_history(
         self, channel: AlertChannel, alert: FormattedAlert, wallet: str, market: str
     ) -> tuple[str, bool, str]:
         channel_name = channel.name
-        suppression = await self._suppression_before_send(channel_name, wallet, market)
+        suppression, token = await self._suppression_before_send(channel_name, wallet, market)
         if suppression is not None:
             return channel_name, False, suppression
 
         success, status = await self._execute_channel_send(channel, alert)
-        await self._record_channel_outcome(channel_name, status, wallet, market)
+        await self._record_channel_outcome(channel_name, status, wallet, market, token)
         return channel_name, success, status
 
     @staticmethod

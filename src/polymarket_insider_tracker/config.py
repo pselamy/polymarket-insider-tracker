@@ -30,10 +30,11 @@ def _check_url_scheme(value: str, allowed_schemes: tuple[str, ...], name: str) -
     raise ValueError(f"{name} must be an HTTP(S) endpoint")
 
 
-def _check_nested_schemes(netloc: str, name: str, value: str) -> None:
+def _check_nested_schemes(netloc: str, name: str) -> None:
     for s in ("http:", "https:", "ws:", "wss:"):
         if s in netloc:
-            raise ValueError(f"{name} contains malformed nested scheme in host: {value}")
+            # Never echo the supplied URL: it may carry credentials (userinfo or query).
+            raise ValueError(f"{name} contains a malformed nested scheme in its host component")
 
 
 def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: str) -> str:
@@ -41,7 +42,7 @@ def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: st
     parts = urlsplit(value)
     if not parts.hostname:
         raise ValueError(f"{name} must include a valid hostname")
-    _check_nested_schemes(parts.netloc, name, value)
+    _check_nested_schemes(parts.netloc, name)
     return value
 
 
@@ -94,7 +95,11 @@ class RedisSettings(BaseSettings):
     """Redis connection settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     url: RedisUrl = Field(
@@ -108,7 +113,11 @@ class PolygonSettings(BaseSettings):
     """Polygon blockchain RPC settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="POLYGON_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="POLYGON_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     rpc_url: HttpEndpointUrl = Field(
@@ -167,7 +176,11 @@ class PolymarketSettings(BaseSettings):
     """Polymarket public data source settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="POLYMARKET_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="POLYMARKET_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     trades_url: HttpEndpointUrl = Field(
@@ -215,7 +228,11 @@ class DiscordSettings(BaseSettings):
     """Discord notification settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="DISCORD_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="DISCORD_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     webhook_url: SecretStr | None = Field(
@@ -234,7 +251,11 @@ class TelegramSettings(BaseSettings):
     """Telegram notification settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="TELEGRAM_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="TELEGRAM_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     bot_token: SecretStr | None = Field(
@@ -263,7 +284,11 @@ class DetectorSettings(BaseSettings):
     """Risk-scorer / detector tuning."""
 
     model_config = SettingsConfigDict(
-        env_prefix="DETECTOR_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="DETECTOR_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     alert_threshold: float = Field(
@@ -306,6 +331,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # Nested configuration groups

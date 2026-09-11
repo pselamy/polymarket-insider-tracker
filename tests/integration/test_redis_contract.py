@@ -443,6 +443,50 @@ async def test_watched_type_change_aborts_before_transaction_writes(
         await competitor.aclose()
 
 
+async def test_compare_and_delete_removes_only_the_owned_value(contract: ContractRedis) -> None:
+    """The delivery-claim release sequence: WATCH, GET, compare, MULTI DELETE.
+
+    ``AlertHistory.release_channel_claim`` relies on exactly this sequence to delete a
+    claim only while its ownership token is still the stored value.
+    """
+    redis, key = contract.client, contract.key("claim")
+    await redis.set(key, "owner-token", ex=60)
+
+    async with redis.pipeline(transaction=True) as pipe:
+        await pipe.watch(key)
+        assert await pipe.get(key) == b"owner-token"
+        pipe.multi()
+        pipe.delete(key)
+        assert await pipe.execute() == [1]
+
+    assert await redis.exists(key) == 0
+
+
+async def test_compare_and_delete_aborts_when_the_value_changes_under_watch(
+    contract: ContractRedis,
+) -> None:
+    """A claim re-acquired by another owner between WATCH and EXEC must survive."""
+    redis, key = contract.client, contract.key("claim")
+    await redis.set(key, "stale-token", ex=60)
+    competitor = (
+        FakeAsyncRedis(server=contract.fake_server)
+        if contract.fake_server is not None
+        else await _connect_real_redis()
+    )
+    try:
+        async with redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(key)
+            assert await pipe.get(key) == b"stale-token"
+            await competitor.set(key, "new-owner-token", ex=60)
+            pipe.multi()
+            pipe.delete(key)
+            with pytest.raises(WatchError):
+                await pipe.execute()
+        assert await redis.get(key) == b"new-owner-token"
+    finally:
+        await competitor.aclose()
+
+
 @pytest.mark.parametrize("key_name", ["checkpoint_key", "identities_key", "loss_events_key"])
 async def test_observation_boundary_rejects_wrong_key_types_atomically(
     contract: ContractRedis, key_name: str

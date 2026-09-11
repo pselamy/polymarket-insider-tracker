@@ -57,9 +57,14 @@ class StreamHealth:
 
 @dataclass
 class ComponentStatus:
-    """Health and latency status of an external dependency or worker."""
+    """Health and latency status of an external dependency or worker.
 
-    status: str  # "up" or "down"
+    ``status`` is ``"up"``, ``"degraded"`` (reachable and progressing, but with a
+    recoverable failure or possible-data-loss condition worth surfacing), or
+    ``"down"`` (unavailable or terminally failed).
+    """
+
+    status: str
     latency_ms: float | None = None
     last_error: str | None = None
 
@@ -67,6 +72,11 @@ class ComponentStatus:
     def is_up(self) -> bool:
         """Return True if component status is up."""
         return self.status == "up"
+
+    @property
+    def is_down(self) -> bool:
+        """Return True if the component is unavailable or terminally failed."""
+        return self.status == "down"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert component status to dictionary."""
@@ -338,16 +348,28 @@ class HealthMonitor:
         window_span = now - cutoff
         return len(recent_events) / window_span if window_span > 0 else 0.0
 
-    def _evaluate_stream_without_events(self, name: str, stream: StreamHealth, now: float) -> None:
+    def _latest_activity_time(self, stream: StreamHealth) -> float | None:
+        """Freshest proof of source progress: a received event or a successful acquisition.
+
+        A quiet market produces successful empty acquisitions without trade events;
+        trade silence alone must not mark a reachable, progressing source stale.
+        """
+        times = [t for t in (stream.last_event_time, self._last_acquisition_time) if t is not None]
+        return max(times) if times else None
+
+    def _evaluate_stream_without_activity(
+        self, name: str, stream: StreamHealth, now: float
+    ) -> None:
         if not stream.connected_since:
             return
         if (now - stream.connected_since) > self._stale_threshold:
             stream.status = StreamStatus.STALE
             STREAM_STATUS.labels(stream=name).set(0.5)
 
-    def _evaluate_stream_with_events(self, name: str, stream: StreamHealth, now: float) -> None:
-        assert stream.last_event_time is not None
-        if (now - stream.last_event_time) > self._stale_threshold:
+    def _evaluate_stream_activity(
+        self, name: str, stream: StreamHealth, activity: float, now: float
+    ) -> None:
+        if (now - activity) > self._stale_threshold:
             stream.status = StreamStatus.STALE
             STREAM_STATUS.labels(stream=name).set(0.5)
         else:
@@ -357,10 +379,11 @@ class HealthMonitor:
     def _check_single_stream_staleness(self, name: str, stream: StreamHealth, now: float) -> None:
         if stream.status == StreamStatus.DISCONNECTED:
             return
-        if stream.last_event_time is None:
-            self._evaluate_stream_without_events(name, stream, now)
+        activity = self._latest_activity_time(stream)
+        if activity is None:
+            self._evaluate_stream_without_activity(name, stream, now)
         else:
-            self._evaluate_stream_with_events(name, stream, now)
+            self._evaluate_stream_activity(name, stream, activity, now)
 
     def _check_stream_staleness(self) -> None:
         """Check all streams for staleness."""
@@ -516,7 +539,7 @@ class HealthMonitor:
     @classmethod
     def first_failure_reason(cls, components: dict[str, ComponentStatus]) -> str:
         for name, comp in components.items():
-            if not comp.is_up:
+            if comp.is_down:
                 return cls._reason_for_component(name)
         return "unhealthy"
 
@@ -544,15 +567,24 @@ class HealthMonitor:
 
     @classmethod
     def all_components_up(cls, components: dict[str, ComponentStatus]) -> bool:
-        return not cls._has_unhealthy_component(components)
+        """Readiness gate: only a down component fails readiness (FR-002).
+
+        A degraded component is reachable and still making progress; it is surfaced
+        in the components summary and detailed health rather than failing readiness.
+        """
+        return not cls._has_down_component(components)
 
     @staticmethod
     def components_summary(components: dict[str, ComponentStatus]) -> dict[str, str]:
         return {name: comp.status for name, comp in components.items()}
 
     @staticmethod
-    def _has_unhealthy_component(components: dict[str, ComponentStatus]) -> bool:
-        return any(not comp.is_up for comp in components.values())
+    def _has_down_component(components: dict[str, ComponentStatus]) -> bool:
+        return any(comp.is_down for comp in components.values())
+
+    @staticmethod
+    def _has_degraded_component(components: dict[str, ComponentStatus]) -> bool:
+        return any(not comp.is_up and not comp.is_down for comp in components.values())
 
     @classmethod
     def _determine_health_status(
@@ -560,8 +592,10 @@ class HealthMonitor:
         report_status: HealthStatus,
         components: dict[str, ComponentStatus],
     ) -> HealthStatus:
-        if components and cls._has_unhealthy_component(components):
+        if cls._has_down_component(components):
             return HealthStatus.UNHEALTHY
+        if cls._has_degraded_component(components) and report_status == HealthStatus.HEALTHY:
+            return HealthStatus.DEGRADED
         return report_status
 
     @staticmethod
@@ -660,6 +694,13 @@ class HealthMonitor:
         await site.start()
 
         logger.info("Health HTTP server started on port %d", port)
+
+    @property
+    def http_addresses(self) -> list[tuple[str, int]]:
+        """The (host, port) pairs the health HTTP server is actually bound to."""
+        if not self._runner:
+            return []
+        return [(address[0], address[1]) for address in self._runner.addresses]
 
     async def stop_http_server(self) -> None:
         """Stop the HTTP server."""

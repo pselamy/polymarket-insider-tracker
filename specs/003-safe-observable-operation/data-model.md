@@ -28,7 +28,7 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 | `size` | NUMERIC(20, 6) | No | - | Share count |
 | `notional_usdc` | NUMERIC(20, 6) | No | - | Total trade value in USDC |
 | `trade_timestamp` | TIMESTAMP WITH TIME ZONE | No | - | Execution time |
-| `weighted_score` | NUMERIC(4, 3) | No | - | Calculated composite risk score (0.000 - 1.000). Confidences, the score, and the threshold are quantized to this 3-decimal precision *before* the alert decision, so the stored values exactly explain and replay `should_alert`; signal weights are the code-pinned scorer defaults (non-default weights are logged) |
+| `weighted_score` | NUMERIC(4, 3) | No | - | Calculated composite risk score (0.000 - 1.000). Confidences, the score, and the threshold are quantized to this 3-decimal precision *before* the alert decision, so the stored values exactly explain and replay `should_alert`; signal weights are constants of `SCORING_ALGORITHM_VERSION` (no runtime weight configuration exists, so every stored row maps to exactly one algorithm) |
 | `signals_triggered` | INTEGER | No | - | Number of operational signal groups triggered |
 | `fresh_wallet_confidence` | NUMERIC(4, 3) | Yes | NULL | Confidence of fresh wallet signal |
 | `size_anomaly_confidence` | NUMERIC(4, 3) | Yes | NULL | Confidence of size anomaly signal |
@@ -38,7 +38,7 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 | `wallet_age_hours` | NUMERIC(10, 2) | Yes | NULL | Observed wallet age in hours |
 | `should_alert` | BOOLEAN | No | - | True if weighted_score >= threshold_at_eval |
 | `threshold_at_eval` | NUMERIC(4, 3) | No | - | Effective threshold used for evaluation |
-| `delivery_disposition` | VARCHAR(32) | No | 'unrecorded' | Outcome: `dry_run`, `below_threshold`, `delivered`, `partial_failure`, `failed`, `duplicate`, `ambiguous`, `no_channels`, `unrecorded` (delivery state not recorded: rows predating migration 003 or inserts outside the dispatch path) |
+| `delivery_disposition` | VARCHAR(32) | No | 'unrecorded' | Outcome: `dry_run`, `below_threshold`, `detector_failure` (every detector failed or the only working detector found nothing while another failed — the row durably explains the absent evidence and is never dispatched), `delivered`, `partial_failure`, `failed`, `duplicate`, `ambiguous`, `no_channels`, `unrecorded` (delivery state not recorded: rows predating migration 003 or inserts outside the dispatch path) |
 | `delivery_channels` | TEXT | Yes | NULL | JSON map of channel name to delivery status |
 | `dry_run` | BOOLEAN | No | FALSE | True if evaluated under dry-run mode |
 | `volume_available` | BOOLEAN | Yes | NULL | True if 24h market volume was available |
@@ -72,11 +72,16 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 
 ### 2.2 Ambiguity / In-Flight Claim Key
 - **Key Pattern**: `alert:ambiguous:{channel}:{wallet}:{market}`
-- **Value**: ISO-8601 UTC timestamp of the send attempt.
-- **TTL**: 60 seconds (refreshed to the full window on an ambiguous outcome).
+- **Value**: the acquiring dispatch's unique ownership token (uuid4 hex) while the claim is
+  held; an ownerless ISO-8601 UTC timestamp after an ambiguous outcome refreshes the window.
+- **TTL**: `claim_ttl_seconds` (default 60; refreshed to the full window on an ambiguous
+  outcome). Every send runs under `send_deadline_seconds` (default 45) which must be smaller,
+  so no send outlives its claim.
 - **Written By**: `AlertDispatcher`, atomically (`SET NX EX`) before each send attempt as
-  the per-identity in-flight claim; released (`DEL`) on confirmed success or confirmed
-  failure, retained on network timeout or indeterminate send outcome.
+  the per-identity in-flight claim; released by compare-and-delete with the ownership token
+  (`WATCH`/`MULTI`) on confirmed success or confirmed failure, retained on network timeout
+  or indeterminate send outcome. A stale owner (expired lease) can never delete a newer
+  claim.
 - **Semantics**:
   - While active (<60s): Suppresses automatic retry — and any concurrent dispatch of the
     same identity — to prevent double delivery.

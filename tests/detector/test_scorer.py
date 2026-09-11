@@ -16,6 +16,7 @@ from polymarket_insider_tracker.detector.scorer import (
     DEFAULT_ALERT_THRESHOLD,
     DEFAULT_WEIGHTS,
     MULTI_SIGNAL_BONUS_2,
+    SCORING_ALGORITHM_VERSION,
     RiskScorer,
     SignalBundle,
     quantize_score_value,
@@ -274,21 +275,17 @@ class TestRiskScorerInit:
         scorer = RiskScorer(fake_redis)
 
         assert scorer._alert_threshold == DEFAULT_ALERT_THRESHOLD
-        assert scorer._weights == DEFAULT_WEIGHTS
         assert scorer._dedup_window == 3600
 
     def test_custom_configuration(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test scorer with custom configuration."""
-        custom_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
+        """Test scorer with custom threshold and window configuration."""
         scorer = RiskScorer(
             fake_redis,
-            weights=custom_weights,
             alert_threshold=0.7,
             dedup_window_seconds=1800,
         )
 
         assert scorer._alert_threshold == 0.7
-        assert scorer._weights == custom_weights
         assert scorer._dedup_window == 1800
 
 
@@ -659,35 +656,69 @@ class TestBatchAnalysis:
 # ============================================================================
 
 
-class TestWeightManagement:
-    """Tests for weight get/set functionality."""
+class TestPinnedAlgorithm:
+    """Weights are algorithm constants: no runtime configuration may exist (FR-012).
 
-    def test_get_weights(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test getting weights returns a copy."""
+    The persisted assessment schema stores no weights or version column, so a stored
+    record replays its decision only while exactly one weight set exists per
+    ``SCORING_ALGORITHM_VERSION``.
+    """
+
+    def test_get_weights_returns_pinned_copy(self, fake_redis: FakeAsyncRedis) -> None:
         scorer = RiskScorer(fake_redis)
 
         weights = scorer.get_weights()
 
         assert weights == DEFAULT_WEIGHTS
-        # Verify it's a copy, not the original
+        # Mutating the returned copy must not change the algorithm.
         weights["fresh_wallet"] = 999
-        assert scorer._weights["fresh_wallet"] != 999
+        assert scorer.get_weights() == DEFAULT_WEIGHTS
 
-    def test_set_weights(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test setting new weights."""
+    def test_no_runtime_weight_mutation_exists(self, fake_redis: FakeAsyncRedis) -> None:
         scorer = RiskScorer(fake_redis)
-        new_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
+        assert not hasattr(scorer, "set_weights")
 
-        scorer.set_weights(new_weights)
+    def test_no_constructor_weight_configuration_exists(self, fake_redis: FakeAsyncRedis) -> None:
+        with pytest.raises(TypeError):
+            RiskScorer(fake_redis, weights={"fresh_wallet": 1.0})  # type: ignore[call-arg]
 
-        assert scorer._weights == new_weights
+    def test_algorithm_version_is_pinned(self) -> None:
+        assert SCORING_ALGORITHM_VERSION == "003.1"
 
-    def test_set_weights_makes_copy(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test set_weights makes a copy of the input."""
-        scorer = RiskScorer(fake_redis)
-        new_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
+    @pytest.mark.asyncio
+    async def test_persisted_record_replays_with_pinned_algorithm_only(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+    ) -> None:
+        """Recompute a decision from persisted-precision values and pinned weights only.
 
-        scorer.set_weights(new_weights)
-        new_weights["fresh_wallet"] = 999
+        This is the durable-record replay contract: everything needed besides the row
+        itself is a constant of SCORING_ALGORITHM_VERSION.
+        """
+        fresh_conf = 0.7999999999999999
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=replace(fresh_wallet_signal, confidence=fresh_conf),
+            size_anomaly_signal=size_anomaly_signal,
+        )
 
-        assert scorer._weights["fresh_wallet"] == 0.5
+        assessment = await RiskScorer(fake_redis, alert_threshold=0.8).assess(bundle)
+
+        # The "persisted row": quantized confidences, score, threshold, and decision.
+        stored_fresh = quantize_score_value(fresh_conf)
+        stored_size = quantize_score_value(size_anomaly_signal.confidence)
+        stored_score = quantize_score_value(assessment.weighted_score)
+        stored_threshold = quantize_score_value(0.8)
+
+        replayed = (
+            stored_fresh * Decimal(str(DEFAULT_WEIGHTS["fresh_wallet"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["size_anomaly"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["niche_market"]))
+        ) * Decimal(str(MULTI_SIGNAL_BONUS_2))
+        replayed_score = min(replayed, Decimal(1)).quantize(Decimal("0.001"))
+
+        assert stored_score == replayed_score
+        assert assessment.should_alert == (stored_score >= stored_threshold)

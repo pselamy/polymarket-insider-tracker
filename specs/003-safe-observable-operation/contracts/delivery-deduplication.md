@@ -44,23 +44,36 @@ sent; the channel MUST NOT re-post internally and MUST surface the ambiguity (ra
 reads or writes that fail (for example a Redis outage) degrade toward eventual delivery with
 an explicit possible-duplicate warning; they never block an authorized delivery attempt.
 
-### Atomic in-flight claim
+### Atomic in-flight claim with ownership and a bounded send
 
 The `alert:ambiguous:{channel}:{wallet}:{market}` key doubles as the per-identity in-flight
-send claim. Before a send attempt the dispatcher acquires it atomically (`SET NX EX 60`),
-re-checks the dedup key under the claim, and only then contacts the channel:
+send claim. Before a send attempt the dispatcher acquires it atomically (`SET NX EX
+claim_ttl`, default 60 s) with a **unique ownership token** as the value, re-checks the dedup
+key under the claim, and only then contacts the channel:
 
 - claim not acquired → the attempt is suppressed as an unknown outcome (`ambiguous_timeout`);
 - confirmed success → the dedup key is written first, then the claim is released;
 - confirmed failure (or open circuit breaker) → the claim is released so retry is immediate;
-- ambiguous outcome → the claim is refreshed to the full 60-second window and retained.
+- ambiguous outcome → the key is refreshed to the full claim window (ownerless) and retained.
 
-This closes the check-then-send race: two concurrent dispatches of the same delivery identity
-against a shared Redis cannot both deliver. Claim errors degrade toward delivery (a duplicate
-is possible) exactly like other dedup-state failures. Aggregate classification never counts a
-suppressed-unknown channel as delivered: `all_succeeded` requires every counted channel to be
-a confirmed success, and any unknown outcome downgrades a delivered aggregate to
-`partial_failure`.
+Two guarantees make the claim safe across lease expiry:
+
+1. **Proven send-time bound.** Every channel send runs under `send_deadline_seconds`
+   (default 45 s), which the dispatcher requires to be strictly smaller than
+   `claim_ttl_seconds`. A send cut off at the deadline is recorded as ambiguous (the payload
+   may already have been accepted) and the ambiguity window is retained, so no send attempt
+   can ever outlive its claim and two concurrent dispatches of one identity can never both
+   be sending.
+2. **Compare-and-delete release.** Release happens only while the stored value still equals
+   this dispatch's ownership token (`WATCH`/`MULTI` transaction). A claim that expired and
+   was re-acquired by another dispatch is never deleted by the stale owner. A stale owner's
+   ambiguous refresh may overwrite a newer claim; that direction only extends suppression
+   and can never cause a duplicate delivery.
+
+Claim errors degrade toward delivery (a duplicate is possible) exactly like other
+dedup-state failures. Aggregate classification never counts a suppressed-unknown channel as
+delivered: `all_succeeded` requires every counted channel to be a confirmed success, and any
+unknown outcome downgrades a delivered aggregate to `partial_failure`.
 
 ---
 

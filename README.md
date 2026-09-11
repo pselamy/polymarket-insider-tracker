@@ -103,7 +103,7 @@ python -m polymarket_insider_tracker --help
 When running, the tracker serves HTTP health and metrics endpoints on `--health-port` (default `8080` or `HEALTH_PORT`):
 
 - **`/live`**: HTTP 200 `{"live": true}` while the event loop runs.
-- **`/ready`**: HTTP 200 `{"ready": true}` when PostgreSQL, Redis, and trade acquisition are healthy; HTTP 503 if any core dependency is degraded or stopped.
+- **`/ready`**: HTTP 200 `{"ready": true}` when PostgreSQL, Redis, and trade acquisition can make progress; HTTP 503 when a required dependency is unavailable or ingestion has terminally failed. A recoverable `degraded` or `possible-data-loss` source stays ready but is reported as `"degraded"` in the components summary with its error in `/health`.
 - **`/health`**: Detailed JSON report with component statuses (`up`, `down`, `degraded`), probe latencies, acquisition timestamps, quiet-period indicators, and a top-level `last_error` carrying the most recent worker or per-trade processing error (`null` when none).
 - **`/metrics`**: Prometheus metrics (`polymarket_events_total`, `polymarket_events_per_second`, `polymarket_stream_status`, `polymarket_last_event_timestamp`, `polymarket_health_status`).
 
@@ -186,7 +186,7 @@ uv run --env-file .env python scripts/trades_smoke.py --live --window-seconds 5 
 | **Funding Chains** | Trace wallet funding to known entities (exchanges, etc.) | On-chain lineage |
 | **Sniper Clusters** | DBSCAN clustering of wallets entering within minutes | Coordinated behavior |
 
-Risk scoring combines signals with configurable weights (default threshold: 0.6). Multi-signal bonuses: 2 signals +20%, 3+ signals +30%.
+Risk scoring combines signals with pinned algorithm weights (alert threshold 0.80, tunable via `DETECTOR_ALERT_THRESHOLD`). Multi-signal bonuses: 2 signals +20%, 3+ signals +30%. Weights are constants of the scoring algorithm version, so every persisted assessment can be replayed exactly from its stored inputs.
 
 ### Sample Alert
 

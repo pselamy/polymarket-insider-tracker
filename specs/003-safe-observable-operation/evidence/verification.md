@@ -151,6 +151,8 @@ and contract), not `NUMERIC(20, 2)`.
 - SC-006's negative half (no route responds on the superseded default port) is not asserted
   by an automated test because binding/asserting on the shared default port 8080 would be
   flaky on developer hosts; the override-port behavior and busy-port failure are tested.
+  *(Superseded by the round-3 repair, 2026-09-11: now deterministically tested with two
+  dynamically allocated ports — see §8, finding 8.)*
 - After the 60s ambiguity key expires it leaves no marker, so the possible-duplicate
   warning is logged (and the `ambiguous` disposition persisted) at ambiguity time rather
   than at the later retry; README and the delivery contract document that a duplicate
@@ -193,3 +195,45 @@ coverage, isolated 3.11/3.12 suites, and the gated real-PostgreSQL backfill test
   described in finding 5 (previously `delivered`/`failed`, now `partial_failure`/`ambiguous`).
 - Legacy rows migrated by `003_safe_observable_operation` now read `unrecorded` instead
   of `dry_run`. The migration is unmerged, so no deployed data is affected.
+
+---
+
+## 8. Phase 3 Round-3 Findings Repair (2026-09-11, Claude Fable 5, phase 2 rerun)
+
+The round-3 phase-3 adversarial review (`gpt-5.6-sol`) of head `66ced41` returned
+`FINDINGS` with eight items. Each was independently reproduced at that head before fixing;
+every fix began with a regression test red at the unfixed head (for API-replacing fixes,
+the defect was reproduced with the old API in-process before the new-API regression tests
+were written).
+
+| # | Severity | Finding (reproduced) | Fix |
+|---|---|---|---|
+| 1 | High | `_check_ingestion` reported `up`/no error for `IngestionState.DEGRADED` and `POSSIBLE_DATA_LOSS`; a previously active but quiet trade stream was marked `stale` despite a 2-second-old acquisition (the prior quiet-market test never created production stream state). | Recoverable poller states map to a `degraded` component carrying the poller's error (or `ingestion state: <state>`); `/health` reports overall `degraded` (200) and readiness fails only for `down` components per FR-002. Stream staleness is based on the freshest of trade arrival and successful acquisition. The quiet-market test now creates real stream state; new tests cover stale-acquisition, never-evented-stream, degraded `/ready` and `/health` bodies, and the pipeline state mapping. |
+| 2 | High | The in-flight claim was an ownerless fixed-TTL `SET NX EX` with unconditional `DEL`: a send outlasting the 60s lease let a second dispatch claim and send (two `delivered` calls reproduced with a scaled 1s lease), and the stale first owner could delete the newer claim. | Claims store a unique ownership token and are released only via `WATCH`/`MULTI` compare-and-delete (parity contract-tested on fakeredis and real Redis); every channel send runs under `send_deadline_seconds` (45s) strictly below `claim_ttl_seconds` (60s), enforced at construction, so a slow send becomes an ambiguous outcome inside its live claim and no send outlives its claim. Regression tests cover token uniqueness, stale-owner release, lease expiry, the send bound, and the scaled two-dispatch reproduction (now: zero completed sends, `ambiguous`/`ambiguous_timeout`). |
+| 3 | High | Detector wrappers swallowed exceptions into `None` (and the fresh-wallet detector additionally swallowed wallet-profiling failures), so a failing detector left `errors=0`, `last_error=None`, and zero assessments — indistinguishable from "no signal". | Profiling failures propagate out of the fresh-wallet detector; the pipeline counts each failed detector into `PipelineStats.errors`/`last_error` (surfaced at `/health`). With a surviving signal the assessment proceeds (NULL evidence columns show what was absent); with no signal at all a `delivery_disposition='detector_failure'` skip row durably explains the absent evidence and is never dispatched. Tests cover one-detector and all-detector failures, plus the persist-disabled path. |
+| 4 | High | `RiskScorer` accepted custom weights and runtime `set_weights()` mutation while the schema stores neither weights nor an algorithm version; logging was the only trace, so persisted assessments were not reproducible under supported configuration. | Weight configurability was removed entirely (no constructor argument, no mutation API) and the algorithm is versioned in code (`SCORING_ALGORITHM_VERSION = "003.1"`); with exactly one weight set per version, every stored row replays from its own values plus pinned constants. Documented in the assessment-storage contract §4; a persisted-record replay regression recomputes decision and score from stored-precision values and pinned weights only. |
+| 5 | Medium | `run_pipeline` stopped the pipeline under the shutdown timeout and the registered cleanup stopped it again under a fresh timeout: a 0.1s timeout took ~0.204s (reproduced: 2 stop calls). | A single-stop guard shares the one attempt between the explicit path and the cleanup callback (also after a timed-out, abandoned attempt). Regression tests assert exactly one stop call and elapsed ≈ one timeout for the hanging case, and no re-stop after a successful stop. |
+| 6 | Medium | `_check_nested_schemes` embedded the complete supplied URL in its ValueError, echoing embedded credentials (`user:TOPSECRET@…` reproduced verbatim). | The message names the field and the defect without the value; `hide_input_in_errors=True` was additionally set on every settings group so pydantic never renders raw inputs. Direct-validator tests (HTTP and WebSocket) and a CLI-stderr test assert the secret never appears. Channel error logging was also hardened: httpx error text is logged with the credential-bearing webhook URL / bot token redacted (regression-tested). |
+| 7 | Medium | The full instrumented branch-coverage suite was not reproducible: consecutive runs failed once each (`1 failed, 1175 passed, 3 skipped`), alternating between the dry-run end-to-end readiness assert and the worker-crash readiness scenario. Reproduced on the first baseline run; root-caused to `FakeClock.sleep` yielding without real delay, letting the poller free-run and starve the event loop under coverage until the 1.0s bounded database check timed out (`database_unreachable` captured in a diagnostic loop). | `FakeClock.sleep` now takes a 2ms real sleep per fake sleep so paced fakes cannot monopolize the loop, and the two tests synchronize on readiness with a bounded poll (the settled state is still asserted; a crash still must settle to not-ready). Full instrumented suite re-run repeatedly green (see §8 re-verification). |
+| 8 | Medium | SC-006 was claimed covered while its negative half (no health route on the superseded port) was explicitly untested. | New deterministic test with two dynamically allocated ports: all four documented routes answer 200 on the effective port, the server's actual bound sockets (`HealthMonitor.http_addresses`) contain only the effective port, and connecting to the superseded port is refused; after stop, no addresses remain bound. |
+
+### Round-3 Repair Re-Verification (post-fix)
+
+Recorded with exact command output in `PHASE2_RESULT.md` (dispatch-state directory):
+static, compatibility (isolated 3.11/3.12/3.13), and services profiles against real
+loopback PostgreSQL 16.15 and Redis 8.10.1, the `all` profile, the full suite with branch
+coverage (repeated), and the gated real-service integration directory.
+
+### Behavioral changes accepted with this repair
+
+- `/ready` no longer fails for recoverable `degraded`/`possible-data-loss` ingestion; the
+  component is reported `degraded` instead of the untruthful `up`, and `/health` becomes
+  overall `degraded` (200). Terminal and unavailable states still fail readiness (503).
+- A channel send slower than 45 seconds (rate-limit waits and retries included) is now cut
+  off as an ambiguous outcome instead of running unbounded; the ambiguity window then
+  applies as documented.
+- `RiskScorer` no longer accepts a `weights` argument and `set_weights`/mutation no longer
+  exists (unwired, library-only configurability removed under FR-012/Constitution IV; the
+  wired pipeline never passed weights). `get_weights()` still returns the pinned constants.
+- Trades whose detectors all fail now persist a `detector_failure` skip row (previously no
+  row) and detector failures increment the error counters (previously silent).

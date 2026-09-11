@@ -39,3 +39,21 @@ The `downgrade()` function in `003_safe_observable_operation`:
 
 ## 3. Domain Model Synchronization
 The SQLAlchemy `RiskAssessmentModel` in `src/polymarket_insider_tracker/storage/models.py` and the domain dataclass `RiskAssessment` in `src/polymarket_insider_tracker/detector/models.py` MUST expose matching fields.
+
+---
+
+## 4. Scoring Algorithm Versioning
+The schema stores no signal weights or algorithm-version column (the human-approved
+clarification enumerates exactly the 8 columns above). A stored row replays its decision
+(Constitution IV, FR-012) only because:
+
+- signal weights, multi-signal bonuses, quantization, and combination rules are constants of
+  `SCORING_ALGORITHM_VERSION` (`003.1`) in `detector/scorer.py`;
+- no runtime weight configuration exists — `RiskScorer` accepts no weights argument and has
+  no mutation API — so every persisted row maps to exactly one algorithm;
+- confidences, the threshold, and the score are quantized to the persisted `NUMERIC(4,3)`
+  precision *before* the decision.
+
+Any future change to weights, bonuses, or combination rules MUST bump
+`SCORING_ALGORITHM_VERSION` and, before rows from two algorithms can coexist, obtain a schema
+decision (Patrick) on persisting the version per row.

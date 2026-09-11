@@ -260,6 +260,38 @@ class TestPolygonSettings:
         ):
             PolygonSettings()
 
+    @pytest.mark.parametrize(
+        "validator_name",
+        ["_validate_http_url", "_validate_websocket_url"],
+    )
+    def test_nested_scheme_error_never_echoes_the_credential_bearing_url(
+        self, validator_name: str
+    ) -> None:
+        """The rejection message must not include the supplied URL or its secret."""
+        import polymarket_insider_tracker.config as config_module
+
+        validator = getattr(config_module, validator_name)
+        scheme = "https" if validator_name == "_validate_http_url" else "wss"
+        secret_url = f"{scheme}://{scheme}://user:TOPSECRET@example.com/hook"
+
+        with pytest.raises(ValueError) as exc_info:
+            validator(secret_url)
+
+        message = str(exc_info.value)
+        assert "TOPSECRET" not in message
+        assert secret_url not in message
+        assert "nested scheme" in message
+
+    def test_validation_error_for_nested_scheme_hides_the_input(self) -> None:
+        """The pydantic rendering of the failure must not include the raw input either."""
+        with (
+            env_context({"POLYGON_RPC_URL": "https://https://user:TOPSECRET@example.com"}),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            PolygonSettings()
+
+        assert "TOPSECRET" not in str(exc_info.value)
+
 
 TRADES_REPLACEMENT_VARIABLES = (
     "POLYMARKET_TRADES_URL",

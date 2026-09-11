@@ -98,7 +98,10 @@ class FakeClock:
     async def sleep(self, seconds: float) -> None:
         self.sleeps.append(seconds)
         self.now += seconds
-        await asyncio.sleep(0)
+        # A tiny real sleep, not a bare yield: a poller free-running on instant fake
+        # sleeps monopolizes the event loop under instrumentation and starves bounded
+        # concurrent work (readiness checks time out spuriously).
+        await asyncio.sleep(0.002)
 
 
 @dataclass(frozen=True)

@@ -57,6 +57,51 @@ def fake_telegram_channel() -> FakeAlertChannel:
 # ============================================================================
 
 
+class TestChannelErrorRedaction:
+    """Channel error logs must never echo the credential-bearing URL or token."""
+
+    @pytest.mark.asyncio
+    async def test_discord_network_error_log_redacts_webhook_url(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=1, retry_delay=0.0)
+        server = discord_webhook(
+            network_error=httpx.ConnectError(f"connection failed for {DISCORD_WEBHOOK_URL}")
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert "connection failed" in caplog.text
+        assert DISCORD_WEBHOOK_URL not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_telegram_network_error_log_redacts_token(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        token = "12345:SECRET-BOT-TOKEN"
+        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
+        server = telegram_bot_api(
+            network_error=httpx.ConnectError(
+                f"connection failed for https://api.telegram.org/bot{token}/sendMessage"
+            )
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert "connection failed" in caplog.text
+        assert token not in caplog.text
+
+
 class TestDiscordChannel:
     """Tests for Discord channel."""
 

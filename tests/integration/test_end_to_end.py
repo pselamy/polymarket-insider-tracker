@@ -113,6 +113,38 @@ async def _run_until(predicate: Any, *, timeout: float = 5.0) -> None:
     raise AssertionError("condition was not reached")
 
 
+async def _await_readiness(
+    pipeline: Any, expected: bool, *, timeout: float = 5.0
+) -> tuple[bool, str | None, dict[str, str]]:
+    """Poll readiness until it reaches the expected value (bounded), then return it.
+
+    Under instrumentation a bounded dependency check can transiently exceed its
+    1-second budget while the loop is busy; readiness truthfully dips for that
+    moment. The assertion target is the settled state, so the poll converts
+    scheduler latency into a bounded wait instead of a flaky one-shot assert.
+    """
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        ready, reason, summary = await pipeline.check_readiness()
+        if ready is expected or asyncio.get_running_loop().time() >= deadline:
+            return ready, reason, summary
+        await asyncio.sleep(0.01)
+
+
+async def _get_ready_until_200(
+    session: aiohttp.ClientSession, port: int, *, timeout: float = 5.0
+) -> dict[str, Any]:
+    """Poll GET /ready until it answers 200 (bounded), returning the final body."""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        async with session.get(f"http://127.0.0.1:{port}/ready") as resp:
+            body: dict[str, Any] = await resp.json()
+            if resp.status == 200 or asyncio.get_running_loop().time() >= deadline:
+                assert resp.status == 200, body
+                return body
+        await asyncio.sleep(0.01)
+
+
 class FailingDatabaseManager:
     """DatabaseManager fake that raises an exception when obtaining a session."""
 
@@ -160,8 +192,8 @@ class TestEndToEndPipelineHarness:
             await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
             await _run_until(lambda: len(server.requests) >= 1)
 
-            # Check health readiness
-            ready, reason, _ = await pipeline.check_readiness()
+            # Check health readiness (bounded poll; the settled state is asserted)
+            ready, reason, _ = await _await_readiness(pipeline, True)
             assert ready is True
             assert reason is None
 
@@ -172,10 +204,8 @@ class TestEndToEndPipelineHarness:
                     data = await resp.json()
                     assert data == {"live": True}
 
-                async with session.get(f"http://127.0.0.1:{unused_tcp_port}/ready") as resp:
-                    assert resp.status == 200
-                    data = await resp.json()
-                    assert data["ready"] is True
+                data = await _get_ready_until_200(session, unused_tcp_port)
+                assert data["ready"] is True
 
                 async with session.get(f"http://127.0.0.1:{unused_tcp_port}/health") as resp:
                     assert resp.status == 200
@@ -351,7 +381,7 @@ class TestEndToEndPipelineHarness:
             await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
             await _run_until(lambda: len(server.requests) >= 1)
 
-            ready_before, _, _ = await pipeline.check_readiness()
+            ready_before, _, _ = await _await_readiness(pipeline, True)
             assert ready_before is True
 
             # Trigger terminal 401 error on trade polling
@@ -361,7 +391,7 @@ class TestEndToEndPipelineHarness:
             assert pipeline.state is PipelineState.ERROR
             assert pipeline.stats.errors >= 1
 
-            ready_after, reason, _ = await pipeline.check_readiness()
+            ready_after, reason, _ = await _await_readiness(pipeline, False)
             assert ready_after is False
             assert reason is not None
         finally:

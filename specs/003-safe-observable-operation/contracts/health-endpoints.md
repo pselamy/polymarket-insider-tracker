@@ -24,9 +24,10 @@ The HTTP health server is exposed on `0.0.0.0:<port>`, where `<port>` defaults t
 ## 2. `GET /ready`
 **Purpose**: Readiness probe indicating whether the pipeline is prepared to ingest and process trades.
 
-- **Success Status**: `200 OK` (when PostgreSQL, Redis, and trade poller are healthy)
-- **Failure Status**: `503 Service Unavailable` (when any required component is unhealthy, degraded, or terminated)
+- **Success Status**: `200 OK` (no required component is `down`; FR-002 fails readiness only for an unavailable dependency, a terminally failed ingestion worker, or blocked progress)
+- **Failure Status**: `503 Service Unavailable` (when any required component is `down`)
 - **Response Headers**: `Content-Type: application/json`
+- **Component status values**: `up`, `degraded`, `down`. A recoverable ingestion condition (`IngestionState.DEGRADED` or `POSSIBLE_DATA_LOSS`) is reported as `degraded`: the source is still reachable and progressing, so readiness holds, but the state is never hidden as `up`. Its error detail appears in `/health`.
 - **Response Body (Success)**:
   ```json
   {
@@ -38,6 +39,7 @@ The HTTP health server is exposed on `0.0.0.0:<port>`, where `<port>` defaults t
     }
   }
   ```
+  (`"ingestion": "degraded"` may appear here while ready remains true.)
 - **Response Body (Failure)**:
   ```json
   {
@@ -50,6 +52,7 @@ The HTTP health server is exposed on `0.0.0.0:<port>`, where `<port>` defaults t
     }
   }
   ```
+  `reason` is `ingestion_worker_failed` for a down ingestion worker and `<component>_unreachable` for a down dependency.
 
 ---
 
@@ -104,6 +107,17 @@ The top-level `last_error` reports the pipeline's most recent worker or per-trad
 error (null when none has occurred). Per-trade processing failures are counted and surfaced
 here without failing `/ready` on their own; see the pipeline-lifecycle contract for their
 acknowledgment semantics.
+
+Component and overall degradation semantics:
+
+- A `degraded` component (recoverable acquisition failure or possible-data-loss) carries its
+  `last_error` (or `ingestion state: <state>` when the state itself is the condition) and makes
+  the overall `status` at least `"degraded"` while the response stays `200`.
+- A `down` component makes the overall `status` `"unhealthy"` (`503`).
+- Stream staleness is based on the freshest evidence of source progress — a received trade
+  **or** a successful acquisition — so a quiet market with current acquisitions stays
+  `active`/healthy (US1 scenario 2). A stream goes `stale` only when both trade arrival and
+  acquisition age past the staleness threshold.
 
 ---
 

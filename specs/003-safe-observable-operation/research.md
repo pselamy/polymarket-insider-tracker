@@ -99,11 +99,18 @@ This directly resolves G-014 by eliminating false "Ready to run" claims when ext
      - Within 60 seconds: Dispatch to this channel is suppressed to prevent double-send.
      - After 60 seconds: Ambiguity expires and dispatch becomes eligible; the `ambiguous` disposition is persisted and a possible-duplicate warning is logged at ambiguity time (the expired key leaves no retry-time marker).
 5. **Atomic In-Flight Claim** (prevents concurrent duplicate delivery):
-   The ambiguity key doubles as the per-identity send claim, acquired with `SET NX EX 60`
-   before an attempt and with the dedup key re-checked under the claim. Check-then-send is
-   therefore atomic against a shared Redis: two concurrent dispatches of one identity cannot
-   both deliver. Claim-state errors degrade toward delivery with a possible-duplicate
-   warning, matching the general dedup-state degradation rule.
+   The ambiguity key doubles as the per-identity send claim, acquired with `SET NX EX
+   claim_ttl` (default 60 s) before an attempt and with the dedup key re-checked under the
+   claim. Check-then-send is therefore atomic against a shared Redis: two concurrent
+   dispatches of one identity cannot both deliver. Claim-state errors degrade toward
+   delivery with a possible-duplicate warning, matching the general dedup-state degradation
+   rule. Two properties keep the claim sound across lease expiry (round-3 repair): every
+   claim stores a unique ownership token and is released only by a `WATCH`/`MULTI`
+   compare-and-delete (a stale owner can never delete a newer claim), and every channel send
+   runs under a `send_deadline_seconds` bound strictly smaller than the claim lease, so a
+   slow send is cut off as an ambiguous outcome before its claim can expire — no send ever
+   outlives its claim. Channel-internal retry, backoff, and rate-limit waits are therefore
+   allowed to exceed the lease only by becoming ambiguous, never by sending concurrently.
 6. **Deduplication Path Unification**:
    Retire or delegate competing dedup methods in `AlertHistory` so that only the canonical channel-scoped contract is operational.
 
@@ -166,10 +173,13 @@ The previous float comparison could decide `0.7999999999999999 < 0.8` while pers
 its own decision and could not be replayed. Deciding at persisted precision changes
 behavior only within half a thousandth of the threshold and makes the record
 self-explanatory; the earlier float-artifact regression pin in `tests/detector/test_scorer.py`
-was replaced accordingly. Signal weights are the code-pinned `DEFAULT_WEIGHTS` in the wired
-pipeline (the persisted schema intentionally does not carry them, per the approved column
-set); a non-default weights configuration is logged at scorer construction so stored scores
-remain explainable.
+was replaced accordingly. Signal weights are constants of `SCORING_ALGORITHM_VERSION`
+(round-3 repair): the persisted schema intentionally does not carry them per the approved
+column set, so `RiskScorer` no longer accepts a weights argument and has no runtime weight
+mutation — logging a non-default configuration was not durable assessment evidence. With
+exactly one weight set per algorithm version, every stored row replays from its own values
+plus the pinned constants; a future weight change requires a version bump and a schema
+decision on persisting the version.
 
 ---
 
@@ -188,3 +198,39 @@ libpq documents that `hostaddr` (parameter or environment default) determines th
 connection address while `host` is used only for authentication purposes, and that a
 service file can supply unspecified parameters. Without these checks a loopback-validated
 URL could still create, migrate, and force-drop databases on a remote server.
+
+---
+
+## 10. Truthful Degraded Health, Detector-Failure Evidence & Single-Deadline Shutdown (FR-002, FR-003, FR-006, US1-2/3, US3-3; round-3 repairs)
+
+### Decision
+1. **Degraded ingestion is visible, not hidden and not fatal.** The ingestion component
+   reports `degraded` (with the poller's `last_error`, or `ingestion state: <state>` when
+   the state itself is the condition) for `IngestionState.DEGRADED` and
+   `POSSIBLE_DATA_LOSS`. Readiness fails (`503`) only for a `down` component. FR-002
+   enumerates the readiness-failure conditions — unavailable dependency, terminal ingestion
+   failure, blocked progress — and a recoverable degraded source satisfies none of them,
+   while US1 scenario 3 requires the degradation and its error to be identified. The
+   `/ready` components summary shows `degraded`; `/health` reports the error and an overall
+   `degraded` status with HTTP 200. (The earlier contract phrase "degraded → 503"
+   contradicted FR-002 and was corrected; specs own what/why.)
+2. **Stream staleness follows source progress, not trade silence.** The staleness basis is
+   the freshest of trade arrival and successful acquisition, so a quiet market with fresh
+   acquisitions stays `active` (US1 scenario 2); the stream goes `stale` only when both age
+   past the threshold.
+3. **Detector failures are counted and durably explained.** Wallet-profiling failures
+   propagate out of the fresh-wallet detector (swallowing them was indistinguishable from
+   "wallet not fresh"); the pipeline counts each failed detector into
+   `PipelineStats.errors`/`last_error` (surfaced at `/health`). A trade left with no signal
+   and at least one detector failure persists a `detector_failure` skip row so the absent
+   evidence is explained (US3 scenario 3); with a surviving signal, scoring proceeds and
+   NULL evidence columns show what was absent.
+4. **Shutdown consumes one deadline.** `run_pipeline` and the registered shutdown cleanup
+   share a single-stop guard: `pipeline.stop()` is attempted exactly once under one
+   `shutdown_timeout`, so a hung stop exits with code 1 after ~1x the timeout instead of 2x.
+
+### Rationale
+Round-3 phase-3 review reproduced `up`/`None` ingestion health for both failing states, a
+stale quiet stream with a 2-second-old acquisition, vanishing detector failures
+(`errors=0`, no assessment), and a doubled shutdown deadline. Each repair follows the
+narrower truthful reading of the governing spec text rather than adding new authority.

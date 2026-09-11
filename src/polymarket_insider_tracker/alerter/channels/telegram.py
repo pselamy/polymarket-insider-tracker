@@ -114,9 +114,16 @@ class TelegramChannel:
             )
             raise TimeoutError("Telegram API response timed out") from e
         except httpx.HTTPError as e:
-            logger.error(f"Telegram API error: {e}")
+            # The bot token rides in the API URL; an httpx message may embed it.
+            logger.error("Telegram API error: %s", self._redact(str(e)))
 
         return None
+
+    def _redact(self, text: str) -> str:
+        """Hide the bot token and the token-bearing API URL inside diagnostic text."""
+        return text.replace(self._api_url, "<redacted api url>").replace(
+            self.bot_token, "<redacted token>"
+        )
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:

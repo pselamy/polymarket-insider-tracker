@@ -71,3 +71,14 @@ No CRITICAL or HIGH findings. No constitution conflicts detected.
 - Coverage: 100%
 - Critical issues: 0
 - High issues: 0
+
+---
+
+## 5. Corrections (2026-09-11, phase-2 round-3 repair)
+
+- The SC-006 row above marked the criterion covered while verification.md admitted the
+  negative half (no route on the superseded port) was untested — an inconsistency flagged
+  by the round-3 adversarial review. The negative half is now deterministically tested
+  (`tests/ingestor/test_health_server.py::test_health_routes_only_on_effective_port`,
+  two dynamically allocated ports plus the server's actual bound-socket set), so the row
+  is accurate as of this correction; see verification.md §8, finding 8.

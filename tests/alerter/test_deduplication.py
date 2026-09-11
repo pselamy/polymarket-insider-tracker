@@ -401,6 +401,127 @@ class TestConcurrentDispatchAtomicity:
         assert len(channel.calls) == 2
 
 
+class SlowChannel:
+    """Working fake whose send takes longer than the configured deadline."""
+
+    def __init__(self, name: str, delay: float) -> None:
+        self.name = name
+        self.delay = delay
+        self.completed_sends = 0
+
+    async def send(self, alert: FormattedAlert) -> bool:
+        _ = alert
+        await asyncio.sleep(self.delay)
+        self.completed_sends += 1
+        return True
+
+
+class TestClaimOwnershipAndLease:
+    """The in-flight claim is owned, lease-bounded, and safe across expiry (G-018 residual)."""
+
+    @pytest.mark.asyncio
+    async def test_claim_returns_unique_ownership_token(self, alert_history: AlertHistory) -> None:
+        token = await alert_history.claim_channel_send("discord", "0xW", "0xM")
+        assert token is not None
+        assert await alert_history.claim_channel_send("discord", "0xW", "0xM") is None
+
+    @pytest.mark.asyncio
+    async def test_stale_owner_cannot_release_a_newer_claim(
+        self, fake_redis: FakeAsyncRedis, alert_history: AlertHistory
+    ) -> None:
+        """After the lease expires and another dispatch claims, the stale owner's release
+        must leave the new claim untouched (compare-and-delete, not unconditional DEL)."""
+        stale_token = await alert_history.claim_channel_send("discord", "0xW", "0xM", ttl=1)
+        assert stale_token is not None
+        await asyncio.sleep(1.1)
+
+        new_token = await alert_history.claim_channel_send("discord", "0xW", "0xM", ttl=60)
+        assert new_token is not None
+
+        released = await alert_history.release_channel_claim("discord", "0xW", "0xM", stale_token)
+
+        assert released is False
+        key = alert_history.get_channel_ambiguous_key("discord", "0xW", "0xM")
+        assert await fake_redis.get(key) == new_token.encode()
+
+    @pytest.mark.asyncio
+    async def test_owner_release_deletes_only_its_own_claim(
+        self, fake_redis: FakeAsyncRedis, alert_history: AlertHistory
+    ) -> None:
+        token = await alert_history.claim_channel_send("discord", "0xW", "0xM")
+        assert token is not None
+        assert await alert_history.release_channel_claim("discord", "0xW", "0xM", token) is True
+        assert await fake_redis.dbsize() == 0
+
+    @pytest.mark.asyncio
+    async def test_expired_claim_leaves_identity_eligible_again(
+        self, alert_history: AlertHistory
+    ) -> None:
+        first = await alert_history.claim_channel_send("discord", "0xW", "0xM", ttl=1)
+        assert first is not None
+        await asyncio.sleep(1.1)
+        second = await alert_history.claim_channel_send("discord", "0xW", "0xM", ttl=1)
+        assert second is not None
+        assert second != first
+
+    @pytest.mark.asyncio
+    async def test_send_deadline_must_stay_inside_claim_lease(self) -> None:
+        with pytest.raises(ValueError):
+            AlertDispatcher([], claim_ttl_seconds=1, send_deadline_seconds=1.0)
+
+    @pytest.mark.asyncio
+    async def test_send_is_cut_off_before_the_claim_can_expire(
+        self, fake_redis: FakeAsyncRedis, alert_history: AlertHistory
+    ) -> None:
+        """A send slower than the deadline becomes an ambiguous outcome under a live claim,
+        so no concurrent dispatch can send the same identity while it is still in flight."""
+        channel = SlowChannel("discord", delay=10.0)
+        dispatcher = AlertDispatcher(
+            [channel],
+            history=alert_history,
+            claim_ttl_seconds=2,
+            send_deadline_seconds=0.1,
+        )
+        assessment = _make_sample_assessment()
+
+        result = await asyncio.wait_for(
+            dispatcher.dispatch(_make_sample_alert(), assessment=assessment), timeout=1.0
+        )
+
+        assert result.channel_statuses["discord"] == "ambiguous"
+        assert channel.completed_sends == 0
+        key = alert_history.get_channel_ambiguous_key(
+            "discord", assessment.wallet_address, assessment.market_id
+        )
+        assert await fake_redis.exists(key) == 1
+
+    @pytest.mark.asyncio
+    async def test_slow_send_and_lease_expiry_never_double_deliver(
+        self, alert_history: AlertHistory
+    ) -> None:
+        """Phase-3 reproduction: with a 1-second lease and a send outlasting it, two
+        dispatches of one identity used to both deliver. The send deadline now cuts the
+        first attempt off inside its lease and the second dispatch stays suppressed."""
+        channel = SlowChannel("discord", delay=1.5)
+        dispatcher = AlertDispatcher(
+            [channel],
+            history=alert_history,
+            claim_ttl_seconds=1,
+            send_deadline_seconds=0.5,
+        )
+        assessment = _make_sample_assessment()
+        alert = _make_sample_alert()
+
+        first_task = asyncio.create_task(dispatcher.dispatch(alert, assessment=assessment))
+        await asyncio.sleep(0.2)
+        second_task = asyncio.create_task(dispatcher.dispatch(alert, assessment=assessment))
+        first, second = await asyncio.gather(first_task, second_task)
+
+        assert channel.completed_sends == 0
+        statuses = sorted((first.channel_statuses["discord"], second.channel_statuses["discord"]))
+        assert statuses == ["ambiguous", "ambiguous_timeout"]
+
+
 class TestSuppressedAmbiguousClassification:
     """A suppressed-unknown channel must never count as a confirmed delivery (FR-018)."""
 

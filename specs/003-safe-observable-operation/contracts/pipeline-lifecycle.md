@@ -34,11 +34,15 @@ When the background `TradePoller` or required worker raises an unhandled excepti
 ---
 
 ## 4. Shutdown Timeout Contract
-Graceful shutdown is bounded by the shutdown timeout (default 30 seconds):
-- `pipeline.stop()` runs under `asyncio.wait_for`; exceeding the bound is logged, the hung
+Graceful shutdown is bounded by **one** shutdown timeout (default 30 seconds), not one per path:
+- `pipeline.stop()` is attempted exactly once across the explicit shutdown path and the
+  registered cleanup callback (a single-stop guard consumes the attempt for whichever path
+  runs first, including after a timed-out, abandoned attempt). Total shutdown therefore
+  consumes at most one timeout, never a doubled one.
+- The one stop attempt runs under `asyncio.wait_for`; exceeding the bound is logged, the hung
   stop is abandoned, and the process exits with code 1 instead of hanging.
-- Every registered coroutine cleanup callback is individually bounded by the same timeout;
-  an overrunning callback is logged and abandoned while later callbacks still run
+- Every other registered coroutine cleanup callback is individually bounded by the same
+  timeout; an overrunning callback is logged and abandoned while later callbacks still run
   (synchronous callbacks cannot be interrupted and are expected to be fast).
 - A second SIGINT/SIGTERM still forces immediate exit (`128 + signal`).
 
@@ -49,8 +53,15 @@ A failure while processing one delivered observation (profiling, detection, scor
 persistence, or dispatch) is recoverable, not terminal:
 - It increments `PipelineStats.errors` (and the poller's `callback_errors` counter) and
   becomes the `/health` top-level `last_error`; `/ready` does not fail for it.
+- Detector and profiling failures are counted per failed detector (a wallet-profiling
+  failure propagates out of the fresh-wallet detector instead of masquerading as "wallet
+  not fresh"). When a trade still yields a signal, the assessment proceeds with the
+  available evidence and its NULL evidence columns show what was absent. When detector
+  failure leaves no signal at all, a skip row with
+  `delivery_disposition='detector_failure'` durably explains the absent evidence (US3
+  scenario 3); it is never dispatched.
 - The observation identity remains recorded at the durable ingestion boundary per the
   slice-001 observation-boundary contract, so downstream processing is at-most-once: a
-  failed observation is not redelivered after a restart. The durable risk-assessment row
-  for that observation may therefore be missing; the failure is observable in health,
-  logs, and counters rather than by replay.
+  failed observation is not redelivered after a restart. For failures after detection
+  (scoring, persistence) the durable risk-assessment row may therefore be missing; the
+  failure is observable in health, logs, and counters rather than by replay.

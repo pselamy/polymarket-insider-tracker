@@ -102,9 +102,14 @@ class DiscordChannel:
             )
             raise TimeoutError("Discord webhook response timed out") from e
         except httpx.HTTPError as e:
-            logger.error(f"Discord webhook error: {e}")
+            # The webhook URL is the credential; an httpx message may embed it.
+            logger.error("Discord webhook error: %s", self._redact(str(e)))
 
         return None
+
+    def _redact(self, text: str) -> str:
+        """Hide the credential-bearing webhook URL inside diagnostic text."""
+        return text.replace(self.webhook_url, "<redacted webhook url>")
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:

@@ -288,10 +288,30 @@ def _exit_code_for_pipeline(pipeline: Pipeline) -> int:
     return EXIT_SUCCESS
 
 
-async def _stop_pipeline_within(pipeline: Pipeline, timeout: float) -> bool:
+class _SingleStopGuard:
+    """Exactly one pipeline.stop() attempt across the explicit path and shutdown cleanup.
+
+    ``run_pipeline`` stops the pipeline under the shutdown timeout and the registered
+    cleanup callback would otherwise stop it again under a second, fresh timeout —
+    doubling the worst-case shutdown time. Whichever path runs first consumes the one
+    attempt; the other returns immediately (also after a timed-out, abandoned attempt).
+    """
+
+    def __init__(self, pipeline: Pipeline) -> None:
+        self._pipeline = pipeline
+        self._attempted = False
+
+    async def stop(self) -> None:
+        if self._attempted:
+            return
+        self._attempted = True
+        await self._pipeline.stop()
+
+
+async def _stop_pipeline_within(stopper: _SingleStopGuard, timeout: float) -> bool:
     """Stop the pipeline, bounded by the shutdown timeout; True means it finished."""
     try:
-        await asyncio.wait_for(pipeline.stop(), timeout=timeout)
+        await asyncio.wait_for(stopper.stop(), timeout=timeout)
         return True
     except TimeoutError:
         logging.getLogger(__name__).error(
@@ -326,8 +346,10 @@ async def run_pipeline(
         async with shutdown:
             pipeline = pipeline_factory(settings, dry_run=dry_run)
 
-            # Register pipeline cleanup
-            shutdown.register_cleanup(pipeline.stop)
+            # Register pipeline cleanup; the guard makes the explicit stop below and
+            # this callback one single attempt under one shutdown deadline.
+            stopper = _SingleStopGuard(pipeline)
+            shutdown.register_cleanup(stopper.stop)
 
             logger.info("Starting pipeline...")
             await pipeline.start()
@@ -337,7 +359,7 @@ async def run_pipeline(
             await _wait_for_stop_or_shutdown(shutdown, pipeline)
 
             logger.info("Shutdown signal received, stopping pipeline...")
-            stopped_in_time = await _stop_pipeline_within(pipeline, shutdown_timeout)
+            stopped_in_time = await _stop_pipeline_within(stopper, shutdown_timeout)
 
         if not stopped_in_time:
             return EXIT_ERROR

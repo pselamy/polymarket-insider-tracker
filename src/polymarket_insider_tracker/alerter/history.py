@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from redis.exceptions import WatchError
+
 if TYPE_CHECKING:
     from polymarket_insider_tracker.detector.models import RiskAssessment
 
@@ -192,22 +194,51 @@ class AlertHistory:
 
     async def claim_channel_send(
         self, channel: str, wallet: str, market: str, ttl: int = 60
-    ) -> bool:
+    ) -> str | None:
         """Atomically claim the single in-flight send for a delivery identity.
 
-        The ambiguity key doubles as the claim: ``SET NX EX`` either acquires it (True) or
-        observes a concurrent attempt or active ambiguity window (False). The claim is
-        released on a confirmed outcome and retained on an ambiguous one, so the
-        check-then-send sequence cannot deliver the same identity twice concurrently.
+        The ambiguity key doubles as the claim: ``SET NX EX`` either acquires it
+        (returning this claim's unique ownership token) or observes a concurrent
+        attempt or active ambiguity window (returning None). The claim is released
+        by compare-and-delete with the token on a confirmed outcome and retained on
+        an ambiguous one, so the check-then-send sequence cannot deliver the same
+        identity twice concurrently and a stale owner can never delete a newer claim.
         """
         key = self.get_channel_ambiguous_key(channel, wallet, market)
-        acquired = await self.redis.set(key, datetime.now(UTC).isoformat(), nx=True, ex=ttl)
-        return acquired is not None and acquired is not False
+        token = uuid.uuid4().hex
+        acquired = await self.redis.set(key, token, nx=True, ex=ttl)
+        if acquired is None or acquired is False:
+            return None
+        return token
 
-    async def release_channel_claim(self, channel: str, wallet: str, market: str) -> None:
-        """Release the in-flight claim after a confirmed success or confirmed failure."""
+    async def release_channel_claim(
+        self, channel: str, wallet: str, market: str, token: str
+    ) -> bool:
+        """Release the in-flight claim only while ``token`` still owns it.
+
+        The compare-and-delete runs as WATCH/MULTI so an expired-and-reacquired claim
+        (a different owner's token) is never deleted. Returns True when this owner's
+        claim was released; False when the claim already expired, was re-acquired, or
+        changed concurrently.
+        """
         key = self.get_channel_ambiguous_key(channel, wallet, market)
-        await self.redis.delete(key)
+        try:
+            return await self._compare_and_delete(key, token)
+        except WatchError:
+            return False
+
+    async def _compare_and_delete(self, key: str, token: str) -> bool:
+        async with self.redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(key)
+            current = await pipe.get(key)
+            owner = current.decode() if isinstance(current, bytes) else current
+            if owner != token:
+                await pipe.unwatch()
+                return False
+            pipe.multi()
+            pipe.delete(key)
+            await pipe.execute()
+            return True
 
     async def record_channel_ambiguous(
         self, channel: str, wallet: str, market: str, ttl: int = 60

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from typing import Any
 
 import aiohttp
 import pytest
@@ -157,13 +158,17 @@ async def test_health_endpoint_quiet_market_period() -> None:
     """Test /health distinguishes acquisition freshness from trade freshness.
 
     In a quiet market, trade events may not have occurred for minutes, but if
-    acquisition polling ran 2 seconds ago, the status is healthy.
+    acquisition polling ran 2 seconds ago, the status is healthy. The monitor holds
+    the production stream state (a previously active "trades" stream), so trade
+    silence alone must not mark the reachable source stale.
     """
     monitor = HealthMonitor()
     now = time.time()
-    # Acquisition was 2 seconds ago
+    # The stream received a trade once, 120 seconds ago (production state after a
+    # quiet interval), and acquisition polling last succeeded 2 seconds ago.
+    monitor.record_event("trades")
+    monitor._streams["trades"].last_event_time = now - 120.0
     monitor.record_acquisition(now - 2.0)
-    # Trade was 120 seconds ago
     monitor.record_trade_arrival(now - 120.0)
 
     monitor.set_component_checker(
@@ -201,6 +206,142 @@ async def test_health_endpoint_quiet_market_period() -> None:
             assert data["components"]["ingestion"]["status"] == "up"
     finally:
         await monitor.stop()
+
+
+def test_quiet_stream_with_fresh_acquisition_stays_active() -> None:
+    """A previously active stream with no recent trades but fresh acquisitions is active."""
+    monitor = HealthMonitor(stale_threshold_seconds=60)
+    now = time.time()
+    monitor.record_event("trades")
+    monitor._streams["trades"].last_event_time = now - 120.0
+    monitor.record_acquisition(now - 2.0)
+
+    report = monitor.get_health_report()
+
+    assert report.streams["trades"].status.value == "active"
+    assert report.status.value == "healthy"
+
+
+def test_stream_goes_stale_when_acquisition_also_stops() -> None:
+    """When both trades and acquisitions age past the threshold the stream is stale."""
+    monitor = HealthMonitor(stale_threshold_seconds=60)
+    now = time.time()
+    monitor.record_event("trades")
+    monitor._streams["trades"].last_event_time = now - 120.0
+    monitor.record_acquisition(now - 90.0)
+
+    report = monitor.get_health_report()
+
+    assert report.streams["trades"].status.value == "stale"
+    assert report.status.value == "degraded"
+
+
+def test_never_evented_stream_with_fresh_acquisition_stays_connected() -> None:
+    """A connected stream that has produced no trade yet is not stale while acquiring."""
+    monitor = HealthMonitor(stale_threshold_seconds=60)
+    monitor.set_stream_connected("trades")
+    monitor._streams["trades"].connected_since = time.time() - 120.0
+    monitor.record_acquisition(time.time() - 1.0)
+
+    report = monitor.get_health_report()
+
+    assert report.streams["trades"].status.value == "active"
+
+
+@pytest.mark.asyncio
+async def test_ready_endpoint_reports_degraded_component_without_failing() -> None:
+    """A degraded (recoverable) component is visible in /ready but does not fail readiness.
+
+    FR-002 fails readiness only for an unavailable dependency, a terminal ingestion
+    failure, or blocked progress; a degraded source that is still making progress is
+    reported truthfully instead of being hidden as "up".
+    """
+    monitor = HealthMonitor()
+    monitor.set_component_checker(
+        "database",
+        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
+    )
+    monitor.set_component_checker(
+        "redis",
+        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
+    )
+    monitor.set_component_checker(
+        "ingestion",
+        lambda: asyncio.sleep(
+            0,
+            result=ComponentStatus(status="degraded", last_error="acquisition cycle failed: 503"),
+        ),
+    )
+    port = 19111
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}/ready") as resp,
+        ):
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["ready"] is True
+            assert data["components"]["ingestion"] == "degraded"
+    finally:
+        await monitor.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_reports_degraded_component_with_error() -> None:
+    """/health carries a degraded component's error and reports overall degraded (200)."""
+    monitor = HealthMonitor()
+    monitor.set_component_checker(
+        "ingestion",
+        lambda: asyncio.sleep(
+            0,
+            result=ComponentStatus(status="degraded", last_error="possible-data-loss"),
+        ),
+    )
+    port = 19112
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}/health") as resp,
+        ):
+            assert resp.status == 200
+            data = await resp.json()
+            assert data["status"] == "degraded"
+            assert data["components"]["ingestion"]["status"] == "degraded"
+            assert data["components"]["ingestion"]["last_error"] == "possible-data-loss"
+    finally:
+        await monitor.stop()
+
+
+@pytest.mark.asyncio
+async def test_health_routes_only_on_effective_port(
+    unused_tcp_port_factory: Any,
+) -> None:
+    """SC-006: every route responds on the override port and none on the superseded port."""
+    superseded = unused_tcp_port_factory()
+    effective = unused_tcp_port_factory()
+    monitor = HealthMonitor()
+    await monitor.start()
+    await monitor.start_http_server(port=effective)
+    try:
+        async with aiohttp.ClientSession() as session:
+            for route in ("/live", "/ready", "/health", "/metrics"):
+                async with session.get(f"http://127.0.0.1:{effective}{route}") as resp:
+                    assert resp.status == 200, route
+
+            assert {port for _, port in monitor.http_addresses} == {effective}
+
+            with pytest.raises(aiohttp.ClientConnectorError):
+                await session.get(
+                    f"http://127.0.0.1:{superseded}/live",
+                    timeout=aiohttp.ClientTimeout(total=2),
+                )
+    finally:
+        await monitor.stop()
+    assert monitor.http_addresses == []
 
 
 @pytest.mark.asyncio

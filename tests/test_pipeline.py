@@ -8,6 +8,7 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -291,7 +292,7 @@ class TestOnTrade:
         assert pipeline.stats.trades_processed == 1
         assert pipeline.stats.errors == 0
 
-    async def test_on_trade_handles_detector_errors(
+    async def test_on_trade_counts_detector_error_and_still_scores_other_signal(
         self,
         test_settings: Settings,
         fake_redis: FakeAsyncRedis,
@@ -299,7 +300,7 @@ class TestOnTrade:
         niche_market: MarketMetadata,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """A failing detector is logged and the other detector's signal still counts."""
+        """A failing detector is counted and exposed while the other signal still scores."""
         pipeline = await wire_pipeline(
             test_settings, redis=fake_redis, eth=FakeEth(), market=niche_market
         )
@@ -308,10 +309,60 @@ class TestOnTrade:
         with caplog.at_level(logging.WARNING):
             await pipeline._on_trade(sample_trade_event)
 
-        assert "Fresh wallet detection failed" in caplog.text
+        assert "fresh wallet detection failed" in caplog.text
         assert pipeline.stats.trades_processed == 1
-        assert pipeline.stats.errors == 0
+        assert pipeline.stats.errors == 1
+        assert pipeline.stats.last_error is not None
+        assert "Detector error" in pipeline.stats.last_error
         assert pipeline.stats.signals_generated == 1
+
+    async def test_all_detector_failures_persist_skip_disposition(
+        self,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+    ) -> None:
+        """When every detector fails, the absent evidence is durably explained (US3-3)."""
+        pipeline = await wire_pipeline(
+            make_test_settings(), redis=fake_redis, eth=FakeEth(), db_manager=db_manager
+        )
+        pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
+        pipeline._size_anomaly_detector = FailingDetector(RuntimeError("metadata down"))
+
+        await pipeline._on_trade(sample_trade_event)
+
+        assert pipeline.stats.errors == 2
+        assert pipeline.stats.last_error is not None
+        rows = await _persisted_assessments(async_engine)
+        assert len(rows) == 1
+        assert rows[0].delivery_disposition == "detector_failure"
+        assert rows[0].should_alert is False
+        assert rows[0].signals_triggered == 0
+        assert rows[0].fresh_wallet_confidence is None
+        assert rows[0].size_anomaly_confidence is None
+
+    async def test_detector_failure_skip_not_persisted_when_persistence_disabled(
+        self,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+    ) -> None:
+        """The skip row honors the persist_assessments switch; the count still happens."""
+        pipeline = await wire_pipeline(
+            make_test_settings(persist_assessments=False),
+            redis=fake_redis,
+            eth=FakeEth(),
+            db_manager=db_manager,
+        )
+        pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
+        pipeline._size_anomaly_detector = FailingDetector(RuntimeError("metadata down"))
+
+        await pipeline._on_trade(sample_trade_event)
+
+        assert pipeline.stats.errors == 2
+        assert await _persisted_assessments(async_engine) == []
 
     async def test_on_trade_calls_score_and_alert_when_signals(
         self,
@@ -738,6 +789,88 @@ class TestWorkerSupervision:
         assert pipeline.state is PipelineState.ERROR
         assert pipeline.stats.errors == 1
         assert pipeline.stats.last_error == "terminal poller failure during startup"
+
+
+class _StubPollerStatus:
+    def __init__(self, last_error: str | None) -> None:
+        self.last_error = last_error
+        self.last_acquisition_at = None
+        self.last_trade_at = None
+
+
+class _StubPoller:
+    """Just enough poller surface for `_check_ingestion` state-mapping tests."""
+
+    def __init__(self, state: IngestionState, last_error: str | None = None) -> None:
+        self.state = state
+        self.is_running = True
+        self.status = _StubPollerStatus(last_error)
+
+
+class TestIngestionComponentTruthfulness:
+    """Degraded and possible-data-loss states must be visible, not reported "up" (FR-002/003)."""
+
+    async def test_degraded_poller_maps_to_degraded_component_with_error(self) -> None:
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(  # type: ignore[assignment]
+            IngestionState.DEGRADED, last_error="acquisition cycle failed: 503"
+        )
+
+        component = await pipeline._check_ingestion()
+
+        assert component.status == "degraded"
+        assert component.last_error == "acquisition cycle failed: 503"
+
+    async def test_possible_data_loss_maps_to_degraded_with_state_fallback_error(self) -> None:
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(IngestionState.POSSIBLE_DATA_LOSS)  # type: ignore[assignment]
+
+        component = await pipeline._check_ingestion()
+
+        assert component.status == "degraded"
+        assert component.last_error == "ingestion state: possible-data-loss"
+
+    async def test_degraded_ingestion_keeps_readiness_but_is_reported(self) -> None:
+        """FR-002: readiness fails only for unavailable/terminal states; degraded is visible."""
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(  # type: ignore[assignment]
+            IngestionState.DEGRADED, last_error="acquisition cycle failed: 503"
+        )
+        pipeline._redis = FakeAsyncRedis()
+        db = _HealthyDatabaseStub()
+        pipeline._db_manager = db  # type: ignore[assignment]
+
+        ready_status, reason, components = await pipeline.check_readiness()
+
+        assert ready_status is True
+        assert reason is None
+        assert components["ingestion"] == "degraded"
+
+    async def test_running_poller_still_reports_up(self) -> None:
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(IngestionState.RUNNING)  # type: ignore[assignment]
+
+        component = await pipeline._check_ingestion()
+
+        assert component.status == "up"
+        assert component.last_error is None
+
+
+class _HealthyDatabaseStub:
+    """DatabaseManager stand-in whose health probe session succeeds."""
+
+    def get_async_session(self) -> Any:
+        import contextlib
+
+        @contextlib.asynccontextmanager
+        async def session() -> Any:
+            class _Session:
+                async def execute(self, _statement: Any) -> None:
+                    return None
+
+            yield _Session()
+
+        return session()
 
 
 class TestProcessingErrorVisibility:

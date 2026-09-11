@@ -31,6 +31,7 @@ from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.config import Settings, get_settings
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
+from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
@@ -58,7 +59,6 @@ if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
     from polymarket_insider_tracker.detector.models import (
         FreshWalletSignal,
-        RiskAssessment,
         SizeAnomalySignal,
     )
     from polymarket_insider_tracker.ingestor.models import TradeEvent
@@ -235,6 +235,10 @@ class Pipeline:
         if status.last_trade_at is not None:
             self._health_monitor.record_trade_arrival(status.last_trade_at.timestamp())
 
+    # Recoverable poller states that must surface as a degraded component with their
+    # error instead of being hidden behind "up" (FR-002, FR-003).
+    _DEGRADED_INGESTION_STATES = (IngestionState.DEGRADED, IngestionState.POSSIBLE_DATA_LOSS)
+
     async def _check_ingestion(self) -> ComponentStatus:
         self._sync_poller_timestamps()
         if not self._trade_poller:
@@ -248,6 +252,14 @@ class Pipeline:
             return ComponentStatus(status="down", last_error=error)
         if not self._trade_poller.is_running:
             return ComponentStatus(status="down", last_error="Trade poller stopped")
+        return self._running_ingestion_status()
+
+    def _running_ingestion_status(self) -> ComponentStatus:
+        assert self._trade_poller is not None
+        state = self._trade_poller.state
+        if state in self._DEGRADED_INGESTION_STATES:
+            error = self._trade_poller.status.last_error or f"ingestion state: {state.value}"
+            return ComponentStatus(status="degraded", last_error=error)
         return ComponentStatus(status="up")
 
     async def check_readiness(self) -> tuple[bool, str | None, dict[str, str]]:
@@ -563,32 +575,61 @@ class Pipeline:
             self._health_monitor.record_event("trades")
 
         try:
-            # Run detectors in parallel
-            fresh_signal, size_signal = await asyncio.gather(
-                self._detect_fresh_wallet(trade),
-                self._detect_size_anomaly(trade),
-            )
-
-            # Persist wallet profile and funding data when a fresh wallet is detected
-            if fresh_signal is not None:
-                await self._persist_wallet_and_funding(fresh_signal)
-
-            # Bundle signals
-            bundle = SignalBundle(
-                trade_event=trade,
-                fresh_wallet_signal=fresh_signal,
-                size_anomaly_signal=size_signal,
-            )
-
-            # Score and potentially alert
-            if fresh_signal or size_signal:
-                self._stats.signals_generated += 1
-                await self._score_and_alert(bundle)
-
+            await self._detect_score_and_alert(trade)
         except Exception as e:
             logger.error("Error processing trade %s: %s", trade.trade_id, e)
             self._stats.errors += 1
             self._stats.last_error = str(e)
+
+    async def _detect_score_and_alert(self, trade: TradeEvent) -> None:
+        """Run detectors, count their failures, then score/alert or persist a skip row."""
+        # Run detectors in parallel; each returns its signal and any failure message
+        (fresh_signal, fresh_error), (size_signal, size_error) = await asyncio.gather(
+            self._detect_fresh_wallet(trade),
+            self._detect_size_anomaly(trade),
+        )
+        had_detector_failure = self._record_detector_failures(fresh_error, size_error)
+
+        # Persist wallet profile and funding data when a fresh wallet is detected
+        if fresh_signal is not None:
+            await self._persist_wallet_and_funding(fresh_signal)
+
+        bundle = SignalBundle(
+            trade_event=trade,
+            fresh_wallet_signal=fresh_signal,
+            size_anomaly_signal=size_signal,
+        )
+        if fresh_signal or size_signal:
+            self._stats.signals_generated += 1
+            await self._score_and_alert(bundle)
+        elif had_detector_failure:
+            await self._persist_detector_failure_skip(bundle)
+
+    def _record_detector_failures(self, *errors: str | None) -> bool:
+        """Count each failed detector and expose the failure in operational state."""
+        failures = [error for error in errors if error]
+        for error in failures:
+            self._stats.errors += 1
+            self._stats.last_error = error
+        return bool(failures)
+
+    async def _persist_detector_failure_skip(self, bundle: SignalBundle) -> None:
+        """Persist why no evidence exists when detector failure is the only outcome.
+
+        Without this row, a trade whose detectors all failed (or whose only working
+        detector found nothing) would leave no durable explanation for the absent
+        evidence. The skip row is never dispatched.
+        """
+        if not self._settings.detector.persist_assessments:
+            return
+        assessment = RiskAssessment(
+            trade_event=bundle.trade_event,
+            wallet_address=bundle.wallet_address,
+            market_id=bundle.market_id,
+            delivery_disposition="detector_failure",
+            dry_run=self._dry_run,
+        )
+        await self._persist_assessment(assessment)
 
     async def _persist_wallet_and_funding(self, signal: FreshWalletSignal) -> None:
         """Persist wallet profile and funding transfers to Postgres.
@@ -649,25 +690,31 @@ class Pipeline:
         await funding_repo.insert_many(funding_dtos)
         return len(chain.chain)
 
-    async def _detect_fresh_wallet(self, trade: TradeEvent) -> FreshWalletSignal | None:
-        """Run fresh wallet detection."""
+    async def _detect_fresh_wallet(
+        self, trade: TradeEvent
+    ) -> tuple[FreshWalletSignal | None, str | None]:
+        """Run fresh wallet detection; a failure is returned so it can be counted."""
         if not self._fresh_wallet_detector:
-            return None
+            return None, None
         try:
-            return await self._fresh_wallet_detector.analyze(trade)
+            return await self._fresh_wallet_detector.analyze(trade), None
         except Exception as e:
-            logger.warning("Fresh wallet detection failed for %s: %s", trade.trade_id, e)
-            return None
+            message = f"fresh wallet detection failed for trade {trade.trade_id}: {e}"
+            logger.warning(message)
+            return None, message
 
-    async def _detect_size_anomaly(self, trade: TradeEvent) -> SizeAnomalySignal | None:
-        """Run size anomaly detection."""
+    async def _detect_size_anomaly(
+        self, trade: TradeEvent
+    ) -> tuple[SizeAnomalySignal | None, str | None]:
+        """Run size anomaly detection; a failure is returned so it can be counted."""
         if not self._size_anomaly_detector:
-            return None
+            return None, None
         try:
-            return await self._size_anomaly_detector.analyze(trade)
+            return await self._size_anomaly_detector.analyze(trade), None
         except Exception as e:
-            logger.warning("Size anomaly detection failed for %s: %s", trade.trade_id, e)
-            return None
+            message = f"size anomaly detection failed for trade {trade.trade_id}: {e}"
+            logger.warning(message)
+            return None, message
 
     def _can_alert(self) -> bool:
         return (
