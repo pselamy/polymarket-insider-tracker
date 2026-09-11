@@ -743,8 +743,8 @@ class Pipeline:
         try:
             return await self._fresh_wallet_detector.analyze(trade), None
         except Exception as e:
-            message = f"fresh wallet detection failed for trade {trade.trade_id}: {e}"
-            logger.warning(message)
+            message = redact_text(f"fresh wallet detection failed for trade {trade.trade_id}: {e}")
+            logger.warning("%s", message)
             return None, message
 
     async def _detect_size_anomaly(
@@ -756,8 +756,8 @@ class Pipeline:
         try:
             return await self._size_anomaly_detector.analyze(trade), None
         except Exception as e:
-            message = f"size anomaly detection failed for trade {trade.trade_id}: {e}"
-            logger.warning(message)
+            message = redact_text(f"size anomaly detection failed for trade {trade.trade_id}: {e}")
+            logger.warning("%s", message)
             return None, message
 
     def _can_alert(self) -> bool:

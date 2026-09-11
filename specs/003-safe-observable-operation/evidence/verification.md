@@ -267,3 +267,39 @@ unrelated tests later in the same process — a live demonstration of finding 4.
 | 8 | Medium | `--config-check --dry-run --log-level DEBUG` printed `Dry Run: False` / `Log Level: INFO`. | `apply_cli_overrides` folds every override into the one effective `Settings` before logging, summaries, and the pipeline run; all paths read the same object. Regressions: config-check override reflection, runtime/settings/summary agreement, environment-value survival. |
 | 9 | Medium | Three timed-out component checks executed sequentially (3.0s) against the <100ms plan goal. | `evaluate_components` runs all checks concurrently, each bounded at 0.09s, so a probe with every dependency hung stays within one sub-100ms budget. Regressions: barrier-based concurrency proof (deterministic) and hung-probe elapsed bound. |
 | 10 | Hygiene | `git diff --check` blank line at EOF of `checklists/requirements.md`. | Removed; `git diff --check` clean. |
+
+---
+
+## 10. Round-7 Detector-Failure Redaction Repair (2026-09-11, Muse Spark writer lane)
+
+The round-6 fresh Sol review (`gpt-5.6-sol`, exact head `3571a3e3fbeff821840b7842891dcdd5adda9072`)
+reproduced a load-bearing secret-redaction defect before its session stopped: a synthetic
+exception containing `https://user:fresh-leak-secret@rpc.example/path?apikey=fresh-leak-secret`
+surfaced verbatim in the `Pipeline._detect_fresh_wallet` warning log and returned error string
+(`secret_present_in_pipeline_log=True`). `_detect_size_anomaly` held the identical unredacted
+pattern. Prior evidence (§9 finding 6) therefore overstated detector-failure coverage.
+
+Regression proof on the exact start head `3571a3e`: a script driving real `TradeEvent` values
+through `wire_pipeline` with `FailingDetector` exceptions embedding synthetic URL userinfo and
+query secrets showed both secrets verbatim in the returned `fresh_msg`/`size_msg` and in the
+warning logs (`fresh_leak_in_logs=True`, `size_leak_in_logs=True`); downstream
+`_record_detector_failures` redaction masked only `last_error`, leaving the boundary leak in
+place. Raw log preserved at
+`/home/dev/dispatch-state/polymarket-slice003-muse-redaction-r7-20260911/r7-evidence/regression-red-start-head.log`.
+
+Fix (bounded to the detector-failure boundary): `Pipeline._detect_fresh_wallet` and
+`Pipeline._detect_size_anomaly` now pass the exception-bearing failure message through the
+existing centralized `redact_text` exactly once before it is logged, returned, counted, or
+exposed via `PipelineStats.last_error`/health output; the log call also uses `%s` argument
+form. No new redactor was introduced. Adjacent detector exception sinks were audited:
+`_record_detector_failures`, `_check_database`, `_check_redis`, health serialization, and the
+trade-poller `redact_error` path already redact; no other confirmed equivalent of this class
+was changed.
+
+Tests: `tests/test_redaction.py::TestDetectorFailureRedaction` (3 tests, real objects and
+repository fakes only — `wire_pipeline`, `FailingDetector`, `FakeEth`, `FakeAsyncRedis`; no
+mocks or call interception) covers userinfo passwords, lone userinfo tokens, query values,
+fragments, and malformed nested-scheme shapes for both detectors; asserts warning logs,
+returned error strings, `PipelineStats.last_error`/`errors`, and health-body output carry no
+secret while `***` and the non-secret diagnostic context (`fresh wallet detection failed`,
+`size anomaly detection failed`, `connection reset`, `detection failed`) remain.

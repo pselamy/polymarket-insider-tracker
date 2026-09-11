@@ -8,15 +8,44 @@ userinfo passwords, lone userinfo tokens, and query-string values.
 
 from __future__ import annotations
 
+import logging
+from datetime import UTC, datetime
+from decimal import Decimal
+
 import aiohttp
 import pytest
+from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
+from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.redaction import redact_text, redact_url
 
 DB_SECRET = "db-userinfo-secret"
 QUERY_SECRET = "query-string-secret"
 TOKEN_SECRET = "lone-userinfo-token-secret"
+FRESH_PASSWORD_SECRET = "fresh-userinfo-secret-r7"
+FRESH_QUERY_SECRET = "fresh-query-secret-r7"
+SIZE_TOKEN_SECRET = "size-lone-token-secret-r7"
+SIZE_QUERY_SECRET = "size-query-secret-r7"
+SIZE_FRAGMENT_SECRET = "size-fragment-secret-r7"
+NESTED_PASSWORD_SECRET = "nested-userinfo-secret-r7"
+NESTED_QUERY_SECRET = "nested-query-secret-r7"
+
+
+def _detector_trade() -> TradeEvent:
+    """A real trade value for exercising the detector-failure path."""
+    return TradeEvent(
+        trade_id="0x" + "e" * 64,
+        wallet_address="0x" + "f" * 40,
+        market_id="0x" + "d" * 64,
+        asset_id="asset_redact_r7",
+        side="BUY",
+        outcome="Yes",
+        outcome_index=0,
+        price=Decimal("0.65"),
+        size=Decimal("5000"),
+        timestamp=datetime.now(UTC),
+    )
 
 
 class TestRedactUrl:
@@ -208,3 +237,131 @@ class TestPipelineErrorCaptureRedaction:
 
         assert DB_SECRET not in (pipeline.stats.last_error or "")
         assert QUERY_SECRET not in (pipeline.stats.last_error or "")
+
+
+class TestDetectorFailureRedaction:
+    """Detector exceptions ride through one boundary before logs, errors, and health."""
+
+    @staticmethod
+    def _fresh_exception_texts() -> list[str]:
+        return [
+            (
+                "fresh wallet rpc blew up for "
+                f"https://operator:{FRESH_PASSWORD_SECRET}@rpc.example/v1"
+                f"?apikey={FRESH_QUERY_SECRET} (connection reset)"
+            ),
+            (
+                "fresh wallet nested-shape failure "
+                f"wss://https://operator:{NESTED_PASSWORD_SECRET}@rpc.example/ws"
+                f"?key={NESTED_QUERY_SECRET}"
+            ),
+        ]
+
+    @staticmethod
+    def _size_exception_texts() -> list[str]:
+        return [
+            (
+                "size metadata blew up for "
+                f"https://{SIZE_TOKEN_SECRET}@meta.example/v2?token={SIZE_QUERY_SECRET} "
+                f"(see https://meta.example/help#{SIZE_FRAGMENT_SECRET})"
+            ),
+            (
+                "size metadata nested-shape failure "
+                f"wss://https://operator:{NESTED_PASSWORD_SECRET}@meta.example/ws"
+                f"?key={NESTED_QUERY_SECRET}"
+            ),
+        ]
+
+    @staticmethod
+    def _secrets() -> list[str]:
+        return [
+            FRESH_PASSWORD_SECRET,
+            FRESH_QUERY_SECRET,
+            SIZE_TOKEN_SECRET,
+            SIZE_QUERY_SECRET,
+            SIZE_FRAGMENT_SECRET,
+            NESTED_PASSWORD_SECRET,
+            NESTED_QUERY_SECRET,
+        ]
+
+    def _assert_redacted(self, message: str, *, keep: str) -> None:
+        for secret in self._secrets():
+            assert secret not in message
+        assert keep in message
+        assert "***" in message
+
+    @pytest.mark.asyncio
+    async def test_fresh_wallet_failure_is_redacted_everywhere(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
+
+        secrets = self._secrets()
+        for text in self._fresh_exception_texts():
+            pipeline = await wire_pipeline(
+                make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
+            )
+            pipeline._fresh_wallet_detector = FailingDetector(RuntimeError(text))
+            with caplog.at_level(logging.WARNING):
+                caplog.clear()
+                _, error = await pipeline._detect_fresh_wallet(_detector_trade())
+
+            assert error is not None
+            self._assert_redacted(error, keep="fresh wallet detection failed")
+            for secret in secrets:
+                assert secret not in caplog.text
+            assert "fresh wallet detection failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_size_anomaly_failure_is_redacted_everywhere(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
+
+        secrets = self._secrets()
+        for text in self._size_exception_texts():
+            pipeline = await wire_pipeline(
+                make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
+            )
+            pipeline._size_anomaly_detector = FailingDetector(RuntimeError(text))
+            with caplog.at_level(logging.WARNING):
+                caplog.clear()
+                _, error = await pipeline._detect_size_anomaly(_detector_trade())
+
+            assert error is not None
+            self._assert_redacted(error, keep="size anomaly detection failed")
+            for secret in secrets:
+                assert secret not in caplog.text
+            assert "size anomaly detection failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_detector_failures_stay_redacted_through_stats_and_health(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from polymarket_insider_tracker.ingestor.health import HealthStatus
+        from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
+
+        pipeline = await wire_pipeline(make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth())
+        pipeline._fresh_wallet_detector = FailingDetector(
+            RuntimeError(self._fresh_exception_texts()[0])
+        )
+        pipeline._size_anomaly_detector = FailingDetector(
+            RuntimeError(self._size_exception_texts()[0])
+        )
+        with caplog.at_level(logging.WARNING):
+            await pipeline._on_trade(_detector_trade())
+
+        last_error = pipeline.stats.last_error or ""
+        for secret in self._secrets():
+            assert secret not in last_error
+            assert secret not in caplog.text
+        assert "***" in last_error
+        assert pipeline.stats.errors == 2
+
+        body = pipeline.health_monitor._build_health_body(
+            pipeline.health_monitor.get_health_report(), {}, HealthStatus.HEALTHY, 0.0
+        )
+        health_text = str(body)
+        for secret in self._secrets():
+            assert secret not in health_text
+        assert "detection failed" in last_error
