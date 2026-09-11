@@ -27,6 +27,7 @@ from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.ingestor.models import TradeEvent
+from tests.fakes import resist_cancellation_for
 from tests.fakes.alerts import discord_webhook
 
 
@@ -494,6 +495,7 @@ class TestClaimOwnershipAndLease:
             "discord", assessment.wallet_address, assessment.market_id
         )
         assert await fake_redis.exists(key) == 1
+        await asyncio.wait_for(dispatcher.join_abandoned_sends(), timeout=2.0)
 
     @pytest.mark.asyncio
     async def test_slow_send_and_lease_expiry_never_double_deliver(
@@ -520,6 +522,144 @@ class TestClaimOwnershipAndLease:
         assert channel.completed_sends == 0
         statuses = sorted((first.channel_statuses["discord"], second.channel_statuses["discord"]))
         assert statuses == ["ambiguous", "ambiguous_timeout"]
+        await asyncio.wait_for(dispatcher.join_abandoned_sends(), timeout=2.0)
+
+
+class CancellationResistantChannel:
+    """Send that suppresses cancellation and only returns success after ``delay``.
+
+    Models an HTTP stack (or misbehaving channel) that refuses to stop when the
+    dispatcher's logical deadline cancels it, exposing the round-4 lease-expiry race.
+    """
+
+    def __init__(self, name: str, delay: float) -> None:
+        self.name = name
+        self.delay = delay
+        self.calls = 0
+        self.completed_sends = 0
+
+    async def send(self, alert: FormattedAlert) -> bool:
+        _ = alert
+        self.calls += 1
+        await resist_cancellation_for(self.delay)
+        self.completed_sends += 1
+        return True
+
+
+class TestCancellationResistantSendClaimGuard:
+    """Round-4 finding 2: a claim can never expire while a cancellation-suppressing
+    send continues, and a late return never counts as delivered."""
+
+    @pytest.mark.asyncio
+    async def test_claim_survives_lease_expiry_while_resistant_send_runs(
+        self, fake_redis: FakeAsyncRedis, alert_history: AlertHistory
+    ) -> None:
+        """The reproduction (scaled): claim TTL 1s, tiny deadline, resistant send
+        outliving the lease. A second dispatch after nominal lease expiry used to
+        produce two delivered sends; now it stays suppressed under the renewed claim."""
+        channel = CancellationResistantChannel("discord", delay=1.4)
+        dispatcher = AlertDispatcher(
+            [channel],
+            history=alert_history,
+            claim_ttl_seconds=1,
+            send_deadline_seconds=0.05,
+        )
+        assessment = _make_sample_assessment()
+        alert = _make_sample_alert()
+
+        first = await dispatcher.dispatch(alert, assessment=assessment)
+        assert first.channel_statuses["discord"] == "ambiguous"
+        assert first.disposition == "ambiguous"
+        assert dispatcher.abandoned_send_count == 1
+
+        # Past the original 1s lease, the zombie send is still running; the guarded
+        # claim must still suppress a new dispatch of the same identity.
+        await asyncio.sleep(1.1)
+        second = await dispatcher.dispatch(alert, assessment=assessment)
+
+        assert channel.calls == 1
+        assert second.channel_statuses["discord"] == "ambiguous_timeout"
+
+        await asyncio.wait_for(dispatcher.join_abandoned_sends(), timeout=3.0)
+        assert dispatcher.abandoned_send_count == 0
+        assert channel.completed_sends == 1
+        # The late success is never recorded as a confirmed delivery; the identity
+        # keeps only the ambiguity window.
+        dedup_key = alert_history.get_channel_dedup_key(
+            "discord", assessment.wallet_address, assessment.market_id
+        )
+        ambiguous_key = alert_history.get_channel_ambiguous_key(
+            "discord", assessment.wallet_address, assessment.market_id
+        )
+        assert await fake_redis.exists(dedup_key) == 0
+        assert await fake_redis.exists(ambiguous_key) == 1
+
+    @pytest.mark.asyncio
+    async def test_late_return_after_deadline_is_classified_ambiguous(
+        self, alert_history: AlertHistory
+    ) -> None:
+        """Once the logical deadline passes the outcome is ambiguous regardless of a
+        late return, and the dispatch call itself returns at the deadline."""
+        channel = CancellationResistantChannel("discord", delay=0.4)
+        dispatcher = AlertDispatcher(
+            [channel],
+            history=alert_history,
+            claim_ttl_seconds=2,
+            send_deadline_seconds=0.05,
+        )
+        assessment = _make_sample_assessment()
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        result = await dispatcher.dispatch(_make_sample_alert(), assessment=assessment)
+        elapsed = loop.time() - started
+
+        assert result.channel_statuses["discord"] == "ambiguous"
+        assert result.all_succeeded is False
+        assert elapsed < 0.3, "dispatch must return at the logical deadline"
+
+        await asyncio.wait_for(dispatcher.join_abandoned_sends(), timeout=2.0)
+        assert channel.completed_sends == 1
+
+
+class TestClaimRenewal:
+    """The compare-and-expire claim renewal used by the abandoned-send guard."""
+
+    @pytest.mark.asyncio
+    async def test_extend_renews_only_the_owned_claim(
+        self, fake_redis: FakeAsyncRedis, alert_history: AlertHistory
+    ) -> None:
+        token = await alert_history.claim_channel_send("discord", "0xW", "0xM", ttl=2)
+        assert token is not None
+
+        renewed = await alert_history.extend_channel_claim("discord", "0xW", "0xM", token, ttl=60)
+
+        assert renewed is True
+        key = alert_history.get_channel_ambiguous_key("discord", "0xW", "0xM")
+        assert await fake_redis.ttl(key) > 2
+
+    @pytest.mark.asyncio
+    async def test_extend_refuses_a_foreign_claim(
+        self, fake_redis: FakeAsyncRedis, alert_history: AlertHistory
+    ) -> None:
+        token = await alert_history.claim_channel_send("discord", "0xW", "0xM", ttl=60)
+        assert token is not None
+
+        renewed = await alert_history.extend_channel_claim(
+            "discord", "0xW", "0xM", "not-the-owner", ttl=600
+        )
+
+        assert renewed is False
+        key = alert_history.get_channel_ambiguous_key("discord", "0xW", "0xM")
+        assert await fake_redis.ttl(key) <= 60
+
+    @pytest.mark.asyncio
+    async def test_extend_refuses_an_expired_claim(self, alert_history: AlertHistory) -> None:
+        token = await alert_history.claim_channel_send("discord", "0xW", "0xM", ttl=1)
+        assert token is not None
+        await asyncio.sleep(1.1)
+
+        assert await alert_history.extend_channel_claim("discord", "0xW", "0xM", token) is False
 
 
 class TestSuppressedAmbiguousClassification:

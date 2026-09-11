@@ -27,7 +27,8 @@ from polymarket_insider_tracker.config import (
     websocket_deprecation_message,
 )
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
-from polymarket_insider_tracker.shutdown import GracefulShutdown
+from polymarket_insider_tracker.redaction import redact_url
+from polymarket_insider_tracker.shutdown import GracefulShutdown, wait_bounded
 
 # Application info
 APP_NAME = "Polymarket Insider Tracker"
@@ -152,12 +153,11 @@ def print_banner() -> None:
     print(banner)
 
 
-def print_config_summary(settings: Settings, dry_run: bool) -> None:
-    """Print a summary of the configuration.
+def print_config_summary(settings: Settings) -> None:
+    """Print a summary of the effective configuration, including CLI overrides.
 
     Args:
-        settings: Application settings.
-        dry_run: Whether dry-run mode is enabled.
+        settings: Application settings with every CLI override already applied.
     """
     summary = settings.redacted_summary()
     print("Configuration:")
@@ -166,7 +166,7 @@ def print_config_summary(settings: Settings, dry_run: bool) -> None:
     print_trades_source_summary(settings)
     print(f"  Log Level: {summary['log_level']}")
     print(f"  Health Port: {summary['health_port']}")
-    print(f"  Dry Run: {dry_run}")
+    print(f"  Dry Run: {settings.dry_run}")
     print(f"  Discord: {'enabled' if summary['discord_enabled'] == 'True' else 'disabled'}")
     print(f"  Telegram: {'enabled' if summary['telegram_enabled'] == 'True' else 'disabled'}")
     print()
@@ -175,7 +175,7 @@ def print_config_summary(settings: Settings, dry_run: bool) -> None:
 def print_trades_source_summary(settings: Settings) -> None:
     """Print the supported trade source settings and the legacy WebSocket disposition."""
     polymarket = settings.polymarket
-    print(f"  Trades URL: {polymarket.trades_url}")
+    print(f"  Trades URL: {redact_url(polymarket.trades_url)}")
     print(f"  Trades Coverage: {polymarket.trades_coverage.value}")
     print(f"  Trades Poll Interval: {polymarket.trades_poll_interval_seconds}s")
     print(f"  Trades Recovery Horizon: {polymarket.trades_recovery_horizon_seconds}s")
@@ -245,7 +245,7 @@ def run_config_check(settings: Settings) -> int:
         " requires reachable PostgreSQL, Redis, and trade acquisition sources."
     )
     print()
-    print_config_summary(settings, dry_run=False)
+    print_config_summary(settings)
 
     # Test component availability
     print("Checking component availability...")
@@ -309,15 +309,18 @@ class _SingleStopGuard:
 
 
 async def _stop_pipeline_within(stopper: _SingleStopGuard, timeout: float) -> bool:
-    """Stop the pipeline, bounded by the shutdown timeout; True means it finished."""
-    try:
-        await asyncio.wait_for(stopper.stop(), timeout=timeout)
+    """Stop the pipeline, bounded by the shutdown timeout; True means it finished.
+
+    The deadline holds even when the stop coroutine suppresses cancellation: the
+    attempt is abandoned at the deadline and reported as a timeout regardless of
+    whether it later completes on its own.
+    """
+    if await wait_bounded(stopper.stop(), timeout):
         return True
-    except TimeoutError:
-        logging.getLogger(__name__).error(
-            "Graceful pipeline stop exceeded the %.1fs shutdown timeout", timeout
-        )
-        return False
+    logging.getLogger(__name__).error(
+        "Graceful pipeline stop exceeded the %.1fs shutdown timeout", timeout
+    )
+    return False
 
 
 async def run_pipeline(
@@ -372,6 +375,19 @@ async def run_pipeline(
         return EXIT_ERROR
 
 
+def apply_cli_overrides(settings: Settings, args: argparse.Namespace) -> None:
+    """Fold parsed CLI overrides into the one effective configuration (FR-004).
+
+    Runtime behavior and every summary path read the same settings afterwards, so
+    an override can never apply to one and not the other. The health port is
+    already applied during validation so its range check runs first.
+    """
+    if args.dry_run:
+        settings.dry_run = True
+    if args.log_level:
+        settings.log_level = args.log_level
+
+
 def main(argv: list[str] | None = None) -> NoReturn:
     """Main entry point for the CLI.
 
@@ -386,9 +402,8 @@ def main(argv: list[str] | None = None) -> NoReturn:
     if settings is None:
         sys.exit(EXIT_CONFIG_ERROR)
 
-    # Determine effective log level
-    log_level = args.log_level or settings.log_level
-    configure_logging(log_level)
+    apply_cli_overrides(settings, args)
+    configure_logging(settings.log_level)
 
     # Print banner
     print_banner()
@@ -397,14 +412,11 @@ def main(argv: list[str] | None = None) -> NoReturn:
     if args.config_check:
         sys.exit(run_config_check(settings))
 
-    # Determine dry-run mode
-    dry_run = args.dry_run or settings.dry_run
-
     # Print config summary
-    print_config_summary(settings, dry_run)
+    print_config_summary(settings)
 
     # Run pipeline
-    exit_code = asyncio.run(run_pipeline(settings, dry_run))
+    exit_code = asyncio.run(run_pipeline(settings, settings.dry_run))
     sys.exit(exit_code)
 
 

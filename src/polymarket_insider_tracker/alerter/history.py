@@ -240,6 +240,36 @@ class AlertHistory:
             await pipe.execute()
             return True
 
+    async def extend_channel_claim(
+        self, channel: str, wallet: str, market: str, token: str, ttl: int = 60
+    ) -> bool:
+        """Extend the in-flight claim's lease only while ``token`` still owns it.
+
+        Used while a deadline-abandoned send is still physically running: renewing
+        the lease keeps any concurrent dispatch of the same identity suppressed so
+        no second send can start while the first is in flight. The compare-and-expire
+        runs as WATCH/MULTI, so an expired-and-reacquired claim (another owner's
+        token) is never extended. Returns True when this owner's lease was renewed.
+        """
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        try:
+            return await self._compare_and_expire(key, token, ttl)
+        except WatchError:
+            return False
+
+    async def _compare_and_expire(self, key: str, token: str, ttl: int) -> bool:
+        async with self.redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(key)
+            current = await pipe.get(key)
+            owner = current.decode() if isinstance(current, bytes) else current
+            if owner != token:
+                await pipe.unwatch()
+                return False
+            pipe.multi()
+            pipe.expire(key, ttl)
+            await pipe.execute()
+            return True
+
     async def record_channel_ambiguous(
         self, channel: str, wallet: str, market: str, ttl: int = 60
     ) -> None:

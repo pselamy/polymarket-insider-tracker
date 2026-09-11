@@ -329,6 +329,18 @@ class TradePoller:
         return self._running
 
     @property
+    def seconds_since_last_success(self) -> float | None:
+        """Age of the last successful acquisition, on the poller's own clock.
+
+        None until a page has actually been fetched: readiness must gate on proven
+        source reachability, not on a request having merely been started.
+        """
+        last_success = self._tallies.last_success_at
+        if last_success is None:
+            return None
+        return max(0.0, self._clock() - last_success)
+
+    @property
     def status(self) -> IngestionStatus:
         """A snapshot of every documented status field."""
         tallies = self._tallies

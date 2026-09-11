@@ -4,13 +4,18 @@ This module provides the RiskScorer class that aggregates signals from
 multiple detectors into a unified risk assessment with weighted scoring.
 """
 
+import json
 import logging
+import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
+from types import MappingProxyType
 
 from redis.asyncio import Redis
 
 from polymarket_insider_tracker.detector.models import (
+    SCORING_ALGORITHM_VERSION,
     FreshWalletSignal,
     RiskAssessment,
     SizeAnomalySignal,
@@ -28,20 +33,19 @@ DEFAULT_ALERT_THRESHOLD = 0.80
 DEFAULT_DEDUP_WINDOW_SECONDS = 3600  # 1 hour
 DEFAULT_REDIS_KEY_PREFIX = "polymarket:dedup:"
 
-# Signal weights are algorithm constants, not runtime configuration. The persisted
-# assessment schema stores no weights, so a stored record replays its decision only
-# because exactly one weight set exists per algorithm version. Changing any weight,
-# bonus, or combination rule requires bumping SCORING_ALGORITHM_VERSION and a schema
-# decision on persisting the version before rows produced by both algorithms coexist.
-DEFAULT_WEIGHTS = {
-    "fresh_wallet": 0.40,
-    "size_anomaly": 0.35,
-    "niche_market": 0.25,
-}
-
-# Version of the scoring algorithm (weights, bonuses, quantization, and combination
-# rules) that produced every persisted assessment of this codebase.
-SCORING_ALGORITHM_VERSION = "003.1"
+# The algorithm's default signal weights, immutable so no caller can change scoring
+# behind the persisted records' back. Every new assessment row stores its
+# scoring_algorithm_version and the exact active configuration (scoring_config), so
+# a stored record replays its decision even when the deprecated weights API was
+# used. Changing these defaults, a bonus, or a combination rule still requires
+# bumping SCORING_ALGORITHM_VERSION.
+DEFAULT_WEIGHTS: Mapping[str, float] = MappingProxyType(
+    {
+        "fresh_wallet": 0.40,
+        "size_anomaly": 0.35,
+        "niche_market": 0.25,
+    }
+)
 
 # Multi-signal bonuses
 MULTI_SIGNAL_BONUS_2 = 1.2  # 20% bonus for 2 signals
@@ -56,6 +60,16 @@ SCORE_QUANTUM = Decimal("0.001")
 def quantize_score_value(value: float) -> Decimal:
     """Quantize a confidence, score, or threshold to the persisted 3-decimal precision."""
     return Decimal(str(value)).quantize(SCORE_QUANTUM, rounding=ROUND_HALF_EVEN)
+
+
+def _warn_deprecated_weights(surface: str) -> None:
+    warnings.warn(
+        f"{surface} is deprecated and will be removed after the slice-003"
+        " compatibility window; custom weights are recorded per assessment in"
+        " scoring_config so stored records remain replayable",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 @dataclass
@@ -85,7 +99,8 @@ class RiskScorer:
 
     This scorer:
     - Aggregates signals from multiple detectors for the same trade
-    - Applies the algorithm's pinned per-signal weights
+    - Applies the active per-signal weights (immutable defaults; the deprecated
+      weights API remains functional for one compatibility window)
     - Calculates multi-signal bonuses for correlated signals
     - Produces RiskAssessment objects for downstream alerting
 
@@ -105,9 +120,10 @@ class RiskScorer:
         should_alert = final_score >= quantize(alert_threshold)
 
     The quantized inputs, score, and threshold are exactly what the assessment schema
-    persists, so a stored record replays the decision. Weights are the algorithm
-    constants ``DEFAULT_WEIGHTS`` under ``SCORING_ALGORITHM_VERSION``; no runtime
-    weight configuration exists, so every persisted record maps to one algorithm.
+    persists, and every new assessment additionally records
+    ``scoring_algorithm_version`` plus the canonical ``scoring_config`` JSON of the
+    active weights, bonuses, threshold, and quantum, so a stored record replays its
+    decision even when the deprecated weight-configuration API was used.
 
     Example:
         ```python
@@ -130,19 +146,19 @@ class RiskScorer:
         self,
         redis: Redis,
         *,
+        weights: dict[str, float] | None = None,
         alert_threshold: float = DEFAULT_ALERT_THRESHOLD,
         dedup_window_seconds: int = DEFAULT_DEDUP_WINDOW_SECONDS,
         key_prefix: str = DEFAULT_REDIS_KEY_PREFIX,
     ) -> None:
         """Initialize the risk scorer.
 
-        Weights are not configurable: the persisted assessment schema stores no
-        weights, so a stored record is replayable only while exactly one weight set
-        exists per SCORING_ALGORITHM_VERSION (FR-012, Constitution IV).
-
         Args:
             redis: Retained for public API compatibility; scoring performs no Redis
                 operations since delivery deduplication moved to the alerter (FR-008).
+            weights: Deprecated custom signal weights, kept working for one
+                compatibility window. The exact active weights are recorded in every
+                new assessment's ``scoring_config`` so records stay replayable.
             alert_threshold: Minimum score to trigger alert (default 0.80).
             dedup_window_seconds: Retained for API compatibility; unused by scoring.
             key_prefix: Retained for API compatibility; unused by scoring.
@@ -151,11 +167,50 @@ class RiskScorer:
         self._alert_threshold = alert_threshold
         self._dedup_window = dedup_window_seconds
         self._key_prefix = key_prefix
+        if weights is not None:
+            _warn_deprecated_weights("the RiskScorer weights constructor argument")
+        self._weights: dict[str, float] = (
+            dict(weights) if weights is not None else dict(DEFAULT_WEIGHTS)
+        )
+        self._scoring_config = self._build_scoring_config()
         logger.info(
-            "RiskScorer algorithm=%s threshold=%s",
+            "RiskScorer algorithm=%s threshold=%s config=%s",
             SCORING_ALGORITHM_VERSION,
             alert_threshold,
+            self._scoring_config,
         )
+
+    def _build_scoring_config(self) -> str:
+        """Canonical deterministic JSON of the exact configuration behind each assessment.
+
+        Values are decimal strings so replaying a stored record never depends on
+        float formatting; keys are sorted and separators fixed so equal
+        configurations always serialize to the identical byte sequence.
+        """
+        payload = {
+            "alert_threshold": str(quantize_score_value(self._alert_threshold)),
+            "multi_signal_bonus_2": str(Decimal(str(MULTI_SIGNAL_BONUS_2))),
+            "multi_signal_bonus_3": str(Decimal(str(MULTI_SIGNAL_BONUS_3))),
+            "score_quantum": str(SCORE_QUANTUM),
+            "weights": {name: str(Decimal(str(self._weights[name]))) for name in self._weights},
+        }
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    @property
+    def scoring_config(self) -> str:
+        """The canonical configuration JSON recorded on every new assessment."""
+        return self._scoring_config
+
+    def set_weights(self, weights: dict[str, float]) -> None:
+        """Update signal weights (deprecated compatibility window).
+
+        Args:
+            weights: New weights dictionary.
+        """
+        _warn_deprecated_weights("RiskScorer.set_weights")
+        self._weights = dict(weights)
+        self._scoring_config = self._build_scoring_config()
+        logger.info("Updated risk scorer weights: %s", self._weights)
 
     @staticmethod
     def _extract_size_diagnostics(
@@ -231,11 +286,12 @@ class RiskScorer:
             book_depth_available=book_avail,
             wallet_tx_count=tx_count,
             wallet_age_known=age_known,
+            scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
+            scoring_config=self._scoring_config,
         )
 
-    @staticmethod
-    def _weight(name: str) -> Decimal:
-        return Decimal(str(DEFAULT_WEIGHTS[name]))
+    def _weight(self, name: str) -> Decimal:
+        return Decimal(str(self._weights[name]))
 
     def _score_fresh_wallet(self, bundle: SignalBundle) -> tuple[Decimal, int]:
         if bundle.fresh_wallet_signal is None:
@@ -268,8 +324,8 @@ class RiskScorer:
 
         Applies per-signal weights and multi-signal bonuses. Confidences and the final
         score are quantized to the persisted 3-decimal precision and combined in exact
-        decimal arithmetic, so recomputing from the persisted inputs and the algorithm's
-        pinned weights reproduces the returned score exactly.
+        decimal arithmetic, so recomputing from the persisted inputs and the weights
+        recorded in the assessment's scoring_config reproduces the score exactly.
 
         Args:
             bundle: SignalBundle with all available signals.
@@ -300,7 +356,6 @@ class RiskScorer:
         tasks = [self.assess(bundle) for bundle in bundles]
         return await asyncio.gather(*tasks)
 
-    @staticmethod
-    def get_weights() -> dict[str, float]:
-        """The algorithm's pinned signal weights (a copy; mutating it changes nothing)."""
-        return DEFAULT_WEIGHTS.copy()
+    def get_weights(self) -> dict[str, float]:
+        """The active signal weights as a defensive copy; mutating it changes nothing."""
+        return dict(self._weights)

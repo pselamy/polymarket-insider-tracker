@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from pydantic import AfterValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from polymarket_insider_tracker.redaction import redact_url
 from polymarket_insider_tracker.storage.database_url import normalize_database_url
 
 
@@ -377,15 +378,18 @@ class Settings(BaseSettings):
         Returns:
             Dictionary of settings with sensitive values masked.
         """
+        polygon_fallback = self.polygon.fallback_rpc_url
         return {
             "database_url": self._redact_url(self.database.url),
             "redis_url": self._redact_url(self.redis.url),
             "polygon": {
-                "rpc_url": self.polygon.rpc_url,
-                "fallback_rpc_url": self.polygon.fallback_rpc_url or "(not set)",
+                "rpc_url": self._redact_url(self.polygon.rpc_url),
+                "fallback_rpc_url": (
+                    self._redact_url(polygon_fallback) if polygon_fallback else "(not set)"
+                ),
             },
             "polymarket": {
-                "trades_url": self.polymarket.trades_url,
+                "trades_url": self._redact_url(self.polymarket.trades_url),
                 "coverage": self.polymarket.trades_coverage.value,
                 "poll_interval_seconds": str(self.polymarket.trades_poll_interval_seconds),
                 "recovery_horizon_seconds": str(self.polymarket.trades_recovery_horizon_seconds),
@@ -401,16 +405,8 @@ class Settings(BaseSettings):
 
     @staticmethod
     def _redact_url(url: str) -> str:
-        """Redact password from URL if present."""
-        if "@" in url and "://" in url:
-            # URL has credentials - redact the password
-            protocol_end = url.index("://") + 3
-            at_pos = url.index("@")
-            creds_part = url[protocol_end:at_pos]
-            if ":" in creds_part:
-                username = creds_part.split(":")[0]
-                return f"{url[:protocol_end]}{username}:***@{url[at_pos + 1 :]}"
-        return url
+        """Mask userinfo and query-string credentials via the central redaction helper."""
+        return redact_url(url)
 
 
 @lru_cache(maxsize=1)

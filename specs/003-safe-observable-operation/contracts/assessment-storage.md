@@ -23,6 +23,16 @@ This contract governs the shared storage schema for slice 003 and slice 004, imp
 6. `book_depth_available`: `BOOLEAN`, `nullable=True`
 7. `wallet_tx_count`: `INTEGER`, `nullable=True`
 8. `wallet_age_known`: `BOOLEAN`, `nullable=True`
+9. `scoring_algorithm_version`: `VARCHAR(32)`, `nullable=False`, **no server default**.
+   Added nullable, backfilled for all pre-existing rows as exactly `legacy-unversioned`
+   (their exact configuration is unknowable), then altered to NOT NULL. The absence of an
+   insert default forces every new row to state its actual producing algorithm version.
+10. `scoring_config`: `TEXT`, `nullable=True`. Canonical deterministic JSON of the exact
+    active scoring configuration for each new row; stays `NULL` for legacy rows only.
+
+Columns 9–10 were added by Patrick's 2026-09-11 schema decision (recorded in the spec's
+Session 2026-09-11 clarification), expanding the original 8-column clarification after the
+round-4 adversarial review showed stored rows could not identify a reproducible algorithm.
 
 ### Indexes Added:
 - `idx_risk_assessments_disposition` on (`delivery_disposition`)
@@ -32,7 +42,7 @@ This contract governs the shared storage schema for slice 003 and slice 004, imp
 ## 2. Downgrade Contract
 The `downgrade()` function in `003_safe_observable_operation`:
 - Drops `idx_risk_assessments_disposition`
-- Drops the 8 added columns
+- Drops the 10 added columns
 - Returns the schema to exact `002_risk_assessments` state
 
 ---
@@ -42,18 +52,29 @@ The SQLAlchemy `RiskAssessmentModel` in `src/polymarket_insider_tracker/storage/
 
 ---
 
-## 4. Scoring Algorithm Versioning
-The schema stores no signal weights or algorithm-version column (the human-approved
-clarification enumerates exactly the 8 columns above). A stored row replays its decision
-(Constitution IV, FR-012) only because:
+## 4. Scoring Algorithm Identity & Compatibility
+Every stored row replays its decision (Constitution IV, FR-012) because it carries its own
+identity:
 
-- signal weights, multi-signal bonuses, quantization, and combination rules are constants of
-  `SCORING_ALGORITHM_VERSION` (`003.1`) in `detector/scorer.py`;
-- no runtime weight configuration exists — `RiskScorer` accepts no weights argument and has
-  no mutation API — so every persisted row maps to exactly one algorithm;
+- `scoring_algorithm_version` records the producing algorithm version
+  (`SCORING_ALGORITHM_VERSION`, currently `003.1`, defined in `detector/models.py`); the
+  migration backfills pre-existing rows as exactly `legacy-unversioned` and nothing else may
+  produce that label (the column has no insert default).
+- `scoring_config` records the canonical deterministic JSON of the exact active
+  configuration used for the assessment: alert threshold, multi-signal bonuses, score
+  quantum, and the active weights — all as decimal strings, keys sorted, separators fixed,
+  so equal configurations serialize identically. Legacy rows keep `NULL` because their
+  configuration is unknowable; `detector_failure` skip rows record the active configuration
+  under which they were written even though no score was computed.
 - confidences, the threshold, and the score are quantized to the persisted `NUMERIC(4,3)`
-  precision *before* the decision.
+  precision *before* the decision, so replaying from the row plus its `scoring_config`
+  reproduces the score and decision exactly.
 
-Any future change to weights, bonuses, or combination rules MUST bump
-`SCORING_ALGORITHM_VERSION` and, before rows from two algorithms can coexist, obtain a schema
-decision (Patrick) on persisting the version per row.
+Weight compatibility window (Patrick's 2026-09-11 decision): `DEFAULT_WEIGHTS` is immutable
+(`MappingProxyType`) and `get_weights()` returns a defensive copy, so nothing can change
+scoring behind the persisted records' back. The pre-slice-003 `weights=` constructor
+argument and `set_weights()` API remain functional for one compatibility/deprecation window
+and emit `DeprecationWarning`; rows produced under custom weights stay replayable because
+the weights are recorded per row in `scoring_config`. Breaking removal of the deprecated
+API is outside this slice. Any change to the default weights, bonuses, or combination rules
+MUST still bump `SCORING_ALGORITHM_VERSION`.

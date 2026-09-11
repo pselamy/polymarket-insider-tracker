@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
+from polymarket_insider_tracker.redaction import redact_text
+
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.history import AlertHistory
     from polymarket_insider_tracker.alerter.models import FormattedAlert
@@ -25,12 +27,16 @@ CLAIM_ACQUIRED = "acquired"
 CLAIM_SUPPRESSED = "suppressed"
 CLAIM_UNVERIFIED = "unverified"
 
-# The claim lease and the bound on a single channel send. Every send attempt is cut
-# off (as an ambiguous outcome) before its claim can expire, so two concurrent
-# dispatches of one delivery identity can never both be sending: the proven
-# send-time bound is DEFAULT_SEND_DEADLINE_SECONDS < DEFAULT_CLAIM_TTL_SECONDS.
+# The claim lease and the logical deadline on a single channel send. At the
+# deadline a send is classified ambiguous regardless of any later return; a send
+# that resists cancellation is handed to a background guard that renews the claim
+# until the send truly terminates, so no in-flight send ever outlives its claim and
+# two concurrent dispatches of one delivery identity can never both be sending.
 DEFAULT_CLAIM_TTL_SECONDS = 60
 DEFAULT_SEND_DEADLINE_SECONDS = 45.0
+# A guarded claim is renewed well inside its lease; the floor keeps scaled-down
+# test leases renewable without busy-looping.
+MIN_CLAIM_RENEWAL_INTERVAL_SECONDS = 0.05
 
 
 class AlertChannel(Protocol):
@@ -109,8 +115,10 @@ class AlertDispatcher:
             half_open_max_attempts: Number of test attempts in half-open state.
             claim_ttl_seconds: Lease on the per-identity in-flight claim and the
                 ambiguity suppression window.
-            send_deadline_seconds: Bound on one channel send; it must stay below the
-                claim lease so no send can outlive its claim.
+            send_deadline_seconds: Logical bound on one channel send; it must stay
+                below the claim lease. At the deadline the outcome is ambiguous
+                regardless of any late return, and a send that suppresses
+                cancellation keeps its claim renewed until it truly terminates.
 
         Raises:
             ValueError: If ``send_deadline_seconds`` does not leave the claim lease
@@ -134,6 +142,19 @@ class AlertDispatcher:
         self._circuit_state: dict[str, CircuitBreakerState] = {
             ch.name: CircuitBreakerState() for ch in channels
         }
+
+        # Background guards for sends that resisted cancellation past the deadline.
+        self._abandoned_guards: set[asyncio.Task[None]] = set()
+
+    @property
+    def abandoned_send_count(self) -> int:
+        """Number of deadline-abandoned sends still being guarded."""
+        return len(self._abandoned_guards)
+
+    async def join_abandoned_sends(self) -> None:
+        """Wait until every guarded abandoned send has terminated (tests, shutdown)."""
+        while self._abandoned_guards:
+            await asyncio.gather(*list(self._abandoned_guards), return_exceptions=True)
 
     def _should_attempt(self, channel_name: str) -> bool:
         """Check if we should attempt delivery to this channel."""
@@ -323,23 +344,36 @@ class AlertDispatcher:
             )
 
     async def _execute_channel_send(
-        self, channel: AlertChannel, alert: FormattedAlert
-    ) -> tuple[bool, str]:
+        self,
+        channel: AlertChannel,
+        alert: FormattedAlert,
+        wallet: str,
+        market: str,
+        token: str | None,
+    ) -> tuple[bool, str, bool]:
+        """Attempt one send under the logical deadline.
+
+        The third element is True when the claim was handed to a background guard
+        because the send refused to stop at the deadline; the caller must then skip
+        its own outcome recording (the guard owns the claim lifecycle).
+        """
         channel_name = channel.name
         if not self._should_attempt(channel_name):
             logger.debug("Skipping %s - circuit open", channel_name)
-            return False, "circuit_open"
+            return False, "circuit_open", False
+        send_task: asyncio.Task[bool] = asyncio.create_task(channel.send(alert))
+        done, _ = await asyncio.wait({send_task}, timeout=self.send_deadline_seconds)
+        if send_task in done:
+            success, status = self._interpret_send_result(channel_name, send_task)
+            return success, status, False
+        self._abandon_send(channel_name, send_task, wallet, market, token)
+        return False, "ambiguous", True
+
+    def _interpret_send_result(
+        self, channel_name: str, send_task: asyncio.Task[bool]
+    ) -> tuple[bool, str]:
         try:
-            # The deadline keeps every send attempt strictly inside its claim lease;
-            # a cut-off send may already have been accepted, so it is ambiguous.
-            success = await asyncio.wait_for(
-                channel.send(alert), timeout=self.send_deadline_seconds
-            )
-            if success:
-                self._record_success(channel_name)
-                return True, "delivered"
-            self._record_failure(channel_name)
-            return False, "failed"
+            success = send_task.result()
         except TimeoutError:
             logger.warning(
                 "Delivery to %s timed out with an ambiguous outcome; suppressing retry for the"
@@ -349,9 +383,92 @@ class AlertDispatcher:
             self._record_failure(channel_name)
             return False, "ambiguous"
         except Exception as e:
-            logger.error("Error sending to %s: %s", channel_name, e)
+            logger.error("Error sending to %s: %s", channel_name, redact_text(str(e)))
             self._record_failure(channel_name)
             return False, "failed"
+        if success:
+            self._record_success(channel_name)
+            return True, "delivered"
+        self._record_failure(channel_name)
+        return False, "failed"
+
+    def _abandon_send(
+        self,
+        channel_name: str,
+        send_task: asyncio.Task[bool],
+        wallet: str,
+        market: str,
+        token: str | None,
+    ) -> None:
+        """The logical deadline passed: the outcome is ambiguous regardless of any
+        late return, and the claim must stay owned until the send truly terminates."""
+        logger.warning(
+            "Send to %s exceeded the %.1fs deadline and resists cancellation; classifying it"
+            " ambiguous and guarding its delivery claim until it terminates",
+            channel_name,
+            self.send_deadline_seconds,
+        )
+        send_task.cancel()
+        self._record_failure(channel_name)
+        guard = asyncio.create_task(
+            self._guard_abandoned_send(channel_name, send_task, wallet, market, token)
+        )
+        self._abandoned_guards.add(guard)
+        guard.add_done_callback(self._abandoned_guards.discard)
+
+    async def _guard_abandoned_send(
+        self,
+        channel_name: str,
+        send_task: asyncio.Task[bool],
+        wallet: str,
+        market: str,
+        token: str | None,
+    ) -> None:
+        """Renew the claim while the abandoned send runs, then leave the ambiguity window."""
+        interval = max(
+            self.claim_ttl_seconds / 4.0,
+            MIN_CLAIM_RENEWAL_INTERVAL_SECONDS,
+        )
+        while True:
+            done, _ = await asyncio.wait({send_task}, timeout=interval)
+            if send_task in done:
+                break
+            await self._renew_claim(channel_name, wallet, market, token)
+        self._consume_send_result(channel_name, send_task)
+        # The terminated send may have been accepted, so the identity keeps the
+        # standard ambiguity window; a late success is never recorded as delivered.
+        await self._record_channel_outcome(channel_name, "ambiguous", wallet, market, None)
+
+    @staticmethod
+    def _consume_send_result(channel_name: str, send_task: asyncio.Task[bool]) -> None:
+        if send_task.cancelled():
+            return
+        exception = send_task.exception()
+        if exception is not None:
+            logger.debug(
+                "Abandoned send to %s terminated with %s",
+                channel_name,
+                type(exception).__name__,
+            )
+
+    async def _renew_claim(
+        self, channel_name: str, wallet: str, market: str, token: str | None
+    ) -> None:
+        if not (self.history and wallet and market) or token is None:
+            return
+        try:
+            renewed = await self.history.extend_channel_claim(
+                channel_name, wallet, market, token, ttl=self.claim_ttl_seconds
+            )
+        except Exception as e:
+            logger.warning("Failed to renew delivery claim for %s (%s)", channel_name, e)
+            return
+        if not renewed:
+            logger.warning(
+                "Delivery claim for %s changed owner while its send was still running;"
+                " a duplicate delivery is possible",
+                channel_name,
+            )
 
     async def _duplicate_under_claim(
         self, channel_name: str, wallet: str, market: str, token: str
@@ -389,8 +506,11 @@ class AlertDispatcher:
         if suppression is not None:
             return channel_name, False, suppression
 
-        success, status = await self._execute_channel_send(channel, alert)
-        await self._record_channel_outcome(channel_name, status, wallet, market, token)
+        success, status, handed_off = await self._execute_channel_send(
+            channel, alert, wallet, market, token
+        )
+        if not handed_off:
+            await self._record_channel_outcome(channel_name, status, wallet, market, token)
         return channel_name, success, status
 
     @staticmethod

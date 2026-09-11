@@ -600,6 +600,34 @@ class TestSettings:
         assert "legacy.invalid" not in str(summary)
         assert "secret" not in str(summary)
 
+    def test_redacted_summary_masks_rpc_and_trades_credentials(self) -> None:
+        """Round-4 finding 6: RPC and trades URLs were returned verbatim, leaking
+        userinfo and query-string credentials through the "redacted" summary."""
+        rpc_secret = "rpc-userinfo-secret"
+        trades_user_secret = "trades-userinfo-secret"
+        trades_query_secret = "trades-query-secret"
+        with env_context(
+            {
+                "DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db",
+                "POLYGON_RPC_URL": f"https://{rpc_secret}@rpc.example.com/v1",
+                "POLYGON_FALLBACK_RPC_URL": f"https://user:{rpc_secret}@fallback.example.com",
+                "POLYMARKET_TRADES_URL": (
+                    f"https://user:{trades_user_secret}@data.example.com/trades"
+                    f"?apikey={trades_query_secret}"
+                ),
+            },
+            clear=True,
+        ):
+            summary = Settings().redacted_summary()
+
+        flattened = str(summary)
+        assert rpc_secret not in flattened
+        assert trades_user_secret not in flattened
+        assert trades_query_secret not in flattened
+        # The routable shape stays diagnosable.
+        assert "rpc.example.com" in flattened
+        assert "data.example.com" in flattened
+
 
 class TestGetSettings:
     """Tests for get_settings singleton."""

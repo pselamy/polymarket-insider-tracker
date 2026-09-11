@@ -57,9 +57,36 @@ def _read_legacy_disposition(database_url: str, assessment_id: str) -> tuple[str
     return str(row[0]), bool(row[1])
 
 
+def _read_legacy_scoring_identity(database_url: str, assessment_id: str) -> tuple[str, str | None]:
+    query = (
+        "SELECT scoring_algorithm_version, scoring_config"
+        " FROM risk_assessments WHERE assessment_id = %s"
+    )
+    with psycopg.connect(_psycopg_dsn(database_url)) as connection:
+        row = connection.execute(query, (assessment_id,)).fetchone()
+    assert row is not None
+    return str(row[0]), row[1]
+
+
+def _scoring_identity_column_shapes(database_url: str) -> dict[str, tuple[str, str]]:
+    query = (
+        "SELECT column_name, is_nullable, COALESCE(column_default, '') FROM"
+        " information_schema.columns WHERE table_name = 'risk_assessments'"
+        " AND column_name IN ('scoring_algorithm_version', 'scoring_config')"
+    )
+    with psycopg.connect(_psycopg_dsn(database_url)) as connection:
+        rows = connection.execute(query).fetchall()
+    return {str(name): (str(nullable), str(default)) for name, nullable, default in rows}
+
+
 @pytest.mark.integration
 def test_migration_backfills_unrecorded_disposition_for_legacy_rows() -> None:
-    """A pre-migration row must read back as ``unrecorded``/``false``, never ``dry_run``/``false``."""
+    """A pre-migration row must read back as ``unrecorded``/``false``, never ``dry_run``/``false``,
+    and as ``legacy-unversioned`` with NULL scoring_config (Patrick's 2026-09-11 decision).
+
+    The cycle also proves determinism: downgrade drops the scoring-identity columns
+    and a re-upgrade re-applies the identical backfill.
+    """
     if os.environ.get("RUN_SERVICE_TESTS") != "1":
         pytest.skip("set RUN_SERVICE_TESTS=1 with the documented local services")
     module = _load_module()
@@ -79,8 +106,23 @@ def test_migration_backfills_unrecorded_disposition_for_legacy_rows() -> None:
         _insert_legacy_row(temporary_url, assessment_id)
         backend.run_alembic(temporary_url, "upgrade", "head")
         disposition, dry_run = _read_legacy_disposition(temporary_url, assessment_id)
+        version, config = _read_legacy_scoring_identity(temporary_url, assessment_id)
+        shapes = _scoring_identity_column_shapes(temporary_url)
+
+        backend.run_alembic(temporary_url, "downgrade", "002_risk_assessments")
+        downgraded_shapes = _scoring_identity_column_shapes(temporary_url)
+
+        backend.run_alembic(temporary_url, "upgrade", "head")
+        re_version, re_config = _read_legacy_scoring_identity(temporary_url, assessment_id)
     finally:
         backend.drop_database(database_name)
 
     assert disposition == "unrecorded"
     assert dry_run is False
+    assert version == "legacy-unversioned"
+    assert config is None
+    # NOT NULL without an insert default: only the backfill may produce the label.
+    assert shapes["scoring_algorithm_version"] == ("NO", "")
+    assert shapes["scoring_config"][0] == "YES"
+    assert downgraded_shapes == {}
+    assert (re_version, re_config) == ("legacy-unversioned", None)

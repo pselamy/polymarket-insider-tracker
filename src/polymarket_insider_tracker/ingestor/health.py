@@ -7,6 +7,7 @@ tracking connection states, event throughput, and staleness detection.
 import asyncio
 import contextlib
 import copy
+import dataclasses
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -17,13 +18,18 @@ from typing import Any
 from aiohttp import web
 from prometheus_client import Counter, Gauge, Histogram, generate_latest
 
+from polymarket_insider_tracker.redaction import redact_text
+
 logger = logging.getLogger(__name__)
 
 # Default configuration
 DEFAULT_STALE_THRESHOLD_SECONDS = 60  # No events for 60s = stale
 DEFAULT_HEALTH_CHECK_INTERVAL = 5  # seconds
 DEFAULT_HTTP_PORT = 8080
-COMPONENT_CHECK_TIMEOUT_SECONDS = 1.0  # Readiness checks must stay bounded
+# Component checks run concurrently, each under this bound, so a probe with every
+# dependency hung still answers inside the plan's <100ms health-probe goal instead
+# of accumulating one timeout per component.
+COMPONENT_CHECK_TIMEOUT_SECONDS = 0.09
 
 
 class HealthStatus(Enum):
@@ -79,11 +85,11 @@ class ComponentStatus:
         return self.status == "down"
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert component status to dictionary."""
+        """Convert component status to dictionary for health output (error redacted)."""
         return {
             "status": self.status,
             "latency_ms": self.latency_ms,
-            "last_error": self.last_error,
+            "last_error": redact_text(self.last_error) if self.last_error else self.last_error,
         }
 
 
@@ -212,6 +218,11 @@ class HealthMonitor:
         return self._running
 
     @property
+    def stale_threshold_seconds(self) -> float:
+        """The single staleness bound shared by stream state and readiness gating."""
+        return self._stale_threshold
+
+    @property
     def last_acquisition_time(self) -> float | None:
         """Return timestamp of last polling acquisition."""
         return self._last_acquisition_time
@@ -233,9 +244,10 @@ class HealthMonitor:
         if self._last_error_provider is None:
             return None
         try:
-            return self._last_error_provider()
+            reported = self._last_error_provider()
         except Exception as exc:
-            return f"last-error provider failed: {exc}"
+            return f"last-error provider failed: {redact_text(str(exc))}"
+        return redact_text(reported) if reported is not None else None
 
     def record_acquisition(self, timestamp: float | None = None) -> None:
         """Record a polling acquisition cycle timestamp."""
@@ -432,7 +444,11 @@ class HealthMonitor:
         HEALTH_STATUS.set(status_map.get(overall_status, 0.0))
 
     def get_health_report(self) -> HealthReport:
-        """Generate a comprehensive health report.
+        """Generate a stream-level health report.
+
+        The Prometheus overall-health gauge is deliberately not set here: it follows
+        the combined component-and-stream snapshot (``evaluate_overall_health``) so
+        `/metrics` can never disagree with `/health` about the same state.
 
         Returns:
             HealthReport with current status of all streams.
@@ -440,7 +456,6 @@ class HealthMonitor:
         self._check_stream_staleness()
         total_eps = self._update_stream_metrics()
         overall_status = self._determine_overall_status()
-        self._set_prometheus_health_status(overall_status)
 
         uptime = time.time() - self._start_time if self._start_time else 0.0
         streams_copy = {name: copy.copy(stream) for name, stream in self._streams.items()}
@@ -464,7 +479,7 @@ class HealthMonitor:
 
     async def _run_health_check_step(self) -> None:
         try:
-            report = self.get_health_report()
+            report, _, _ = await self.evaluate_overall_health()
             await self._notify_health_change(report)
             await asyncio.sleep(self._health_check_interval)
         except asyncio.CancelledError:
@@ -521,14 +536,35 @@ class HealthMonitor:
                 last_error=f"health check timed out after {COMPONENT_CHECK_TIMEOUT_SECONDS}s",
             )
         except Exception as exc:
-            return ComponentStatus(status="down", last_error=str(exc))
+            return ComponentStatus(status="down", last_error=redact_text(str(exc)))
 
     async def evaluate_components(self) -> dict[str, ComponentStatus]:
-        """Evaluate all registered component health checks."""
-        results: dict[str, ComponentStatus] = {}
-        for name, checker in self._component_checkers.items():
-            results[name] = await self._evaluate_single_component(checker)
-        return results
+        """Evaluate all registered component checks concurrently under one probe budget.
+
+        Sequential evaluation would accumulate one timeout per hung dependency and
+        blow the documented sub-100ms probe goal; concurrent evaluation bounds the
+        whole probe by the single per-check timeout.
+        """
+        names = list(self._component_checkers)
+        statuses = await asyncio.gather(
+            *(self._evaluate_single_component(self._component_checkers[name]) for name in names)
+        )
+        return dict(zip(names, statuses, strict=True))
+
+    async def evaluate_overall_health(
+        self,
+    ) -> tuple[HealthReport, dict[str, ComponentStatus], HealthStatus]:
+        """One combined component-and-stream snapshot; the Prometheus gauge follows it.
+
+        `/health`, `/metrics`, and the periodic check all derive from this single
+        evaluation, so the exported ``polymarket_health_status`` value always agrees
+        with the `/health` verdict for the same state.
+        """
+        report = self.get_health_report()
+        components = await self.evaluate_components()
+        overall = self._determine_health_status(report.status, components)
+        self._set_prometheus_health_status(overall)
+        return dataclasses.replace(report, status=overall), components, overall
 
     @staticmethod
     def _reason_for_component(name: str) -> str:
@@ -613,7 +649,7 @@ class HealthMonitor:
                 "events_received": stream.events_received,
                 "events_per_second": round(stream.events_per_second, 2),
                 "last_event_time": stream.last_event_time,
-                "last_error": stream.last_error,
+                "last_error": redact_text(stream.last_error) if stream.last_error else None,
             }
         return result
 
@@ -643,9 +679,7 @@ class HealthMonitor:
 
     async def _handle_health(self, _request: web.Request) -> web.Response:
         """Handle /health diagnostic endpoint."""
-        report = self.get_health_report()
-        components = await self.evaluate_components()
-        overall_status = self._determine_health_status(report.status, components)
+        report, components, overall_status = await self.evaluate_overall_health()
         status_code = 503 if overall_status == HealthStatus.UNHEALTHY else 200
 
         now = time.time()
@@ -658,7 +692,8 @@ class HealthMonitor:
 
     async def _handle_metrics(self, _request: web.Request) -> web.Response:
         """Handle /metrics endpoint (Prometheus format)."""
-        self.get_health_report()
+        # The gauge exports the same combined verdict /health would return right now.
+        await self.evaluate_overall_health()
         metrics = generate_latest()
         return web.Response(
             body=metrics,

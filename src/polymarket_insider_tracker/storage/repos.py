@@ -567,6 +567,10 @@ class RiskAssessmentDTO:
     wallet_age_hours: Decimal | None
     should_alert: bool
     threshold_at_eval: Decimal
+    # Required so a new row can never be silently mislabeled: only the migration
+    # backfill may produce 'legacy-unversioned'.
+    scoring_algorithm_version: str
+    scoring_config: str | None
     delivery_disposition: str = "unrecorded"
     delivery_channels: str | None = None
     dry_run: bool = False
@@ -609,6 +613,8 @@ class RiskAssessmentRepository:
             wallet_age_hours=dto.wallet_age_hours,
             should_alert=dto.should_alert,
             threshold_at_eval=dto.threshold_at_eval,
+            scoring_algorithm_version=dto.scoring_algorithm_version,
+            scoring_config=dto.scoring_config,
             delivery_disposition=dto.delivery_disposition,
             delivery_channels=dto.delivery_channels,
             dry_run=dto.dry_run,
@@ -621,3 +627,29 @@ class RiskAssessmentRepository:
         self.session.add(model)
         await self.session.flush()
         return dto
+
+    async def update_delivery(
+        self,
+        assessment_id: str,
+        *,
+        delivery_disposition: str,
+        delivery_channels: str | None,
+        dry_run: bool,
+    ) -> bool:
+        """Record the delivery outcome on a pending assessment row.
+
+        Returns True when the row existed and was updated, False when no row
+        carries ``assessment_id`` (the caller then falls back to inserting the
+        complete assessment).
+        """
+        result = await self.session.execute(
+            update(RiskAssessmentModel)
+            .where(RiskAssessmentModel.assessment_id == assessment_id)
+            .values(
+                delivery_disposition=delivery_disposition,
+                delivery_channels=delivery_channels,
+                dry_run=dry_run,
+            )
+        )
+        rowcount = cast(RowCountResult, result).rowcount
+        return (rowcount or 0) > 0

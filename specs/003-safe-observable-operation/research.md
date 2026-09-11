@@ -173,13 +173,16 @@ The previous float comparison could decide `0.7999999999999999 < 0.8` while pers
 its own decision and could not be replayed. Deciding at persisted precision changes
 behavior only within half a thousandth of the threshold and makes the record
 self-explanatory; the earlier float-artifact regression pin in `tests/detector/test_scorer.py`
-was replaced accordingly. Signal weights are constants of `SCORING_ALGORITHM_VERSION`
-(round-3 repair): the persisted schema intentionally does not carry them per the approved
-column set, so `RiskScorer` no longer accepts a weights argument and has no runtime weight
-mutation — logging a non-default configuration was not durable assessment evidence. With
-exactly one weight set per algorithm version, every stored row replays from its own values
-plus the pinned constants; a future weight change requires a version bump and a schema
-decision on persisting the version.
+was replaced accordingly.
+
+*Superseded in part (2026-09-11, round-4 repair under Patrick's schema decision):* the
+round-3 approach removed weight configurability entirely because the approved schema stored
+neither weights nor a version, which also broke the public `weights=`/`set_weights()` API.
+The schema now persists `scoring_algorithm_version` and the canonical `scoring_config`
+JSON per row (legacy rows are labeled `legacy-unversioned` with NULL config), the default
+weights are immutable, and the pre-slice-003 weight API is restored for one deprecation
+window — rows scored under custom weights replay from their own recorded configuration.
+See `contracts/assessment-storage.md` §4.
 
 ---
 

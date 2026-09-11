@@ -26,7 +26,7 @@ import asyncio
 import logging
 import signal
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from types import FrameType
 from typing import TYPE_CHECKING
@@ -41,6 +41,33 @@ DEFAULT_SHUTDOWN_TIMEOUT = 30.0
 
 # Signals to trap for graceful shutdown
 SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
+
+
+def _consume_abandoned_result(task: asyncio.Task[Any]) -> None:
+    if task.cancelled():
+        return
+    exception = task.exception()
+    if exception is not None:
+        logger.error("Abandoned shutdown work failed after its deadline: %s", exception)
+
+
+async def wait_bounded(awaitable: Awaitable[Any], timeout: float) -> bool:
+    """Await ``awaitable`` for at most ``timeout`` seconds of wall time.
+
+    Unlike ``asyncio.wait_for``, the deadline holds even when the awaited coroutine
+    suppresses cancellation: at the deadline the task is cancelled best-effort and
+    abandoned (it may still be finishing in the background) and False is returned.
+    Exceptions from work that finishes in time propagate; a late result or failure
+    from abandoned work is consumed and never reported as success.
+    """
+    task = asyncio.ensure_future(awaitable)
+    done, _ = await asyncio.wait({task}, timeout=timeout)
+    if task in done:
+        task.result()
+        return True
+    task.cancel()
+    task.add_done_callback(_consume_abandoned_result)
+    return False
 
 
 class GracefulShutdown:
@@ -251,16 +278,19 @@ class GracefulShutdown:
 
     async def _run_cleanup_callback(self, callback: Callable[[], Any]) -> None:
         result = callback()
-        if asyncio.iscoroutine(result):
-            await asyncio.wait_for(result, timeout=self._timeout)
+        if not asyncio.iscoroutine(result):
+            return
+        if not await wait_bounded(result, self._timeout):
+            raise TimeoutError
 
     async def run_cleanup_callbacks(self) -> None:
         """Run all registered cleanup callbacks; awaited (coroutine) work is bounded.
 
         A coroutine callback that exceeds the shutdown timeout is abandoned with an
         error log so a hung component cannot stall process exit indefinitely; later
-        callbacks still run. Synchronous callbacks cannot be interrupted and are
-        expected to be fast.
+        callbacks still run. The deadline holds even when the callback suppresses
+        cancellation. Synchronous callbacks cannot be interrupted and are expected
+        to be fast.
         """
         for callback in self._cleanup_callbacks:
             try:

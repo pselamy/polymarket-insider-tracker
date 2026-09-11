@@ -792,25 +792,34 @@ class TestWorkerSupervision:
 
 
 class _StubPollerStatus:
-    def __init__(self, last_error: str | None) -> None:
+    def __init__(self, last_error: str | None, last_success_at: datetime | None) -> None:
         self.last_error = last_error
         self.last_acquisition_at = None
+        self.last_success_at = last_success_at
         self.last_trade_at = None
 
 
 class _StubPoller:
     """Just enough poller surface for `_check_ingestion` state-mapping tests."""
 
-    def __init__(self, state: IngestionState, last_error: str | None = None) -> None:
+    def __init__(
+        self,
+        state: IngestionState,
+        last_error: str | None = None,
+        seconds_since_last_success: float | None = 1.0,
+    ) -> None:
         self.state = state
         self.is_running = True
-        self.status = _StubPollerStatus(last_error)
+        self.seconds_since_last_success = seconds_since_last_success
+        last_success = datetime.now(UTC) if seconds_since_last_success is not None else None
+        self.status = _StubPollerStatus(last_error, last_success)
 
 
 class TestIngestionComponentTruthfulness:
-    """Degraded and possible-data-loss states must be visible, not reported "up" (FR-002/003)."""
+    """Readiness gates on proven, recent successful acquisition; degraded and
+    possible-data-loss states stay visible instead of being reported "up" (FR-002/003)."""
 
-    async def test_degraded_poller_maps_to_degraded_component_with_error(self) -> None:
+    async def test_degraded_poller_with_recent_success_maps_to_degraded_with_error(self) -> None:
         pipeline = Pipeline(make_test_settings())
         pipeline._trade_poller = _StubPoller(  # type: ignore[assignment]
             IngestionState.DEGRADED, last_error="acquisition cycle failed: 503"
@@ -846,7 +855,7 @@ class TestIngestionComponentTruthfulness:
         assert reason is None
         assert components["ingestion"] == "degraded"
 
-    async def test_running_poller_still_reports_up(self) -> None:
+    async def test_running_poller_with_recent_success_still_reports_up(self) -> None:
         pipeline = Pipeline(make_test_settings())
         pipeline._trade_poller = _StubPoller(IngestionState.RUNNING)  # type: ignore[assignment]
 
@@ -854,6 +863,111 @@ class TestIngestionComponentTruthfulness:
 
         assert component.status == "up"
         assert component.last_error is None
+
+
+class TestReadinessRequiresSuccessfulAcquisition:
+    """A running poller that has never reached the source, or whose last success is
+    stale, is not ready: request start is not resource acquisition (FR-002)."""
+
+    async def test_starting_poller_that_never_connected_is_down(self) -> None:
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(  # type: ignore[assignment]
+            IngestionState.STARTING, seconds_since_last_success=None
+        )
+
+        component = await pipeline._check_ingestion()
+
+        assert component.status == "down"
+        assert "successful acquisition" in (component.last_error or "")
+
+    async def test_degraded_poller_whose_first_request_failed_is_down(self) -> None:
+        """The round-4 reproduction: a first-request connection failure stayed ready."""
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(  # type: ignore[assignment]
+            IngestionState.DEGRADED,
+            last_error="acquisition cycle failed: connection refused",
+            seconds_since_last_success=None,
+        )
+        pipeline._redis = FakeAsyncRedis()
+        pipeline._db_manager = _HealthyDatabaseStub()  # type: ignore[assignment]
+
+        component = await pipeline._check_ingestion()
+        ready_status, reason, components = await pipeline.check_readiness()
+
+        assert component.status == "down"
+        assert "connection refused" in (component.last_error or "")
+        assert ready_status is False
+        assert reason == "ingestion_worker_failed"
+        assert components["ingestion"] == "down"
+
+    async def test_stale_success_is_down_even_while_state_says_running(self) -> None:
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(  # type: ignore[assignment]
+            IngestionState.RUNNING, seconds_since_last_success=120.0
+        )
+
+        component = await pipeline._check_ingestion()
+
+        assert component.status == "down"
+        assert "last successful acquisition" in (component.last_error or "")
+
+    async def test_stale_success_degraded_source_is_down_not_degraded(self) -> None:
+        """An unreachable DEGRADED source (stale success) is distinct from a
+        progressing POSSIBLE_DATA_LOSS source (fresh success, covered above)."""
+        pipeline = Pipeline(make_test_settings())
+        pipeline._trade_poller = _StubPoller(  # type: ignore[assignment]
+            IngestionState.DEGRADED,
+            last_error="acquisition cycle failed: 503",
+            seconds_since_last_success=600.0,
+        )
+
+        component = await pipeline._check_ingestion()
+
+        assert component.status == "down"
+        assert "acquisition cycle failed: 503" in (component.last_error or "")
+
+    async def test_successful_empty_page_counts_as_acquisition_and_is_up(
+        self, fake_redis: FakeAsyncRedis
+    ) -> None:
+        """A quiet market's empty page proves reachability; the source is up."""
+        clock = FakeClock(POLL_START)
+        server = FakeTradesServer(clock=clock)
+        pipeline = await wire_pipeline(
+            make_test_settings(), redis=fake_redis, eth=FakeEth(), trades=server, poll_clock=clock
+        )
+        assert pipeline._trade_poller is not None
+
+        await pipeline._trade_poller.run_cycle()
+        # run_cycle() drives one acquisition without the poller loop; mark the loop
+        # running so the check reflects steady-state operation, not lifecycle stop.
+        pipeline._trade_poller._running = True
+        component = await pipeline._check_ingestion()
+
+        assert pipeline._trade_poller.seconds_since_last_success is not None
+        assert component.status == "up"
+
+    async def test_failed_acquisition_never_reports_acquisition_freshness(
+        self, fake_redis: FakeAsyncRedis
+    ) -> None:
+        """The health monitor's acquisition time must come from a completed fetch,
+        not from the request-start timestamp of a failed attempt."""
+        from tests.fakes import server_error
+
+        clock = FakeClock(POLL_START)
+        server = FakeTradesServer(clock=clock)
+        server.fail_next(server_error(), times=8)
+        pipeline = await wire_pipeline(
+            make_test_settings(), redis=fake_redis, eth=FakeEth(), trades=server, poll_clock=clock
+        )
+        assert pipeline._trade_poller is not None
+
+        await pipeline._trade_poller.run_cycle()
+        component = await pipeline._check_ingestion()
+
+        assert pipeline._trade_poller.state is IngestionState.DEGRADED
+        assert pipeline._trade_poller.status.last_acquisition_at is not None
+        assert pipeline.health_monitor.last_acquisition_time is None
+        assert component.status == "down"
 
 
 class _HealthyDatabaseStub:
@@ -871,6 +985,137 @@ class _HealthyDatabaseStub:
             yield _Session()
 
         return session()
+
+
+class _RowCountingChannel:
+    """Channel that records how many assessment rows were durable at send time."""
+
+    def __init__(self, name: str, engine: AsyncEngine) -> None:
+        self.name = name
+        self._engine = engine
+        self.rows_at_send: list[int] = []
+
+    async def send(self, alert: Any) -> bool:
+        _ = alert
+        self.rows_at_send.append(len(await _persisted_assessments(self._engine)))
+        return True
+
+
+class _ExplodingFormatter:
+    """Formatter failure injection: the crash window between scoring and delivery."""
+
+    def format(self, assessment: Any) -> Any:
+        _ = assessment
+        raise RuntimeError("formatter exploded")
+
+
+class _FailFirstSessionsDatabaseManager:
+    """Delegates to a real manager after failing the first N session acquisitions."""
+
+    def __init__(self, inner: DatabaseManager, failures: int) -> None:
+        self._inner = inner
+        self.failures_remaining = failures
+
+    def get_async_session(self) -> Any:
+        if self.failures_remaining > 0:
+            self.failures_remaining -= 1
+            raise RuntimeError("database briefly unavailable")
+        return self._inner.get_async_session()
+
+
+class TestAssessmentDurabilityOrdering:
+    """A qualifying assessment must be durable before any delivery work and can
+    never be lost between computation and persistence (FR-012, round-4 finding 3)."""
+
+    async def test_qualifying_assessment_is_persisted_before_delivery_attempt(
+        self,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+        niche_market: MarketMetadata,
+    ) -> None:
+        channel = _RowCountingChannel("discord", async_engine)
+        pipeline = await wire_pipeline(
+            make_test_settings(alert_threshold=0.4),
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=0),
+            market=niche_market,
+            db_manager=db_manager,
+            channels=[channel],
+        )
+
+        await pipeline._on_trade(sample_trade_event)
+
+        # The pending row was already durable when the channel was contacted...
+        assert channel.rows_at_send == [1]
+        # ...and the same single row now carries the final delivery outcome.
+        rows = await _persisted_assessments(async_engine)
+        assert [row.delivery_disposition for row in rows] == ["delivered"]
+        assert pipeline.stats.errors == 0
+
+    async def test_formatter_failure_does_not_lose_the_assessment(
+        self,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+        niche_market: MarketMetadata,
+    ) -> None:
+        """The round-4 reproduction: a formatter exception used to leave persist_calls=0."""
+        channel = FakeAlertChannel("discord")
+        pipeline = await wire_pipeline(
+            make_test_settings(alert_threshold=0.4),
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=0),
+            market=niche_market,
+            db_manager=db_manager,
+            channels=[channel],
+        )
+        pipeline._alert_formatter = _ExplodingFormatter()  # type: ignore[assignment]
+
+        await pipeline._on_trade(sample_trade_event)
+
+        rows = await _persisted_assessments(async_engine)
+        assert len(rows) == 1
+        assert rows[0].should_alert is True
+        # No delivery outcome exists yet, so the row truthfully stays unrecorded.
+        assert rows[0].delivery_disposition == "unrecorded"
+        assert channel.deliveries == []
+        assert pipeline.stats.errors == 1
+        assert "formatter exploded" in (pipeline.stats.last_error or "")
+
+    async def test_initial_persist_failure_is_observable_and_recovered_after_delivery(
+        self,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+        niche_market: MarketMetadata,
+    ) -> None:
+        """FR-013: the pending write failing must not block delivery, must be counted,
+        and the post-delivery write must still produce the durable record."""
+        channel = FakeAlertChannel("discord")
+        # The first two sessions serve the wallet/funding write and the pending
+        # assessment write; both fail, then the database recovers.
+        flaky = _FailFirstSessionsDatabaseManager(db_manager, failures=2)
+        pipeline = await wire_pipeline(
+            make_test_settings(alert_threshold=0.4),
+            redis=fake_redis,
+            eth=FakeEth(transaction_count=0),
+            market=niche_market,
+            db_manager=db_manager,
+            channels=[channel],
+        )
+        pipeline._db_manager = flaky  # type: ignore[assignment]
+
+        await pipeline._on_trade(sample_trade_event)
+
+        assert len(channel.deliveries) == 1
+        assert pipeline.stats.errors == 1
+        assert "Failed to persist risk assessment" in (pipeline.stats.last_error or "")
+        rows = await _persisted_assessments(async_engine)
+        assert [row.delivery_disposition for row in rows] == ["delivered"]
 
 
 class TestProcessingErrorVisibility:

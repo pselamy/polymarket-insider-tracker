@@ -243,6 +243,10 @@ class TestEndToEndPipelineHarness:
         assert assessment_row.wallet_tx_count == 0
         assert assessment_row.wallet_age_known is False
         assert assessment_row.signals_triggered == 2
+        # The row identifies the exact algorithm and configuration that produced it.
+        assert assessment_row.scoring_algorithm_version == "003.1"
+        assert assessment_row.scoring_config is not None
+        assert '"weights"' in assessment_row.scoring_config
 
     @pytest.mark.asyncio
     async def test_end_to_end_live_delivery_and_deduplication(

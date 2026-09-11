@@ -9,7 +9,7 @@ from decimal import Decimal
 from sqlalchemy import Text, create_engine, select
 from sqlalchemy.orm import Session
 
-from polymarket_insider_tracker.detector.models import RiskAssessment
+from polymarket_insider_tracker.detector.models import SCORING_ALGORITHM_VERSION, RiskAssessment
 from polymarket_insider_tracker.storage.models import Base, RiskAssessmentModel
 
 
@@ -25,6 +25,22 @@ def test_risk_assessment_model_has_slice003_columns() -> None:
     assert "book_depth_available" in columns
     assert "wallet_tx_count" in columns
     assert "wallet_age_known" in columns
+    assert "scoring_algorithm_version" in columns
+    assert "scoring_config" in columns
+
+
+def test_scoring_identity_columns_have_truthful_shapes() -> None:
+    """Every new row must supply its algorithm version explicitly (no insert default
+    that could silently mislabel it), while the exact configuration is nullable only
+    because legacy rows' configurations are unknowable."""
+    version = RiskAssessmentModel.__table__.columns["scoring_algorithm_version"]
+    config = RiskAssessmentModel.__table__.columns["scoring_config"]
+
+    assert version.nullable is False
+    assert version.default is None
+    assert version.server_default is None
+    assert config.nullable is True
+    assert isinstance(config.type, Text)
 
 
 def test_delivery_channels_column_is_text() -> None:
@@ -51,6 +67,8 @@ def test_risk_assessment_domain_model_has_slice003_fields() -> None:
     assert assessment.book_depth_available is None
     assert assessment.wallet_tx_count is None
     assert assessment.wallet_age_known is None
+    assert assessment.scoring_algorithm_version == SCORING_ALGORITHM_VERSION
+    assert assessment.scoring_config is None
 
 
 def test_delivery_disposition_default_never_claims_a_dry_run() -> None:
@@ -82,6 +100,8 @@ def test_risk_assessment_model_sqlite_round_trip() -> None:
         signals_triggered=2,
         should_alert=True,
         threshold_at_eval=Decimal("0.800"),
+        scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
+        scoring_config='{"alert_threshold":"0.800","weights":{"fresh_wallet":"0.4"}}',
         delivery_disposition="delivered",
         delivery_channels='{"discord": "delivered", "telegram": "delivered"}',
         dry_run=False,
@@ -107,3 +127,6 @@ def test_risk_assessment_model_sqlite_round_trip() -> None:
         assert saved.market_daily_volume == Decimal("50000.00")
         assert saved.wallet_tx_count == 2
         assert saved.wallet_age_known is True
+        assert saved.scoring_algorithm_version == SCORING_ALGORITHM_VERSION
+        assert saved.scoring_config is not None
+        assert '"alert_threshold":"0.800"' in saved.scoring_config

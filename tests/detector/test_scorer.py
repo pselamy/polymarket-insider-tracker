@@ -1,5 +1,6 @@
 """Tests for composite risk scorer."""
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -656,34 +657,115 @@ class TestBatchAnalysis:
 # ============================================================================
 
 
-class TestPinnedAlgorithm:
-    """Weights are algorithm constants: no runtime configuration may exist (FR-012).
+class TestScoringIdentityAndCompatibility:
+    """Every assessment carries its algorithm version and exact configuration, the
+    default weights are immutable, and the pre-slice-003 weight-configuration API
+    stays functional for one deprecation window (Patrick's 2026-09-11 decision)."""
 
-    The persisted assessment schema stores no weights or version column, so a stored
-    record replays its decision only while exactly one weight set exists per
-    ``SCORING_ALGORITHM_VERSION``.
-    """
+    def test_default_weights_are_immutable(self) -> None:
+        with pytest.raises(TypeError):
+            DEFAULT_WEIGHTS["fresh_wallet"] = 0.99  # type: ignore[index]
 
-    def test_get_weights_returns_pinned_copy(self, fake_redis: FakeAsyncRedis) -> None:
+    def test_get_weights_returns_defensive_copy(self, fake_redis: FakeAsyncRedis) -> None:
         scorer = RiskScorer(fake_redis)
 
         weights = scorer.get_weights()
 
-        assert weights == DEFAULT_WEIGHTS
-        # Mutating the returned copy must not change the algorithm.
+        assert weights == dict(DEFAULT_WEIGHTS)
+        # Mutating the returned copy must not change the scorer's behavior.
         weights["fresh_wallet"] = 999
-        assert scorer.get_weights() == DEFAULT_WEIGHTS
-
-    def test_no_runtime_weight_mutation_exists(self, fake_redis: FakeAsyncRedis) -> None:
-        scorer = RiskScorer(fake_redis)
-        assert not hasattr(scorer, "set_weights")
-
-    def test_no_constructor_weight_configuration_exists(self, fake_redis: FakeAsyncRedis) -> None:
-        with pytest.raises(TypeError):
-            RiskScorer(fake_redis, weights={"fresh_wallet": 1.0})  # type: ignore[call-arg]
+        assert scorer.get_weights() == dict(DEFAULT_WEIGHTS)
 
     def test_algorithm_version_is_pinned(self) -> None:
         assert SCORING_ALGORITHM_VERSION == "003.1"
+
+    def test_weights_constructor_argument_works_with_deprecation_warning(
+        self, fake_redis: FakeAsyncRedis
+    ) -> None:
+        custom = {"fresh_wallet": 0.5, "size_anomaly": 0.3, "niche_market": 0.2}
+
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights=custom)
+
+        assert scorer.get_weights() == custom
+        # The caller's dictionary is copied, not aliased.
+        custom["fresh_wallet"] = 0.99
+        assert scorer.get_weights()["fresh_wallet"] == 0.5
+
+    def test_set_weights_works_with_deprecation_warning(self, fake_redis: FakeAsyncRedis) -> None:
+        scorer = RiskScorer(fake_redis)
+
+        with pytest.warns(DeprecationWarning, match="set_weights"):
+            scorer.set_weights({"fresh_wallet": 0.6, "size_anomaly": 0.25, "niche_market": 0.15})
+
+        assert scorer.get_weights()["fresh_wallet"] == 0.6
+        assert dict(DEFAULT_WEIGHTS)["fresh_wallet"] == 0.40
+
+    @pytest.mark.asyncio
+    async def test_assessment_records_version_and_canonical_config(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
+        scorer = RiskScorer(fake_redis, alert_threshold=0.8)
+        bundle = SignalBundle(trade_event=sample_trade, fresh_wallet_signal=fresh_wallet_signal)
+
+        assessment = await scorer.assess(bundle)
+
+        assert assessment.scoring_algorithm_version == SCORING_ALGORITHM_VERSION
+        assert assessment.scoring_config is not None
+        config = json.loads(assessment.scoring_config)
+        assert config["weights"] == {
+            "fresh_wallet": "0.4",
+            "size_anomaly": "0.35",
+            "niche_market": "0.25",
+        }
+        assert config["alert_threshold"] == "0.800"
+        assert config["multi_signal_bonus_2"] == "1.2"
+        assert config["multi_signal_bonus_3"] == "1.3"
+        assert config["score_quantum"] == "0.001"
+        # Canonical form: sorted keys, fixed separators, deterministic across calls.
+        assert assessment.scoring_config == json.dumps(
+            config, sort_keys=True, separators=(",", ":")
+        )
+        assert (
+            assessment.scoring_config == RiskScorer(fake_redis, alert_threshold=0.8).scoring_config
+        )
+
+    @pytest.mark.asyncio
+    async def test_custom_weight_assessment_replays_from_its_own_config(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+    ) -> None:
+        """A row produced under deprecated custom weights replays exactly from the
+        weights recorded in its own scoring_config — nothing else is needed."""
+        custom = {"fresh_wallet": 0.7, "size_anomaly": 0.2, "niche_market": 0.1}
+        with pytest.warns(DeprecationWarning):
+            scorer = RiskScorer(fake_redis, weights=custom)
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=fresh_wallet_signal,
+            size_anomaly_signal=size_anomaly_signal,
+        )
+
+        assessment = await scorer.assess(bundle)
+
+        assert assessment.scoring_config is not None
+        stored = json.loads(assessment.scoring_config)
+        stored_weights = {name: Decimal(value) for name, value in stored["weights"].items()}
+        replayed = (
+            quantize_score_value(fresh_wallet_signal.confidence) * stored_weights["fresh_wallet"]
+            + quantize_score_value(size_anomaly_signal.confidence) * stored_weights["size_anomaly"]
+            + quantize_score_value(size_anomaly_signal.confidence) * stored_weights["niche_market"]
+        ) * Decimal(stored["multi_signal_bonus_2"])
+        replayed_score = min(replayed, Decimal(1)).quantize(Decimal(stored["score_quantum"]))
+
+        assert Decimal(str(assessment.weighted_score)) == replayed_score
+        assert assessment.should_alert == (replayed_score >= Decimal(stored["alert_threshold"]))
 
     @pytest.mark.asyncio
     async def test_persisted_record_replays_with_pinned_algorithm_only(

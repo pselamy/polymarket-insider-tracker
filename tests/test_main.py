@@ -23,6 +23,7 @@ from polymarket_insider_tracker.config import (
     WebSocketSettingDeprecationWarning,
     websocket_deprecation_message,
 )
+from tests.fakes import resist_cancellation_for
 
 
 class TestCreateParser:
@@ -191,6 +192,26 @@ class TestRunConfigCheck:
         assert websocket_deprecation_message() in out
         assert "legacy.invalid" not in out
 
+    def test_config_check_never_prints_trades_url_credentials(self, monkeypatch, capsys):
+        """Round-4 finding 6: the CLI printed the raw trades URL, leaking userinfo
+        and query-string credentials to stdout."""
+        user_secret = "cli-trades-userinfo-secret"
+        query_secret = "cli-trades-query-secret"
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv(
+            "POLYMARKET_TRADES_URL",
+            f"https://user:{user_secret}@data.example.com/trades?apikey={query_secret}",
+        )
+        settings = validate_config()
+        assert settings is not None
+
+        run_config_check(settings)
+
+        out = capsys.readouterr().out
+        assert user_secret not in out
+        assert query_secret not in out
+        assert "data.example.com" in out
+
     def test_config_check_states_offline_syntax_only(self, monkeypatch, capsys):
         """Config check must explicitly state it is an offline syntax check and not claim ready to run."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
@@ -352,6 +373,19 @@ class CountingStopPipeline(HangingStopPipeline):
         self.stop_calls += 1
 
 
+class CancellationResistantStopPipeline(HangingStopPipeline):
+    """Working fake whose stop suppresses cancellation and finishes late on its own."""
+
+    def __init__(self, _settings: Settings, *, dry_run: bool = False) -> None:
+        super().__init__(_settings, dry_run=dry_run)
+        self.stop_finished = asyncio.Event()
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        await resist_cancellation_for(0.5)
+        self.stop_finished.set()
+
+
 class TestRunPipelineShutdownTimeout:
     """run_pipeline must enforce shutdown_timeout around pipeline.stop (US3 scenario 4)."""
 
@@ -412,6 +446,94 @@ class TestRunPipelineShutdownTimeout:
 
         assert exit_code == EXIT_SUCCESS
         assert created[0].stop_calls == 1
+
+    async def test_cancellation_resistant_stop_cannot_defeat_the_deadline(self, monkeypatch):
+        """Round-4 finding 7: a stop that suppresses cancellation used to make a tiny
+        timeout return success only after the stop's own 0.5s. The deadline must be
+        enforced independently of coroutine cooperation, and the late completion must
+        still be reported as a timeout (exit 1), never as success."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        from polymarket_insider_tracker.__main__ import run_pipeline
+
+        created: list[CancellationResistantStopPipeline] = []
+
+        def factory(settings: Settings, *, dry_run: bool = False) -> HangingStopPipeline:
+            created.append(CancellationResistantStopPipeline(settings, dry_run=dry_run))
+            return created[-1]
+
+        start = asyncio.get_running_loop().time()
+        exit_code = await asyncio.wait_for(
+            run_pipeline(
+                settings,
+                dry_run=True,
+                shutdown_timeout=0.05,
+                pipeline_factory=factory,
+            ),
+            timeout=5.0,
+        )
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert exit_code == EXIT_ERROR
+        assert created[0].stop_calls == 1
+        assert elapsed < 0.4, f"run_pipeline took {elapsed:.3f}s despite the 0.05s deadline"
+        # The abandoned stop finishes in the background; wait so it cannot leak.
+        await asyncio.wait_for(created[0].stop_finished.wait(), timeout=2.0)
+
+
+class TestCliOverrideConsistency:
+    """Round-4 finding 8: every CLI override must appear identically in runtime
+    configuration and in every printed summary (FR-004)."""
+
+    def test_config_check_reflects_dry_run_and_log_level_overrides(self, monkeypatch, capsys):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config-check", "--dry-run", "--log-level", "DEBUG"])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        out = capsys.readouterr().out
+        assert "Dry Run: True" in out
+        assert "Log Level: DEBUG" in out
+        assert "Dry Run: False" not in out
+        assert "Log Level: INFO" not in out
+
+    def test_overrides_reach_runtime_settings_and_summary_alike(self, monkeypatch, capsys):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        runs: list[tuple[Settings, bool]] = []
+
+        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
+            runs.append((settings, dry_run))
+            return EXIT_SUCCESS
+
+        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+
+        with pytest.raises(SystemExit):
+            main(["--dry-run", "--log-level", "WARNING"])
+
+        settings, dry_run = runs[0]
+        assert dry_run is True
+        assert settings.dry_run is True
+        assert settings.log_level == "WARNING"
+        assert settings.redacted_summary()["dry_run"] == "True"
+        out = capsys.readouterr().out
+        assert "Dry Run: True" in out
+        assert "Log Level: WARNING" in out
+
+    def test_environment_values_survive_without_cli_overrides(self, monkeypatch, capsys):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("DRY_RUN", "true")
+        monkeypatch.setenv("LOG_LEVEL", "ERROR")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config-check"])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        out = capsys.readouterr().out
+        assert "Dry Run: True" in out
+        assert "Log Level: ERROR" in out
 
 
 class TestIntegration:

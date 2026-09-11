@@ -39,11 +39,15 @@ Graceful shutdown is bounded by **one** shutdown timeout (default 30 seconds), n
   registered cleanup callback (a single-stop guard consumes the attempt for whichever path
   runs first, including after a timed-out, abandoned attempt). Total shutdown therefore
   consumes at most one timeout, never a doubled one.
-- The one stop attempt runs under `asyncio.wait_for`; exceeding the bound is logged, the hung
-  stop is abandoned, and the process exits with code 1 instead of hanging.
-- Every other registered coroutine cleanup callback is individually bounded by the same
-  timeout; an overrunning callback is logged and abandoned while later callbacks still run
-  (synchronous callbacks cannot be interrupted and are expected to be fast).
+- The deadline is enforced independently of coroutine cooperation (`wait_bounded`): at the
+  bound the attempt is cancelled best-effort and abandoned even if it suppresses
+  cancellation, the timeout is logged, and the process exits with code 1 instead of
+  hanging. A stop that later completes on its own is still reported as a timeout, never
+  retroactively as success.
+- Every other registered coroutine cleanup callback is individually bounded the same way;
+  an overrunning or cancellation-resisting callback is logged and abandoned while later
+  callbacks still run (synchronous callbacks cannot be interrupted and are expected to be
+  fast).
 - A second SIGINT/SIGTERM still forces immediate exit (`128 + signal`).
 
 ---
@@ -60,8 +64,18 @@ persistence, or dispatch) is recoverable, not terminal:
   failure leaves no signal at all, a skip row with
   `delivery_disposition='detector_failure'` durably explains the absent evidence (US3
   scenario 3); it is never dispatched.
+- Assessment persistence failures are counted into `PipelineStats.errors` and surface as
+  the `/health` top-level `last_error` (FR-013) without blocking an otherwise authorized
+  delivery attempt.
+- Above-threshold ordering: the qualifying assessment is persisted as a pending row
+  (`delivery_disposition='unrecorded'`) **before** formatting or any channel contact, and
+  the same row is updated in place with the final disposition after dispatch (inserted
+  afresh if the pending write failed). A formatter/dispatch failure or termination after an
+  external delivery therefore cannot lose the durable research record; at worst the row
+  truthfully keeps `unrecorded`.
 - The observation identity remains recorded at the durable ingestion boundary per the
   slice-001 observation-boundary contract, so downstream processing is at-most-once: a
-  failed observation is not redelivered after a restart. For failures after detection
-  (scoring, persistence) the durable risk-assessment row may therefore be missing; the
-  failure is observable in health, logs, and counters rather than by replay.
+  failed observation is not redelivered after a restart. Because the qualifying assessment
+  is durable before delivery, the only rows that can be missing after a crash are
+  below-threshold or skip rows whose single write failed; every such failure is observable
+  in health, logs, and counters.

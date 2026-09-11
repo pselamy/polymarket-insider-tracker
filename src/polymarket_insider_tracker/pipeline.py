@@ -41,6 +41,7 @@ from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, Tra
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import FundingTracer
+from polymarket_insider_tracker.redaction import redact_text
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.repos import (
     FundingRepository,
@@ -212,7 +213,7 @@ class Pipeline:
             latency = (time.perf_counter() - start) * 1000.0
             return ComponentStatus(status="up", latency_ms=round(latency, 2))
         except Exception as exc:
-            return ComponentStatus(status="down", last_error=str(exc))
+            return ComponentStatus(status="down", last_error=redact_text(str(exc)))
 
     async def _check_redis(self) -> ComponentStatus:
         if not self._redis:
@@ -224,14 +225,17 @@ class Pipeline:
             latency = (time.perf_counter() - start) * 1000.0
             return ComponentStatus(status="up", latency_ms=round(latency, 2))
         except Exception as exc:
-            return ComponentStatus(status="down", last_error=str(exc))
+            return ComponentStatus(status="down", last_error=redact_text(str(exc)))
 
     def _sync_poller_timestamps(self) -> None:
         if not self._trade_poller or not self._health_monitor:
             return
         status = self._trade_poller.status
-        if status.last_acquisition_at is not None:
-            self._health_monitor.record_acquisition(status.last_acquisition_at.timestamp())
+        # Only a completed fetch proves the source was reached; the request-start
+        # timestamp (last_acquisition_at) must never masquerade as acquisition
+        # freshness when the request itself failed.
+        if status.last_success_at is not None:
+            self._health_monitor.record_acquisition(status.last_success_at.timestamp())
         if status.last_trade_at is not None:
             self._health_monitor.record_trade_arrival(status.last_trade_at.timestamp())
 
@@ -255,12 +259,42 @@ class Pipeline:
         return self._running_ingestion_status()
 
     def _running_ingestion_status(self) -> ComponentStatus:
+        """Readiness needs proof of reachability: a recent successful acquisition.
+
+        A poller that is merely running (STARTING, or DEGRADED because every request
+        failed) has not acquired anything; reporting it "up" would make a
+        never-connected or unreachable source look ready. A progressing
+        POSSIBLE_DATA_LOSS or transiently DEGRADED source keeps a fresh success and
+        stays a visible, ready-compatible "degraded" component.
+        """
         assert self._trade_poller is not None
-        state = self._trade_poller.state
+        poller = self._trade_poller
+        success_age = poller.seconds_since_last_success
+        if success_age is None:
+            return ComponentStatus(status="down", last_error=self._no_acquisition_error())
+        if success_age > self._health_monitor.stale_threshold_seconds:
+            return ComponentStatus(status="down", last_error=self._stale_success_error(success_age))
+        state = poller.state
         if state in self._DEGRADED_INGESTION_STATES:
-            error = self._trade_poller.status.last_error or f"ingestion state: {state.value}"
+            error = poller.status.last_error or f"ingestion state: {state.value}"
             return ComponentStatus(status="degraded", last_error=error)
         return ComponentStatus(status="up")
+
+    def _no_acquisition_error(self) -> str:
+        assert self._trade_poller is not None
+        last_error = self._trade_poller.status.last_error
+        message = "trade source has not completed a successful acquisition"
+        return f"{message}: {last_error}" if last_error else message
+
+    def _stale_success_error(self, success_age: float) -> str:
+        assert self._trade_poller is not None
+        last_error = self._trade_poller.status.last_error
+        threshold = self._health_monitor.stale_threshold_seconds
+        message = (
+            f"last successful acquisition was {success_age:.0f}s ago"
+            f" (staleness bound {threshold:.0f}s)"
+        )
+        return f"{message}: {last_error}" if last_error else message
 
     async def check_readiness(self) -> tuple[bool, str | None, dict[str, str]]:
         """Evaluate current readiness across all dependencies."""
@@ -299,8 +333,8 @@ class Pipeline:
                 logger.info("Pipeline started successfully")
         except Exception as e:
             self._state = PipelineState.ERROR
-            self._stats.last_error = str(e)
-            logger.error("Failed to start pipeline: %s", e)
+            self._stats.last_error = redact_text(str(e))
+            logger.error("Failed to start pipeline: %s", self._stats.last_error)
             await self._cleanup()
             raise
 
@@ -475,12 +509,19 @@ class Pipeline:
             logger.debug("Starting metadata sync service in the background...")
             self._metadata_task = asyncio.create_task(self._run_metadata_sync())
 
+    def _record_processing_error(self, message: str) -> None:
+        """Count a recoverable per-trade failure and surface it at /health (lifecycle §5)."""
+        redacted = redact_text(message)
+        logger.warning(redacted)
+        self._stats.errors += 1
+        self._stats.last_error = redacted
+
     def _handle_worker_failure(self, error: str) -> None:
         """Handle background worker crash or terminal failure."""
         if self._state in (PipelineState.STARTING, PipelineState.RUNNING):
             self._state = PipelineState.ERROR
         self._stats.errors += 1
-        self._stats.last_error = error
+        self._stats.last_error = redact_text(error)
         if self._stop_event and not self._stop_event.is_set():
             self._stop_event.set()
 
@@ -493,7 +534,7 @@ class Pipeline:
         except asyncio.CancelledError:
             logger.debug("Trade poller task cancelled")
         except Exception as e:
-            logger.error("Trade poller error: %s", e)
+            logger.error("Trade poller error: %s", redact_text(str(e)))
             self._handle_worker_failure(str(e))
 
     async def _run_metadata_sync(self) -> None:
@@ -505,8 +546,8 @@ class Pipeline:
         except asyncio.CancelledError:
             logger.debug("Metadata sync task cancelled")
         except Exception as e:
-            logger.error("Metadata sync error: %s", e)
-            self._stats.last_error = str(e)
+            logger.error("Metadata sync error: %s", redact_text(str(e)))
+            self._stats.last_error = redact_text(str(e))
             self._stats.errors += 1
 
     def _on_ingestion_state(self, state: IngestionState) -> None:
@@ -577,9 +618,7 @@ class Pipeline:
         try:
             await self._detect_score_and_alert(trade)
         except Exception as e:
-            logger.error("Error processing trade %s: %s", trade.trade_id, e)
-            self._stats.errors += 1
-            self._stats.last_error = str(e)
+            self._record_processing_error(f"Error processing trade {trade.trade_id}: {e}")
 
     async def _detect_score_and_alert(self, trade: TradeEvent) -> None:
         """Run detectors, count their failures, then score/alert or persist a skip row."""
@@ -610,7 +649,7 @@ class Pipeline:
         failures = [error for error in errors if error]
         for error in failures:
             self._stats.errors += 1
-            self._stats.last_error = error
+            self._stats.last_error = redact_text(error)
         return bool(failures)
 
     async def _persist_detector_failure_skip(self, bundle: SignalBundle) -> None:
@@ -628,6 +667,9 @@ class Pipeline:
             market_id=bundle.market_id,
             delivery_disposition="detector_failure",
             dry_run=self._dry_run,
+            # The skip row was produced under the active configuration even though
+            # no score was computed; record it so the row stays self-describing.
+            scoring_config=(self._risk_scorer.scoring_config if self._risk_scorer else None),
         )
         await self._persist_assessment(assessment)
 
@@ -666,7 +708,9 @@ class Pipeline:
                     address[:10] + "...",
                 )
         except Exception as e:
-            logger.warning("Failed to persist wallet/funding data for %s: %s", address, e)
+            logger.warning(
+                "Failed to persist wallet/funding data for %s: %s", address, redact_text(str(e))
+            )
 
     async def _persist_funding_transfers(self, session: AsyncSession, address: str) -> int:
         if not self._funding_tracer:
@@ -772,16 +816,34 @@ class Pipeline:
         )
 
     async def _handle_above_threshold(self, assessment: RiskAssessment) -> None:
+        """Persist the qualifying assessment before any delivery work, then record the outcome.
+
+        A formatter or dispatch failure — or termination after an external delivery —
+        between scoring and persistence must not lose the durable research record
+        (FR-012). The pending row carries the ``unrecorded`` disposition until the
+        delivery outcome is known; an initial persistence failure stays observable
+        and never blocks the authorized delivery attempt (FR-013).
+        """
+        persist = self._settings.detector.persist_assessments
+        pending = dataclasses.replace(assessment, dry_run=self._dry_run)
+        pending_written = persist and await self._persist_assessment(pending)
         result = await self._send_or_dry_run_alert(assessment)
         channels_str = json.dumps(result.channel_statuses) if result.channel_statuses else None
-        assessment = dataclasses.replace(
-            assessment,
+        final = dataclasses.replace(
+            pending,
             delivery_disposition=result.disposition,
             delivery_channels=channels_str,
-            dry_run=self._dry_run,
         )
-        if self._settings.detector.persist_assessments:
-            await self._persist_assessment(assessment)
+        if persist:
+            await self._record_final_disposition(final, already_written=pending_written)
+
+    async def _record_final_disposition(
+        self, assessment: RiskAssessment, *, already_written: bool
+    ) -> None:
+        """Update the pending row with the delivery outcome, inserting it if it is missing."""
+        if already_written and await self._update_assessment_delivery(assessment):
+            return
+        await self._persist_assessment(assessment)
 
     async def _score_and_alert(self, bundle: SignalBundle) -> None:
         """Score signals, persist the assessment, and send alert if above threshold."""
@@ -796,10 +858,33 @@ class Pipeline:
 
         await self._handle_above_threshold(assessment)
 
-    async def _persist_assessment(self, assessment: RiskAssessment) -> None:
-        """Write the assessment row. Best-effort; never raises."""
+    async def _update_assessment_delivery(self, assessment: RiskAssessment) -> bool:
+        """Record the delivery outcome on the pending row. Best-effort; never raises."""
         if not self._db_manager:
-            return
+            return False
+        try:
+            async with self._db_manager.get_async_session() as session:
+                repo = RiskAssessmentRepository(session)
+                return await repo.update_delivery(
+                    assessment.assessment_id,
+                    delivery_disposition=assessment.delivery_disposition,
+                    delivery_channels=assessment.delivery_channels,
+                    dry_run=assessment.dry_run,
+                )
+        except Exception as e:
+            self._record_processing_error(
+                f"Failed to record delivery outcome for assessment {assessment.assessment_id}: {e}"
+            )
+            return False
+
+    async def _persist_assessment(self, assessment: RiskAssessment) -> bool:
+        """Write the assessment row. Best-effort; never raises.
+
+        Returns True when the row is durably written. A failure is observable
+        (counted, surfaced at /health) without blocking delivery (FR-013).
+        """
+        if not self._db_manager:
+            return False
         from decimal import Decimal as _D
 
         from polymarket_insider_tracker.detector.scorer import quantize_score_value
@@ -841,6 +926,8 @@ class Pipeline:
             wallet_age_hours=wallet_age,
             should_alert=assessment.should_alert,
             threshold_at_eval=quantize_score_value(self._settings.detector.alert_threshold),
+            scoring_algorithm_version=assessment.scoring_algorithm_version,
+            scoring_config=assessment.scoring_config,
             delivery_disposition=assessment.delivery_disposition,
             delivery_channels=assessment.delivery_channels,
             dry_run=assessment.dry_run,
@@ -855,7 +942,11 @@ class Pipeline:
                 repo = RiskAssessmentRepository(session)
                 await repo.insert(dto)
         except Exception as e:
-            logger.warning("Failed to persist risk assessment %s: %s", assessment.assessment_id, e)
+            self._record_processing_error(
+                f"Failed to persist risk assessment {assessment.assessment_id}: {e}"
+            )
+            return False
+        return True
 
     async def run(self) -> None:
         """Start the pipeline and run until interrupted.

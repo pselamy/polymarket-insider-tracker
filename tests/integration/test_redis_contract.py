@@ -487,6 +487,52 @@ async def test_compare_and_delete_aborts_when_the_value_changes_under_watch(
         await competitor.aclose()
 
 
+async def test_compare_and_expire_extends_only_the_owned_value(contract: ContractRedis) -> None:
+    """The claim-renewal sequence: WATCH, GET, compare, MULTI EXPIRE.
+
+    ``AlertHistory.extend_channel_claim`` relies on exactly this sequence to renew a
+    claim's lease only while its ownership token is still the stored value.
+    """
+    redis, key = contract.client, contract.key("claim-extend")
+    await redis.set(key, "owner-token", ex=2)
+
+    async with redis.pipeline(transaction=True) as pipe:
+        await pipe.watch(key)
+        assert await pipe.get(key) == b"owner-token"
+        pipe.multi()
+        pipe.expire(key, 120)
+        assert await pipe.execute() == [True]
+
+    assert await redis.ttl(key) > 2
+    assert await redis.get(key) == b"owner-token"
+
+
+async def test_compare_and_expire_aborts_when_the_value_changes_under_watch(
+    contract: ContractRedis,
+) -> None:
+    """A claim re-acquired by another owner between WATCH and EXEC keeps its own lease."""
+    redis, key = contract.client, contract.key("claim-extend")
+    await redis.set(key, "stale-token", ex=30)
+    competitor = (
+        FakeAsyncRedis(server=contract.fake_server)
+        if contract.fake_server is not None
+        else await _connect_real_redis()
+    )
+    try:
+        async with redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(key)
+            assert await pipe.get(key) == b"stale-token"
+            await competitor.set(key, "new-owner-token", ex=30)
+            pipe.multi()
+            pipe.expire(key, 600)
+            with pytest.raises(WatchError):
+                await pipe.execute()
+        assert await redis.get(key) == b"new-owner-token"
+        assert await redis.ttl(key) <= 30
+    finally:
+        await competitor.aclose()
+
+
 @pytest.mark.parametrize("key_name", ["checkpoint_key", "identities_key", "loss_events_key"])
 async def test_observation_boundary_rejects_wrong_key_types_atomically(
     contract: ContractRedis, key_name: str

@@ -58,17 +58,24 @@ key under the claim, and only then contacts the channel:
 
 Two guarantees make the claim safe across lease expiry:
 
-1. **Proven send-time bound.** Every channel send runs under `send_deadline_seconds`
-   (default 45 s), which the dispatcher requires to be strictly smaller than
-   `claim_ttl_seconds`. A send cut off at the deadline is recorded as ambiguous (the payload
-   may already have been accepted) and the ambiguity window is retained, so no send attempt
-   can ever outlive its claim and two concurrent dispatches of one identity can never both
-   be sending.
+1. **Logical deadline with a claim guard.** Every channel send runs under
+   `send_deadline_seconds` (default 45 s), which the dispatcher requires to be strictly
+   smaller than `claim_ttl_seconds`. At the deadline the attempt is classified ambiguous
+   (the payload may already have been accepted) **regardless of any later return**, and the
+   dispatch returns. A send that cooperates with cancellation terminates there; a send that
+   suppresses cancellation is handed to a background guard that keeps renewing the owned
+   claim (compare-and-expire with the ownership token, well inside the lease) until the
+   send truly terminates, then replaces it with the ordinary ownerless ambiguity window. A
+   late success or failure from the abandoned send is consumed and never recorded as a
+   confirmed delivery. The claim therefore cannot expire while any send of that identity is
+   physically in flight, so two concurrent dispatches of one identity can never both be
+   sending.
 2. **Compare-and-delete release.** Release happens only while the stored value still equals
-   this dispatch's ownership token (`WATCH`/`MULTI` transaction). A claim that expired and
-   was re-acquired by another dispatch is never deleted by the stale owner. A stale owner's
-   ambiguous refresh may overwrite a newer claim; that direction only extends suppression
-   and can never cause a duplicate delivery.
+   this dispatch's ownership token (`WATCH`/`MULTI` transaction); lease renewal
+   (compare-and-expire) obeys the same ownership rule. A claim that expired and was
+   re-acquired by another dispatch is never deleted or extended by the stale owner. A stale
+   owner's ambiguous refresh may overwrite a newer claim; that direction only extends
+   suppression and can never cause a duplicate delivery.
 
 Claim errors degrade toward delivery (a duplicate is possible) exactly like other
 dedup-state failures. Aggregate classification never counts a suppressed-unknown channel as

@@ -406,6 +406,143 @@ async def test_hanging_component_check_is_bounded_and_marked_down() -> None:
     assert "timed out" in (components["database"].last_error or "")
 
 
+def _gauge_value(metrics_text: str, name: str) -> float:
+    for line in metrics_text.splitlines():
+        if line.startswith(f"{name} "):
+            return float(line.split(" ", 1)[1])
+    raise AssertionError(f"gauge {name} not found in metrics output")
+
+
+@pytest.mark.asyncio
+async def test_prometheus_health_gauge_agrees_with_health_endpoint() -> None:
+    """Round-4 finding 5: a down dependency made /health unhealthy while
+    polymarket_health_status still exported 1.0. Both must derive from one
+    combined component-and-stream snapshot."""
+    monitor = HealthMonitor()
+    monitor.record_event("trades")
+    monitor.set_component_checker(
+        "database",
+        lambda: asyncio.sleep(
+            0, result=ComponentStatus(status="down", last_error="connection refused")
+        ),
+    )
+    port = 19113
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/health") as resp:
+                assert resp.status == 503
+                assert (await resp.json())["status"] == "unhealthy"
+
+            async with session.get(f"http://127.0.0.1:{port}/metrics") as resp:
+                text = await resp.text()
+        assert _gauge_value(text, "polymarket_health_status") == 0.0
+    finally:
+        await monitor.stop()
+
+
+@pytest.mark.asyncio
+async def test_prometheus_health_gauge_reports_degraded_component() -> None:
+    """A degraded component exports 0.5, matching the /health "degraded" verdict."""
+    monitor = HealthMonitor()
+    monitor.record_event("trades")
+    monitor.set_component_checker(
+        "ingestion",
+        lambda: asyncio.sleep(
+            0, result=ComponentStatus(status="degraded", last_error="possible-data-loss")
+        ),
+    )
+    port = 19114
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"http://127.0.0.1:{port}/health") as resp:
+                assert resp.status == 200
+                assert (await resp.json())["status"] == "degraded"
+            async with session.get(f"http://127.0.0.1:{port}/metrics") as resp:
+                text = await resp.text()
+        assert _gauge_value(text, "polymarket_health_status") == 0.5
+    finally:
+        await monitor.stop()
+
+
+@pytest.mark.asyncio
+async def test_metrics_scrape_alone_evaluates_components_for_the_gauge() -> None:
+    """A scrape without any prior /health call must still export the combined truth."""
+    monitor = HealthMonitor()
+    monitor.record_event("trades")
+    monitor.set_component_checker(
+        "redis",
+        lambda: asyncio.sleep(0, result=ComponentStatus(status="down", last_error="refused")),
+    )
+    port = 19115
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}/metrics") as resp,
+        ):
+            text = await resp.text()
+        assert _gauge_value(text, "polymarket_health_status") == 0.0
+    finally:
+        await monitor.stop()
+
+
+@pytest.mark.asyncio
+async def test_component_checks_run_concurrently() -> None:
+    """Round-4 finding 9 (deterministic half): all checks must be in flight at once.
+
+    Each checker blocks on a shared barrier, so sequential evaluation would time
+    every one of them out; concurrent evaluation reports all up.
+    """
+    monitor = HealthMonitor()
+    barrier = asyncio.Barrier(3)
+
+    def barrier_checker() -> Any:
+        async def check() -> ComponentStatus:
+            await barrier.wait()
+            return ComponentStatus(status="up")
+
+        return check
+
+    for name in ("database", "redis", "ingestion"):
+        monitor.set_component_checker(name, barrier_checker())
+
+    components = await asyncio.wait_for(monitor.evaluate_components(), timeout=5.0)
+
+    assert {name: c.status for name, c in components.items()} == {
+        "database": "up",
+        "redis": "up",
+        "ingestion": "up",
+    }
+
+
+@pytest.mark.asyncio
+async def test_probe_with_every_component_hung_stays_inside_one_budget() -> None:
+    """Round-4 finding 9: three hung checks used to serialize into ~3s; the whole
+    probe must stay within a single sub-100ms check budget (plus scheduling slack)."""
+    monitor = HealthMonitor()
+
+    async def hanging_checker() -> ComponentStatus:
+        await asyncio.sleep(30)
+        return ComponentStatus(status="up")
+
+    for name in ("database", "redis", "ingestion"):
+        monitor.set_component_checker(name, hanging_checker)
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    components = await asyncio.wait_for(monitor.evaluate_components(), timeout=5.0)
+    elapsed = loop.time() - started
+
+    assert all(c.status == "down" for c in components.values())
+    assert all("timed out" in (c.last_error or "") for c in components.values())
+    assert elapsed < 0.5, f"probe took {elapsed:.3f}s; hung checks must not accumulate"
+
+
 @pytest.mark.asyncio
 async def test_metrics_endpoint() -> None:
     """Test /metrics endpoint returns Prometheus metrics in plain text."""

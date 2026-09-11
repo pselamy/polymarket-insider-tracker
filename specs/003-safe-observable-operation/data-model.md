@@ -28,7 +28,7 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 | `size` | NUMERIC(20, 6) | No | - | Share count |
 | `notional_usdc` | NUMERIC(20, 6) | No | - | Total trade value in USDC |
 | `trade_timestamp` | TIMESTAMP WITH TIME ZONE | No | - | Execution time |
-| `weighted_score` | NUMERIC(4, 3) | No | - | Calculated composite risk score (0.000 - 1.000). Confidences, the score, and the threshold are quantized to this 3-decimal precision *before* the alert decision, so the stored values exactly explain and replay `should_alert`; signal weights are constants of `SCORING_ALGORITHM_VERSION` (no runtime weight configuration exists, so every stored row maps to exactly one algorithm) |
+| `weighted_score` | NUMERIC(4, 3) | No | - | Calculated composite risk score (0.000 - 1.000). Confidences, the score, and the threshold are quantized to this 3-decimal precision *before* the alert decision, so the stored values — together with the row's `scoring_algorithm_version` and `scoring_config` — exactly explain and replay `should_alert` |
 | `signals_triggered` | INTEGER | No | - | Number of operational signal groups triggered |
 | `fresh_wallet_confidence` | NUMERIC(4, 3) | Yes | NULL | Confidence of fresh wallet signal |
 | `size_anomaly_confidence` | NUMERIC(4, 3) | Yes | NULL | Confidence of size anomaly signal |
@@ -38,7 +38,7 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 | `wallet_age_hours` | NUMERIC(10, 2) | Yes | NULL | Observed wallet age in hours |
 | `should_alert` | BOOLEAN | No | - | True if weighted_score >= threshold_at_eval |
 | `threshold_at_eval` | NUMERIC(4, 3) | No | - | Effective threshold used for evaluation |
-| `delivery_disposition` | VARCHAR(32) | No | 'unrecorded' | Outcome: `dry_run`, `below_threshold`, `detector_failure` (every detector failed or the only working detector found nothing while another failed — the row durably explains the absent evidence and is never dispatched), `delivered`, `partial_failure`, `failed`, `duplicate`, `ambiguous`, `no_channels`, `unrecorded` (delivery state not recorded: rows predating migration 003 or inserts outside the dispatch path) |
+| `delivery_disposition` | VARCHAR(32) | No | 'unrecorded' | Outcome: `dry_run`, `below_threshold`, `detector_failure` (every detector failed or the only working detector found nothing while another failed — the row durably explains the absent evidence and is never dispatched), `delivered`, `partial_failure`, `failed`, `duplicate`, `ambiguous`, `no_channels`, `unrecorded` (delivery state not recorded: rows predating migration 003, inserts outside the dispatch path, or a qualifying assessment persisted before delivery whose outcome was never recorded — e.g. a formatter failure or termination mid-dispatch; the pending row is written before any delivery work and updated in place with the final disposition) |
 | `delivery_channels` | TEXT | Yes | NULL | JSON map of channel name to delivery status |
 | `dry_run` | BOOLEAN | No | FALSE | True if evaluated under dry-run mode |
 | `volume_available` | BOOLEAN | Yes | NULL | True if 24h market volume was available |
@@ -46,6 +46,8 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 | `book_depth_available` | BOOLEAN | Yes | NULL | True if order book depth was available |
 | `wallet_tx_count` | INTEGER | Yes | NULL | Nonce or transaction count observed for wallet |
 | `wallet_age_known` | BOOLEAN | Yes | NULL | True if wallet age could be proven <= 48h |
+| `scoring_algorithm_version` | VARCHAR(32) | No | none (backfill only) | Producing scoring-algorithm version (`003.1`). Pre-migration rows are backfilled as exactly `legacy-unversioned`; there is no insert default, so every new row must state its actual version (Patrick's 2026-09-11 decision) |
+| `scoring_config` | TEXT | Yes | NULL | Canonical deterministic JSON of the exact active scoring configuration (threshold, bonuses, quantum, weights as decimal strings; sorted keys, fixed separators). NULL only for legacy rows whose configuration is unknowable |
 | `created_at` | TIMESTAMP WITH TIME ZONE | No | now() | Record creation time |
 
 ### Indexes
@@ -75,8 +77,12 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 - **Value**: the acquiring dispatch's unique ownership token (uuid4 hex) while the claim is
   held; an ownerless ISO-8601 UTC timestamp after an ambiguous outcome refreshes the window.
 - **TTL**: `claim_ttl_seconds` (default 60; refreshed to the full window on an ambiguous
-  outcome). Every send runs under `send_deadline_seconds` (default 45) which must be smaller,
-  so no send outlives its claim.
+  outcome). Every send runs under the logical `send_deadline_seconds` (default 45) which
+  must be smaller. A send that resists cancellation past the deadline is classified
+  ambiguous immediately while a background guard renews the owned claim
+  (compare-and-expire with the ownership token) until the send truly terminates, then
+  leaves the ordinary ownerless ambiguity window — so no in-flight send ever outlives its
+  claim and a late result is never recorded as delivered.
 - **Written By**: `AlertDispatcher`, atomically (`SET NX EX`) before each send attempt as
   the per-identity in-flight claim; released by compare-and-delete with the ownership token
   (`WATCH`/`MULTI`) on confirmed success or confirmed failure, retained on network timeout

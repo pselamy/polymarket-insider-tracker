@@ -27,7 +27,15 @@ The HTTP health server is exposed on `0.0.0.0:<port>`, where `<port>` defaults t
 - **Success Status**: `200 OK` (no required component is `down`; FR-002 fails readiness only for an unavailable dependency, a terminally failed ingestion worker, or blocked progress)
 - **Failure Status**: `503 Service Unavailable` (when any required component is `down`)
 - **Response Headers**: `Content-Type: application/json`
-- **Component status values**: `up`, `degraded`, `down`. A recoverable ingestion condition (`IngestionState.DEGRADED` or `POSSIBLE_DATA_LOSS`) is reported as `degraded`: the source is still reachable and progressing, so readiness holds, but the state is never hidden as `up`. Its error detail appears in `/health`.
+- **Component status values**: `up`, `degraded`, `down`. The ingestion component gates on
+  proven source reachability: it is `up` or `degraded` only while the poller has completed a
+  successful acquisition (a successful empty page counts) within the staleness threshold
+  (default 60s). A running poller that has never completed a successful acquisition
+  (request start is not acquisition) or whose last success is older than the threshold is
+  `down` and fails readiness. Within a fresh success, a recoverable condition
+  (`IngestionState.DEGRADED` or `POSSIBLE_DATA_LOSS` — the source is reachable and
+  progressing) is reported as `degraded`: readiness holds, but the state is never hidden as
+  `up`. Its error detail appears in `/health`.
 - **Response Body (Success)**:
   ```json
   {
@@ -57,7 +65,7 @@ The HTTP health server is exposed on `0.0.0.0:<port>`, where `<port>` defaults t
 ---
 
 ## 3. `GET /health`
-**Purpose**: Detailed diagnostic report for operators. Distinguishes polling acquisition freshness from trade event arrival.
+**Purpose**: Detailed diagnostic report for operators. Distinguishes polling acquisition freshness from trade event arrival. `last_acquisition_time` / `acquisition_freshness_seconds` describe the most recent **successful** acquisition (a completed fetch, empty pages included), never the start of a request whose outcome is unknown or failed.
 
 - **Status Code**: `200 OK` if `status` is "healthy" or "degraded"; `503 Service Unavailable` if "unhealthy".
 - **Response Headers**: `Content-Type: application/json`
@@ -132,3 +140,10 @@ Component and overall degradation semantics:
   - `polymarket_stream_status`
   - `polymarket_last_event_timestamp`
   - `polymarket_health_status`
+
+`polymarket_health_status` is derived from the same combined component-and-stream snapshot
+that `/health` reports (1 healthy, 0.5 degraded, 0 unhealthy): each `/metrics` scrape (and
+the periodic health check) evaluates the components itself, so the gauge can never disagree
+with the `/health` verdict for the same state. Component checks run concurrently, each
+bounded, keeping every probe within the documented sub-100ms goal even when all
+dependencies hang.

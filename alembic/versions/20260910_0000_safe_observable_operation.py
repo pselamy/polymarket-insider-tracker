@@ -1,8 +1,13 @@
-"""Add slice 003/004 observability and disposition columns to risk_assessments.
+"""Add slice 003/004 observability, disposition, and scoring-identity columns.
 
 Rows that exist before this migration have no recorded delivery outcome, so the
 ``delivery_disposition`` server default backfills them as ``unrecorded``; labeling them
 ``dry_run`` while ``dry_run`` defaults to false would assert two contradictory facts.
+
+Pre-existing rows were also produced by an unversioned scoring algorithm whose exact
+configuration is unknowable, so ``scoring_algorithm_version`` backfills them as exactly
+``legacy-unversioned`` and ``scoring_config`` stays NULL for them; every new row must
+supply the actual version and configuration (the column has no insert default).
 
 Revision ID: 003_safe_observable_operation
 Revises: 002_risk_assessments
@@ -72,6 +77,23 @@ def upgrade() -> None:
         "risk_assessments",
         sa.Column("wallet_age_known", sa.Boolean(), nullable=True),
     )
+    op.add_column(
+        "risk_assessments",
+        sa.Column("scoring_algorithm_version", sa.String(32), nullable=True),
+    )
+    op.add_column(
+        "risk_assessments",
+        sa.Column("scoring_config", sa.Text(), nullable=True),
+    )
+    # Deterministic backfill: label every pre-existing row, then require the value
+    # without adding a server default so a new row can never inherit the label.
+    op.execute("UPDATE risk_assessments SET scoring_algorithm_version = 'legacy-unversioned'")
+    op.alter_column(
+        "risk_assessments",
+        "scoring_algorithm_version",
+        existing_type=sa.String(32),
+        nullable=False,
+    )
     op.create_index(
         "idx_risk_assessments_disposition",
         "risk_assessments",
@@ -81,6 +103,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("idx_risk_assessments_disposition", table_name="risk_assessments")
+    op.drop_column("risk_assessments", "scoring_config")
+    op.drop_column("risk_assessments", "scoring_algorithm_version")
     op.drop_column("risk_assessments", "wallet_age_known")
     op.drop_column("risk_assessments", "wallet_tx_count")
     op.drop_column("risk_assessments", "book_depth_available")

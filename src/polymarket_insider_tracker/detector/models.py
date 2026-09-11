@@ -10,6 +10,12 @@ from decimal import Decimal
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
+# Version of the scoring algorithm (weights, bonuses, quantization, and combination
+# rules) recorded on every newly persisted assessment. Rows created before the
+# version column existed are backfilled as ``legacy-unversioned`` by migration
+# 003_safe_observable_operation because their exact configuration is unknowable.
+SCORING_ALGORITHM_VERSION = "003.1"
+
 
 @dataclass(frozen=True)
 class FreshWalletSignal:
@@ -244,6 +250,11 @@ class RiskAssessment:
     wallet_tx_count: int | None = None
     wallet_age_known: bool | None = None
 
+    # Scoring reproducibility identity (Patrick's 2026-09-11 schema decision):
+    # the algorithm version and the exact active configuration behind this record.
+    scoring_algorithm_version: str = SCORING_ALGORITHM_VERSION
+    scoring_config: str | None = None
+
     @property
     def is_high_risk(self) -> bool:
         """Return True if weighted score exceeds 0.7."""
@@ -290,5 +301,7 @@ class RiskAssessment:
             "book_depth_available": self.book_depth_available,
             "wallet_tx_count": self.wallet_tx_count,
             "wallet_age_known": self.wallet_age_known,
+            "scoring_algorithm_version": self.scoring_algorithm_version,
+            "scoring_config": self.scoring_config,
             "timestamp": self.timestamp.isoformat(),
         }
