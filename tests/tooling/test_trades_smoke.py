@@ -110,7 +110,7 @@ class TestSevenCases:
         assert record.age is None
         assert record.response_sha256 == server.body_sha256(server.requests[-1].params)
         assert record.retained_wallet_identifiers is False
-        assert record.endpoint == URL
+        assert record.endpoint == "https://trades.invalid/***path***"
         assert record.coverage == "all"
         assert smoke.exit_code_for([record]) == smoke.EXIT_PASSED
 

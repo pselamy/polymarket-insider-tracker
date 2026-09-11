@@ -8,10 +8,35 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from polymarket_insider_tracker.alerter.channels.response_values import (
+    response_json_object,
+    validated_integer,
+    validated_retry_delay,
+)
+from polymarket_insider_tracker.redaction import (
+    redact_failure_with_secrets,
+    url_credential_components,
+)
+
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
 
 logger = logging.getLogger(__name__)
+
+
+def _rejection_label(response: httpx.Response) -> str:
+    """A fail-closed label for a rejected response; no body byte is emitted.
+
+    The body can echo the credential-bearing webhook URL in reversible
+    encodings (percent, JSON ``\\uXXXX``, bare or decoded components) that
+    no replacement list can enumerate, so it is withheld entirely; only
+    Discord's integer ``code`` field survives validation.
+    """
+    code = validated_integer(response_json_object(response).get("code"))
+    size = len(response.content)
+    if code is None:
+        return f"({size}-byte body withheld)"
+    return f"(error code {code}, {size}-byte body withheld)"
 
 
 class DiscordChannel:
@@ -45,6 +70,10 @@ class DiscordChannel:
         self.retry_delay = retry_delay
         self.timeout = timeout
         self.name = "discord"
+        # The webhook URL's path is the credential; a server response may echo
+        # it whole, escaped, encoded, or as a bare component, so every derived
+        # spelling is precomputed for the diagnostic scrub.
+        self._secret_components = url_credential_components(webhook_url)
 
         # Rate limiting state
         self._request_times: list[float] = []
@@ -83,19 +112,52 @@ class DiscordChannel:
                     return True
 
                 if response.status_code == 429:
-                    retry_after = response.json().get("retry_after", 1.0)
-                    logger.warning(f"Discord rate limited, retry after {retry_after}s")
+                    # ``retry_after`` is a server-controlled value driving a log
+                    # line and a sleep; only a validated finite delay survives.
+                    retry_after = validated_retry_delay(
+                        response_json_object(response).get("retry_after")
+                    )
+                    logger.warning("Discord rate limited, retry after %ss", retry_after)
                     await asyncio.sleep(retry_after)
                     return False
 
-                logger.error(f"Discord webhook failed: {response.status_code} {response.text}")
+                # The response body is server-controlled text that can echo the
+                # credential-bearing request URL in re-encoded spellings no
+                # replacement list can enumerate; it never reaches a log at all.
+                logger.error(
+                    "Discord webhook failed: %s %s",
+                    response.status_code,
+                    _rejection_label(response),
+                )
 
-        except httpx.TimeoutException:
-            logger.warning(f"Discord webhook timeout (attempt {attempt + 1})")
+        except (httpx.ConnectTimeout, httpx.PoolTimeout):
+            # The request never reached Discord, so retrying cannot duplicate a delivery.
+            logger.warning(f"Discord webhook connect timeout (attempt {attempt + 1})")
+        except httpx.TimeoutException as e:
+            # The payload may have been accepted before the timeout: the outcome is
+            # ambiguous, so never re-post it here; the dispatcher owns the 60s window.
+            logger.warning(
+                "Discord webhook timed out after the payload was sent; outcome ambiguous, "
+                "not retrying (a duplicate is possible if the message was accepted)"
+            )
+            raise TimeoutError("Discord webhook response timed out") from e
         except httpx.HTTPError as e:
-            logger.error(f"Discord webhook error: {e}")
+            # The webhook URL is the credential; an httpx message may embed it.
+            logger.error("Discord webhook error: %s", self._redact_failure(e))
 
         return None
+
+    def _redact_failure(self, error: BaseException) -> str:
+        """Render a transport failure without re-emitting the webhook credential.
+
+        HTTPX annotates error messages as ``str``, but a runtime fault can
+        carry bytes or container arguments; ``str(error)`` would interpolate
+        them verbatim before any replacement could see them. The shared
+        argument-aware renderer runs first, then every credential spelling
+        derived from the configured URL is replaced and the central policy
+        masks remaining URL-shaped text.
+        """
+        return redact_failure_with_secrets(error, self._secret_components)
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:
@@ -109,7 +171,10 @@ class DiscordChannel:
             alert: Formatted alert with discord_embed.
 
         Returns:
-            True if delivery succeeded, False otherwise.
+            True if delivery succeeded, False on confirmed failure.
+
+        Raises:
+            TimeoutError: The outcome is ambiguous; Discord may have accepted the payload.
         """
         await self._wait_for_rate_limit()
 

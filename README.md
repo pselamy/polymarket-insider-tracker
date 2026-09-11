@@ -92,11 +92,26 @@ verification above.
 ```bash
 python -m polymarket_insider_tracker --help
   --version          Show version
-  --config-check     Validate configuration and exit
+  --config-check     Validate offline configuration syntax and exit
   --log-level DEBUG  Override log level
-  --dry-run          Run pipeline without sending alerts
-  --health-port 8080 Override health check port
+  --dry-run          Run pipeline without sending alerts or writing dedup keys
+  --health-port 8080 Override health check HTTP port
 ```
+
+### Health & Observability Endpoints
+
+When running, the tracker serves HTTP health and metrics endpoints on `--health-port` (default `8080` or `HEALTH_PORT`):
+
+- **`/live`**: HTTP 200 `{"live": true}` while the event loop runs.
+- **`/ready`**: HTTP 200 `{"ready": true}` when PostgreSQL, Redis, and trade acquisition can make progress; HTTP 503 when a required dependency is unavailable, ingestion has terminally failed, or the trade source has no recent successful acquisition (a source that never connected — or whose last completed fetch is older than the staleness threshold — is `down`, not ready). A recoverable `degraded` or `possible-data-loss` source with fresh successful acquisitions stays ready but is reported as `"degraded"` in the components summary with its error in `/health`.
+- **`/health`**: Detailed JSON report with component statuses (`up`, `down`, `degraded`), probe latencies, successful-acquisition timestamps, quiet-period indicators, and a top-level `last_error` carrying the most recent worker or per-trade processing error (`null` when none). URLs and error text are centrally redacted, so credentials never appear in health output or logs.
+- **`/metrics`**: Prometheus metrics (`polymarket_events_total`, `polymarket_events_per_second`, `polymarket_stream_status`, `polymarket_last_event_timestamp`, `polymarket_health_status`). The overall-health gauge is computed from the same combined snapshot as `/health`, so the two can never disagree about the same state.
+
+### Safe Alert Delivery & Deduplication
+
+- **`--dry-run`**: Processes all trades and persists risk assessments with `delivery_disposition="dry_run"` while making zero external notification calls and writing zero deduplication keys to Redis.
+- **Channel-Scoped Deduplication**: Delivery history is tracked per channel (`alert:dedup:<channel>:<wallet>:<market>`). If delivery fails for one channel, it remains eligible for retry while successful channels are deduplicated.
+- **Ambiguity Suppression Window**: On channel delivery timeout, a 60-second window (`alert:ambiguous:<channel>:<wallet>:<market>`) suppresses immediate duplicate alerts while downstream delivery is indeterminate. The same key is acquired atomically before every send attempt (and released on a confirmed outcome), so two concurrent dispatches of one wallet/market identity cannot both deliver. A send that exceeds its 45s logical deadline is classified ambiguous regardless of any late result, and if it resists cancellation the claim is renewed until the send truly terminates — the claim can never expire while a send is still in flight.
 
 ---
 
@@ -171,7 +186,7 @@ uv run --env-file .env python scripts/trades_smoke.py --live --window-seconds 5 
 | **Funding Chains** | Trace wallet funding to known entities (exchanges, etc.) | On-chain lineage |
 | **Sniper Clusters** | DBSCAN clustering of wallets entering within minutes | Coordinated behavior |
 
-Risk scoring combines signals with configurable weights (default threshold: 0.6). Multi-signal bonuses: 2 signals +20%, 3+ signals +30%.
+Risk scoring combines signals with the algorithm's immutable default weights (alert threshold 0.80, tunable via `DETECTOR_ALERT_THRESHOLD`). Multi-signal bonuses: 2 signals +20%, 3+ signals +30%. Every persisted assessment records its `scoring_algorithm_version` and the exact `scoring_config` (weights, bonuses, threshold, quantum) that produced it, so it can be replayed exactly from its own stored values; rows created before versioning existed are labeled `legacy-unversioned`. The library-level `weights=`/`set_weights()` configuration API is deprecated (one compatibility window, `DeprecationWarning`) and unused by the wired pipeline.
 
 ### Sample Alert
 

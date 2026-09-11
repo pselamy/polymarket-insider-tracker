@@ -13,31 +13,106 @@ from collections.abc import Callable
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Literal, cast
+from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from polymarket_insider_tracker.redaction import is_scannable_url_text, redact_url
 from polymarket_insider_tracker.storage.database_url import normalize_database_url
+
+
+def _check_url_scannable(value: str, name: str) -> None:
+    """Reject raw characters the text-redaction scanner treats as URL boundaries.
+
+    The central policy can only mask a credential-bearing endpoint inside
+    diagnostic text while the whole URL stays one scan match; a raw
+    whitespace, control, double-quote, or angle character would end the match
+    early and let the tail — possibly a path credential — escape as prose.
+    No such character is valid raw URI text, so rejection is fail-closed and
+    lossless: percent-encoded forms remain accepted. The message never echoes
+    the value.
+    """
+    if not is_scannable_url_text(value):
+        raise ValueError(f"{name} contains raw whitespace, control, or quote/angle characters")
+
+
+def _check_url_scheme(value: str, allowed_schemes: tuple[str, ...], name: str) -> None:
+    expected_prefixes = tuple(f"{s}://" for s in allowed_schemes)
+    if value.startswith(expected_prefixes):
+        return
+    if "ws" in allowed_schemes:
+        raise ValueError(f"{name} must start with ws:// or wss://")
+    raise ValueError(f"{name} must be an HTTP(S) endpoint")
+
+
+def _check_nested_schemes(netloc: str, name: str) -> None:
+    for s in ("http:", "https:", "ws:", "wss:"):
+        if s in netloc:
+            # Never echo the supplied URL: it may carry credentials (userinfo or query).
+            raise ValueError(f"{name} contains a malformed nested scheme in its host component")
+
+
+def _check_port(value: str, name: str) -> None:
+    """Reject a URL whose port is non-numeric or out of range.
+
+    The token after the host colon may itself be a credential (a mistyped
+    ``host:key`` for ``host/key``); it must be rejected at validation so it
+    never reaches config output, logs, or status, and the message keeps only
+    the failure class, never the raw value. ``urlsplit().port`` attributes the
+    colon correctly through userinfo and bracketed IPv6 hosts, so no netloc
+    shape is exempt from the check.
+    """
+    try:
+        port = urlsplit(value).port
+    except ValueError:
+        raise ValueError(f"{name} has an invalid port") from None
+    if port is not None and not 0 <= port <= 65535:
+        raise ValueError(f"{name} has an invalid port")
+
+
+def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: str) -> str:
+    _check_url_scannable(value, name)
+    _check_url_scheme(value, allowed_schemes, name)
+    parts = urlsplit(value)
+    if not parts.hostname:
+        raise ValueError(f"{name} must include a valid hostname")
+    _check_port(value, name)
+    _check_nested_schemes(parts.netloc, name)
+    return value
 
 
 def _validate_redis_url(value: str) -> str:
     """Validate Redis URL format."""
+    _check_url_scannable(value, "REDIS_URL")
     if not value.startswith("redis://"):
         raise ValueError("REDIS_URL must start with redis://")
+    parts = urlsplit(value)
+    if not parts.hostname:
+        raise ValueError("REDIS_URL must include a valid hostname")
+    _check_port(value, "REDIS_URL")
     return value
 
 
 def _validate_http_url(value: str) -> str:
     """Validate RPC URL format."""
-    if not value.startswith(("http://", "https://")):
-        raise ValueError("RPC URL must be an HTTP(S) endpoint")
-    return value
+    return _check_url_components(value, ("http", "https"), "RPC URL")
 
 
 def _validate_websocket_url(value: str) -> str:
     """Validate WebSocket URL format."""
-    if not value.startswith(("ws://", "wss://")):
-        raise ValueError("WebSocket URL must start with ws:// or wss://")
+    return _check_url_components(value, ("ws", "wss"), "WebSocket URL")
+
+
+def _validate_webhook_url_secret(value: SecretStr) -> SecretStr:
+    """An enabled webhook URL must satisfy the same scannability invariant.
+
+    A blank value means the channel is disabled and stays accepted. The
+    check never echoes the secret value.
+    """
+    secret = value.get_secret_value()
+    if secret.strip():
+        _check_url_scannable(secret, "DISCORD_WEBHOOK_URL")
     return value
 
 
@@ -47,6 +122,7 @@ CanonicalDatabaseUrl = Annotated[str, AfterValidator(normalize_database_url)]
 RedisUrl = Annotated[str, AfterValidator(_validate_redis_url)]
 HttpEndpointUrl = Annotated[str, AfterValidator(_validate_http_url)]
 WebSocketEndpointUrl = Annotated[str, AfterValidator(_validate_websocket_url)]
+DiscordWebhookUrl = Annotated[SecretStr, AfterValidator(_validate_webhook_url_secret)]
 
 
 class DatabaseSettings(BaseSettings):
@@ -70,7 +146,11 @@ class RedisSettings(BaseSettings):
     """Redis connection settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     url: RedisUrl = Field(
@@ -84,7 +164,11 @@ class PolygonSettings(BaseSettings):
     """Polygon blockchain RPC settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="POLYGON_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="POLYGON_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     rpc_url: HttpEndpointUrl = Field(
@@ -143,7 +227,11 @@ class PolymarketSettings(BaseSettings):
     """Polymarket public data source settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="POLYMARKET_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="POLYMARKET_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     trades_url: HttpEndpointUrl = Field(
@@ -191,10 +279,14 @@ class DiscordSettings(BaseSettings):
     """Discord notification settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="DISCORD_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="DISCORD_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
-    webhook_url: SecretStr | None = Field(
+    webhook_url: DiscordWebhookUrl | None = Field(
         default=None,
         alias="DISCORD_WEBHOOK_URL",
         description="Discord webhook URL for alerts",
@@ -210,7 +302,11 @@ class TelegramSettings(BaseSettings):
     """Telegram notification settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="TELEGRAM_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="TELEGRAM_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     bot_token: SecretStr | None = Field(
@@ -239,7 +335,11 @@ class DetectorSettings(BaseSettings):
     """Risk-scorer / detector tuning."""
 
     model_config = SettingsConfigDict(
-        env_prefix="DETECTOR_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="DETECTOR_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     alert_threshold: float = Field(
@@ -282,6 +382,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # Nested configuration groups
@@ -327,15 +428,18 @@ class Settings(BaseSettings):
         Returns:
             Dictionary of settings with sensitive values masked.
         """
+        polygon_fallback = self.polygon.fallback_rpc_url
         return {
             "database_url": self._redact_url(self.database.url),
             "redis_url": self._redact_url(self.redis.url),
             "polygon": {
-                "rpc_url": self.polygon.rpc_url,
-                "fallback_rpc_url": self.polygon.fallback_rpc_url or "(not set)",
+                "rpc_url": self._redact_url(self.polygon.rpc_url),
+                "fallback_rpc_url": (
+                    self._redact_url(polygon_fallback) if polygon_fallback else "(not set)"
+                ),
             },
             "polymarket": {
-                "trades_url": self.polymarket.trades_url,
+                "trades_url": self._redact_url(self.polymarket.trades_url),
                 "coverage": self.polymarket.trades_coverage.value,
                 "poll_interval_seconds": str(self.polymarket.trades_poll_interval_seconds),
                 "recovery_horizon_seconds": str(self.polymarket.trades_recovery_horizon_seconds),
@@ -351,16 +455,8 @@ class Settings(BaseSettings):
 
     @staticmethod
     def _redact_url(url: str) -> str:
-        """Redact password from URL if present."""
-        if "@" in url and "://" in url:
-            # URL has credentials - redact the password
-            protocol_end = url.index("://") + 3
-            at_pos = url.index("@")
-            creds_part = url[protocol_end:at_pos]
-            if ":" in creds_part:
-                username = creds_part.split(":")[0]
-                return f"{url[:protocol_end]}{username}:***@{url[at_pos + 1 :]}"
-        return url
+        """Mask userinfo and query-string credentials via the central redaction helper."""
+        return redact_url(url)
 
 
 @lru_cache(maxsize=1)

@@ -10,6 +10,12 @@ from decimal import Decimal
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
+# Version of the scoring algorithm (weights, bonuses, quantization, and combination
+# rules) recorded on every newly persisted assessment. Rows created before the
+# version column existed are backfilled as ``legacy-unversioned`` by migration
+# 003_safe_observable_operation because their exact configuration is unknowable.
+SCORING_ALGORITHM_VERSION = "003.1"
+
 
 @dataclass(frozen=True)
 class FreshWalletSignal:
@@ -222,17 +228,32 @@ class RiskAssessment:
     market_id: str
 
     # Individual signals (None if not triggered)
-    fresh_wallet_signal: FreshWalletSignal | None
-    size_anomaly_signal: SizeAnomalySignal | None
+    fresh_wallet_signal: FreshWalletSignal | None = None
+    size_anomaly_signal: SizeAnomalySignal | None = None
 
     # Combined scoring
-    signals_triggered: int
-    weighted_score: float
-    should_alert: bool
+    signals_triggered: int = 0
+    weighted_score: float = 0.0
+    should_alert: bool = False
 
     # Metadata
     assessment_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+    # Slice 003 Safe Observable Operation fields
+    delivery_disposition: str = "unrecorded"
+    delivery_channels: str | None = None
+    dry_run: bool = False
+    volume_available: bool | None = None
+    market_daily_volume: Decimal | None = None
+    book_depth_available: bool | None = None
+    wallet_tx_count: int | None = None
+    wallet_age_known: bool | None = None
+
+    # Scoring reproducibility identity (Patrick's 2026-09-11 schema decision):
+    # the algorithm version and the exact active configuration behind this record.
+    scoring_algorithm_version: str = SCORING_ALGORITHM_VERSION
+    scoring_config: str | None = None
 
     @property
     def is_high_risk(self) -> bool:
@@ -270,5 +291,17 @@ class RiskAssessment:
             "size_anomaly_confidence": (
                 self.size_anomaly_signal.confidence if self.size_anomaly_signal else None
             ),
+            "delivery_disposition": self.delivery_disposition,
+            "delivery_channels": self.delivery_channels,
+            "dry_run": self.dry_run,
+            "volume_available": self.volume_available,
+            "market_daily_volume": (
+                str(self.market_daily_volume) if self.market_daily_volume is not None else None
+            ),
+            "book_depth_available": self.book_depth_available,
+            "wallet_tx_count": self.wallet_tx_count,
+            "wallet_age_known": self.wallet_age_known,
+            "scoring_algorithm_version": self.scoring_algorithm_version,
+            "scoring_config": self.scoring_config,
             "timestamp": self.timestamp.isoformat(),
         }

@@ -234,7 +234,12 @@ class TestPipelinePersistence:
         mainstream_market: MarketMetadata,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """An unreachable database is logged and never crashes trade processing."""
+        """An unreachable database is observable and never crashes trade processing.
+
+        The wallet/funding write failure is logged; the risk-assessment write failure
+        is additionally counted and surfaced as last_error (pipeline-lifecycle §5,
+        FR-013) while processing continues.
+        """
         unreachable_db = DatabaseManager(UNREACHABLE_DATABASE_URL, async_mode=True)
         pipeline = await wire_pipeline(
             test_settings,
@@ -251,8 +256,10 @@ class TestPipelinePersistence:
             await unreachable_db.dispose_async()
 
         assert "Failed to persist wallet/funding data" in caplog.text
+        assert "Failed to persist risk assessment" in caplog.text
         assert pipeline.stats.trades_processed == 1
-        assert pipeline.stats.errors == 0
+        assert pipeline.stats.errors == 1
+        assert "Failed to persist risk assessment" in (pipeline.stats.last_error or "")
 
     async def test_duplicate_funding_transfers_are_skipped(
         self,

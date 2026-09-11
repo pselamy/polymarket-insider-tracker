@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from redis.exceptions import WatchError
+
 if TYPE_CHECKING:
     from polymarket_insider_tracker.detector.models import RiskAssessment
 
@@ -106,7 +108,10 @@ def _get_signals_from_assessment(assessment: RiskAssessment) -> list[str]:
 class AlertHistory:
     """Tracks alert history and provides deduplication.
 
-    Uses Redis for storage with configurable dedup window.
+    Uses Redis for storage with configurable dedup window. The authoritative delivery
+    deduplication is the channel-scoped API (``get_channel_dedup_key``,
+    ``is_channel_suppressed``, ``record_channel_delivery``, ``record_channel_ambiguous``);
+    the assessment-hour methods below it are a non-operational legacy analytics path.
     """
 
     # Redis key prefixes
@@ -122,6 +127,7 @@ class AlertHistory:
         *,
         dedup_window_hours: int = 1,
         retention_days: int = 30,
+        dedup_window_seconds: int | None = None,
     ) -> None:
         """Initialize alert history.
 
@@ -129,12 +135,147 @@ class AlertHistory:
             redis: Redis client (async).
             dedup_window_hours: Hours to deduplicate alerts for same wallet/market.
             retention_days: Days to retain alert history.
+            dedup_window_seconds: Exact deduplication TTL in seconds; when provided it
+                takes precedence over ``dedup_window_hours`` so the configured
+                ``DETECTOR_DEDUP_WINDOW_SECONDS`` value is honored without rounding.
         """
         self.redis = redis
         self.dedup_window_hours = dedup_window_hours
         self.retention_days = retention_days
-        self._dedup_ttl = dedup_window_hours * 3600
+        self._dedup_ttl = (
+            dedup_window_seconds if dedup_window_seconds is not None else dedup_window_hours * 3600
+        )
         self._retention_ttl = retention_days * 86400
+
+    KEY_PREFIX_AMBIGUOUS = "alert:ambiguous:"
+
+    @classmethod
+    def get_channel_dedup_key(cls, channel: str, wallet: str, market: str) -> str:
+        """Get channel-scoped delivery deduplication Redis key."""
+        return f"{cls.KEY_PREFIX_DEDUP}{channel}:{wallet.lower()}:{market}"
+
+    @classmethod
+    def get_channel_ambiguous_key(cls, channel: str, wallet: str, market: str) -> str:
+        """Get channel-scoped ambiguity temporary Redis key."""
+        return f"{cls.KEY_PREFIX_AMBIGUOUS}{channel}:{wallet.lower()}:{market}"
+
+    async def is_channel_suppressed(
+        self, channel: str, wallet: str, market: str
+    ) -> tuple[bool, str | None]:
+        """Check if delivery to a channel is suppressed.
+
+        Returns:
+            (True, "duplicate") if already delivered.
+            (True, "ambiguous_timeout") if in 60s ambiguity window.
+            (False, None) if eligible for delivery.
+        """
+        dedup_key = self.get_channel_dedup_key(channel, wallet, market)
+        if await self.redis.exists(dedup_key):
+            return True, "duplicate"
+
+        ambiguous_key = self.get_channel_ambiguous_key(channel, wallet, market)
+        if await self.redis.exists(ambiguous_key):
+            return True, "ambiguous_timeout"
+
+        return False, None
+
+    async def is_channel_delivered(self, channel: str, wallet: str, market: str) -> bool:
+        """Return True when a confirmed delivery is recorded inside the dedup window."""
+        key = self.get_channel_dedup_key(channel, wallet, market)
+        return bool(await self.redis.exists(key))
+
+    async def record_channel_delivery(
+        self, channel: str, wallet: str, market: str, ttl: int | None = None
+    ) -> None:
+        """Record confirmed delivery for a channel with TTL."""
+        key = self.get_channel_dedup_key(channel, wallet, market)
+        effective_ttl = ttl or self._dedup_ttl
+        await self.redis.set(key, datetime.now(UTC).isoformat(), ex=effective_ttl)
+
+    async def claim_channel_send(
+        self, channel: str, wallet: str, market: str, ttl: int = 60
+    ) -> str | None:
+        """Atomically claim the single in-flight send for a delivery identity.
+
+        The ambiguity key doubles as the claim: ``SET NX EX`` either acquires it
+        (returning this claim's unique ownership token) or observes a concurrent
+        attempt or active ambiguity window (returning None). The claim is released
+        by compare-and-delete with the token on a confirmed outcome and retained on
+        an ambiguous one, so the check-then-send sequence cannot deliver the same
+        identity twice concurrently and a stale owner can never delete a newer claim.
+        """
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        token = uuid.uuid4().hex
+        acquired = await self.redis.set(key, token, nx=True, ex=ttl)
+        if acquired is None or acquired is False:
+            return None
+        return token
+
+    async def release_channel_claim(
+        self, channel: str, wallet: str, market: str, token: str
+    ) -> bool:
+        """Release the in-flight claim only while ``token`` still owns it.
+
+        The compare-and-delete runs as WATCH/MULTI so an expired-and-reacquired claim
+        (a different owner's token) is never deleted. Returns True when this owner's
+        claim was released; False when the claim already expired, was re-acquired, or
+        changed concurrently.
+        """
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        try:
+            return await self._compare_and_delete(key, token)
+        except WatchError:
+            return False
+
+    async def _compare_and_delete(self, key: str, token: str) -> bool:
+        async with self.redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(key)
+            current = await pipe.get(key)
+            owner = current.decode() if isinstance(current, bytes) else current
+            if owner != token:
+                await pipe.unwatch()
+                return False
+            pipe.multi()
+            pipe.delete(key)
+            await pipe.execute()
+            return True
+
+    async def extend_channel_claim(
+        self, channel: str, wallet: str, market: str, token: str, ttl: int = 60
+    ) -> bool:
+        """Extend the in-flight claim's lease only while ``token`` still owns it.
+
+        Used while a deadline-abandoned send is still physically running: renewing
+        the lease keeps any concurrent dispatch of the same identity suppressed so
+        no second send can start while the first is in flight. The compare-and-expire
+        runs as WATCH/MULTI, so an expired-and-reacquired claim (another owner's
+        token) is never extended. Returns True when this owner's lease was renewed.
+        """
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        try:
+            return await self._compare_and_expire(key, token, ttl)
+        except WatchError:
+            return False
+
+    async def _compare_and_expire(self, key: str, token: str, ttl: int) -> bool:
+        async with self.redis.pipeline(transaction=True) as pipe:
+            await pipe.watch(key)
+            current = await pipe.get(key)
+            owner = current.decode() if isinstance(current, bytes) else current
+            if owner != token:
+                await pipe.unwatch()
+                return False
+            pipe.multi()
+            pipe.expire(key, ttl)
+            await pipe.execute()
+            return True
+
+    async def record_channel_ambiguous(
+        self, channel: str, wallet: str, market: str, ttl: int = 60
+    ) -> None:
+        """Record ambiguous delivery attempt with 60s window."""
+        key = self.get_channel_ambiguous_key(channel, wallet, market)
+        await self.redis.set(key, datetime.now(UTC).isoformat(), ex=ttl)
 
     def _get_dedup_key(self, assessment: RiskAssessment) -> str:
         """Get deduplication key for an assessment."""
@@ -147,6 +288,10 @@ class AlertHistory:
 
     async def should_send(self, assessment: RiskAssessment) -> bool:
         """Check if alert should be sent (not a duplicate).
+
+        Non-operational legacy path: the pipeline does not call this method. The
+        authoritative delivery deduplication is the channel-scoped API
+        (``is_channel_suppressed`` / ``record_channel_delivery``) per FR-011.
 
         Args:
             assessment: Risk assessment to check.
@@ -172,6 +317,10 @@ class AlertHistory:
         channels_succeeded: dict[str, bool],
     ) -> str:
         """Record that an alert was sent.
+
+        Non-operational legacy path: the pipeline does not call this method, and its
+        hour-bucket dedup key does not participate in delivery suppression. The
+        authoritative delivery deduplication is the channel-scoped API per FR-011.
 
         Args:
             assessment: The risk assessment that was alerted.

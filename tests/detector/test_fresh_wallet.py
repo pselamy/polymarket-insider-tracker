@@ -302,14 +302,14 @@ class TestFreshWalletDetectorAnalyze:
 
         assert result is None
 
-    async def test_handles_analyzer_error(self, detector, fake_wallet_analyzer):
-        """Test graceful handling of analyzer errors."""
+    async def test_analyzer_error_propagates(self, detector, fake_wallet_analyzer):
+        """A profiling failure propagates so the pipeline counts it; swallowing it here
+        would be indistinguishable from a wallet that is simply not fresh."""
         trade = create_trade_event()
         fake_wallet_analyzer.failures[trade.wallet_address] = Exception("RPC error")
 
-        result = await detector.analyze(trade)
-
-        assert result is None
+        with pytest.raises(Exception, match="RPC error"):
+            await detector.analyze(trade)
 
     async def test_wallet_at_nonce_threshold(self, detector, fake_wallet_analyzer):
         """Test wallet exactly at max_nonce threshold."""

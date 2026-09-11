@@ -1,0 +1,1494 @@
+# Verification Evidence: Safe Observable Operation
+
+**Slice**: `specs/003-safe-observable-operation`
+**Date**: 2026-09-10
+**Branch**: `feat/slice-003-safe-observable-operation`
+
+All verification commands were executed in the repository worktree `/home/dev/worktrees/polymarket-insider-tracker/slice003-safe-observable-operation` using Python 3.13.14 on Linux `x86_64`.
+
+---
+
+## 1. Quality Gates Summary
+
+All verification profiles pass cleanly with zero warnings or errors.
+
+| Profile / Gate | Command | Result | Duration | Notes |
+|---|---|---|---|---|
+| **Static Profile** | `uv run python scripts/verify.py --profile static` | **PASS** | 10.25s | lock, format (black), lint (ruff), strict-types (mypy), pyright, vulture, complexipy |
+| **Compatibility Profile** | `uv run python scripts/verify.py --profile compatibility` | **PASS** | 23.46s | 1,145 passed across Python runtime |
+| **Services Profile** | `uv run --env-file .env.example python scripts/verify.py --profile services` | **PASS** | 11.39s | PostgreSQL probe, Redis probe, 37 redis contract tests, Alembic 3-step cycle (up -> down -> re-up) |
+| **All Profile** | `uv run --env-file .env.example python scripts/verify.py --profile all` | **PASS** | 38.04s | All 12 gates green |
+| **Cognitive Complexity Gate** | `uv run python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 ...` | **PASS** | 0.67s | All functions <= 5 cognitive complexity |
+| **Test Suite & Coverage** | `uv run pytest --cov=polymarket_insider_tracker` | **PASS** | 27.80s | 1,145 passed, 2 skipped, 92% coverage |
+
+---
+
+## 2. User Story 1: Observable Operational Runtime
+
+### 2.1 Health HTTP Server & Metrics
+- **Endpoints**: `/live`, `/ready`, `/health`, `/metrics` implemented on `HealthMonitor` in `src/polymarket_insider_tracker/ingestor/health.py`.
+- **Liveness vs Readiness**: `/live` returns 200 `{ "live": true }` while event loop runs; `/ready` returns 200 `{ "ready": true }` only when all core components (`database`, `redis`, `ingestion`) report `status="up"`.
+- **Port Override**: Configured default `8080` (or `HEALTH_PORT` env), overridable via CLI `--health-port`.
+- **Test Evidence**:
+  - `tests/ingestor/test_health_server.py`: 8 passed
+  - `tests/test_main.py`: Flag parsing and banner summary verified
+
+### 2.2 Worker Supervision & Exit Code 1
+- **Failure Propagation**: When `TradePoller` enters `IngestionState.FAILED` or background task encounters a terminal exception, `Pipeline._handle_worker_failure` transitions pipeline state to `PipelineState.ERROR` and signals `stop_event`.
+- **Main CLI**: Returns `EXIT_ERROR` (1) on worker failure.
+- **Test Evidence**:
+  - `tests/test_pipeline.py::TestWorkerSupervision::test_worker_crash_transitions_pipeline_to_error_and_fails_readiness`: PASSED
+  - `tests/integration/test_end_to_end.py::TestEndToEndPipelineHarness::test_end_to_end_worker_crash_causes_pipeline_error_and_unready`: PASSED
+
+### 2.3 Strict URL Validation & Polygon Defaults
+- Default RPC URL set to `https://polygon-rpc.com`.
+- Hardened URL parsing in `PolygonSettings` rejects malformed schemes like `wss://https://...`.
+- Clarified `--config-check` as configuration validation without false runtime readiness claims.
+- **Test Evidence**:
+  - `tests/test_config.py::TestPolygonSettings`: PASSED
+  - `tests/test_main.py::TestRunConfigCheck`: PASSED
+
+---
+
+## 3. User Story 2: Safe Deduplication & Delivery Accounting
+
+### 3.1 Scorer Decoupling
+- `RiskScorer.assess` evaluates `weighted_score >= alert_threshold` purely in memory without Redis side-effects.
+- Populates signal availability diagnostics (`volume_available`, `market_daily_volume`, `book_depth_available`, `wallet_tx_count`, `wallet_age_known`).
+- **Test Evidence**:
+  - `tests/detector/test_scorer.py`: All 14 tests pass with zero Redis calls during scoring.
+
+### 3.2 Channel-Scoped Deduplication & Dry-Run Safety
+- `AlertHistory` provides:
+  - Confirmed delivery deduplication key: `alert:dedup:<channel>:<wallet>:<market>`
+  - Ambiguous delivery key: `alert:ambiguous:<channel>:<wallet>:<market>` with 60s TTL
+- `AlertDispatcher`:
+  - `dry_run=True`: Records zero Redis keys and makes zero channel delivery calls; disposition is `"dry_run"`.
+  - Multi-channel delivery: Partial failure keeps failed channel eligible for retry while successful channel deduplicates.
+  - Ambiguous timeout: On `TimeoutError`, suppresses for 60s before retry.
+- **Test Evidence**:
+  - `tests/alerter/test_deduplication.py`: All 13 tests pass covering dry-run, multi-channel partial failures, ambiguous timeouts, and circuit breaker.
+
+### 3.3 Storage Schema Migration
+- Alembic migration `alembic/versions/20260910_0000_safe_observable_operation.py` adds 8 columns to `risk_assessments`:
+  - `delivery_disposition` (VARCHAR(32), indexed)
+  - `delivery_channels` (TEXT)
+  - `dry_run` (BOOLEAN)
+  - `volume_available` (BOOLEAN)
+  - `market_daily_volume` (NUMERIC(20, 2))
+  - `book_depth_available` (BOOLEAN)
+  - `wallet_tx_count` (INTEGER)
+  - `wallet_age_known` (BOOLEAN)
+- Up/down/up verified on live PostgreSQL via `scripts/runtime_services.py`.
+- **Test Evidence**:
+  - `tests/storage/test_risk_assessments_schema.py`: All 3 tests pass.
+
+---
+
+## 4. User Story 3: Deterministic End-to-End Integration
+
+### 4.1 End-to-End Test Suite
+`tests/integration/test_end_to_end.py` executes full end-to-end journeys using deterministic fakes (`FakeTradesServer`, `FakeEth`, `FakeAlertChannel`, `FakeAsyncRedis`, real SQLite/PostgreSQL engines):
+
+1. `test_end_to_end_dry_run_pipeline`:
+   - Ingests trade -> Profiles wallet -> Detects signals -> Scores -> Dry run suppression -> Persists assessment (`disposition="dry_run"`, `dry_run=True`).
+   - Verifies 0 channel calls and 0 Redis dedup keys.
+2. `test_end_to_end_live_delivery_and_deduplication`:
+   - First trade delivered to both Discord and Telegram channels.
+   - Dedup keys written to Redis for each channel.
+   - Second trade for same wallet/market suppressed with `disposition="duplicate"`.
+3. `test_end_to_end_persistence_failure_does_not_block_delivery`:
+   - Database connection failure during persistence does not prevent alert dispatch.
+4. `test_end_to_end_worker_crash_causes_pipeline_error_and_unready`:
+   - Worker 401 terminal failure transitions pipeline to `ERROR` and flips readiness to `False`.
+
+---
+
+## 5. Architectural Invariants Verified
+
+1. **Zero `unittest.mock` Usage**: Zero occurrences of `unittest.mock`, `MagicMock`, `patch`, or `Mock` in tests or implementation.
+2. **Cognitive Complexity Budget**: Max complexity per function <= 5 across all files in repository (`complexipy_gate.py`).
+3. **No External Side Effects in Tests**: Tests communicate exclusively with local fakes and disposable loopback services.
+
+---
+
+## 6. Phase 2 Independent Review Corrections (2026-09-11, Claude Fable 5)
+
+Phase 2 independently reproduced every phase-1 gate at commit `cbf2d2b` (all profiles
+passed; 1,145 tests, 92% line+branch coverage), then found and fixed the following
+defects. Every fix began with a failing regression test reproduced at the unfixed head.
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | High | Discord/Telegram channels swallowed `httpx` read timeouts, re-posted the same payload up to `max_retries` times, and returned confirmed failure, so the dispatcher's ambiguous path (FR-018) was unreachable for production channels and duplicates were possible. | Channels now treat connect/pool timeouts as retryable confirmed failures and raise `TimeoutError` on read/response timeouts without internal re-post; the dispatcher applies the 60s ambiguity window. |
+| 2 | High | Health HTTP server bound with `reuse_port=True`, letting a second process bind an occupied health port silently instead of failing actionably (spec edge case). | Removed `reuse_port`; kept `reuse_address`. A busy port now raises `OSError`. |
+| 3 | Medium | Zero-configured-channels dispatch returned the `DispatchResult` default disposition `"delivered"`, persisting an untruthful assessment. | Explicit `no_channels` disposition; documented in data-model and delivery contract. |
+| 4 | Medium | Delivery dedup TTL used `max(1, dedup_window_seconds // 3600)` hours, distorting the configured window in both directions (e.g. 1800s → 3600s, 5400s → 3600s). | `AlertHistory` accepts `dedup_window_seconds` and the pipeline passes the configured value through unrounded. |
+| 5 | Medium | `_exit_code_for_pipeline` returned exit 1 on graceful shutdown whenever `stats.errors > 0`, misclassifying recoverable per-trade/metadata errors; a worker crash during `STARTING` was overwritten to `RUNNING` by `start()`. | Exit code 1 now derives solely from `PipelineState.ERROR`; `_handle_worker_failure` covers `STARTING`, and `start()` no longer overwrites `ERROR`. |
+| 6 | Medium | Readiness/health component checks had no timeout, so a hung dependency could hang `/ready` (FR-005 requires bounded checks). | `HealthMonitor` bounds every checker with `asyncio.wait_for` at 1.0s (`COMPONENT_CHECK_TIMEOUT_SECONDS`); timeouts report `down`. |
+| 7 | Medium | `delivery_channels` was `VARCHAR(255)` in the migration and model; the assessment-storage contract requires `TEXT`. | Migration `003_safe_observable_operation` and `RiskAssessmentModel` now use `TEXT`; migration cycle re-verified on PostgreSQL. |
+| 8 | Medium | A Redis outage during dispatch raised through `asyncio.gather`, blocking delivery and skipping assessment persistence (FR-012/FR-013). | Dedup-state read/write failures now degrade with explicit possible-duplicate warnings and never block the delivery attempt or persistence. |
+| 9 | Low | FR-011 marking: `AlertHistory.should_send`/`record_sent` legacy hour-bucket dedup was neither removed nor marked; `RiskScorer` docstrings still claimed dedup enforcement. | Legacy methods and class docstring explicitly marked non-operational for delivery dedup; scorer docstrings corrected (pure computation, params retained for API compatibility). |
+| 10 | Low | README listed nonexistent `polymarket_ingest_*` metrics; research.md claimed a default Polygon fallback URL the code does not set; data-model disposition enumeration omitted `ambiguous`. | Docs corrected to the actual metric names, the actual fallback source (`.env.example`), and the full disposition set including `ambiguous`/`no_channels`. |
+| 11 | Low | `_wait_for_stop_or_shutdown` cancelled pending wait tasks without awaiting them. | Cancelled tasks are now awaited (`gather(..., return_exceptions=True)`). |
+
+Correction to §3.3 above: `market_daily_volume` is `NUMERIC(20, 6)` (as in the migration
+and contract), not `NUMERIC(20, 2)`.
+
+### Phase 2 Re-Verification (post-fix)
+
+- `uv run --env-file .env.example python scripts/verify.py --profile all`: **PASSED**
+  (all 12 gates green, 39.83s; migration cycle `003 → 002 → 003` on disposable PostgreSQL).
+- `uv run python scripts/verify.py --profile compatibility`: **PASSED** (1,156 tests).
+- `uv run pytest --cov=polymarket_insider_tracker --cov-branch`: **1,156 passed, 2 skipped**, 92% line+branch coverage.
+- Isolated per-minor suites (`uv run --isolated --locked --all-extras --python 3.11|3.12 pytest`): recorded in `PHASE2_RESULT.md`.
+- 11 new regression tests added (channel timeout semantics, port conflict, bounded health
+  checks, no-channel disposition, dedup TTL, Redis-outage resilience, startup-crash state,
+  graceful-stop exit code, `TEXT` column type); all failed at `cbf2d2b` and pass after the fixes.
+
+### Known Limitations (unchanged scope)
+
+- SC-006's negative half (no route responds on the superseded default port) is not asserted
+  by an automated test because binding/asserting on the shared default port 8080 would be
+  flaky on developer hosts; the override-port behavior and busy-port failure are tested.
+  *(Superseded by the round-3 repair, 2026-09-11: now deterministically tested with two
+  dynamically allocated ports — see §8, finding 8.)*
+- After the 60s ambiguity key expires it leaves no marker, so the possible-duplicate
+  warning is logged (and the `ambiguous` disposition persisted) at ambiguity time rather
+  than at the later retry; README and the delivery contract document that a duplicate
+  remains possible after an ambiguous acceptance.
+
+---
+
+## 7. Phase 3 Findings Repair (2026-09-11, Claude Fable 5, phase 2 rerun)
+
+The phase-3 adversarial review (`gpt-5.6-sol`) returned `FINDINGS` with seven items.
+Each was independently reproduced at head `33fdf3e` before fixing; every fix began with a
+regression test that failed at the unfixed head (the migration-backfill test runs against
+a disposable real PostgreSQL database, gated by `RUN_SERVICE_TESTS=1`).
+
+| # | Severity | Finding (reproduced) | Fix |
+|---|---|---|---|
+| 1 | Critical | `validate_loopback_database_url` checked only the URL host component; libpq honors `?hostaddr=`/`?host=`/`?service=` query parameters and `PGHOSTADDR`/`PGSERVICE`/`PGSERVICEFILE` environment defaults, so the disposable-migration cycle (CREATE/DROP DATABASE WITH FORCE) could be rerouted to a remote server. | Routing query keys (`host`, `hostaddr`, `port`, `service`) and routing environment variables are rejected as prerequisites; the Alembic subprocess additionally runs with every `PG*` variable stripped (`alembic_subprocess_environment`). |
+| 2 | High | Failed downstream processing was durably acknowledged (identity recorded, boundary advanced) while `/health` omitted the contract-promised top-level `last_error`, leaving the failure invisible. | `/health` now reports the pipeline's most recent worker/per-trade error via a `HealthMonitor` last-error provider; the at-most-once acknowledgment semantics (owned by the merged slice-001 observation-boundary contract) are now documented explicitly in the pipeline-lifecycle contract instead of being silent. |
+| 3 | High | Delivery deduplication was a non-atomic `EXISTS → send → SET` sequence: two concurrent dispatches of one identity both delivered (reproduced with a yielding fake channel). | The ambiguity key doubles as an atomic per-identity in-flight claim (`SET NX EX 60`), with the dedup key re-checked under the claim; released on confirmed outcomes, retained on ambiguous ones. Claim errors still degrade toward delivery. |
+| 4 | High | The alert decision used raw floats while persistence rounded to NUMERIC(4,3): `0.7999999999999999 < 0.8` was stored as `0.800 >= 0.800` with `should_alert=false` — unexplainable and unreplayable; weights were mutable and unpersisted. | Scoring quantizes confidences, threshold, and final score to the persisted 3-decimal precision in exact decimal arithmetic before deciding; persistence uses the same quantizer, so stored rows replay the decision exactly (regression test recomputes the stored score from stored inputs). Weights remain the code-pinned defaults in the wired pipeline; non-default weights are logged at construction. The prior float-artifact test pin was replaced with the consistency contract. |
+| 5 | Medium | `delivered` + `ambiguous_timeout` (suppressed-unknown) aggregated to disposition `delivered` with `all_succeeded=true`, falsely incrementing alert statistics; `duplicate` + `ambiguous_timeout` aggregated to `failed`. | Suppressed-unknown statuses count toward `failure_count` and downgrade a delivered aggregate to `partial_failure`; unknown-only mixes classify as `ambiguous`, never `failed` without a confirmed failure. |
+| 6 | Medium | The migration backfilled pre-existing rows as `delivery_disposition='dry_run'` with `dry_run=false` — two contradictory facts. | Server default (migration, ORM model, DTO, and domain dataclass) is now `unrecorded`, documented in the data-model disposition enumeration; verified on real PostgreSQL by inserting a row at revision 002 and reading it back after upgrading to head. |
+| 7 | Medium | `shutdown_timeout` was never enforced: `pipeline.stop()` and cleanup callbacks were unbounded awaits, so first-signal shutdown could hang indefinitely. | `run_pipeline` bounds `pipeline.stop()` with `asyncio.wait_for` (timeout → logged + exit 1) and `GracefulShutdown.run_cleanup_callbacks` bounds each coroutine callback with the configured timeout; a second signal still forces exit. |
+| 8 | Medium | Found during repair verification (pre-existing since merged PR #117): the gated real-service evidence test `test_real_postgres_redis_and_disposable_migration_cycle` always failed under `RUN_SERVICE_TESTS=1` because the harness chdirs tests into a temp directory and `RealMigrationBackend.expected_revisions` resolved Alembic's relative `script_location` against the working directory. | `expected_revisions` pins `script_location` to the repository's `alembic/` tree; regression test runs revision discovery from a foreign working directory. The whole gated integration directory now passes against real loopback services. |
+
+### Phase 3 Repair Re-Verification (post-fix)
+
+Recorded with exact results in `PHASE2_RESULT.md` (dispatch-state directory): static,
+compatibility, and services profiles, the `all` profile, the full suite with branch
+coverage, isolated 3.11/3.12 suites, and the gated real-PostgreSQL backfill test.
+
+### Behavioral changes accepted with this repair
+
+- Alert-threshold comparison now happens at the persisted 3-decimal precision; scores
+  within half a thousandth of the threshold may decide differently than the previous raw
+  float comparison, in exchange for durable records that exactly explain and replay the
+  decision (FR-012, Constitution IV). This replaced the merged float-artifact regression
+  pin `test_assess_preserves_base_addition_order_at_alert_boundary`.
+- Aggregate dispositions for mixes involving suppressed-unknown channels changed as
+  described in finding 5 (previously `delivered`/`failed`, now `partial_failure`/`ambiguous`).
+- Legacy rows migrated by `003_safe_observable_operation` now read `unrecorded` instead
+  of `dry_run`. The migration is unmerged, so no deployed data is affected.
+
+---
+
+## 8. Phase 3 Round-3 Findings Repair (2026-09-11, Claude Fable 5, phase 2 rerun)
+
+The round-3 phase-3 adversarial review (`gpt-5.6-sol`) of head `66ced41` returned
+`FINDINGS` with eight items. Each was independently reproduced at that head before fixing;
+every fix began with a regression test red at the unfixed head (for API-replacing fixes,
+the defect was reproduced with the old API in-process before the new-API regression tests
+were written).
+
+| # | Severity | Finding (reproduced) | Fix |
+|---|---|---|---|
+| 1 | High | `_check_ingestion` reported `up`/no error for `IngestionState.DEGRADED` and `POSSIBLE_DATA_LOSS`; a previously active but quiet trade stream was marked `stale` despite a 2-second-old acquisition (the prior quiet-market test never created production stream state). | Recoverable poller states map to a `degraded` component carrying the poller's error (or `ingestion state: <state>`); `/health` reports overall `degraded` (200) and readiness fails only for `down` components per FR-002. Stream staleness is based on the freshest of trade arrival and successful acquisition. The quiet-market test now creates real stream state; new tests cover stale-acquisition, never-evented-stream, degraded `/ready` and `/health` bodies, and the pipeline state mapping. |
+| 2 | High | The in-flight claim was an ownerless fixed-TTL `SET NX EX` with unconditional `DEL`: a send outlasting the 60s lease let a second dispatch claim and send (two `delivered` calls reproduced with a scaled 1s lease), and the stale first owner could delete the newer claim. | Claims store a unique ownership token and are released only via `WATCH`/`MULTI` compare-and-delete (parity contract-tested on fakeredis and real Redis); every channel send runs under `send_deadline_seconds` (45s) strictly below `claim_ttl_seconds` (60s), enforced at construction, so a slow send becomes an ambiguous outcome inside its live claim and no send outlives its claim. Regression tests cover token uniqueness, stale-owner release, lease expiry, the send bound, and the scaled two-dispatch reproduction (now: zero completed sends, `ambiguous`/`ambiguous_timeout`). |
+| 3 | High | Detector wrappers swallowed exceptions into `None` (and the fresh-wallet detector additionally swallowed wallet-profiling failures), so a failing detector left `errors=0`, `last_error=None`, and zero assessments — indistinguishable from "no signal". | Profiling failures propagate out of the fresh-wallet detector; the pipeline counts each failed detector into `PipelineStats.errors`/`last_error` (surfaced at `/health`). With a surviving signal the assessment proceeds (NULL evidence columns show what was absent); with no signal at all a `delivery_disposition='detector_failure'` skip row durably explains the absent evidence and is never dispatched. Tests cover one-detector and all-detector failures, plus the persist-disabled path. |
+| 4 | High | `RiskScorer` accepted custom weights and runtime `set_weights()` mutation while the schema stores neither weights nor an algorithm version; logging was the only trace, so persisted assessments were not reproducible under supported configuration. | Weight configurability was removed entirely (no constructor argument, no mutation API) and the algorithm is versioned in code (`SCORING_ALGORITHM_VERSION = "003.1"`); with exactly one weight set per version, every stored row replays from its own values plus pinned constants. Documented in the assessment-storage contract §4; a persisted-record replay regression recomputes decision and score from stored-precision values and pinned weights only. |
+| 5 | Medium | `run_pipeline` stopped the pipeline under the shutdown timeout and the registered cleanup stopped it again under a fresh timeout: a 0.1s timeout took ~0.204s (reproduced: 2 stop calls). | A single-stop guard shares the one attempt between the explicit path and the cleanup callback (also after a timed-out, abandoned attempt). Regression tests assert exactly one stop call and elapsed ≈ one timeout for the hanging case, and no re-stop after a successful stop. |
+| 6 | Medium | `_check_nested_schemes` embedded the complete supplied URL in its ValueError, echoing embedded credentials (`user:TOPSECRET@…` reproduced verbatim). | The message names the field and the defect without the value; `hide_input_in_errors=True` was additionally set on every settings group so pydantic never renders raw inputs. Direct-validator tests (HTTP and WebSocket) and a CLI-stderr test assert the secret never appears. Channel error logging was also hardened: httpx error text is logged with the credential-bearing webhook URL / bot token redacted (regression-tested). |
+| 7 | Medium | The full instrumented branch-coverage suite was not reproducible: consecutive runs failed once each (`1 failed, 1175 passed, 3 skipped`), alternating between the dry-run end-to-end readiness assert and the worker-crash readiness scenario. Reproduced on the first baseline run; root-caused to `FakeClock.sleep` yielding without real delay, letting the poller free-run and starve the event loop under coverage until the 1.0s bounded database check timed out (`database_unreachable` captured in a diagnostic loop). | `FakeClock.sleep` now takes a 2ms real sleep per fake sleep so paced fakes cannot monopolize the loop, and the two tests synchronize on readiness with a bounded poll (the settled state is still asserted; a crash still must settle to not-ready). Full instrumented suite re-run repeatedly green (see §8 re-verification). |
+| 8 | Medium | SC-006 was claimed covered while its negative half (no health route on the superseded port) was explicitly untested. | New deterministic test with two dynamically allocated ports: all four documented routes answer 200 on the effective port, the server's actual bound sockets (`HealthMonitor.http_addresses`) contain only the effective port, and connecting to the superseded port is refused; after stop, no addresses remain bound. |
+
+### Round-3 Repair Re-Verification (post-fix)
+
+Recorded with exact command output in `PHASE2_RESULT.md` (dispatch-state directory):
+static, compatibility (isolated 3.11/3.12/3.13), and services profiles against real
+loopback PostgreSQL 16.15 and Redis 8.10.1, the `all` profile, the full suite with branch
+coverage (repeated), and the gated real-service integration directory.
+
+### Behavioral changes accepted with this repair
+
+- `/ready` no longer fails for recoverable `degraded`/`possible-data-loss` ingestion; the
+  component is reported `degraded` instead of the untruthful `up`, and `/health` becomes
+  overall `degraded` (200). Terminal and unavailable states still fail readiness (503).
+- A channel send slower than 45 seconds (rate-limit waits and retries included) is now cut
+  off as an ambiguous outcome instead of running unbounded; the ambiguity window then
+  applies as documented.
+- `RiskScorer` no longer accepts a `weights` argument and `set_weights`/mutation no longer
+  exists (unwired, library-only configurability removed under FR-012/Constitution IV; the
+  wired pipeline never passed weights). `get_weights()` still returns the pinned constants.
+  *(Superseded by the round-4 repair, 2026-09-11: the API is restored for one deprecation
+  window under Patrick's schema decision — see §9, finding 4.)*
+- Trades whose detectors all fail now persist a `detector_failure` skip row (previously no
+  row) and detector failures increment the error counters (previously silent).
+
+---
+
+## 9. Phase 3 Round-4 Findings Repair (2026-09-11, Claude Fable 5, phase 2 rerun)
+
+The round-4 phase-3 adversarial review (`gpt-5.6-sol`) of head `c4e2ecb` returned
+`FINDINGS` with nine items plus one hygiene note. Every repair began with regression
+tests proven red at the unfixed head: the new/changed test files were transplanted onto a
+disposable detached worktree at `c4e2ecb` and run in an isolated environment — **36
+failed** plus two modules red by collection `ImportError`
+(`polymarket_insider_tracker.redaction` and `SCORING_ALGORITHM_VERSION` did not exist),
+plus the gated real-PostgreSQL backfill test red with `UndefinedColumn:
+scoring_algorithm_version`. Notably, at the unfixed head the immutability regression's
+attempted `DEFAULT_WEIGHTS` mutation silently succeeded and corrupted scoring for
+unrelated tests later in the same process — a live demonstration of finding 4.
+
+| # | Severity | Finding (reproduced) | Fix |
+|---|---|---|---|
+| 1 | High | Readiness treated a running-but-never-connected poller as `up` and any `DEGRADED` poller as ready; acquisition freshness copied `last_acquisition_at` (set before the HTTP request) instead of `last_success_at`. | `_check_ingestion` gates on a recent **successful** acquisition via the poller's new clock-consistent `seconds_since_last_success`: no success ever, or success older than the shared staleness threshold → `down` (readiness fails); `DEGRADED`/`POSSIBLE_DATA_LOSS` with a fresh success stays a visible ready-compatible `degraded`. The health monitor records only `last_success_at` as acquisition time. Tests: first-failure, never-connected STARTING, stale-success (RUNNING and DEGRADED), successful-empty-page, and failed-acquisition-freshness regressions. |
+| 2 | High | `asyncio.wait_for` imposed no bound on a cancellation-suppressing send: with a scaled 1s lease a second dispatch after lease expiry produced two `delivered` sends. | The send deadline is now logical (`asyncio.wait` + cancel + abandon): at the deadline the outcome is ambiguous regardless of any late return, and a resistant send is handed to a background guard that renews the owned claim (new `AlertHistory.extend_channel_claim`, WATCH/MULTI compare-and-expire with fake/real Redis parity tests) until the send truly terminates, then leaves the ordinary ambiguity window; a late success is never recorded as delivered. Regressions: scaled lease-expiry reproduction (now 1 call, `ambiguous`/`ambiguous_timeout`, no dedup key), late-return classification with bounded dispatch return, claim-renewal ownership tests. |
+| 3 | High | Above-threshold processing formatted and dispatched before persisting; a formatter exception reproduced `persist_calls=0` and the at-most-once boundary means no replay. | The qualifying assessment is persisted as a pending `unrecorded` row **before** formatting or any channel contact, then the same row is updated in place with the final disposition (`RiskAssessmentRepository.update_delivery`; inserted afresh if the pending write failed). Assessment persistence failures now count into `PipelineStats.errors`/`last_error` (FR-013 observability) without blocking delivery. Regressions: rows-durable-at-send-time ordering, formatter-failure row survival, initial-persist-failure delivery + recovery. |
+| 4 | High | Stored assessments could not identify a reproducible algorithm: `DEFAULT_WEIGHTS` was mutable, no version/config was persisted, and the `weights=`/`set_weights()` removal broke the public API. | Per Patrick's 2026-09-11 schema decision: migration `003_safe_observable_operation` now adds `scoring_algorithm_version` (VARCHAR(32) NOT NULL, no insert default; legacy rows backfilled as exactly `legacy-unversioned`) and `scoring_config` (TEXT, canonical deterministic JSON of threshold/bonuses/quantum/weights; NULL only for legacy rows). Every new row records both. `DEFAULT_WEIGHTS` is an immutable `MappingProxyType`; `get_weights()` returns a defensive copy; the deprecated `weights=`/`set_weights()` API is restored, functional, and warns (`DeprecationWarning`) for one compatibility window, with custom-weight rows replayable from their own `scoring_config`. Spec clarification amended from 8 to 10 columns with the reason recorded; upgrade/backfill/downgrade cycle verified on real PostgreSQL including a downgrade → re-upgrade determinism check. |
+| 5 | High | `get_health_report()` set the Prometheus gauge from stream state alone; a down database produced `/health` `unhealthy` with `polymarket_health_status=1.0`. | One combined snapshot (`evaluate_overall_health`) feeds `/health`, `/metrics`, and the periodic check; the gauge is set only from the combined verdict. Regressions: down → 503 + gauge 0.0, degraded → 200 + gauge 0.5, scrape-only evaluation. |
+| 6 | Medium | RPC/trades URLs returned verbatim by the "redacted" summary; CLI printed the raw trades URL; health errors exposed raw exception text. | New central `redaction` module (`redact_url`, `redact_text`) masks userinfo passwords, lone userinfo tokens, all query values, fragments, and malformed nested-scheme URLs; applied in the configuration summary, CLI output, pipeline error capture, dispatcher/channel logging, and the health output sink. Adversarial tests cover summaries, CLI stdout, `/health` and `/metrics` bodies, pipeline stats, and malformed URLs — one adversarial case (nested-scheme path smuggling) found and fixed a gap during development. |
+| 7 | Medium | `asyncio.wait_for` let a cancellation-suppressing stop turn a 0.01s timeout into a late success. | New `shutdown.wait_bounded` enforces the deadline independently of cooperation: at the bound the task is cancelled best-effort and abandoned, reported as timeout (exit 1) even if it later completes. Applied to the single pipeline-stop attempt and every coroutine cleanup callback. Regressions: cancellation-resistant stop (bounded, exit 1) and cancellation-resistant cleanup callback (bounded, later callbacks run). |
+| 8 | Medium | `--config-check --dry-run --log-level DEBUG` printed `Dry Run: False` / `Log Level: INFO`. | `apply_cli_overrides` folds every override into the one effective `Settings` before logging, summaries, and the pipeline run; all paths read the same object. Regressions: config-check override reflection, runtime/settings/summary agreement, environment-value survival. |
+| 9 | Medium | Three timed-out component checks executed sequentially (3.0s) against the <100ms plan goal. | `evaluate_components` runs all checks concurrently, each bounded at 0.09s, so a probe with every dependency hung stays within one sub-100ms budget. Regressions: barrier-based concurrency proof (deterministic) and hung-probe elapsed bound. |
+| 10 | Hygiene | `git diff --check` blank line at EOF of `checklists/requirements.md`. | Removed; `git diff --check` clean. |
+
+---
+
+## 10. Round-7 Detector-Failure Redaction Repair (2026-09-11, Muse Spark writer lane)
+
+The round-6 fresh Sol review (`gpt-5.6-sol`, exact head `3571a3e3fbeff821840b7842891dcdd5adda9072`)
+reproduced a load-bearing secret-redaction defect before its session stopped: a synthetic
+exception containing `https://user:fresh-leak-secret@rpc.example/path?apikey=fresh-leak-secret`
+surfaced verbatim in the `Pipeline._detect_fresh_wallet` warning log and returned error string
+(`secret_present_in_pipeline_log=True`). `_detect_size_anomaly` held the identical unredacted
+pattern. Prior evidence (§9 finding 6) therefore overstated detector-failure coverage.
+
+Regression proof on the exact start head `3571a3e`: a script driving real `TradeEvent` values
+through `wire_pipeline` with `FailingDetector` exceptions embedding synthetic URL userinfo and
+query secrets showed both secrets verbatim in the returned `fresh_msg`/`size_msg` and in the
+warning logs (`fresh_leak_in_logs=True`, `size_leak_in_logs=True`); downstream
+`_record_detector_failures` redaction masked only `last_error`, leaving the boundary leak in
+place. Raw log preserved at
+`/home/dev/dispatch-state/polymarket-slice003-muse-redaction-r7-20260911/r7-evidence/regression-red-start-head.log`.
+
+Fix (bounded to the detector-failure boundary): `Pipeline._detect_fresh_wallet` and
+`Pipeline._detect_size_anomaly` now pass the exception-bearing failure message through the
+existing centralized `redact_text` exactly once before it is logged, returned, counted, or
+exposed via `PipelineStats.last_error`/health output; the log call also uses `%s` argument
+form. No new redactor was introduced. Adjacent detector exception sinks were audited:
+`_record_detector_failures`, `_check_database`, `_check_redis`, health serialization, and the
+trade-poller `redact_error` path already redact; no other confirmed equivalent of this class
+was changed.
+
+Tests: `tests/test_redaction.py::TestDetectorFailureRedaction` (3 tests, real objects and
+repository fakes only — `wire_pipeline`, `FailingDetector`, `FakeEth`, `FakeAsyncRedis`; no
+mocks or call interception) covers userinfo passwords, lone userinfo tokens, query values,
+fragments, and malformed nested-scheme shapes for both detectors; asserts warning logs,
+returned error strings, `PipelineStats.last_error`/`errors`, and health-body output carry no
+secret while `***` and the non-secret diagnostic context (`fresh wallet detection failed`,
+`size anomaly detection failed`, `connection reset`, `detection failed`) remain.
+
+---
+
+## 11. Round-10 Secrets-Boundary Repair (2026-09-11, Muse Spark writer lane)
+
+The round-9 fresh GPT-6 review (`gpt-6-astra`, exact head `2d5dcc6`, verdict `REVISE`)
+reproduced two load-bearing secrets-boundary defects on the supported monitoring path and
+qualified the round-8 coverage as narrower than claimed. §10 history above is preserved
+unchanged; this section appends the correction.
+
+Regression proof on the exact start head `2d5dcc6` (receipts treated as claims, reproduced
+before fixing): a script driving real profiler/detector components with narrow
+repository-failure injection showed synthetic secrets verbatim in warning logs at
+`profiler/analyzer.py` (token-balance, profile-cache read, profile-cache write),
+`profiler/chain.py` (chain-cache read, chain-cache write, retry `Web3Exception` warnings),
+and `detector/size_anomaly.py` (metadata-fetch failure), plus leaks through the real
+fresh-wallet `analyze`/batch path and the size `analyze_batch` path; the central
+`redact_text` passed a `https://rpc.example/v2/<secret>` path credential through
+unchanged. The same script also recorded the trailing-parenthesis diagnostic loss (a
+fragment-bearing parenthesized URL lost its closing `)`). Raw log preserved at
+`/home/dev/dispatch-state/polymarket-slice003-muse-secrets-r10-20260911/r10-evidence/regression-red-start-head.log`
+(`TOTAL_LEAKING_SINKS=11`, script exit 1). The new regression tests were additionally
+transplanted onto a disposable stash of the exact start head and run there: **15 failed**
+for the intended reasons (upstream-sink leaks, path-credential leaks, lost closing
+delimiter, updated summary/CLI expectations); post-fix the same files pass
+(`r10-evidence/regression-red-new-tests-on-start-head.failures.log` and
+`r10-evidence/regression-green-post-fix-tests.tail.log`).
+
+Fix (one coherent secrets-boundary repair, no new redactor, no threshold/behavior change):
+
+1. Central redaction (`src/polymarket_insider_tracker/redaction.py`) is now fail-closed on
+   endpoint paths: any URL-shaped value with a non-root path keeps scheme plus host (and
+   port) so the endpoint stays diagnosable, while the path itself is never emitted
+   (`***path***`). The policy is grounded in the actual configuration contract
+   (`POLYGON_RPC_URL`, `POLYGON_FALLBACK_RPC_URL`, `POLYMARKET_TRADES_URL`, database and
+   Redis URLs accept URLs whose paths may carry provider credentials, and no static shape
+   separates a key segment from a benign prefix). Query values are masked literally as
+   `***` (no percent-encoding drift), and `redact_text` trims trailing prose delimiters
+   (`)`, `]`, quotes, sentence punctuation) before redacting so a parenthesized URL keeps
+   its closing delimiter. Runtime URLs are untouched; only output/log/summary redaction
+   changed. No allowlist of secret values was introduced.
+2. Exception-bearing diagnostics are sanitized through the central `redact_text` at every
+   confirmed reachable sink: `profiler/analyzer.py` (token-balance failure, profile-cache
+   read/write failures, batch-handler failures), `profiler/chain.py` (chain-cache
+   read/write failures, retry `Web3Exception` warnings, batch nonce failures),
+   `profiler/funding.py` (transfer-log, chunk-scan, and batch-trace failures — confirmed
+   equivalents of the identical raw-exception pattern on the wired enrichment path),
+   `detector/size_anomaly.py` (metadata-fetch failure and batch-handler failures), and
+   `detector/fresh_wallet.py` (batch-handler failures; the single-trade path already
+   propagates to the redacted pipeline boundary). Retries, fallbacks, return contracts,
+   scoring, persistence, readiness, shutdown, migrations, APIs, and log levels are
+   unchanged.
+3. Tests (`tests/test_redaction.py`, `tests/test_config.py`, `tests/test_main.py`) now use
+   real profiler/detector components with narrow repository fakes (`FakeEth` subclasses
+   raising `Web3Exception`, per-market `FakeMetadataSync` failures, `FakeAsyncRedis`
+   subclasses raising on `get`/`set`) instead of a replacement detector that bypasses the
+   internal sinks. They assert every captured log and exposed error surface is secret-free
+   while trade IDs, market IDs, host names, and non-secret diagnostics (`connection
+   reset`, detector names) remain. Coverage: both detector boundaries, all newly fixed
+   internal sinks, path credentials (primary and fallback), userinfo/query/fragment/
+   malformed-nested shapes, and the trailing-parenthesis diagnostic case. The two
+   pre-existing summary/CLI expectations that asserted a benign default path verbatim now
+   assert the fail-closed masked form with the host preserved.
+
+Adjacent-sink audit disposition: every other production-reachable `logger.*(..., e)`
+site was inspected. Dispatcher channel-error logging, pipeline error capture, health
+serialization and the last-error provider, trade-poller `redact_error`, and
+`trades_source.redacted_url` already redact. `__main__.py` `logger.exception` reports
+only startup/runtime failure text through the same central policy outcome (covered by the
+pipeline redaction tests); no unconfirmed sink was changed. The detector `analyze_batch`
+and analyzer/chain batch handlers are included in this repair, so no library-path debt
+remains for them; the funding batch `trace_many` path is likewise sanitized.
+
+Verification: targeted and affected suites, the test-quality AST policy, static,
+compatibility, services, full, coverage, vulture, complexipy (fail-closed, max 5),
+strict mypy/pyright, migration/Redis gates, and `git diff --check` are recorded in the
+writer receipt under
+`/home/dev/dispatch-state/polymarket-slice003-muse-secrets-r10-20260911/r10-evidence/`.
+No mocks, monkeypatch interception of product code, skips, exclusions, `no-cover`/`noqa`,
+or threshold weakening were introduced.
+
+---
+
+## 12. Round-12 Secrets-Boundary Correction (2026-09-11, Muse Spark writer lane)
+
+The round-11 Fable review (`claude-fable-5`, exact head `76bd4a56`, verdict `REVISE`)
+reproduced load-bearing secrets-boundary defects under the candidate's own fail-closed
+path-credential contract and recorded that §11's adjacent-sink audit sentence claiming
+those helpers "already redact" is inaccurate for the path threat model. §10 and §11
+history above is preserved unchanged; this section appends the correction. It also
+corrects the §10 sentence naming the trade-poller `redact_error` path as already
+redacting: that helper masked only query strings and wallet shapes, not endpoint paths.
+
+Regression proof on the exact start head `76bd4a56` (claims reproduced before fixing,
+on the unmodified commit):
+- `POLYMARKET_TRADES_URL=https://proxy.example/v2/<secret>/trades` passes `Settings`
+  validation; the HTTP failure builds
+  `TradesSourceError("HTTP 500 from https://proxy.example/v2/<secret>/trades")`, which
+  the poller `_degrade`/`_fail` path logs verbatim (`LEAK: True` on both
+  `redacted_url` output and the poller error string).
+- `redact_url("https://rpc.example/v2/KEY@prod")` returned completely unredacted.
+- `redact_url("wss://https://user:PW@meta.example/v2/KEY")` masked userinfo but
+  emitted path `/v2/KEY`.
+- `redact_url("https://host?SECRETTOKEN")` preserved the bare token as a key
+  (`?SECRETTOKEN=***`).
+Raw behavior log: `/tmp/r12-evidence/regression-red-start-head-actual.log`.
+The 31 new round-12 tests transplanted onto a pristine `git archive 76bd4a5` source
+tree (with `PYTHONPATH` pointed at the archived `src` so the start-head code is what
+runs) fail as intended: **26 failed / 5 passed**
+(`/tmp/r12-evidence/new-tests-on-start-head.failures.log`). The 5 passes are the
+runtime-URL-untouched check, the pre-existing-behavior idempotency-adjacent cases, and
+the dispatcher/clob cases whose product code already sanitized that shape; post-fix the
+same files pass 31/31. Post-fix behavior log:
+`/tmp/r12-evidence/regression-red-start-head.log` (`LEAK: False` on N1, masked N3a/N3b,
+`?***` on N5).
+
+Fix (one coherent secrets-boundary correction, no new redactor, no behavior change
+beyond diagnostics):
+1. N1 — `trades_source.redacted_url` now delegates to central `redact_url`, so a
+   proxied trades path is fail-closed (`https://proxy.example/***path***`) while
+   scheme/host/port stay diagnosable; every trades-source error message
+   (`_exhausted`, `_classify`, `_parse_success`, `_transient`) inherits the policy.
+   Poller `redact_error` now runs the legacy wallet/query scrub *after* central
+   `redact_text`, so `last_error` and the `_degrade`/`_fail` logs carry the masked
+   endpoint plus the non-secret operational context (`HTTP 403/503`,
+   `incompatible-schema`). Runtime request URLs are untouched (asserted: the
+   secret-bearing URL is still sent on the wire; only diagnostics change).
+   Regression: `TestTradesBoundaryRedaction` (3 tests) drives the real `Settings`
+   → real `TradesSourceClient` error construction → real poller `_degrade`/`_fail`
+   path over `FakeTradesServer` faults. Updated expectations:
+   `tests/ingestor/test_trades_source.py` (masked endpoint form),
+   `tests/ingestor/test_trade_poller.py` (host + `***path***` instead of the raw
+   `/trades` path), `tests/tooling/test_trades_smoke.py` (smoke `endpoint` record
+   is the redacted label).
+2. N2 — every production-reachable raw-exception interpolation now passes through
+   central `redact_text` at the boundary: `metadata_sync.py` (state-change,
+   initial-sync, sync-loop, batch-cache, sync-complete callbacks, `_record_sync_failure`,
+   both cached-parse sites, fetch-market, gamma-stats fallback), `publisher.py`
+   (deserialize), `clob_client.py` (retry backoff, market/orderbook error wrapping,
+   midpoint/price/health/server-time logs), `gamma_client.py` (retry warning and
+   terminal error), `health.py` (change-callback and check-loop logs),
+   `dispatcher.py` (dedup/claim/release/outcome/renew warnings; the send-error path
+   already redacted), `trade_poller.py` (callback, repair, state-callback logs),
+   `shutdown.py` (abandoned-work, cleanup-callback, handler-install warnings), and
+   the deprecation-fenced `websocket.py` (all log/store sites, including
+   `last_error`). Exception types, chaining (`from e`), retry counts, and
+   fallback/return contracts are unchanged. Regression: `TestAdjacentSinkRedaction`
+   drives each real component with a narrow explicit fake and asserts logs plus
+   stored `last_error` exclude the synthetic secret while identifiers and
+   diagnostics survive. Honestly dispositioned as *not changed*: `observation_boundary.py:130`
+   (`BoundarySchemaError` carries only Redis-hash field names, never a URL),
+   `publisher.py:308` (`"BUSYGROUP" in str(e)` is a membership test, never emitted),
+   `dispatcher.py:448-452` (abandoned-send debug logs only the exception class name),
+   Discord/Telegram channel response bodies (`response.status_code`/`response.text`,
+   API error code/description — delivery-side surfaces with no configured-credential
+   URL on the path; the `httpx.HTTPError` catch in each channel already redacts via
+   `self._redact`), and health `ComponentStatus` timeout strings (static text).
+3. N3 — `@`-in-path shapes can no longer bypass fail-closed path masking. The
+   structured branch now only handles URLs whose `@` (if any) is a genuine netloc
+   userinfo; a path `@` without netloc `@` falls into the existing fail-closed
+   path rule (`https://rpc.example/v2/KEY@prod` →
+   `https://rpc.example/***path***`); the split-across-boundary nested scheme
+   (`wss://https://user:PW@meta.example/v2/KEY`, netloc `https:` + path
+   `//user:PW@…`) routes to the shape-based fallback, which keeps the embedded
+   host readable and masks userinfo plus path
+   (`wss://https://***@meta.example/***`). The userinfo fallback now anchors on
+   the *first* `@` after the scheme, so a real userinfo plus a path `@`
+   (`https://user:pw@h:8443/v2/K@prod`) masks both. Regression:
+   `TestAmbiguousUrlShapes` table-drives the exact Fable probes plus
+   userinfo/IPv6/port/query/fragment/nested/trailing-delimiter variants, asserts
+   the runtime URL is still sent unchanged, and asserts surrounding prose
+   delimiters survive.
+4. N4 — `__main__.py` pipeline-failure handler now logs
+   `redact_text(str(e))` through the central policy. Limitation, honestly recorded:
+   `logger.exception` still attaches the raw traceback, which may echo the
+   exception text; the message line itself is sanitized while the traceback is
+   preserved for diagnosability. Regression: `test_run_pipeline_startup_failure_is_redacted`
+   drives the real `run_pipeline` with a raising `Pipeline.start()` whose error
+   embeds a credential-bearing DSN, and asserts every `__main__` message line is
+   secret-free with `***` present. Adjacent sinks closed in the same pass:
+   trade-poller callback/repair/state-callback logs (tested with the real poller
+   plus leaky callback/lookup fakes, asserting `callback_errors` still increments
+   and repair still returns the observation).
+5. N5 — a bare query token is now fail-closed: any `parse_qsl` pair with an empty
+   value renders as a bare `***`, so `?SECRETTOKEN` → `?***` and `?a=1&FLAG&b=2`
+   → `?a=***&***&b=***` (documented in `_redacted_query`: a bare token and a
+   `key=` pair with an empty value are indistinguishable without inventing parsing
+   semantics). Fragment/trailing-punctuation handling: fragments render as `#***`
+   and prose delimiters are trimmed before redaction, so no secret characters are
+   re-emitted (`(see https://meta.example#SECRET) trailing` keeps its delimiter;
+   `#SECRET.` → `#***`). If a narrower syntax is ever required, the contract stays
+   fail-closed masking. Regression: `test_bare_query_token_is_masked_fail_closed`,
+   `test_valueless_query_pairs_are_masked_fail_closed`, and the fragment/trailing
+   cases inside `TestAmbiguousUrlShapes`.
+
+Verification (post-fix, exact commands; logs under `/tmp/r12-evidence/`,
+`r12-*.log`):
+- New round-12 tests: 31 passed (`test_redaction.py -k` selection); full
+  `test_redaction.py`: 62 passed.
+- Targeted redaction/config/main/trades/metadata/publisher/dispatcher/pipeline/health
+  suites: 396 passed.
+- AST test-quality policy (`tests/tooling/test_test_quality.py`): 29 passed.
+- Full suite minus the two environment-blocked complexipy-tooling tests:
+  1246 passed, 1 skipped (non-integration) / 1275 passed, 3 skipped (all, minus
+  complexipy tooling); integration (real local Redis): 52 passed, 2 skipped.
+- Branch coverage: TOTAL 93% (`--cov-branch`).
+- Black: clean (116 files); Ruff: clean; `git diff --check`: clean.
+- Complexipy fail-closed launcher (max 5): passed (exit 0).
+- Vulture (default confidence): exit 0.
+- Strict mypy: **not runnable here** — the pinned gate requires
+  `uv run --isolated --locked ... mypy` (Python 3.11) and this environment has no
+  `uv` binary; the direct-venv run fails on a pre-existing numpy-stub /
+  `python_version=3.11` mismatch identical on the start head (environmental,
+  unrelated to this change). Pyright: 0 errors on `src/polymarket_insider_tracker`
+  (new-version notice only).
+- `tests/tooling/test_complexipy.py` (2 tests): fail here because they shell out to
+  `uv`, which is absent (pre-existing environmental failure, identical on the start
+  head). The underlying launcher command itself was run directly and passes.
+- Services profile (PostgreSQL + migration cycling): **not run** — no loopback
+  PostgreSQL in this environment (`pg_isready`: no response); Redis-contract tests
+  against local Redis pass (52 passed). No external providers, Polymarket,
+  trading, Discord/Telegram, production, cloud, or credentials were contacted.
+
+Evidence corrections vs prior sections: §10's "`redact_error` path already redact"
+and §11's "`trades_source.redacted_url` already redact / every other
+`logger.*(..., e)` site already redact / `__main__.py` covered by pipeline tests"
+sentences were inaccurate for the path threat model and the f-string sink class;
+they are superseded by the dispositions above. Surfaces tested by execution are
+listed per finding; the "not changed" list above is reasoned from exact call paths
+(stored-value flow or emission shape), not from a mechanical enforcement gate.
+Fresh evidence in this section binds to the final commit SHA recorded in the writer
+receipt; §10/§11 results remain bound to their original heads.
+
+## 13. Round-15 Secrets-Boundary Correction (2026-09-11, Muse Spark writer lane)
+
+Closes the five GPT-6 round-14 `REVISE` findings at exact start head
+`f45f39927cb9632f960c1532a743f39a03f3ca45` (tree
+`d171a57f60745920e1bffaf6338df56805a966f9`, parent
+`76bd4a56953548fa75ca59e512920a7406b6c8ca`). GPT-6 report SHA-256
+`d62836d056a38aa8d206aa09d3761c0e0d38ea666da8c6ab949860bae1b3606e`.
+Prior sections (§1–§12) are byte-preserved; the absolute claims GPT-6
+disproved are superseded by the dispositions below, not rewritten.
+
+1. Finding 1 (High — config validation prints a password): `_print_validation_errors`
+   (`__main__.py`) rendered raw Pydantic/`urlsplit` messages including the NFKC
+   netloc text. Now `_sanitized_validation_message` maps each failure class to a
+   fixed message (host-component, nested-scheme, hostname, scheme, port,
+   PostgreSQL-URL, generic URL, fallback) with no raw input and no raw exception
+   text; field identity is preserved. Regression-red on the start head: real
+   `main(["--config-check"])` with the report's exact NFKC input
+   (`https://user:CONFIG_SECRET_R14@host／oops/path`) exited 2 and printed the
+   secret for `POLYMARKET_TRADES_URL` and `POLYGON_RPC_URL` (REDIS_URL rejected
+   on scheme first). Post-fix all three exit 2 with zero secret bytes and the
+   field name plus safe class intact.
+2. Finding 2 (High — nested fallback bypass through real paths): the supported
+   configured URL `https://proxy.example/https://inner.example/v2/PATH_SECRET_R14@prod`
+   parsed with a real netloc plus a path-embedded scheme and fell into a
+   shape-preserving fallback that re-emitted it through real `TradesSourceClient`
+   (403/503/non-list/invalid-JSON) and real poller `_degrade`/`_fail`
+   logs/status. Now every ambiguous structured shape (split nested scheme,
+   bracket-malformed, hostless netloc, any `@` the parser cannot attribute to real
+   netloc userinfo) fails closed: the nested configured URL masks to
+   `https://proxy.example/***path***` (runtime request URL unchanged on the wire,
+   proven by the transport-observation test). The `wss://https://h/v2/PATH_SECRET_R14`
+   candidate regression masks to `wss://***path***`. New test
+   `test_nested_path_credential_failure_is_redacted_everywhere` drives the real
+   source constructor plus the real wired poller over `FakeTradesServer` faults
+   (403, 503, non-list) and asserts logs plus `status.last_error` are secret-free
+   with `proxy.example` intact and no inner host.
+3. Finding 3 (High — `logger.exception` traceback): `Pipeline.start()` re-raises
+   raw and `run_pipeline`'s `logger.exception` rendered the chained cause/context
+   even though the message argument was sanitized. Now a `_RedactingLogFilter`
+   attached in `run_pipeline` rewrites the record message/args and replaces the
+   attached exception with a same-type sanitized clone (redacted messages,
+   preserved cause/context chain, dropped frames, preserved trades-source
+   `status`), so the production formatter/output path renders only safe text
+   while `ValueError`/`RuntimeError` types and non-secret context survive.
+   Rewritten `test_run_pipeline_startup_failure_is_redacted` captures the real
+   rendered formatter output (message + exception + cause chain) through a real
+   handler and asserts the secret is absent. Exception classes, chaining
+   semantics, retries, and state transitions are unchanged.
+4. Finding 4 (Medium — fragment/malformed-bracket/encoded-key/punctuation):
+   fallback fragments were preserved (`#FRAG_SECRET_R14` re-emitted) and
+   unbalanced-bracket inputs passed through byte-identical. Now `_masked_suffix`
+   drops every fragment/query-residue (no raw fragment survives), malformed
+   brackets fail closed to the deterministic placeholder, `_rendered_query_pair`
+   masks any decoded key that reintroduces `&`, `=`, `?`, `#`, or `%` (encoded
+   keys can no longer decode into fresh query syntax), and the placeholder is the
+   stable `***path***` marker so repeated and composed redaction are
+   idempotent (`redact_url(redact_url(x)) == redact_url(x)` and
+   `redact_text(redact_url(x)) == redact_url(x)` over the governed corpus).
+   The report's exact fragment (`https://user:pw@h/p@th#FRAG_SECRET_R14`) and
+   bracket (`https://[::1/v2/PATH_SECRET_R14`) examples mask without re-emitting
+   input. New `test_governed_corpus_is_fail_closed_and_idempotent` pins the
+   corpus (nested, bracket, fragment, encoded-key, IPv6, punctuation forms).
+5. Finding 5 (Medium — weak tests): the publisher secret never entered the
+   decimal-conversion error, the CLOB test sanitized a hand-built string, and
+   the WebSocket test replaced `_connect` plus its own store. Now the publisher
+   test feeds the credential-bearing URL through the real `outcome_index`
+   `int()` error path of `_parse_stream_entry`; the CLOB test drives the real
+   `ClobClient.get_market` retry path over `FakeBaseClobClient` with a raising
+   backend and asserts the production warning plus context; the WebSocket test
+   patches only the `ws_connect` transport boundary and drives the real
+   `_connect` log/store/raise sites. The vacuous `or True` assertion in
+   `test_trades_source.py:376` is removed. Every new round-12 `type: ignore` is
+   removed (dispatcher fake now subclasses `AlertHistory`; Redis failure
+   injection uses instance attribute assignment through `__dict__`; remaining
+   private-attribute writes use `__dict__`); zero `type: ignore` remain in
+   `tests/test_redaction.py`, `tests/ingestor/test_trades_source.py`, and
+   `tests/ingestor/test_trade_poller.py`.
+6. Evidence: this §13 is appended only; G-033's six-column structure is not
+   edited here — the round-15 disposition is recorded in this section and bound
+   to the final commit SHA below, superseding §12's "no secret characters are
+   re-emitted" generalization, the "already sanitized" reason for the five
+   parent passes, the `#SECRET.` → `#***` illustration (actual output `#***.`),
+   and the `getMessage()`-only traceback boundary claim.
+
+Verification (post-fix, exact commands; raw logs under
+`/home/dev/dispatch-state/polymarket-slice003-muse-correction-r15-20260911/evidence/`):
+- Regression-red probes on exact start head (config NFKC leak ×2 vars, nested
+  leak, fragment/bracket leak, traceback leak): `regression-red-probes.log`.
+- Targeted suites (config/main/redaction/trades/poller): 251 passed
+  (`targeted.log`).
+- AST test-quality policy: 29 passed (`ast-policy.log`).
+- Static profile: PASS (`verify-static.log`).
+- Compatibility profile: PASS, 1312 passed, 3 skipped (`verify-compatibility.log`).
+- Services profile via `uv run --env-file .env python scripts/verify.py --profile services`:
+  PASS — probe, 45 redis-contract (fake+real), migrations up/down/re-up with
+  disposable-database cleanup (`verify-services-envfile.log`). Bare
+  `verify.py --profile services` without the env file exits 2 naming the missing
+  service URLs before any check (`verify-services.log`); no shared/prod
+  infrastructure was mutated.
+- Full suite: 1312 passed, 3 skipped (2 PostgreSQL-gated, 1 Windows-specific).
+- Python 3.11 and 3.12 isolated matrices: 1312 passed, 3 skipped each
+  (`matrix-py3.11.log`, `matrix-py3.12.log`).
+- Branch coverage: TOTAL 93% (`coverage.log`).
+- Black: 121 files unchanged; Ruff: clean; strict mypy (py3.11): clean;
+  Pyright: 0 errors; Vulture: clean; Complexipy fail-closed launcher: PASS;
+  `uv lock --check` (via lock gate): PASS; `git diff --check`: clean.
+
+## 14. Round-16 Secrets-Boundary Correction (2026-09-11, Muse Spark writer lane)
+
+Closes the seven Fable round-16 `REVISE` findings (N-R16-1 through N-R16-7) at
+exact start head `5136875a6dd42aebc7eeea6e53f75cd19f209de4`. Prior sections
+(§1–§13) are byte-preserved; §13.3's "preserved trades-source `status`" claim
+is superseded: `TradesSourceError` subclasses take keyword-only status
+arguments, so the sanitizer clone falls back to redacted plain text instead of
+claiming same-type status preservation (N-R16-3).
+
+1. N-R16-1 (High — validation-accepted `host:token` URL leaks its port token):
+   `redact_url` now treats a netloc whose `parts.port` probe raises or resolves
+   out of range as fail-closed (`_is_invalid_port_shape`), emitting only the
+   safe host label plus placeholder (`_port_fail_closed_label`); `_check_port`
+   rejects the same shape in `_check_url_components` and `_validate_redis_url`
+   with the fixed "has an invalid port" message (no raw value). Runtime defense
+   in depth: `TradesSourceClient._built_request` converts an httpx
+   request-construction `TypeError`/`ValueError` into a transient error carrying
+   only the redacted URL label, and poller `redact_error` masks bare
+   `Invalid port: '...'` diagnostics via `_BARE_PORT_TOKEN_PATTERN` so a
+   non-URL error text can never carry the token into logs or `last_error`.
+   Request URL, retry classification, and budgets are unchanged for valid URLs.
+2. N-R16-2 (Medium — non-string exception args bypass the traceback sanitizer):
+   `_redacted_arg` maps any non-`str` argument to the deterministic placeholder,
+   `_redacted_note` does the same for exception notes, and new
+   `_copy_redacted_notes` carries notes through the sanitized clone, so dict,
+   list, tuple, and bytes payloads (plus the full cause/context/`__notes__`
+   graph) render redacted through the real filter and production formatter.
+3. N-R16-3 (Low — unreachable `_carry_status`, false preservation claim): the
+   helpers now document that keyword-only constructor shapes fall back to plain
+   redacted text; this §14 supersedes §13.3's preservation sentence.
+4. N-R16-4 (Low — fresh vacuous `is not None` assertion): the fragment test now
+   asserts round-trip stability, secret absence, and host survival instead.
+5. N-R16-5 (Low — `LeakyHistory(AlertHistory)` subclasses the product class):
+   the dispatcher test now injects failures through instance-attribute
+   assignment on a real `FakeAsyncRedis` behind a real `AlertHistory`, matching
+   the contract's narrow failure-injection allowance; no subclass remains.
+6. N-R16-6 (Medium — no committed control for the round-14 High config
+   finding): `test_nfkc_poisoned_url_never_echoes_a_credential` pins the exact
+   NFKC sanitizer mapping for `POLYGON_RPC_URL`, `POLYMARKET_TRADES_URL`, and
+   `REDIS_URL` through real `validate_config`, plus port-shape rejection tests
+   in `test_config.py` and the poller-invalid-port end-to-end test.
+7. N-R16-7 (Low — dead helper kept alive for the dead-code gate): deleted
+   `_mask_post_userinfo_path`, `_mask_post_userinfo_path_examples`,
+   `_MASK_POST_USERINFO_PATH_EXAMPLES`, `_masked_tail`, `_masked_suffix`,
+   `_first_userinfo_at`, and `_path_end` (zero references outside the deleted
+   block; Vulture passes fresh on the deletion).
+
+Verification (post-fix, exact commands, fresh unless noted):
+- `uv run python scripts/verify.py --profile static`: PASS (lock, Black, Ruff,
+  strict mypy, Pyright, Vulture, fail-closed Complexipy launcher — the new
+  `_is_invalid_port_shape`/`_check_port` were split into flat helpers to stay
+  <= 5).
+- `uv run python scripts/verify.py --profile compatibility`: PASS, 1328 passed,
+  3 skipped (py3.13 full suite; +16 vs round-15 from the new controls).
+- `uv run --env-file .env python scripts/verify.py --profile services`: PASS
+  fresh (probe, redis-contract fake+real, disposable-database migrations
+  up/down/re-up with cleanup). Missing-service behavior: not re-probed this
+  round; no `.env` was created or mutated by the writer (the file predates the
+  round and is git-ignored).
+- `RUN_SERVICE_TESTS=1 REDIS_URL=redis://localhost:6379` real-Redis contract
+  suite: 45 passed, fresh.
+- Isolated locked py3.11 targeted suites
+  (`test_redaction.py`, `test_config.py`, `test_main.py`,
+  `test_trades_source.py`): 231 passed, fresh.
+- Regression-red: the new port-shape controls fail on the start head —
+  `redact_url('https://host:PORTSHAPEDTOKEN_R16_PROBE/v2/x')` re-emits the token
+  verbatim on `5136875a` (verified via stash) and masks it post-fix; the
+  start-head suite (stashed product code) passes 172 tests that predate the new
+  controls, and the full HEAD suite passes 1328 with the new controls green.
+- No mocks, no `type: ignore` added, no skips/xfails added; `git diff --check`
+  clean. No live trading, notification, provider, secret-read, deployment,
+  push, or merge actions occurred.
+
+## 15. Round-18 Secrets-Boundary Correction (2026-09-11, Claude Fable 5 writer lane)
+
+Escalated correction at exact start head
+`99854bf4547ec6131a060270c7131f777ff86451` (sole writer verified). Honest
+limitation, recorded first: the dispatch's findings file
+`/home/dev/dispatch-state/polymarket-slice003-fable-review-r18-20260911/FABLE_REVIEW_RESULT.md`
+was **not readable** from the writer session — the session file-access policy
+denied the file-read tool twice and blocked shell reads (sandboxed and
+unsandboxed) outside the worktree, and no copy exists inside the worktree or
+in any git ref. The dispositions below are therefore keyed by **leak class**
+from an independent audit of every log/message/config/status sink and every
+accepted malformed-URL exemption (the scope the dispatch itself states), not
+by N-R18 finding numbers. If a named N-R18 finding falls outside these
+classes, it is NOT closed by this round and must be re-dispatched with a
+readable findings file.
+
+Leak classes found and closed (all shared, fail-closed, spec-consistent):
+
+1. Port-probe exemption in `redaction.py` (`_is_port_probe_exempt`, removed):
+   a userinfo- or bracket-bearing netloc skipped the invalid-port probe, then
+   `_masked_netloc` re-emitted the port-position token verbatim
+   (`https://key@host:TOKEN` masked to `***@host:TOKEN`;
+   `https://[::1]:TOKEN/p` re-emitted whole). `parts.port` attributes the
+   colon correctly through userinfo and brackets, so the probe now runs for
+   every netloc shape and such URLs collapse to the existing fail-closed
+   invalid-port label. Defense in depth: `_safe_outer_host` now validates any
+   colon tail as a real port (`_has_valid_port_tail`) so nested-shape labels
+   can never emit a credential-shaped fake port either. Valid ports stay
+   readable (existing round-16 corpus preserved).
+2. The same exemption twin in `config.py` (`_is_port_check_exempt`, removed):
+   validation accepted `https://user@host:TOKEN` shapes that then flowed to
+   summaries/logs/status; `_check_port` now probes every shape and rejects
+   with the fixed value-free "has an invalid port" message.
+3. Logging-boundary placement in `__main__.py`: `_RedactingLogFilter` was
+   attached only to the `polymarket_insider_tracker.__main__` logger, and
+   logger-level filters never run for records propagated from other loggers —
+   every sibling module's `exc_info` chain reached the console handler raw.
+   `configure_logging` now installs the filter on the console handler itself
+   (one shared boundary for application and third-party loggers). Enabling
+   that required `_redacted_arg` to pass numbers/booleans/`None` through
+   unchanged (they cannot embed a URL-shaped secret) so `%d`/`%.1f` records
+   from every module keep rendering; containers/bytes still become the
+   placeholder.
+4. Channel response sinks in `discord.py`/`telegram.py` (supersedes the
+   round-12 "channel response bodies — not changed" disposition): the non-204
+   Discord body (`response.text`), the Telegram `error_code`/`description`
+   envelope values, and both `retry_after` interpolations are
+   server-controlled text that reached logs raw and may echo the
+   credential-bearing request URL. All now route through the channel
+   `_redact`, which additionally layers the central `redact_text` after the
+   exact-value replacements so respelled/partial URL forms cannot survive.
+   Transport, retry counts, rate-limit sleeps, and ambiguous-timeout behavior
+   are unchanged (existing dispatcher/channel behavior tests pin them).
+5. Raised-message composition in `profiler/chain.py`: `RPCError` messages
+   interpolated the raw upstream exception (which may embed the
+   path-credential RPC endpoint); both raise sites now compose with
+   `redact_text` so the raised text is safe independent of any sink.
+6. Status intake in `ingestor/health.py`: `set_stream_disconnected` stored
+   the caller's error raw and logged it raw at DEBUG; it now redacts at
+   intake so stored status and the debug line are safe regardless of caller.
+7. `storage/database_url.py` `render_database_url_safe` (unused-by-production
+   exported helper) used SQLAlchemy `hide_password`, which keeps the database
+   path and query values readable — weaker than the central policy every
+   production sink uses; it now delegates to central `redact_url`.
+8. `scripts/verify.py` `SECRET_VALUE_KEYS` omitted the path-credential
+   endpoint settings; `POLYGON_RPC_URL`, `POLYGON_FALLBACK_RPC_URL`, and
+   `POLYMARKET_TRADES_URL` are now complete-value secrets in gate-output
+   redaction (the partial URL rendering keeps paths readable, so
+   `SERVICE_URL_KEYS` would not have been fail-closed for them).
+
+Inspected and left unchanged, with reasons: `observation_boundary.py`
+checkpoint-field errors (our own Redis field names/values, no configured
+credential; poller sinks redact downstream); `runtime_services.py`
+value-based redaction (postgres/redis scope only, URLs passed per call);
+`trades_smoke.py` (records carry pre-redacted `TradesSourceError` text and
+`redacted_url` endpoints); dispatcher non-exception messages (static text or
+exception type names only); `SERVICE_URL_KEYS` partial rendering for
+DATABASE_URL/REDIS_URL (paths are database names, kept diagnosable per the
+established scripts contract); redis-URL nested-scheme validation gap
+(validation accepts `redis://https://...` shapes but every emission path
+routes through central redaction, which fails such shapes closed —
+validation tightening left to a dedicated round to avoid unreviewed
+behavior change).
+
+New durable controls (real-boundary, working fakes, no mocks):
+`TestPortExemptionRemoval` and four governed-corpus additions plus the
+`PORT_EXEMPT_SECRET_R18` corpus token (red on the start head by static trace:
+`_masked_netloc` re-emits the token at `99854bf4`);
+`TestHandlerBoundaryRedaction` (sibling-logger `exc_info` through the real
+configured console handler, numeric-arg rendering pinned);
+config userinfo/bracket port-rejection tests (validator- and
+pydantic-rendering-level); Discord/Telegram response-body redaction tests
+through the existing `FakeWebhookServer` real-`httpx.MockTransport` fakes
+with delivery outcomes and request counts pinned; health intake-redaction
+test; database-url central-policy rendering tests; verify.py
+path-credential-endpoint redaction test. The strengthened chain-retry test
+additionally pins the raised `RPCError` message as redacted.
+
+Verification status (honest; commands and outcomes verbatim):
+- `git diff --check`: clean (ran successfully).
+- **Every execution attempt was denied by the writer session's permission
+  policy with "This command requires approval"** — attempted:
+  `uv run python scripts/verify.py --profile static`,
+  `uv run python scripts/verify.py --help`, `uv run pytest --version`,
+  `uv run pytest tests/test_redaction.py -x -q`, `uv run python <probe>`,
+  `.venv/bin/python <probe>` (sandboxed and unsandboxed), `python3 <probe>`,
+  `codegraph status`, and `git log --format` variants. No gate, test, red
+  control, or probe was executed in this session. All red/green claims above
+  are static traces of the code paths, not runtime evidence.
+- Consequence: this round is **implemented, not locally verified**. Before
+  acceptance the next lane MUST run, fresh: static/compatibility/services
+  verify profiles, the full pytest suite (expecting the new controls green at
+  HEAD and the port-exemption controls red on `99854bf4` product code), and
+  the real-Redis contract suite.
+- No mocks, no `type: ignore`, no skips/xfails, no baselines or weakened
+  rules added. No live trading, notification, provider, secret-read,
+  deployment, push, or merge actions occurred. `.env` untouched.
+
+## 16. Round-18 Completion — numbered dispositions and fresh verification (2026-09-11, Claude Fable 5 correction lane, round 20)
+
+Resumed the round-19 output (uncommitted at exact start head
+`99854bf4547ec6131a060270c7131f777ff86451`, working-diff sha256
+`d5ac1060fdb8f4c1776e68fbdc9002bbe32699cc41a9795b7cd44583f50ac5de`,
+preserved intact) with execution and dispatch-state read permissions
+restored. The round-18 findings file was read in full this round, so §15's
+class-keyed dispositions now map to the numbered findings, with the
+remaining defects repaired here:
+
+- **N-R18-1 (High) — CLOSED.** §15 classes 1–2 (userinfo/bracket port
+  exemptions removed in `redaction.py` and `config.py`) close the finding's
+  three sink reproductions for every supported configuration; all four
+  `--config-check` reproductions were replayed fresh with synthetic tokens
+  and now exit 2 with a value-free failure class. Completed this round:
+  (a) the poller's `_BARE_PORT_TOKEN_PATTERN` `Invalid port:` branch now
+  masks to end of line, so the finding's (c) shapes — repr-switched quote
+  style and whitespace-bearing tokens — can no longer slip the
+  defense-in-depth mask on below-config injection (new committed probes);
+  (b) `_built_request` now names `httpx.InvalidURL` (which subclasses
+  `Exception`, not `ValueError`) so the documented trades-source boundary
+  actually engages instead of relying on the poller mask alone;
+  (c) a CLI failure-class mislabel found while replaying: the field name
+  inside `REDIS_URL has an invalid port` matched the `redis` scheme marker
+  and `--config-check` printed `must start with redis://` for a URL that
+  does start with `redis://` — `_classified_validation_message` now checks
+  hostname/port markers before the scheme table (value-free either way;
+  committed control red on the start head).
+- **N-R18-2 (Medium) — CLOSED as a class.** New central
+  `redact_exception_message()` / `redact_argument()` in `redaction.py`:
+  string arguments keep redacted text, safe scalars stay readable, bytes and
+  containers become the placeholder before any rendering. Every
+  `redact_text(str(<exception>))` sink was converted (`__main__`, `pipeline`,
+  `shutdown`, `metadata_sync`, `clob_client`, `gamma_client`, `websocket`,
+  `publisher`, `trade_poller`, `health`, `dispatcher`, `fresh_wallet`,
+  `size_anomaly`, `chain`, `analyzer`, `funding`), the raw `{e}`
+  interpolations in `pipeline.py` (`_detect_score_and_alert` path,
+  detector-failure messages, delivery/persistence errors) compose through
+  the renderer, `_handle_worker_failure` receives pre-scrubbed text,
+  `_fallback_sanitized_error` no longer stringifies the original exception,
+  and `_redact_record_message` handles exception and non-string message
+  objects at the shared handler boundary. §14.2's guarantee sentence is
+  superseded: at `99854bf4` it was falsified at the message-line sink (the
+  control below reproduces bytes rendering verbatim at the
+  `Pipeline failed:` line); at this head it holds through the renderer.
+  `scripts/runtime_services.py` intentionally keeps exact-value replacement:
+  it redacts configured URL values wherever they appear in rendered text,
+  including inside a bytes repr.
+- **N-R18-3 (Low) — CONFIRMED and corrected.** Verified fresh:
+  `httpx.InvalidURL.__mro__` is `(InvalidURL, Exception, BaseException,
+  object)`. §14.1's attribution of the invalid-port defense to
+  `_built_request`'s `except (TypeError, ValueError)` was wrong; at that head
+  the runtime protection was the poller mask alone. This supersedes §14.1's
+  attribution sentence; the boundary is now real (see N-R18-1 item (b)).
+- **N-R18-4 (Low) — CLOSED.** New
+  `test_dispatcher_release_claim_failure_is_redacted` injects failure at the
+  Redis `pipeline` boundary — the only path `release_channel_claim` can
+  raise through (`exists`/`set` overrides never reach its WATCH/get/delete
+  transaction). Green at this head; green on the parent by design (coverage
+  restoration — the dispatcher redaction pre-exists and is unchanged).
+- **N-R18-5 (Nit) — CLOSED.** The `once.replace("***path***", "")`
+  loosening is removed; the governed corpus asserts token absence directly
+  and still passes, confirming the replace excluded nothing.
+
+Fresh verification (this exact working tree, all run this round):
+
+- `verify.py --profile static`: PASS (lock, Black, Ruff, isolated strict
+  mypy, Pyright, Vulture, fail-closed Complexipy launcher — all 7 gates).
+- `verify.py --profile compatibility` (py3.13): PASS — 1367 passed,
+  3 skipped (service-gated/platform omissions unchanged).
+- Isolated locked full suite, `--python 3.11`: 1367 passed, 3 skipped.
+- Isolated locked full suite, `--python 3.12`: 1367 passed, 3 skipped.
+- Exact AGENTS complexipy launcher (isolated 3.11, `--max-complexity-allowed
+  5`, full scope): all functions within budget.
+- `verify.py --profile services`: PASS fresh — probe, real-Redis contract
+  suite (45 passed against the loopback `redis-server` on 6379), and
+  migrations (`runtime-migrations` created temporary database
+  `pit_verify_df4ed1fe…`, exercised `003 → 002 → 003`, async query and
+  cleanup succeeded) against the disposable `pit-s003-verify` PostgreSQL 16
+  cluster on 55432 with a fresh `polymarket_tracker_r20` database. The
+  worktree `.env` was neither read nor used; all service URLs were explicit
+  synthetic values. Missing-env control: exit 2 naming the missing URLs,
+  no secret bytes.
+- `git diff --check`: clean.
+
+Regression-red controls (disposable `git archive` copy of `99854bf4` product
+code with this tree's tests overlaid, locked sync, py3.13):
+
+- `tests/test_redaction.py` fails collection outright on the parent
+  (`ImportError: cannot import name 'redact_exception_message'`) — the
+  central renderer is load-bearing.
+- The six other changed test files: **17 failed, 229 passed**. Fifteen are
+  genuine controls red on the parent (6 config port-exemption rejections,
+  3 CLI failure-class messages, 2 channel response-body redactions with the
+  synthetic secret visibly leaking in the captured parent logs, 1 health
+  intake, 2 database-url central-policy renderings, 1 verify.py
+  path-credential endpoint). Two (`test_all_tracked_python_files_are_covered_by_*_scope`)
+  are environmental only: the archive copy is not a git repository, so
+  `git ls-files` fails — both pass in the real worktree.
+- Parent plus a helper-only shim (the new renderer functions appended
+  verbatim to the parent's `redaction.py`, every sink left untouched):
+  `tests/test_redaction.py` shows **16 failed, 91 passed** — isolating the
+  sink wiring as load-bearing. Captured parent leaks include
+  `Pipeline failed: (b'prefix-nonstring-mainline-secret-r18-suffix', …)` on
+  the production message line and
+  `dial failed for https://***@host:PORT_EXEMPT_SECRET_R18/ …` re-emitted
+  through the netloc mask — precisely the round-18 reproductions.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, or weakened rules; failure injection uses the
+established instance-attribute boundary idiom on `fakeredis`/fake clients
+only. No push, merge, deploy, live provider call, notification, trade, or
+secret read (the worktree `.env` was left unread and untouched); the only
+service mutations were a new disposable database in the existing
+verification cluster and the temporary migration database
+`runtime_services` itself creates and drops.
+
+## 17. Round-21 Final-Review Correction — N-R21-1 through N-R21-5 (2026-09-11, Claude Fable 5 correction lane)
+
+Escalated correction at exact reviewed head
+`038bac61456f9c4055bc11950e73e42cfd9e17eb` (tree `fe0b3d70…`), driven by the
+independent GPT-6 REVISE report and executed probes preserved at
+`/home/dev/dispatch-state/polymarket-gpt6-final-r21-20260911/executed-evidence/`
+(left byte-for-byte untouched; probes were copied out before execution). All
+five findings were first reproduced behaviorally at that head: the
+adversarial suite gave the report's exact 15 failed / 24 passed, the real
+`/health` probe leaked the synthetic secret in log, stored status, and the
+HTTP 503 body for both bytes and quoted-URL shapes, and the exception-graph
+probe died in `RecursionError` with 0 bytes emitted.
+
+- **N-R21-1 (Medium) — CLOSED.** The two omitted poller failure sinks are
+  converted: `_degrade` and `_fail` now render through the new
+  `redact_failure()` (argument-aware `redact_exception_message` first, then
+  the same wallet/query/bare-port scrub as `redact_error`). Failure counts,
+  state transitions (`DEGRADED` for transient, `FAILED` for terminal), the
+  log failure-class lines, and the visible `/health` 503 degradation are
+  asserted unchanged by the new controls. §16's N-R18-2 sentence "Every
+  `redact_text(str(<exception>))` sink was converted (… `trade_poller` …)"
+  is corrected by this appended evidence: it was true of that exact
+  spelling, but the poller's two central sinks stringified through
+  `redact_error(str(exc))`, a sibling spelling the sweep missed, so the
+  class was not closed at `038bac61`. It is closed at this head and the
+  real-poller controls below are red on the `038bac61` product code.
+- **N-R21-2 (High) — CLOSED as one consistent accepted class.** The central
+  text scanner no longer stops a URL match at a single quote (valid raw URI
+  text; a purely trailing quote is still trimmed as prose), so the accepted
+  endpoint `https://host/v2/prefix'KEY` masks whole in text. Every
+  character the scanner does treat as a match boundary (whitespace,
+  controls, `"`, `<`, `>` — none of them valid raw URI text) is now rejected
+  by validation with a value-free failure class in every configured URL
+  field: HTTP/WS endpoints, `REDIS_URL`, `DATABASE_URL`
+  (`normalize_database_url`), and `DISCORD_WEBHOOK_URL` (new scannability
+  validator on the secret field). The shared invariant lives in
+  `redaction.is_scannable_url_text`: validation accepts only text the scan
+  keeps in one match. Percent-encoded `%27`/`%20` siblings remain accepted
+  and masked; no example-string replacement list was added.
+- **N-R21-3 (High) — CLOSED.** Channel `_redact` no longer replaces only
+  the complete configured URL: `redaction.url_credential_components()`
+  derives every credential-bearing component (full URL, userinfo parts,
+  path segments, query, fragment — each in raw, JSON `\/`-escaped, and
+  percent-encoded spelling, longest-first) and
+  `redact_text_with_secrets()` replaces them before the central URL-shaped
+  scan. Discord and Telegram both use it (Telegram also keeps the bare and
+  percent-encoded token explicitly). The `_redact` docstrings now state the
+  actual mechanism instead of the falsified partial-form promise. Escaped,
+  bare-token, and quote-joined response echoes are covered by new
+  behavioral response-sink controls; transport behavior (one request,
+  `send` returning False, retry counting) is asserted unchanged.
+- **N-R21-4 (Medium) — CLOSED.** `_sanitized_exception` is graph-aware:
+  an iterative traversal collects every reachable cause/context node once
+  (identity memoization), clones each with redacted message/notes, and a
+  second pass re-links the clones — self-causes, mutual-context cycles, the
+  ordinary catch → wrap → re-raise-original shape, shared cause/context
+  nodes (one clone, no duplicate expansion), and 2500-deep linear chains
+  all render through the production handler. `_failsafe_sanitized_exception`
+  guarantees sanitization never raises out of the logging path: a
+  pathological exception (raising `args` property) yields a fully masked
+  placeholder record instead of suppressing the record. The fallback clone
+  no longer attaches the raw original as its `__cause__`.
+- **N-R21-5 (Low) — CLOSED for both instances.** The flagged
+  `NonStringExplodingPipeline(Pipeline)` and the older sibling
+  `ExplodingPipeline(Pipeline)` are removed; both startup regressions now
+  monkeypatch the real `Redis.from_url` factory boundary the real
+  `Pipeline.start` crosses, preserving the message-line and
+  formatted-exception assertions. No product-class subclass remains under
+  `tests/`. §16's sentence "failure injection uses the established
+  instance-attribute boundary idiom on `fakeredis`/fake clients only" is
+  corrected by this appended evidence: the round-20 startup test replaced
+  `start` on a `Pipeline` subclass, violating test-quality contract §2;
+  at this head failure injection is on `fakeredis` instances, fake
+  clients/transports, and the `Redis.from_url` module boundary only.
+
+Probe conversion: the independent controls are now maintainable behavioral
+tests — `TestPollerFailureSinkRedaction` (six non-string boundary shapes ×
+transient/terminal over the real wired poller, plus two real-`aiohttp`
+`/health` HTTP-boundary controls through the production console handler),
+`TestQuotedEndpointTextRedaction` (quote-joined masking, percent-encoded
+siblings, prose preservation, and the real-`run_pipeline` quoted-endpoint
+startup control), `TestExceptionGraphSanitization` (self-cause, mutual
+context, natural re-raise shape, shared-node identity, deep chain, notes,
+fail-safe guard), `TestScannableUrlValidation` (thirty value-free
+rejection controls across all five URL fields × six boundary characters,
+direct control-character checks, and accepted-spelling controls), and six
+channel response-echo controls in `TestChannelErrorRedaction`. No mocks,
+no product subclasses, no source-text assertions, no suppressions.
+
+Regression-red control (disposable `git archive` copy of the `038bac61`
+product code with only this round's three changed test files overlaid; no
+new test-module imports, so collection succeeds — behavioral reds, not
+import errors): **53 failed, 219 passed**, mapping exactly to N-R21-1
+(6 poller-sink + 2 health-HTTP), N-R21-2 (30 field rejections + 3 control
+characters + quoted-text + quoted-startup), N-R21-3 (3 Discord echo forms;
+the Telegram forms pass there because its token replacement pre-exists, as
+the review recorded), and N-R21-4 (7 graph controls). The N-R21-5
+conversions pass on that product by design (compliance conversion of
+behavior already fixed in round 20 and proven red there).
+
+Fresh verification (this exact working tree, all run this round):
+
+- `verify.py --profile static`: PASS — all 7 gates (lock, Black, Ruff,
+  isolated strict mypy, Pyright, Vulture, fail-closed Complexipy launcher
+  at max 5 including module scope).
+- `verify.py --profile compatibility` (py3.13): **1429 passed, 3 skipped**.
+- Isolated locked full suite `--python 3.11`: 1429 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1429 passed, 3 skipped.
+- `verify.py --profile services` with explicit loopback values
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r21`,
+  `redis://127.0.0.1:6379/0`): PASS — probe, real-Redis contract suite,
+  migrations `003 → 002 → 003` in a temporary database with cleanup, in
+  the disposable `pit-s003-verify` cluster; the fresh
+  `polymarket_tracker_r21` database was dropped afterwards.
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q` with the same explicit
+  values: 75 passed.
+- Missing-env services control (clean archive copy, `env -i`, no `.env`):
+  exit 2 naming the missing URLs before any downstream gate.
+- The review's own adversarial suite (verbatim copy): **37 passed** of 39;
+  the two remaining "failures" are the `"`/space variants of
+  `test_real_pipeline_quoted_endpoint_failure`, which now fail at settings
+  construction because that input class is rejected by validation with a
+  value-free message — the intended consistent closure (the probe asserts
+  the class is *accepted*, which is no longer true). The `'`, `%27`, and
+  `%20` variants pass end-to-end.
+- The review's `/health` probe: both shapes now report
+  `leak_in_log/leak_in_poller_status/leak_in_health_response = false` with
+  the 503 degradation intact. The review's cycle probe: returns normally
+  with the record rendered (previously `RecursionError`, 0 bytes).
+- `git diff --check`: clean.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules; the accepted-URL
+narrowing is the fail-closed correction the round-21 review ordered, closes
+only RFC-invalid raw characters, and is regression-covered. No push, merge,
+deploy, live provider call, notification, trade, or secret read (the
+worktree `.env` was left unread and untouched); the only service mutations
+were the disposable `polymarket_tracker_r21` database (created and dropped)
+and the temporary migration database `runtime_services` itself creates and
+drops. Original review evidence preserved unmodified.
+
+## 18. Round-23 Final-Review Correction — N-R23-1 through N-R23-4 (2026-09-11, Claude Fable 5 correction lane)
+
+Correction at exact reviewed head
+`c4bb3da537b0b40ad6630cb7ee0fd59b3d965647` (tree `f582e17c…`), driven by the
+independent GPT-6 REVISE report and executed probes preserved at
+`/home/dev/dispatch-state/polymarket-gpt6-final-r23-20260911/executed-evidence/`
+(left byte-for-byte untouched; probes were copied out before execution). All
+four findings were first reproduced behaviorally at that head: with only
+this round's test additions overlaid on the unchanged product code, the
+touched suites gave **21 behavioral failures / 25 passes** — every failure a
+secret-absence, record-emission, or score assertion, none an import or
+harness error (`red-on-c4bb3da5.log` in the round-24 correction dispatch
+directory
+`/home/dev/dispatch-state/polymarket-correction-claude-r24-20260911/executed-evidence/`).
+
+- **N-R23-1 (High) — CLOSED by sink removal plus derivation repair.** The
+  report is accepted in full: a replacement list cannot enumerate the
+  reversible encodings a server-controlled body can use (a percent-encoded
+  configured path echoed decoded, an individual query value echoed bare, a
+  plain token echoed as JSON `\uXXXX`), so §17's sentence "channel response
+  echoes are masked per credential component in every escaped/encoded/bare
+  spelling" is corrected by this appended evidence — the derivation missed
+  decoded path components and individual query values, and enumeration
+  cannot establish closure. The remediation follows the report's first
+  option: untrusted response text no longer reaches any channel log in any
+  form. Discord's non-204 line logs the status code plus a fail-closed
+  label carrying only a validated plain-integer `code` and the body byte
+  count (`_rejection_label`); Telegram logs only a validated plain-integer
+  `error_code` and withholds `description` entirely; both channels' 429
+  `retry_after` values pass a validated finite non-negative numeric gate
+  (new `alerter/channels/response_values.py`) before reaching the log line
+  or the sleep. The channels' text-replacement `_redact` helpers are
+  deleted with their sinks. Independently, `url_credential_components` now
+  also derives percent-decoded spellings of every component and the
+  individual raw/decoded query keys and values (each re-encoded percent-
+  and slash-escaped), closing the derivation gap for the remaining
+  exception-text sinks that still use replacement.
+- **N-R23-2 (Medium) — CLOSED.** `discord.py`/`telegram.py` no longer
+  stringify transport errors: both render through the new shared
+  `redact_failure_with_secrets()` (argument-aware total renderer first,
+  then the channel's derived credential spellings, then the central URL
+  policy), so bytes/dict/list arguments become the placeholder before any
+  text exists to scan. The threat model is stated as the report requires:
+  HTTPX annotates error messages as `str`; these shapes are runtime-valid
+  fault injection beyond that producer contract, not something an ordinary
+  provider emits — the defense is fail-closed rendering, not a provider
+  claim.
+- **N-R23-3 (Low) — CLOSED by making the renderer total.**
+  `redact_exception_message` itself now collapses any rendering failure (a
+  raising `args` property or `__str__`) to the fixed
+  `*** (exception sanitization failed)` placeholder instead of raising, so
+  every entry point — the direct-message branch of
+  `_redact_record_message`, `run_pipeline`, the poller's `redact_failure`,
+  and every module-level `redact_exception_message` sink — inherits the
+  fail-safe without per-site guards. §16/§17's sanitizer-never-crashes
+  claim previously excluded the direct exception-message path and is
+  corrected by this appended evidence. `_failsafe_sanitized_exception`
+  keeps guarding graph cloning and now shares the same placeholder
+  constant.
+- **N-R23-4 (Medium) — CLOSED.** The retained weights API again honors the
+  pre-slice `0d5033c` semantics for previously working inputs: an empty
+  constructor mapping activates the immutable defaults
+  (`dict(weights) if weights else dict(DEFAULT_WEIGHTS)`), and `_weight`
+  contributes zero for a missing name (`.get(name, 0.0)`) both for partial
+  constructor mappings and partial `set_weights` replacements. The
+  effective configuration is still recorded — strengthened per the
+  report's requirement by writing the implied zeros explicitly:
+  `scoring_config` now records every consultable signal name (union of the
+  supplied and default names), so a row produced under a partial mapping
+  replays from its own config without knowing the missing-key rule; the
+  default path and full custom maps serialize byte-identically to before.
+  `DEFAULT_WEIGHTS` immutability, the deprecation warnings, and defensive
+  `get_weights()` copies are unchanged.
+
+New regression coverage (all red at `c4bb3da5` on unchanged product code,
+green at this head): three Discord configured-credential re-encoding cases
+(accepted `DiscordSettings` inputs, real `DiscordChannel` and `httpx`
+response through the repository transport fake, exactly one request each,
+secret and `\uXXXX` spelling asserted absent from the captured log); one
+Telegram `\uXXXX`-escaped `error_code`/`description` case; six
+bytes/dict/list × Discord/Telegram real-`ConnectError` cases; two
+total-renderer unit cases (hostile `args`, hostile `__str__`); one
+hostile-args direct-message record through the real `configure_logging`
+handler (plus a scrubbed-bytes direct-message control); four
+`url_credential_components` derivation cases plus a behavioral replacement
+case; and four weight-compatibility cases matching the review's pre-slice
+comparisons (empty constructor scores 0.32 at 0.8 confidence, partial
+constructor and partial `set_weights` score 0, partial config records
+explicit zeros).
+
+Independent-probe reruns at this head, receipts in the round-24 dispatch
+directory: the review's own `test_r23_boundaries.py` and
+`test_weight_compatibility.py` pass **18/18** (previously 10 boundary + 3
+weight behavioral failures); the unchanged prior 39-test adversarial suite
+gives the same 37 passed / 2 intentional `"`/space config rejections as
+§17; the review's real `/health` probe reports
+`leak_in_log/leak_in_poller_status/leak_in_health_response = false` with
+the 503 degradation intact for both shapes; the natural-cycle probe
+returns normally with the record rendered.
+
+Fresh verification (this exact working tree, all run this round):
+
+- `verify.py --profile static` (scrubbed env): PASS — all 7 gates (lock,
+  Black, Ruff, isolated strict mypy, Pyright, Vulture, fail-closed
+  Complexipy launcher at max 5 including module scope).
+- `verify.py --profile compatibility` (py3.13, scrubbed env): **1452
+  passed, 3 skipped** (1429 prior + 23 added this round).
+- Isolated locked full suite `--python 3.11`: 1452 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1452 passed, 3 skipped.
+- `verify.py --profile services` with explicit loopback values
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r24`,
+  `redis://127.0.0.1:6379/0`): PASS — probe, real-Redis contract suite,
+  migrations `003 → 002 → 003` in a temporary database with cleanup; the
+  fresh `polymarket_tracker_r24` database was dropped afterwards.
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q` with the same explicit
+  values: 75 passed.
+- Missing-env services control (clean tree copy, `env -i`, no `.env`):
+  exit 2, `DATABASE_URL and REDIS_URL must be set` before any downstream
+  gate.
+- `git diff --check`: clean.
+
+Behavior deliberately narrowed at the channel response boundary, recorded
+honestly: Discord/Telegram failure logs no longer include any body-derived
+free text (status/code and byte counts only); a malformed Telegram JSON
+envelope now takes the normal failed-attempt path instead of an unhandled
+`JSONDecodeError` escaping `send`; and a non-numeric or non-finite
+`retry_after` sleeps the fixed 1.0s default instead of raising `TypeError`
+mid-delivery or hanging on a smuggled `Infinity`. All existing channel
+behavior tests (delivery, retry, rate-limit, timeout-ambiguity, R18/R21
+redaction) pass unchanged.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules; no gate, lock, CI,
+launcher, or conftest changes. No push, merge, deploy, live provider call,
+notification, trade, or secret read (the worktree `.env` was left unread
+and untouched); the only service mutations were the disposable
+`polymarket_tracker_r24` database (created and dropped) and the temporary
+migration database `runtime_services` itself creates and drops. Original
+round-23 review evidence preserved unmodified.
+
+## 19. Round-25 Final-Review Correction — N-R25-1 through N-R25-3 (2026-09-11, Claude Fable 5 correction lane)
+
+Correction at exact reviewed head
+`f7c425f0de36e0aa03d939d59d668352633e4d55` (tree `3988f9a7…`), driven by the
+independent GPT-6 REVISE report and executed probes preserved at
+`/home/dev/dispatch-state/polymarket-gpt6-final-r25-20260911/executed-evidence/`
+(left byte-for-byte untouched; probes were copied out before execution). All
+three findings were first reproduced behaviorally at that head: the review's
+own three probe files give **11 behavioral failures / 27 passes** on the
+clean parent (`red-parent-r25-probes.log` in the round-26 correction
+dispatch directory
+`/home/dev/dispatch-state/polymarket-correction-claude-r26-20260911/executed-evidence/`),
+and with only this round's native test additions overlaid on the unchanged
+product code the touched suites give **11 behavioral failures / 14 control
+passes** (`red-parent-native-tests.log`) — every failure a secret-absence,
+delay, result, or emission assertion, none an import or harness error.
+
+- **N-R25-1 (Medium) — CLOSED by discarding the formatter cache.** The
+  report is accepted: `logging.Formatter` caches its rendered traceback on
+  `record.exc_text` and every later handler reuses that cache verbatim, so
+  a record formatted by an earlier unguarded handler (an embedding or
+  observability integration) that then propagated to the root console
+  handler re-emitted the raw rendering past the sanitized exception clone —
+  §17/§18's categorical shared-handler sentences are qualified accordingly
+  by this appended evidence. `_redact_record_exc_info` now always discards
+  the cache: with `exc_info` present the console formatter rebuilds the
+  exception text from the sanitized clone, and a preformatted
+  exception-only record (cached text with no exception object left to
+  sanitize — the socket-forwarded shape) deliberately keeps its message
+  while the unsanitizable cached text is withheld. Regression:
+  `TestCachedExceptionTextBoundary` drives a real earlier `StreamHandler`
+  with a real `Formatter` on a propagating application logger through the
+  production console handler (the earlier handler's own capture proves the
+  cache was genuinely created), covers the exception-only preformatted
+  record, and keeps an uncached single-handler control asserting the
+  sanitized exception line still renders.
+
+- **N-R25-2 (Medium) — CLOSED before conversion.** JSON integers carry no
+  size bound, so a 401-digit `retry_after` parsed normally and
+  `float(value)` raised `OverflowError` out of both channels' HTTP-error
+  handling — aborting the failed-attempt path inside `_post_payload` and
+  through public `send` — instead of completing the attempt with the
+  documented fixed 1.0 s fallback. `validated_retry_delay` now converts
+  through `_float_or_infinite`: an integer beyond float range collapses to
+  infinity and therefore to the fixed default through the existing
+  non-finite path; the finite/non-negative gate itself is unchanged and no
+  threshold was raised. Regression: `TestRetryDelayResponseBoundary` — an
+  11-case input-class matrix on the validator (huge `±10**400`, Infinity,
+  NaN, bool, string, `None`, negative, zero, ordinary int and float) plus
+  real-channel `send()` runs for both channels and both signs through the
+  repository transport fake (result `False`, exactly one request, recorded
+  delay exactly 1.0 s) and both-channel ordinary rate-limit controls
+  (0.01 s honored as requested, the retried attempt delivers).
+
+- **N-R25-3 (Medium) — CLOSED by classifying the mapping against the
+  format string.** `LogRecord` unwraps a sole nonempty dict passed to a
+  positional `%s` into the same `record.args` shape as a genuine
+  `%(name)s` mapping, so `_redact_record_args` preserved its keys and
+  string values and the container rendered verbatim — a secret used as the
+  dict key was never scrubbed at all. The filter now distinguishes the two
+  by the record's format string: only a format free of positional
+  conversions (with `%%` literals consumed before the scan) is treated as
+  named interpolation and keeps redacted values; any positional conversion
+  collapses the dict to `_MaskedPositionalMapping`, whose `str`/`repr` and
+  missing-key lookups all yield the deterministic placeholder, so mixed
+  positional/named and broken formats keep emitting without exposing keys
+  or values. Regression: `TestPositionalMappingArgumentRedaction` —
+  positional dict-value and dict-key secrets absent, mixed
+  `%s`/`%(name)s` collapse, plus named-mapping controls proving
+  `%(url)s`/`%(attempts)d` diagnostics still render with URL credentials
+  masked and that a `%%` literal does not reclassify a named mapping.
+
+Independent-probe rerun at this head: the review's own
+`test_r25_boundaries.py`, `test_r25_mapping.py`, and `test_r25_send.py`
+pass **38/38** (previously 11 behavioral failures), receipt
+`green-r25-probes.log` in the round-26 dispatch directory.
+
+Fresh verification (this exact working tree, all run this round; receipts
+in the round-26 dispatch directory):
+
+- `verify.py --profile static`: PASS — all 7 gates (lock, Black, Ruff,
+  isolated strict mypy, Pyright, Vulture, fail-closed Complexipy launcher
+  at max 5 including module scope).
+- `verify.py --profile compatibility` (py3.13): **1477 passed, 3 skipped**
+  (1452 prior + 25 added this round).
+- Isolated locked full suite `--python 3.11`: 1477 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1477 passed, 3 skipped.
+- `verify.py --profile services` from a clean copy of this tree without
+  `.env`, explicit documented loopback development values only
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r26`,
+  `redis://127.0.0.1:6379/15`): PASS — probe, 45 real-Redis contracts,
+  migrations in a temporary database with cleanup; the fresh
+  `polymarket_tracker_r26` database was dropped afterwards.
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q`, same explicit values:
+  75 passed.
+- Missing-env services control (same clean copy, no `DATABASE_URL`/
+  `REDIS_URL`): exit 2, `DATABASE_URL and REDIS_URL must be set` before
+  any dependent gate.
+
+Behavior notes, recorded honestly: an earlier unguarded handler attached by
+embedding code still emits its own raw rendering — that handler is outside
+the redactor's authority, and the change is that its cache can no longer
+defeat the console handler that does promise redaction. A preformatted
+exception-only record now emits its message without the cached exception
+text (previously the raw cache re-emitted). A sole positional dict that
+previously rendered its full contents now renders the placeholder. Retry
+delays representable as finite floats are unchanged: huge-but-representable
+values remain the pre-existing unbounded-delay class, recorded in the
+G-033 round-25 follow-up for separate hardening rather than silently
+altered here.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules; no gate, lock, CI,
+launcher, or conftest changes. No push, merge, deploy, live provider call,
+notification, trade, or secret read (the worktree `.env` was left unread
+and untouched; services ran from a copy that excluded it); the only service
+mutations were the disposable `polymarket_tracker_r26` database (created
+and dropped) and unique-namespace Redis contract keys on database 15.
+Round-25 review evidence preserved unmodified.
+
+## 20. Round-27 Final-Review Correction — N-R27-1 and N-R27-2 (2026-09-12, Claude Opus 5 correction lane)
+
+Round-27 independent review of `e4c6d808` returned **REVISE** with two
+findings, both at the shared logging redaction boundary in
+`src/polymarket_insider_tracker/__main__.py`. Both are reproduced and closed
+here; the round-27 dispatch evidence was read, not modified.
+
+- **N-R27-1 (Medium) — CLOSED by testing the class logging actually
+  accepts.** `LogRecord.__init__` unwraps a sole nonempty argument into
+  `record.args` whenever it is a `collections.abc.Mapping` — the standard
+  library says exactly that in its own source comment — but
+  `_redact_record_args` tested a concrete `dict`. Every other ordinary
+  standard-library mapping therefore crossed the shared console boundary
+  untouched and rendered its keys and values verbatim, both as a positional
+  container (`%s`/`%r`/`%a`) and as a named interpolation mapping. The
+  branch now tests `Mapping`, which is the same predicate the standard
+  library applies, so no representation can reach the console by being a
+  mapping that is not a `dict`. Named numeric diagnostics are unchanged:
+  `%(attempts)d` still renders the real integer, and only the value policy
+  in `redact_argument` decides what each value renders as.
+
+- **N-R27-2 (Low) — CLOSED by making the collapse actually interpolate.**
+  `_redacted_mapping_args` returned an *empty* `_MaskedPositionalMapping`
+  for a positionally-consumed mapping, and `LogRecord.getMessage`
+  interpolates only `if self.args`. An empty dict subclass is falsy, so
+  `getMessage` skipped interpolation entirely: the console printed the
+  unsubstituted `failure: %s`, and the class's `__str__`, `__repr__`, and
+  `__missing__` were never reached on that path. The §19 claim that a
+  positional dict "renders the placeholder" was therefore wrong about the
+  rendering, though right about the secrecy — the arguments were effectively
+  omitted rather than exposed. **That §19 sentence is corrected here:** the
+  placeholder did not render at `e4c6d808`; it renders from this commit. The
+  mapping now declares `__bool__` and stays empty, so no original key or
+  value survives the collapse while interpolation does run.
+
+  The defect was observable at a real application callsite:
+  `RiskScorer.set_weights` (`detector/scorer.py:233`) logs its weights
+  mapping positionally and printed `Updated risk scorer weights: %s`. It now
+  prints `Updated risk scorer weights: ***`, consistent with the shared
+  container policy that masks every other container argument. Scoring state
+  is untouched — only this diagnostic's rendering changed.
+
+- **Emission safety, checked as the review required.** Making the mapping
+  truthy re-enables interpolation, and interpolation can fail: a placeholder
+  is text, so a typed conversion over a collapsed mapping
+  (`state %s after %(attempts)d`) or over a masked container (`counted %d`)
+  raises inside `getMessage`, which stock logging answers by dropping the
+  record and writing a formatting traceback to stderr. `filter` now ends in
+  `_keep_record_formattable`, which drops only the arguments it can no
+  longer render and leaves the record's own already-redacted format string
+  as the diagnostic. A record that still renders is left exactly as scrubbed.
+  This strictly adds diagnostics: four unformattable mapping formats and
+  three unformattable positional formats that stock logging drops now emit.
+
+Regression coverage (all in `tests/test_redaction.py`, 44 added):
+
+- `TestStandardMappingArgumentRedaction` — 28 cases over `UserDict`,
+  `ChainMap`, `MappingProxyType`, and a minimal non-dict `Mapping` (the
+  abstract class, not one implementation) × positional `%s`/`%r`/`%a`,
+  scrubbed key, named interpolation with a credential-bearing URL and a real
+  integer, mixed positional/named collapse, and what a second handler reads
+  off `record.args` directly.
+- `TestPositionalMappingArgumentRedaction` — the round-25 class, corrected.
+  Its two original cases asserted a static word plus secret absence, which
+  also passes when nothing interpolates; every case now asserts the complete
+  rendered line. Added: all three positional conversions, container/bytes
+  named values, a no-conversion control, and the real `RiskScorer` callsite.
+- `TestScrubbedRecordKeepsEmitting` — 8 cases: four unformattable mapping
+  formats, three unformattable positional formats, and a control proving the
+  guard leaves a renderable record alone.
+
+Red controls (receipts in the round-28 dispatch directory):
+
+- The review's own `test_r27_formatting.py`, unmodified: **18 failed / 5
+  passed** at `e4c6d808` (`red-head-r27-formatting.log`), **23/23** here
+  (`green-r27-formatting.log`).
+- The 44 new native tests against unchanged `e4c6d808` product code: **40
+  behavioral failures / 148 passed** (`red-parent-native-redaction.log`),
+  including both previously-vacuous round-25 cases and the scorer callsite.
+- A 192-cell input-class × output-surface matrix (8 mapping classes × 6
+  format classes × 5 secret locations, over the console and over a second
+  handler's `record.args` plus `SocketHandler.makePickle` serialization):
+  `e4c6d808` leaks the secret in **60 cells** and leaves **16** format/class
+  pairs unsubstituted; this commit leaks **0** and leaves **0**
+  (`matrix-parent.json`, `matrix-head.json`). The two defects separate
+  cleanly by input class: the four non-`dict` mappings leak, the four
+  `dict` subclasses fail to render.
+- Bounded mutation removing only the `_keep_record_formattable` call:
+  **7 failed / 1 passed** in `TestScrubbedRecordKeepsEmitting`
+  (`mutant-emission-guard.log`, `.diff`), so the guard is load-bearing.
+
+Fresh verification (this exact working tree, all run this round; receipts in
+the round-28 dispatch directory):
+
+- `verify.py --profile static`: PASS — all 7 gates (lock, Black, Ruff,
+  isolated strict mypy, Pyright, Vulture, fail-closed Complexipy launcher at
+  max 5 including module scope), arguments unchanged.
+- `verify.py --profile compatibility` (py3.13): **1521 passed, 3 skipped**
+  (1477 prior + 44 added this round).
+- Isolated locked full suite `--python 3.11`: 1521 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1521 passed, 3 skipped.
+- `verify.py --profile services` with explicit documented loopback
+  development values only
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r28`,
+  `redis://127.0.0.1:6379/15`): PASS — probe, 45 real-Redis contracts,
+  migrations in a temporary database with cleanup; the fresh
+  `polymarket_tracker_r28` database was created and dropped, verified absent
+  afterwards (`services-cleanup.json`).
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q`, same explicit values:
+  75 passed, including PostgreSQL backfill and migration.
+- Unchanged round-23/25/27 independent probe files at this head: the three
+  round-25 files plus `test_r27_cached.py` pass **50/50**; the older
+  probe set is **153 passed / 2 failed**, byte-identical to the round-27
+  baseline — the same two cases that intentionally reject raw double-quote
+  and whitespace endpoint configuration, which fail at `e4c6d808` too and
+  are not masking leaks.
+
+Behavior notes, recorded honestly: a mapping consumed positionally now
+renders `***` where `e4c6d808` printed the raw format string — the
+`RiskScorer.set_weights` line is the one production callsite affected. Four
+non-`dict` mapping classes that previously rendered their contents now
+render redacted values for named interpolation and `***` positionally.
+Records whose scrubbed arguments cannot interpolate now emit their format
+string instead of being dropped by logging's error handling. A format that
+mixes a positional conversion with `%(name)s` collapses the whole mapping,
+including its named values, which is the round-25 policy and unchanged.
+Retry-delay, cache, and exception-clone semantics from rounds 25 and earlier
+are untouched.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules. No gate, lock, CI,
+launcher, or conftest change; no `pyproject`/`uv.lock` change. No push,
+merge, deploy, live provider call, notification, trade, or secret read — the
+worktree `.env` was never read for its values and is byte-identical
+(`dotenv-before.sha256`); the services gates received their loopback values
+through the process environment instead. The only service mutations were the
+disposable `polymarket_tracker_r28` database (created and dropped) and
+unique-namespace Redis contract keys on database 15. Round-27 review
+evidence is preserved unmodified. This is writer-lane evidence, not an
+acceptance decision.

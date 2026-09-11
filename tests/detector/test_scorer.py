@@ -1,5 +1,6 @@
 """Tests for composite risk scorer."""
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -16,8 +17,10 @@ from polymarket_insider_tracker.detector.scorer import (
     DEFAULT_ALERT_THRESHOLD,
     DEFAULT_WEIGHTS,
     MULTI_SIGNAL_BONUS_2,
+    SCORING_ALGORITHM_VERSION,
     RiskScorer,
     SignalBundle,
+    quantize_score_value,
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
@@ -273,21 +276,17 @@ class TestRiskScorerInit:
         scorer = RiskScorer(fake_redis)
 
         assert scorer._alert_threshold == DEFAULT_ALERT_THRESHOLD
-        assert scorer._weights == DEFAULT_WEIGHTS
         assert scorer._dedup_window == 3600
 
     def test_custom_configuration(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test scorer with custom configuration."""
-        custom_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
+        """Test scorer with custom threshold and window configuration."""
         scorer = RiskScorer(
             fake_redis,
-            weights=custom_weights,
             alert_threshold=0.7,
             dedup_window_seconds=1800,
         )
 
         assert scorer._alert_threshold == 0.7
-        assert scorer._weights == custom_weights
         assert scorer._dedup_window == 1800
 
 
@@ -489,14 +488,20 @@ class TestAssessMethod:
         assert assessment.weighted_score == 0.0
 
     @pytest.mark.asyncio
-    async def test_assess_preserves_base_addition_order_at_alert_boundary(
+    async def test_assess_decides_at_persisted_precision_at_alert_boundary(
         self,
         fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
-        """Floating-point grouping must not turn a below-threshold score into an alert."""
+        """The decision uses the NUMERIC(4,3) precision that is persisted, so the stored
+        score, threshold, and should_alert can never contradict each other (FR-012).
+
+        This replaces the earlier float-artifact pin (score 0.7999999999999999, no alert):
+        that behavior stored 0.800 >= 0.800 with should_alert False, which the durable
+        record could not explain or replay.
+        """
         bundle = SignalBundle(
             trade_event=sample_trade,
             fresh_wallet_signal=replace(fresh_wallet_signal, confidence=0.7),
@@ -509,19 +514,56 @@ class TestAssessMethod:
 
         assessment = await RiskScorer(fake_redis).assess(bundle)
 
-        assert assessment.weighted_score == 0.7999999999999999
-        assert assessment.should_alert is False
+        assert assessment.weighted_score == 0.8
+        assert assessment.should_alert is True
+        stored_score = Decimal(str(assessment.weighted_score))
+        stored_threshold = Decimal(str(round(DEFAULT_ALERT_THRESHOLD, 3)))
+        assert assessment.should_alert is (stored_score >= stored_threshold)
         assert await fake_redis.dbsize() == 0
 
     @pytest.mark.asyncio
-    async def test_assess_deduplication(
+    async def test_assessment_replays_exactly_from_persisted_precision_inputs(
         self,
         fake_redis: FakeAsyncRedis,
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
         size_anomaly_signal: SizeAnomalySignal,
     ) -> None:
-        """Test assess deduplicates repeated alerts."""
+        """Recomputing from quantized confidences and the pinned default weights must
+        reproduce the stored score exactly (constitution IV: explain or replay)."""
+        fresh_conf = 0.7134567891234
+        size_conf = 0.6512345678901
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=replace(fresh_wallet_signal, confidence=fresh_conf),
+            size_anomaly_signal=replace(
+                size_anomaly_signal, confidence=size_conf, is_niche_market=True
+            ),
+        )
+
+        assessment = await RiskScorer(fake_redis).assess(bundle)
+
+        quantum = Decimal("0.001")
+        stored_fresh = quantize_score_value(fresh_conf)
+        stored_size = quantize_score_value(size_conf)
+        replayed = (
+            stored_fresh * Decimal(str(DEFAULT_WEIGHTS["fresh_wallet"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["size_anomaly"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["niche_market"]))
+        ) * Decimal(str(MULTI_SIGNAL_BONUS_2))
+        replayed = min(replayed, Decimal(1)).quantize(quantum)
+
+        assert Decimal(str(assessment.weighted_score)) == replayed
+
+    @pytest.mark.asyncio
+    async def test_assess_does_not_deduplicate_or_touch_redis(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+    ) -> None:
+        """Test that RiskScorer evaluates risk only, does not deduplicate, and writes zero Redis keys."""
         scorer = RiskScorer(fake_redis)
         bundle = SignalBundle(
             trade_event=sample_trade,
@@ -529,13 +571,12 @@ class TestAssessMethod:
             size_anomaly_signal=size_anomaly_signal,
         )
 
-        # First assessment should alert
         assessment1 = await scorer.assess(bundle)
-        # Second assessment should be deduplicated
         assessment2 = await scorer.assess(bundle)
 
         assert assessment1.should_alert is True
-        assert assessment2.should_alert is False
+        assert assessment2.should_alert is True
+        assert await fake_redis.dbsize() == 0
 
     @pytest.mark.asyncio
     async def test_assess_preserves_signals(
@@ -555,46 +596,6 @@ class TestAssessMethod:
 
         assert assessment.fresh_wallet_signal == fresh_wallet_signal
         assert assessment.size_anomaly_signal is None
-
-
-# ============================================================================
-# Deduplication Tests
-# ============================================================================
-
-
-class TestDeduplication:
-    """Tests for deduplication functionality."""
-
-    @pytest.mark.asyncio
-    async def test_check_and_set_dedup_new_key(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test dedup returns False for new key."""
-        scorer = RiskScorer(fake_redis)
-        is_dup = await scorer._check_and_set_dedup("0xwallet", "market123")
-
-        assert is_dup is False
-        key = f"{scorer._key_prefix}0xwallet:market123"
-        assert await fake_redis.exists(key) == 1
-
-    @pytest.mark.asyncio
-    async def test_check_and_set_dedup_existing_key(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test dedup returns True for existing key."""
-        scorer = RiskScorer(fake_redis)
-        key = f"{scorer._key_prefix}0xwallet:market123"
-        await fake_redis.set(key, "existing")
-        is_dup = await scorer._check_and_set_dedup("0xwallet", "market123")
-
-        assert is_dup is True
-
-    @pytest.mark.asyncio
-    async def test_clear_dedup(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test clearing dedup key."""
-        scorer = RiskScorer(fake_redis)
-        key = f"{scorer._key_prefix}0xwallet:market123"
-        await fake_redis.set(key, "existing")
-        cleared = await scorer.clear_dedup("0xwallet", "market123")
-
-        assert cleared is True
-        assert await fake_redis.exists(key) == 0
 
 
 # ============================================================================
@@ -656,35 +657,235 @@ class TestBatchAnalysis:
 # ============================================================================
 
 
-class TestWeightManagement:
-    """Tests for weight get/set functionality."""
+class TestScoringIdentityAndCompatibility:
+    """Every assessment carries its algorithm version and exact configuration, the
+    default weights are immutable, and the pre-slice-003 weight-configuration API
+    stays functional for one deprecation window (Patrick's 2026-09-11 decision)."""
 
-    def test_get_weights(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test getting weights returns a copy."""
+    def test_default_weights_are_immutable(self) -> None:
+        with pytest.raises(TypeError):
+            DEFAULT_WEIGHTS["fresh_wallet"] = 0.99  # type: ignore[index]
+
+    def test_get_weights_returns_defensive_copy(self, fake_redis: FakeAsyncRedis) -> None:
         scorer = RiskScorer(fake_redis)
 
         weights = scorer.get_weights()
 
-        assert weights == DEFAULT_WEIGHTS
-        # Verify it's a copy, not the original
+        assert weights == dict(DEFAULT_WEIGHTS)
+        # Mutating the returned copy must not change the scorer's behavior.
         weights["fresh_wallet"] = 999
-        assert scorer._weights["fresh_wallet"] != 999
+        assert scorer.get_weights() == dict(DEFAULT_WEIGHTS)
 
-    def test_set_weights(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test setting new weights."""
+    def test_algorithm_version_is_pinned(self) -> None:
+        assert SCORING_ALGORITHM_VERSION == "003.1"
+
+    def test_weights_constructor_argument_works_with_deprecation_warning(
+        self, fake_redis: FakeAsyncRedis
+    ) -> None:
+        custom = {"fresh_wallet": 0.5, "size_anomaly": 0.3, "niche_market": 0.2}
+
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights=custom)
+
+        assert scorer.get_weights() == custom
+        # The caller's dictionary is copied, not aliased.
+        custom["fresh_wallet"] = 0.99
+        assert scorer.get_weights()["fresh_wallet"] == 0.5
+
+    def test_set_weights_works_with_deprecation_warning(self, fake_redis: FakeAsyncRedis) -> None:
         scorer = RiskScorer(fake_redis)
-        new_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
 
-        scorer.set_weights(new_weights)
+        with pytest.warns(DeprecationWarning, match="set_weights"):
+            scorer.set_weights({"fresh_wallet": 0.6, "size_anomaly": 0.25, "niche_market": 0.15})
 
-        assert scorer._weights == new_weights
+        assert scorer.get_weights()["fresh_wallet"] == 0.6
+        assert dict(DEFAULT_WEIGHTS)["fresh_wallet"] == 0.40
 
-    def test_set_weights_makes_copy(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test set_weights makes a copy of the input."""
+    @pytest.mark.asyncio
+    async def test_assessment_records_version_and_canonical_config(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
+        scorer = RiskScorer(fake_redis, alert_threshold=0.8)
+        bundle = SignalBundle(trade_event=sample_trade, fresh_wallet_signal=fresh_wallet_signal)
+
+        assessment = await scorer.assess(bundle)
+
+        assert assessment.scoring_algorithm_version == SCORING_ALGORITHM_VERSION
+        assert assessment.scoring_config is not None
+        config = json.loads(assessment.scoring_config)
+        assert config["weights"] == {
+            "fresh_wallet": "0.4",
+            "size_anomaly": "0.35",
+            "niche_market": "0.25",
+        }
+        assert config["alert_threshold"] == "0.800"
+        assert config["multi_signal_bonus_2"] == "1.2"
+        assert config["multi_signal_bonus_3"] == "1.3"
+        assert config["score_quantum"] == "0.001"
+        # Canonical form: sorted keys, fixed separators, deterministic across calls.
+        assert assessment.scoring_config == json.dumps(
+            config, sort_keys=True, separators=(",", ":")
+        )
+        assert (
+            assessment.scoring_config == RiskScorer(fake_redis, alert_threshold=0.8).scoring_config
+        )
+
+    @pytest.mark.asyncio
+    async def test_custom_weight_assessment_replays_from_its_own_config(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+    ) -> None:
+        """A row produced under deprecated custom weights replays exactly from the
+        weights recorded in its own scoring_config — nothing else is needed."""
+        custom = {"fresh_wallet": 0.7, "size_anomaly": 0.2, "niche_market": 0.1}
+        with pytest.warns(DeprecationWarning):
+            scorer = RiskScorer(fake_redis, weights=custom)
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=fresh_wallet_signal,
+            size_anomaly_signal=size_anomaly_signal,
+        )
+
+        assessment = await scorer.assess(bundle)
+
+        assert assessment.scoring_config is not None
+        stored = json.loads(assessment.scoring_config)
+        stored_weights = {name: Decimal(value) for name, value in stored["weights"].items()}
+        replayed = (
+            quantize_score_value(fresh_wallet_signal.confidence) * stored_weights["fresh_wallet"]
+            + quantize_score_value(size_anomaly_signal.confidence) * stored_weights["size_anomaly"]
+            + quantize_score_value(size_anomaly_signal.confidence) * stored_weights["niche_market"]
+        ) * Decimal(stored["multi_signal_bonus_2"])
+        replayed_score = min(replayed, Decimal(1)).quantize(Decimal(stored["score_quantum"]))
+
+        assert Decimal(str(assessment.weighted_score)) == replayed_score
+        assert assessment.should_alert == (replayed_score >= Decimal(stored["alert_threshold"]))
+
+    @pytest.mark.asyncio
+    async def test_persisted_record_replays_with_pinned_algorithm_only(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+        size_anomaly_signal: SizeAnomalySignal,
+    ) -> None:
+        """Recompute a decision from persisted-precision values and pinned weights only.
+
+        This is the durable-record replay contract: everything needed besides the row
+        itself is a constant of SCORING_ALGORITHM_VERSION.
+        """
+        fresh_conf = 0.7999999999999999
+        bundle = SignalBundle(
+            trade_event=sample_trade,
+            fresh_wallet_signal=replace(fresh_wallet_signal, confidence=fresh_conf),
+            size_anomaly_signal=size_anomaly_signal,
+        )
+
+        assessment = await RiskScorer(fake_redis, alert_threshold=0.8).assess(bundle)
+
+        # The "persisted row": quantized confidences, score, threshold, and decision.
+        stored_fresh = quantize_score_value(fresh_conf)
+        stored_size = quantize_score_value(size_anomaly_signal.confidence)
+        stored_score = quantize_score_value(assessment.weighted_score)
+        stored_threshold = quantize_score_value(0.8)
+
+        replayed = (
+            stored_fresh * Decimal(str(DEFAULT_WEIGHTS["fresh_wallet"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["size_anomaly"]))
+            + stored_size * Decimal(str(DEFAULT_WEIGHTS["niche_market"]))
+        ) * Decimal(str(MULTI_SIGNAL_BONUS_2))
+        replayed_score = min(replayed, Decimal(1)).quantize(Decimal("0.001"))
+
+        assert stored_score == replayed_score
+        assert assessment.should_alert == (stored_score >= stored_threshold)
+
+
+class TestDeprecatedWeightCompatibilityInputs:
+    """Round-23 N-R23-4: previously working empty and partial weight mappings.
+
+    The pre-slice-003 API treated an empty constructor mapping as "use the
+    defaults" (``weights or DEFAULT_WEIGHTS``) and a signal name missing from
+    a partial mapping as a zero contribution (``weights.get(name, 0.0)``).
+    The retained compatibility API must preserve those existing inputs, not
+    only complete maps, while every new assessment still records the
+    effective per-signal weights in its own ``scoring_config``.
+    """
+
+    def _single_signal_bundle(
+        self, sample_trade: TradeEvent, fresh_wallet_signal: FreshWalletSignal
+    ) -> SignalBundle:
+        return SignalBundle(trade_event=sample_trade, fresh_wallet_signal=fresh_wallet_signal)
+
+    def test_empty_constructor_weights_fall_back_to_defaults(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights={})
+
+        score, count = scorer.calculate_weighted_score(
+            self._single_signal_bundle(sample_trade, fresh_wallet_signal)
+        )
+
+        assert count == 1
+        assert score == pytest.approx(0.32)
+        assert scorer.get_weights() == dict(DEFAULT_WEIGHTS)
+
+    def test_partial_constructor_weights_score_missing_signals_as_zero(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights={"size_anomaly": 1.0})
+
+        score, count = scorer.calculate_weighted_score(
+            self._single_signal_bundle(sample_trade, fresh_wallet_signal)
+        )
+
+        assert count == 1
+        assert score == pytest.approx(0.0)
+        assert scorer.get_weights() == {"size_anomaly": 1.0}
+
+    def test_partial_set_weights_scores_missing_signals_as_zero(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
         scorer = RiskScorer(fake_redis)
-        new_weights = {"fresh_wallet": 0.5, "size_anomaly": 0.5}
+        with pytest.warns(DeprecationWarning, match="set_weights"):
+            scorer.set_weights({"size_anomaly": 1.0})
 
-        scorer.set_weights(new_weights)
-        new_weights["fresh_wallet"] = 999
+        score, count = scorer.calculate_weighted_score(
+            self._single_signal_bundle(sample_trade, fresh_wallet_signal)
+        )
 
-        assert scorer._weights["fresh_wallet"] == 0.5
+        assert count == 1
+        assert score == pytest.approx(0.0)
+
+    def test_partial_weights_record_effective_zero_contributions(
+        self,
+        fake_redis: FakeAsyncRedis,
+    ) -> None:
+        """A stored row must replay from its own config without knowing the
+        missing-key rule, so the implied zeros are recorded explicitly."""
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights={"size_anomaly": 1.0})
+
+        config = json.loads(scorer.scoring_config)
+
+        assert config["weights"] == {
+            "fresh_wallet": "0.0",
+            "niche_market": "0.0",
+            "size_anomaly": "1.0",
+        }

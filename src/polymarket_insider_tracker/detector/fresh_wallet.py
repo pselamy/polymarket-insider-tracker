@@ -11,6 +11,7 @@ from polymarket_insider_tracker.detector.models import FreshWalletSignal
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.models import WalletProfile
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,11 @@ class FreshWalletDetector:
         Returns:
             FreshWalletSignal if the trade is from a fresh wallet,
             None otherwise.
+
+        Raises:
+            Exception: A wallet profiling failure propagates so the pipeline can count
+                it and record why fresh-wallet evidence is absent; swallowing it here
+                would be indistinguishable from "wallet is not fresh".
         """
         # Filter by minimum trade size
         if trade.notional_value < self._min_trade_size:
@@ -100,16 +106,7 @@ class FreshWalletDetector:
             return None
 
         # Get wallet profile
-        try:
-            profile = await self._analyzer.analyze(trade.wallet_address)
-        except Exception as e:
-            logger.warning(
-                "Failed to analyze wallet %s for trade %s: %s",
-                trade.wallet_address,
-                trade.trade_id,
-                e,
-            )
-            return None
+        profile = await self._analyzer.analyze(trade.wallet_address)
 
         # Check if wallet is fresh
         if not self._is_wallet_fresh(profile):
@@ -240,7 +237,7 @@ class FreshWalletDetector:
             logger.warning(
                 "Failed to analyze trade %s: %s",
                 trade.trade_id,
-                result,
+                redact_exception_message(result),
             )
             return None
         return result

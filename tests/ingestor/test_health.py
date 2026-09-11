@@ -157,6 +157,27 @@ class TestHealthMonitor:
         assert monitor._streams["trades"].connected_since is None
         assert monitor._streams["trades"].last_error == "Connection reset"
 
+    def test_set_stream_disconnected_redacts_error_at_intake(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Round-18: the stored status and its debug log never carry a raw URL secret."""
+        import logging
+
+        secret = "STREAM_INTAKE_SECRET_R18"
+        monitor = HealthMonitor()
+
+        with caplog.at_level(logging.DEBUG):
+            caplog.clear()
+            monitor.set_stream_disconnected(
+                "trades", error=f"dial failed for https://user:{secret}@stream.example/ws"
+            )
+
+        stored = monitor._streams["trades"].last_error or ""
+        assert secret not in stored
+        assert "dial failed" in stored
+        assert "***" in stored
+        assert secret not in caplog.text
+
     def test_record_event(self) -> None:
         """Test recording an event."""
         monitor = HealthMonitor()

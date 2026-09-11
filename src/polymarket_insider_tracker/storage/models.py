@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -159,6 +160,27 @@ class RiskAssessmentModel(Base):
     should_alert: Mapped[bool] = mapped_column(Boolean, nullable=False)
     threshold_at_eval: Mapped[Decimal] = mapped_column(Numeric(4, 3), nullable=False)
 
+    # Scoring reproducibility identity (Patrick's 2026-09-11 schema decision). Every
+    # new row records the producing algorithm version and its exact canonical
+    # configuration JSON; rows predating the columns are backfilled as
+    # 'legacy-unversioned' with NULL config because their configuration is unknowable.
+    scoring_algorithm_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    scoring_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Slice 003 Safe Observable Operation fields
+    delivery_disposition: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="unrecorded", default="unrecorded"
+    )
+    delivery_channels: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dry_run: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
+    volume_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    market_daily_volume: Mapped[Decimal | None] = mapped_column(Numeric(20, 6), nullable=True)
+    book_depth_available: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    wallet_tx_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    wallet_age_known: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
@@ -168,4 +190,5 @@ class RiskAssessmentModel(Base):
         Index("idx_risk_assessments_market", "market_id"),
         Index("idx_risk_assessments_trade_ts", "trade_timestamp"),
         Index("idx_risk_assessments_score", "weighted_score"),
+        Index("idx_risk_assessments_disposition", "delivery_disposition"),
     )

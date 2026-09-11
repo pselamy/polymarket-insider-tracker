@@ -7,6 +7,7 @@ in ``tests/conftest.py``.
 """
 
 from tests.fakes.alerts import FakeAlertChannel, FakeWebhookServer
+from tests.fakes.cancellation import resist_cancellation_for
 from tests.fakes.clob import FakeBaseClobClient
 from tests.fakes.gamma import FakeGammaClient
 from tests.fakes.metadata import FakeMetadataSync
@@ -48,6 +49,7 @@ __all__ = [
     "make_test_settings",
     "metadata_state",
     "non_list_body",
+    "resist_cancellation_for",
     "server_error",
     "synthetic_wallet",
     "terminal",

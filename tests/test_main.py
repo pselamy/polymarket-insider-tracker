@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 import polymarket_insider_tracker.__main__ as cli
 from polymarket_insider_tracker.__main__ import (
     EXIT_CONFIG_ERROR,
+    EXIT_ERROR,
     EXIT_SUCCESS,
     configure_logging,
     create_parser,
@@ -20,6 +23,7 @@ from polymarket_insider_tracker.config import (
     WebSocketSettingDeprecationWarning,
     websocket_deprecation_message,
 )
+from tests.fakes import resist_cancellation_for
 
 
 class TestCreateParser:
@@ -121,6 +125,87 @@ class TestValidateConfig:
         captured = capsys.readouterr()
         assert "Configuration validation failed" in captured.err
 
+    def test_validation_stderr_never_echoes_a_credential_bearing_url(self, monkeypatch, capsys):
+        """A malformed URL that carries a secret must be rejected without echoing it."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("POLYGON_RPC_URL", "https://https://user:TOPSECRET@example.com/hook")
+
+        settings = validate_config()
+        assert settings is None
+
+        captured = capsys.readouterr()
+        assert "Configuration validation failed" in captured.err
+        assert "TOPSECRET" not in captured.err
+        assert "TOPSECRET" not in captured.out
+
+    @pytest.mark.parametrize(
+        "env_name",
+        ["POLYGON_RPC_URL", "POLYMARKET_TRADES_URL", "REDIS_URL"],
+    )
+    def test_nfkc_poisoned_url_never_echoes_a_credential(
+        self, monkeypatch, capsys, env_name: str
+    ) -> None:
+        """Round-14 High: an NFKC-rejected URL with a secret is mapped to a fixed message."""
+        from polymarket_insider_tracker.__main__ import _sanitized_validation_message
+
+        secret = "CONFIGNFKCSECRET_R16"
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://data-api.polymarket.com/trades")
+        monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        if env_name == "REDIS_URL":
+            poisoned = f"redis://user:{secret}@host\uff0foops/0"
+        else:
+            poisoned = f"https://user:{secret}@host\uff0foops/path"
+        monkeypatch.setenv(env_name, poisoned)
+
+        settings = validate_config()
+        assert settings is None
+
+        captured = capsys.readouterr()
+        assert "Configuration validation failed" in captured.err
+        assert secret not in captured.err
+        assert secret not in captured.out
+        assert "invalid host component" in captured.err
+
+        message = _sanitized_validation_message(
+            "netloc 'host\uff0foops' contains invalid characters under NFKC normalization"
+        )
+        assert secret not in message
+        assert message == (
+            "invalid host component: contains characters rejected by URL normalization"
+        )
+
+    @pytest.mark.parametrize(
+        ("env_name", "poisoned"),
+        [
+            ("REDIS_URL", "redis://user:pw@host:PORTMSGSECRET_R18/0"),
+            ("REDIS_URL", "redis://[::1]:PORTMSGSECRET_R18/0"),
+            ("POLYMARKET_TRADES_URL", "https://user@[::1]:PORTMSGSECRET_R18/v2/x"),
+        ],
+    )
+    def test_port_shaped_credential_maps_to_the_port_failure_class(
+        self, monkeypatch, capsys, env_name: str, poisoned: str
+    ) -> None:
+        """Round-18: the CLI diagnostic names the real failure class, value-free.
+
+        The field name inside ``REDIS_URL has an invalid port`` used to match
+        the ``redis`` scheme marker, printing ``must start with redis://`` for
+        a URL that does start with ``redis://`` and hiding the actual defect.
+        """
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://data-api.polymarket.com/trades")
+        monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        monkeypatch.setenv(env_name, poisoned)
+
+        settings = validate_config()
+        assert settings is None
+
+        captured = capsys.readouterr()
+        assert "PORTMSGSECRET_R18" not in captured.err + captured.out
+        assert "has an invalid port" in captured.err
+
 
 class TestRunConfigCheck:
     """Tests for config check mode."""
@@ -151,7 +236,7 @@ class TestRunConfigCheck:
         run_config_check(settings)
 
         out = capsys.readouterr().out
-        assert "Trades URL: https://data-api.polymarket.com/trades" in out
+        assert "Trades URL: https://data-api.polymarket.com/***path***" in out
         assert "Trades Coverage: all" in out
         assert "Trades Poll Interval: 5s" in out
         assert "Trades Recovery Horizon: 600s" in out
@@ -175,9 +260,76 @@ class TestRunConfigCheck:
         assert websocket_deprecation_message() in out
         assert "legacy.invalid" not in out
 
+    def test_config_check_never_prints_trades_url_credentials(self, monkeypatch, capsys):
+        """Round-4 finding 6: the CLI printed the raw trades URL, leaking userinfo
+        and query-string credentials to stdout."""
+        user_secret = "cli-trades-userinfo-secret"
+        query_secret = "cli-trades-query-secret"
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv(
+            "POLYMARKET_TRADES_URL",
+            f"https://user:{user_secret}@data.example.com?apikey={query_secret}",
+        )
+        settings = validate_config()
+        assert settings is not None
+
+        run_config_check(settings)
+
+        out = capsys.readouterr().out
+        assert user_secret not in out
+        assert query_secret not in out
+        assert "data.example.com" in out
+
+    def test_config_check_states_offline_syntax_only(self, monkeypatch, capsys):
+        """Config check must explicitly state it is an offline syntax check and not claim ready to run."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        result = run_config_check(settings)
+        assert result == EXIT_SUCCESS
+
+        out = capsys.readouterr().out
+        assert "Offline syntax and structure checks passed." in out
+        assert (
+            "Note: --config-check validates syntax and configuration only; runtime readiness" in out
+        )
+        assert "All checks passed. Ready to run." not in out
+
 
 class TestMain:
     """Tests for main entry point."""
+
+    def test_main_with_health_port_override(self, monkeypatch):
+        """Main should pass overridden health port to settings and run_pipeline."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        runs: list[tuple[Settings, bool]] = []
+
+        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
+            runs.append((settings, dry_run))
+            return EXIT_SUCCESS
+
+        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--health-port", "9090", "--dry-run"])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        assert len(runs) == 1
+        settings, dry_run = runs[0]
+        assert settings.health_port == 9090
+        assert dry_run is True
+
+    def test_main_with_invalid_health_port(self, monkeypatch, capsys):
+        """Main should reject out-of-range health port and exit with config error."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--health-port", "99999"])
+
+        assert exc_info.value.code == EXIT_CONFIG_ERROR
+        err = capsys.readouterr().err
+        assert "health_port" in err
 
     def test_main_with_config_check(self, monkeypatch):
         """Main should exit successfully with --config-check."""
@@ -224,6 +376,232 @@ class TestMain:
         assert [(settings.database.url, dry_run) for settings, dry_run in runs] == [
             ("postgresql+psycopg://localhost/test", True)
         ]
+
+    def test_main_exits_with_error_when_pipeline_encounters_worker_error(self, monkeypatch):
+        """Main should exit with EXIT_ERROR (code 1) when run_pipeline reports worker error."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+
+        async def run_pipeline(_settings: Settings, _dry_run: bool) -> int:
+            return EXIT_ERROR
+
+        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+
+        with pytest.raises(SystemExit) as exc_info:
+            main([])
+
+        assert exc_info.value.code == EXIT_ERROR
+
+    def test_exit_code_for_pipeline_returns_error_on_pipeline_error_state(self):
+        """_exit_code_for_pipeline returns EXIT_ERROR when pipeline state is ERROR."""
+        from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
+        from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
+
+        pipeline = Pipeline()
+        pipeline._state = PipelineState.ERROR
+        assert _exit_code_for_pipeline(pipeline) == EXIT_ERROR
+
+    def test_exit_code_is_success_after_graceful_stop_with_recoverable_errors(self):
+        """Recoverable processing errors must not turn a graceful shutdown into exit 1."""
+        from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
+        from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
+
+        pipeline = Pipeline()
+        pipeline._state = PipelineState.STOPPED
+        pipeline._stats.errors = 3
+        pipeline._stats.last_error = "transient trade-processing error"
+        assert _exit_code_for_pipeline(pipeline) == EXIT_SUCCESS
+
+
+class HangingStopPipeline:
+    """Working fake whose graceful stop never finishes on its own."""
+
+    def __init__(self, _settings: Settings, *, dry_run: bool = False) -> None:
+        self.dry_run = dry_run
+        self.state = None
+        self._stop_event = asyncio.Event()
+        self.stop_calls = 0
+
+    @property
+    def stop_event(self) -> asyncio.Event:
+        return self._stop_event
+
+    async def start(self) -> None:
+        # Simulate an immediate internal stop request so run_pipeline reaches stop().
+        self._stop_event.set()
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        await asyncio.sleep(3600)
+
+
+class CountingStopPipeline(HangingStopPipeline):
+    """Working fake whose stop succeeds instantly, for counting stop attempts."""
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+
+
+class CancellationResistantStopPipeline(HangingStopPipeline):
+    """Working fake whose stop suppresses cancellation and finishes late on its own."""
+
+    def __init__(self, _settings: Settings, *, dry_run: bool = False) -> None:
+        super().__init__(_settings, dry_run=dry_run)
+        self.stop_finished = asyncio.Event()
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        await resist_cancellation_for(0.5)
+        self.stop_finished.set()
+
+
+class TestRunPipelineShutdownTimeout:
+    """run_pipeline must enforce shutdown_timeout around pipeline.stop (US3 scenario 4)."""
+
+    async def test_hanging_pipeline_stop_is_bounded_and_exits_error(self, monkeypatch):
+        """A hung stop is one attempt under one deadline: exit 1 in ~timeout, not 2x."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        from polymarket_insider_tracker.__main__ import run_pipeline
+
+        created: list[HangingStopPipeline] = []
+
+        def factory(settings: Settings, *, dry_run: bool = False) -> HangingStopPipeline:
+            created.append(HangingStopPipeline(settings, dry_run=dry_run))
+            return created[-1]
+
+        start = asyncio.get_running_loop().time()
+        exit_code = await asyncio.wait_for(
+            run_pipeline(
+                settings,
+                dry_run=True,
+                shutdown_timeout=0.2,
+                pipeline_factory=factory,
+            ),
+            timeout=5.0,
+        )
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert exit_code == EXIT_ERROR
+        assert created[0].stop_calls == 1
+        # One 0.2s deadline, not the doubled 0.4s the cleanup callback used to add.
+        assert elapsed < 0.35
+
+    async def test_successful_stop_is_not_repeated_by_cleanup(self, monkeypatch):
+        """After the explicit stop finishes, shutdown cleanup must not stop again."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        from polymarket_insider_tracker.__main__ import EXIT_SUCCESS, run_pipeline
+
+        created: list[CountingStopPipeline] = []
+
+        def factory(settings: Settings, *, dry_run: bool = False) -> CountingStopPipeline:
+            created.append(CountingStopPipeline(settings, dry_run=dry_run))
+            return created[-1]
+
+        exit_code = await asyncio.wait_for(
+            run_pipeline(
+                settings,
+                dry_run=True,
+                shutdown_timeout=1.0,
+                pipeline_factory=factory,
+            ),
+            timeout=5.0,
+        )
+
+        assert exit_code == EXIT_SUCCESS
+        assert created[0].stop_calls == 1
+
+    async def test_cancellation_resistant_stop_cannot_defeat_the_deadline(self, monkeypatch):
+        """Round-4 finding 7: a stop that suppresses cancellation used to make a tiny
+        timeout return success only after the stop's own 0.5s. The deadline must be
+        enforced independently of coroutine cooperation, and the late completion must
+        still be reported as a timeout (exit 1), never as success."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        from polymarket_insider_tracker.__main__ import run_pipeline
+
+        created: list[CancellationResistantStopPipeline] = []
+
+        def factory(settings: Settings, *, dry_run: bool = False) -> HangingStopPipeline:
+            created.append(CancellationResistantStopPipeline(settings, dry_run=dry_run))
+            return created[-1]
+
+        start = asyncio.get_running_loop().time()
+        exit_code = await asyncio.wait_for(
+            run_pipeline(
+                settings,
+                dry_run=True,
+                shutdown_timeout=0.05,
+                pipeline_factory=factory,
+            ),
+            timeout=5.0,
+        )
+        elapsed = asyncio.get_running_loop().time() - start
+
+        assert exit_code == EXIT_ERROR
+        assert created[0].stop_calls == 1
+        assert elapsed < 0.4, f"run_pipeline took {elapsed:.3f}s despite the 0.05s deadline"
+        # The abandoned stop finishes in the background; wait so it cannot leak.
+        await asyncio.wait_for(created[0].stop_finished.wait(), timeout=2.0)
+
+
+class TestCliOverrideConsistency:
+    """Round-4 finding 8: every CLI override must appear identically in runtime
+    configuration and in every printed summary (FR-004)."""
+
+    def test_config_check_reflects_dry_run_and_log_level_overrides(self, monkeypatch, capsys):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config-check", "--dry-run", "--log-level", "DEBUG"])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        out = capsys.readouterr().out
+        assert "Dry Run: True" in out
+        assert "Log Level: DEBUG" in out
+        assert "Dry Run: False" not in out
+        assert "Log Level: INFO" not in out
+
+    def test_overrides_reach_runtime_settings_and_summary_alike(self, monkeypatch, capsys):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        runs: list[tuple[Settings, bool]] = []
+
+        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
+            runs.append((settings, dry_run))
+            return EXIT_SUCCESS
+
+        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+
+        with pytest.raises(SystemExit):
+            main(["--dry-run", "--log-level", "WARNING"])
+
+        settings, dry_run = runs[0]
+        assert dry_run is True
+        assert settings.dry_run is True
+        assert settings.log_level == "WARNING"
+        assert settings.redacted_summary()["dry_run"] == "True"
+        out = capsys.readouterr().out
+        assert "Dry Run: True" in out
+        assert "Log Level: WARNING" in out
+
+    def test_environment_values_survive_without_cli_overrides(self, monkeypatch, capsys):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("DRY_RUN", "true")
+        monkeypatch.setenv("LOG_LEVEL", "ERROR")
+
+        with pytest.raises(SystemExit) as exc_info:
+            main(["--config-check"])
+
+        assert exc_info.value.code == EXIT_SUCCESS
+        out = capsys.readouterr().out
+        assert "Dry Run: True" in out
+        assert "Log Level: ERROR" in out
 
 
 class TestIntegration:

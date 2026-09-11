@@ -26,13 +26,15 @@ import asyncio
 import logging
 import signal
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from types import FrameType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Any
+
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,36 @@ DEFAULT_SHUTDOWN_TIMEOUT = 30.0
 
 # Signals to trap for graceful shutdown
 SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
+
+
+def _consume_abandoned_result(task: asyncio.Task[Any]) -> None:
+    if task.cancelled():
+        return
+    exception = task.exception()
+    if exception is not None:
+        logger.error(
+            "Abandoned shutdown work failed after its deadline: %s",
+            redact_exception_message(exception),
+        )
+
+
+async def wait_bounded(awaitable: Awaitable[Any], timeout: float) -> bool:
+    """Await ``awaitable`` for at most ``timeout`` seconds of wall time.
+
+    Unlike ``asyncio.wait_for``, the deadline holds even when the awaited coroutine
+    suppresses cancellation: at the deadline the task is cancelled best-effort and
+    abandoned (it may still be finishing in the background) and False is returned.
+    Exceptions from work that finishes in time propagate; a late result or failure
+    from abandoned work is consumed and never reported as success.
+    """
+    task = asyncio.ensure_future(awaitable)
+    done, _ = await asyncio.wait({task}, timeout=timeout)
+    if task in done:
+        task.result()
+        return True
+    task.cancel()
+    task.add_done_callback(_consume_abandoned_result)
+    return False
 
 
 class GracefulShutdown:
@@ -183,7 +215,9 @@ class GracefulShutdown:
                 )
                 logger.debug("Installed handler for %s", sig.name)
             except (ValueError, OSError) as e:
-                logger.warning("Could not install handler for %s: %s", sig.name, e)
+                logger.warning(
+                    "Could not install handler for %s: %s", sig.name, redact_exception_message(e)
+                )
 
     def _install_windows_handlers(self) -> None:
         """Install Windows signal handlers using signal.signal."""
@@ -195,7 +229,9 @@ class GracefulShutdown:
                 )
                 logger.debug("Installed handler for %s", sig.name)
             except (ValueError, OSError) as e:
-                logger.warning("Could not install handler for %s: %s", sig.name, e)
+                logger.warning(
+                    "Could not install handler for %s: %s", sig.name, redact_exception_message(e)
+                )
 
     def remove_signal_handlers(self) -> None:
         """Remove installed signal handlers and restore originals."""
@@ -249,15 +285,33 @@ class GracefulShutdown:
         sig_enum = signal.Signals(sig)
         self._handle_signal(sig_enum)
 
+    async def _run_cleanup_callback(self, callback: Callable[[], Any]) -> None:
+        result = callback()
+        if not asyncio.iscoroutine(result):
+            return
+        if not await wait_bounded(result, self._timeout):
+            raise TimeoutError
+
     async def run_cleanup_callbacks(self) -> None:
-        """Run all registered cleanup callbacks."""
+        """Run all registered cleanup callbacks; awaited (coroutine) work is bounded.
+
+        A coroutine callback that exceeds the shutdown timeout is abandoned with an
+        error log so a hung component cannot stall process exit indefinitely; later
+        callbacks still run. The deadline holds even when the callback suppresses
+        cancellation. Synchronous callbacks cannot be interrupted and are expected
+        to be fast.
+        """
         for callback in self._cleanup_callbacks:
             try:
-                result = callback()
-                if asyncio.iscoroutine(result):
-                    await result
+                await self._run_cleanup_callback(callback)
+            except TimeoutError:
+                logger.error(
+                    "Cleanup callback %r exceeded the %.1fs shutdown timeout; abandoning it",
+                    callback,
+                    self._timeout,
+                )
             except Exception as e:
-                logger.error("Cleanup callback failed: %s", e)
+                logger.error("Cleanup callback failed: %s", redact_exception_message(e))
 
     async def __aenter__(self) -> GracefulShutdown:
         """Async context manager entry - install signal handlers."""

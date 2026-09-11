@@ -242,6 +242,217 @@ class TestPolygonSettings:
         ):
             PolygonSettings()
 
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "https://wss://polygon.io",
+            "https://http://polygon.io",
+            "http://",
+            "https://",
+            "https:///path",
+        ],
+    )
+    def test_malformed_http_url_diagnostics(self, bad_url: str) -> None:
+        """Malformed or multi-protocol URLs must be rejected with actionable diagnostics."""
+        with (
+            env_context({"POLYGON_RPC_URL": bad_url}),
+            pytest.raises(ValidationError),
+        ):
+            PolygonSettings()
+
+    @pytest.mark.parametrize(
+        "validator_name",
+        ["_validate_http_url", "_validate_websocket_url"],
+    )
+    def test_nested_scheme_error_never_echoes_the_credential_bearing_url(
+        self, validator_name: str
+    ) -> None:
+        """The rejection message must not include the supplied URL or its secret."""
+        import polymarket_insider_tracker.config as config_module
+
+        validator = getattr(config_module, validator_name)
+        scheme = "https" if validator_name == "_validate_http_url" else "wss"
+        secret_url = f"{scheme}://{scheme}://user:TOPSECRET@example.com/hook"
+
+        with pytest.raises(ValueError) as exc_info:
+            validator(secret_url)
+
+        message = str(exc_info.value)
+        assert "TOPSECRET" not in message
+        assert secret_url not in message
+        assert "nested scheme" in message
+
+    def test_validation_error_for_nested_scheme_hides_the_input(self) -> None:
+        """The pydantic rendering of the failure must not include the raw input either."""
+        with (
+            env_context({"POLYGON_RPC_URL": "https://https://user:TOPSECRET@example.com"}),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            PolygonSettings()
+
+        assert "TOPSECRET" not in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "validator_name",
+        ["_validate_http_url", "_validate_redis_url"],
+    )
+    def test_invalid_port_rejected_without_echoing_the_token(self, validator_name: str) -> None:
+        """A ``host:token`` typo is an invalid port, not a diagnosable endpoint."""
+        import polymarket_insider_tracker.config as config_module
+
+        validator = getattr(config_module, validator_name)
+        secret_url = (
+            "https://host:PORTSHAPEDTOKEN_R16/v2/x"
+            if validator_name == "_validate_http_url"
+            else "redis://host:PORTSHAPEDTOKEN_R16/0"
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            validator(secret_url)
+
+        message = str(exc_info.value)
+        assert "PORTSHAPEDTOKEN_R16" not in message
+        assert secret_url not in message
+        assert "port" in message.lower()
+
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "https://host:PORTSHAPEDTOKEN_R16/v2/x",
+            "https://host:99999/v2/x",
+        ],
+    )
+    def test_settings_reject_invalid_port_without_echo(self, bad_url: str) -> None:
+        """The pydantic rendering of an invalid-port failure hides the raw token."""
+        with (
+            env_context({"POLYGON_RPC_URL": bad_url}),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            PolygonSettings()
+
+        assert "PORTSHAPEDTOKEN_R16" not in str(exc_info.value)
+        assert "99999" not in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        ("validator_name", "secret_url"),
+        [
+            ("_validate_http_url", "https://user:pw@host:PORT_EXEMPT_SECRET_R18/v2/x"),
+            ("_validate_http_url", "https://key@host:PORT_EXEMPT_SECRET_R18/v2/x"),
+            ("_validate_http_url", "https://user@[::1]:PORT_EXEMPT_SECRET_R18/v2/x"),
+            ("_validate_redis_url", "redis://user@host:PORT_EXEMPT_SECRET_R18/0"),
+            ("_validate_redis_url", "redis://:pw@[::1]:PORT_EXEMPT_SECRET_R18/0"),
+        ],
+    )
+    def test_userinfo_and_bracket_shapes_are_not_exempt_from_the_port_check(
+        self, validator_name: str, secret_url: str
+    ) -> None:
+        """Round-18: the round-16 userinfo/bracket port exemption accepted these shapes.
+
+        A port-position token beside userinfo or an IPv6 bracket then leaked
+        verbatim through the redaction netloc mask, so validation must reject
+        every such shape with the value-free failure class.
+        """
+        import polymarket_insider_tracker.config as config_module
+
+        validator = getattr(config_module, validator_name)
+
+        with pytest.raises(ValueError) as exc_info:
+            validator(secret_url)
+
+        message = str(exc_info.value)
+        assert "PORT_EXEMPT_SECRET_R18" not in message
+        assert secret_url not in message
+        assert "port" in message.lower()
+
+    def test_settings_reject_userinfo_port_shaped_credential_without_echo(self) -> None:
+        """The pydantic rendering of the round-18 shape hides the raw token too."""
+        with (
+            env_context({"POLYGON_RPC_URL": "https://user:pw@host:PORT_EXEMPT_SECRET_R18/v2/x"}),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            PolygonSettings()
+
+        assert "PORT_EXEMPT_SECRET_R18" not in str(exc_info.value)
+        assert "port" in str(exc_info.value).lower()
+
+
+class TestScannableUrlValidation:
+    """Round-21 N-R21-2: accepted URLs must survive text-scan redaction whole.
+
+    ``redact_text`` can only mask a credential-bearing endpoint while the
+    whole URL stays one scan match. A raw whitespace, control, double-quote,
+    or angle character terminates the match, so a configured value carrying
+    one would re-emit its tail — possibly a path credential — as prose in
+    diagnostic text. No such character is valid raw URI text; every URL
+    field now rejects them with a value-free failure class, while the
+    URI-valid single quote and percent-encoded forms stay accepted and are
+    masked by the text policy.
+    """
+
+    SECRET = "SCAN_BOUNDARY_SECRET_R21"
+
+    @pytest.mark.parametrize("separator", ['"', " ", "\t", "\n", "<", ">"])
+    @pytest.mark.parametrize(
+        ("field", "url_template", "settings_factory"),
+        [
+            (
+                "POLYMARKET_TRADES_URL",
+                "https://rpc.invalid/v2/prefix{sep}{secret}",
+                PolymarketSettings,
+            ),
+            ("POLYGON_RPC_URL", "https://rpc.invalid/v2/prefix{sep}{secret}", PolygonSettings),
+            ("REDIS_URL", "redis://cache.invalid:6379/0{sep}{secret}", RedisSettings),
+            (
+                "DATABASE_URL",
+                "postgresql+psycopg://tracker@db.invalid:5432/x{sep}{secret}",
+                DatabaseSettings,
+            ),
+            (
+                "DISCORD_WEBHOOK_URL",
+                "https://discord.invalid/api/webhooks/1/{sep}{secret}",
+                DiscordSettings,
+            ),
+        ],
+    )
+    def test_every_url_field_rejects_scan_boundary_characters_without_echo(
+        self,
+        separator: str,
+        field: str,
+        url_template: str,
+        settings_factory: Callable[[], BaseSettings],
+    ) -> None:
+        url = url_template.format(sep=separator, secret=self.SECRET)
+
+        with env_context({field: url}), pytest.raises(ValidationError) as exc_info:
+            settings_factory()
+
+        message = str(exc_info.value)
+        assert self.SECRET not in message
+        assert url not in message
+
+    @pytest.mark.parametrize("char", ["\x00", "\x1b", "\x7f"])
+    def test_control_characters_are_rejected_by_the_shared_check(self, char: str) -> None:
+        """Control bytes cannot be set through the environment but must still fail closed."""
+        import polymarket_insider_tracker.config as config_module
+
+        with pytest.raises(ValueError) as exc_info:
+            config_module._validate_http_url(f"https://rpc.invalid/v2/k{char}{self.SECRET}")
+
+        assert self.SECRET not in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "tail",
+        ["prefix'QUOTE_TAIL", "prefix%27QUOTE_TAIL", "prefix%20QUOTE_TAIL"],
+    )
+    def test_uri_valid_spellings_stay_accepted(self, tail: str) -> None:
+        """The single quote is valid raw URI text; encoded forms stay accepted too."""
+        url = f"https://rpc.invalid/v2/{tail}"
+
+        with env_context({"POLYMARKET_TRADES_URL": url}):
+            settings = PolymarketSettings()
+
+        assert settings.trades_url == url
+
 
 TRADES_REPLACEMENT_VARIABLES = (
     "POLYMARKET_TRADES_URL",
@@ -353,6 +564,23 @@ class TestPolymarketSettings:
         with (
             env_context({"POLYMARKET_WS_URL": "http://polymarket.com"}),
             pytest.raises(ValidationError, match="ws://"),
+        ):
+            PolymarketSettings()
+
+    @pytest.mark.parametrize(
+        "bad_ws_url",
+        [
+            "wss://https://legacy.invalid/ws",
+            "ws://wss://legacy.invalid/ws",
+            "ws://",
+            "wss://",
+        ],
+    )
+    def test_malformed_ws_url_raises(self, bad_ws_url: str) -> None:
+        """Test that malformed WebSocket URL raises validation error."""
+        with (
+            env_context({"POLYMARKET_WS_URL": bad_ws_url}),
+            pytest.raises(ValidationError),
         ):
             PolymarketSettings()
 
@@ -505,7 +733,9 @@ class TestSettings:
             summary = Settings().redacted_summary()["polymarket"]
 
         assert summary == {
-            "trades_url": "https://data-api.polymarket.com/trades",
+            # Fail-closed path redaction masks even this benign path segment;
+            # the host still identifies the supported trades source.
+            "trades_url": "https://data-api.polymarket.com/***path***",
             "coverage": "all",
             "poll_interval_seconds": "5",
             "recovery_horizon_seconds": "600",
@@ -532,6 +762,57 @@ class TestSettings:
         assert summary["api_key"] == "(set)"
         assert "legacy.invalid" not in str(summary)
         assert "secret" not in str(summary)
+
+    def test_redacted_summary_masks_rpc_and_trades_credentials(self) -> None:
+        """Round-4 finding 6: RPC and trades URLs were returned verbatim, leaking
+        userinfo and query-string credentials through the "redacted" summary.
+
+        Round-10 extends the same boundary to credential-bearing endpoint path
+        segments: a dedicated-provider path credential must not survive the
+        primary or fallback RPC summary either.
+        """
+        rpc_secret = "rpc-userinfo-secret"
+        trades_user_secret = "trades-userinfo-secret"
+        trades_query_secret = "trades-query-secret"
+        rpc_path_secret = "rpc-path-segment-secret-r10"
+        fallback_path_secret = "fallback-path-segment-secret-r10"
+        with env_context(
+            {
+                "DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db",
+                "POLYGON_RPC_URL": f"https://{rpc_secret}@rpc.example.com",
+                "POLYGON_FALLBACK_RPC_URL": f"https://user:{rpc_secret}@fallback.example.com",
+                "POLYMARKET_TRADES_URL": (
+                    f"https://user:{trades_user_secret}@data.example.com"
+                    f"?apikey={trades_query_secret}"
+                ),
+            },
+            clear=True,
+        ):
+            summary = Settings().redacted_summary()
+
+        flattened = str(summary)
+        assert rpc_secret not in flattened
+        assert trades_user_secret not in flattened
+        assert trades_query_secret not in flattened
+        # The routable shape stays diagnosable.
+        assert "rpc.example.com" in flattened
+        assert "data.example.com" in flattened
+
+        with env_context(
+            {
+                "DATABASE_URL": "postgresql+psycopg://user:pass@localhost/db",
+                "POLYGON_RPC_URL": f"https://primary.example/v2/{rpc_path_secret}",
+                "POLYGON_FALLBACK_RPC_URL": f"https://fallback.example/v2/{fallback_path_secret}",
+            },
+            clear=True,
+        ):
+            path_summary = Settings().redacted_summary()
+
+        flattened_paths = str(path_summary)
+        assert rpc_path_secret not in flattened_paths
+        assert fallback_path_secret not in flattened_paths
+        assert "primary.example" in flattened_paths
+        assert "fallback.example" in flattened_paths
 
 
 class TestGetSettings:

@@ -106,14 +106,35 @@ def test_rejects_malformed_or_incomplete_urls(source: str) -> None:
         module.normalize_database_url(source)
 
 
-def test_safe_rendering_hides_password_and_preserves_location() -> None:
+def test_safe_rendering_masks_credentials_and_path_under_central_policy() -> None:
+    """Round-18: diagnostics rendering follows the central fail-closed policy.
+
+    SQLAlchemy's ``hide_password`` rendering kept the username, database path,
+    and query values readable; the central policy masks the password, the
+    path, and every query value while the host and port stay diagnosable.
+    """
     module = _load_module()
     secret = "never-render-this"
-    source = f"postgresql+psycopg://tracker:{secret}@localhost:5432/research"
+    query_secret = "never-render-this-query"
+    source = (
+        f"postgresql+psycopg://tracker:{secret}@localhost:5432/research"
+        f"?sslpassword={query_secret}"
+    )
 
     rendered = module.render_database_url_safe(source)
 
     assert secret not in rendered
+    assert query_secret not in rendered
+    assert "research" not in rendered
     assert "***" in rendered
     assert "tracker" in rendered
-    assert "localhost:5432/research" in rendered
+    assert "localhost:5432" in rendered
+
+
+def test_safe_rendering_fails_closed_on_unparseable_input() -> None:
+    module = _load_module()
+
+    rendered = module.render_database_url_safe("postgresql://user:pw@[::1")
+
+    assert "user:pw" not in rendered
+    assert "***" in rendered

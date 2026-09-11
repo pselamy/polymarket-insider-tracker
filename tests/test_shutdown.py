@@ -14,6 +14,7 @@ from polymarket_insider_tracker.shutdown import (
     GracefulShutdown,
     run_with_graceful_shutdown,
 )
+from tests.fakes import resist_cancellation_for
 
 
 class TestGracefulShutdownInit:
@@ -232,6 +233,51 @@ class TestCleanupCallbacks:
 
         # Should not raise
         await shutdown.run_cleanup_callbacks()
+
+    async def test_hanging_cleanup_callback_is_bounded_by_shutdown_timeout(self) -> None:
+        """A hung cleanup callback must not stall shutdown past the configured timeout."""
+        shutdown = GracefulShutdown(timeout=0.1)
+        completed: list[str] = []
+
+        async def hanging_callback() -> None:
+            await asyncio.sleep(3600)
+
+        async def later_callback() -> None:
+            completed.append("later")
+
+        shutdown.register_cleanup(hanging_callback)
+        shutdown.register_cleanup(later_callback)
+
+        await asyncio.wait_for(shutdown.run_cleanup_callbacks(), timeout=5.0)
+
+        assert completed == ["later"]
+
+    async def test_cancellation_suppressing_cleanup_is_still_bounded(self) -> None:
+        """Round-4 finding 7: the deadline must hold even when the cleanup coroutine
+        suppresses cancellation; the abandoned work finishes in the background."""
+        shutdown = GracefulShutdown(timeout=0.05)
+        completed: list[str] = []
+        stubborn_finished = asyncio.Event()
+
+        async def stubborn_callback() -> None:
+            await resist_cancellation_for(0.5)
+            stubborn_finished.set()
+
+        async def later_callback() -> None:
+            completed.append("later")
+
+        shutdown.register_cleanup(stubborn_callback)
+        shutdown.register_cleanup(later_callback)
+
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await asyncio.wait_for(shutdown.run_cleanup_callbacks(), timeout=5.0)
+        elapsed = loop.time() - started
+
+        assert completed == ["later"]
+        assert elapsed < 0.4, f"cleanup took {elapsed:.3f}s despite the 0.05s deadline"
+        # Let the abandoned callback finish so it cannot leak into another test.
+        await asyncio.wait_for(stubborn_finished.wait(), timeout=2.0)
 
 
 class TestAsyncContextManager:

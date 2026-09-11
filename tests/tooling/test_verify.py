@@ -523,3 +523,27 @@ def test_non_url_secrets_are_redacted_as_complete_values(
     assert "private-token" not in rendered
     assert api_key not in rendered
     assert rendered == "webhook=*** api_key=***"
+
+
+def test_path_credential_endpoint_urls_are_redacted_as_complete_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Round-18: RPC/trades endpoint URLs may carry their credential in the path.
+
+    The partial URL rendering keeps paths readable, so these settings must be
+    complete-value secrets; any gate output echoing them is fully masked.
+    """
+    module = _load_module()
+    rpc_url = "https://polygon.example/v2/rpc-path-key-r18"
+    fallback_url = "https://fallback.example/v2/fallback-path-key-r18"
+    trades_url = "https://proxy.example/v2/trades-path-key-r18/trades"
+    monkeypatch.setenv("POLYGON_RPC_URL", rpc_url)
+    monkeypatch.setenv("POLYGON_FALLBACK_RPC_URL", fallback_url)
+    monkeypatch.setenv("POLYMARKET_TRADES_URL", trades_url)
+
+    rendered = module.redact_text(f"failed: {rpc_url} then {fallback_url} then {trades_url}")
+
+    assert "rpc-path-key-r18" not in rendered
+    assert "fallback-path-key-r18" not in rendered
+    assert "trades-path-key-r18" not in rendered
+    assert rendered == "failed: *** then *** then ***"

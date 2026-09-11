@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from polymarket_insider_tracker import __version__
+from polymarket_insider_tracker.redaction import redact_url as _redact_url
 
 PAGE_LIMIT = 10_000
 RECOVERY_OFFSET = 10_000
@@ -134,13 +135,14 @@ class RequestAttempt:
 
 
 def redacted_url(url: str) -> str:
-    """Return ``url`` without credentials, query string, or fragment."""
-    parsed = urlsplit(url)
-    host = parsed.hostname or ""
-    if ":" in host:
-        host = f"[{host}]"
-    netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
-    return parsed._replace(netloc=netloc, query="", fragment="").geturl()
+    """Return the operator-facing endpoint label for ``url``.
+
+    The label goes through the central redaction policy so a non-root path
+    (``POLYMARKET_TRADES_URL`` accepts a proxied path that may carry a
+    credential segment) is fail-closed while scheme/host/port stay readable.
+    Runtime requests still use the configured URL unchanged.
+    """
+    return _redact_url(url)
 
 
 def start_for(boundary_time: int | None, horizon_seconds: int) -> int:
@@ -277,20 +279,54 @@ class TradesSourceClient:
         self, request: TradesRequest, attempt: int
     ) -> TradesPage | TradesTransientError:
         started = self._clock()
+        outgoing = self._built_request(request, started, attempt)
+        if isinstance(outgoing, TradesTransientError):
+            return outgoing
         try:
-            outgoing = httpx.Request(
-                "GET",
-                self._url,
-                params=request.params(),
-                headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-                extensions={"timeout": httpx.Timeout(REQUEST_TIMEOUT_SECONDS).as_dict()},
-            )
             response = await self._client.send(outgoing, auth=None, follow_redirects=False)
         except httpx.TimeoutException:
             return self._transient(started, attempt, None, "timeout", "timeout")
         except httpx.TransportError:
             return self._transient(started, attempt, None, "transport", "transport error")
         return self._classify(response, request, started, attempt)
+
+    def _built_request(
+        self, request: TradesRequest, started: float, attempt: int
+    ) -> httpx.Request | TradesTransientError:
+        """The documented request, or a redacted transient error when it cannot build.
+
+        ``httpx.InvalidURL`` subclasses ``Exception`` directly, not
+        ``ValueError``, so it must be named here explicitly or an invalid
+        injected URL would bypass this boundary entirely and rely on the
+        poller's error-text mask alone.
+        """
+        try:
+            return self._build_request(request)
+        except (TypeError, ValueError, httpx.InvalidURL) as exc:
+            return self._redacted_request_error(started, attempt, exc)
+
+    def _build_request(self, request: TradesRequest) -> httpx.Request:
+        """Assemble the documented GET request for ``request`` unchanged."""
+        return httpx.Request(
+            "GET",
+            self._url,
+            params=request.params(),
+            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
+            extensions={"timeout": httpx.Timeout(REQUEST_TIMEOUT_SECONDS).as_dict()},
+        )
+
+    def _redacted_request_error(
+        self, started: float, attempt: int, exc: Exception
+    ) -> TradesTransientError:
+        """A request-construction failure as transient without echoing the URL."""
+        _ = exc
+        self._record(started, attempt, "transient", None)
+        return TradesTransientError(
+            f"transient failure (invalid request URL) from {redacted_url(self._url)}",
+            status=None,
+            kind="transport",
+            retry_after_seconds=0.0,
+        )
 
     def _classify(
         self, response: httpx.Response, request: TradesRequest, started: float, attempt: int

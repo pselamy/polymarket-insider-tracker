@@ -16,6 +16,8 @@ from typing import Protocol, cast
 
 from redis.asyncio import Redis
 
+from polymarket_insider_tracker.redaction import redact_exception_message
+
 from .clob_client import ClobClient
 from .gamma_client import GammaClient, GammaClientError, GammaMarketStats
 from .models import Market, MarketMetadata
@@ -157,7 +159,7 @@ class MarketMetadataSync:
             try:
                 self._on_state_change(new_state)
             except Exception as e:
-                logger.warning(f"State change callback failed: {e}")
+                logger.warning("State change callback failed: %s", redact_exception_message(e))
 
     async def start(self) -> None:
         """Start the background sync service.
@@ -177,10 +179,12 @@ class MarketMetadataSync:
         try:
             await self._sync_all_markets()
         except Exception as e:
-            logger.error(f"Initial sync failed: {e}")
+            logger.error("Initial sync failed: %s", redact_exception_message(e))
             self._set_state(SyncState.ERROR)
-            self._stats.last_error = str(e)
-            raise MetadataSyncError(f"Failed to start: initial sync failed: {e}") from e
+            self._stats.last_error = redact_exception_message(e)
+            raise MetadataSyncError(
+                f"Failed to start: initial sync failed: {redact_exception_message(e)}"
+            ) from e
 
         # Start background sync loop
         self._sync_task = asyncio.create_task(self._sync_loop())
@@ -222,9 +226,9 @@ class MarketMetadataSync:
         return True
 
     def _handle_sync_loop_error(self, e: Exception) -> None:
-        logger.error(f"Sync loop error: {e}")
+        logger.error("Sync loop error: %s", redact_exception_message(e))
         self._stats.failed_syncs += 1
-        self._stats.last_error = str(e)
+        self._stats.last_error = redact_exception_message(e)
         self._set_state(SyncState.ERROR)
 
     async def _run_sync_cycle(self) -> bool:
@@ -251,7 +255,10 @@ class MarketMetadataSync:
         try:
             return await self._gamma.get_active_market_stats()
         except (GammaClientError, Exception) as e:
-            logger.warning("gamma stats fetch failed (continuing without volume): %s", e)
+            logger.warning(
+                "gamma stats fetch failed (continuing without volume): %s",
+                redact_exception_message(e),
+            )
             return {}
 
     async def _enrich_and_cache_market(
@@ -283,7 +290,11 @@ class MarketMetadataSync:
                 if enriched:
                     enriched_count += 1
             except Exception as e:
-                logger.warning(f"Failed to cache market {market.condition_id}: {e}")
+                logger.warning(
+                    "Failed to cache market %s: %s",
+                    market.condition_id,
+                    redact_exception_message(e),
+                )
         return cached_count, enriched_count
 
     def _record_sync_success(
@@ -306,13 +317,13 @@ class MarketMetadataSync:
             try:
                 self._on_sync_complete(self._stats)
             except Exception as e:
-                logger.warning(f"Sync complete callback failed: {e}")
+                logger.warning("Sync complete callback failed: %s", redact_exception_message(e))
 
     def _record_sync_failure(self, exc: Exception) -> None:
         self._stats.failed_syncs += 1
-        self._stats.last_error = str(exc)
+        self._stats.last_error = redact_exception_message(exc)
         self._set_state(SyncState.ERROR)
-        logger.error(f"Market sync failed: {exc}")
+        logger.error("Market sync failed: %s", redact_exception_message(exc))
 
     async def _sync_all_markets(self) -> None:
         """Fetch all markets and cache them in Redis."""
@@ -348,7 +359,11 @@ class MarketMetadataSync:
         try:
             return MarketMetadata.from_dict(json.loads(cached))
         except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Failed to parse cached market {condition_id}: {e}")
+            logger.warning(
+                "Failed to parse cached market %s: %s",
+                condition_id,
+                redact_exception_message(e),
+            )
             return None
 
     async def get_market(self, condition_id: str) -> MarketMetadata | None:
@@ -372,7 +387,11 @@ class MarketMetadataSync:
                 data = json.loads(cached)
                 return MarketMetadata.from_dict(data)
             except (json.JSONDecodeError, KeyError) as e:
-                logger.warning(f"Failed to parse cached market {condition_id}: {e}")
+                logger.warning(
+                    "Failed to parse cached market %s: %s",
+                    condition_id,
+                    redact_exception_message(e),
+                )
 
         # Cache miss - fetch from API
         try:
@@ -382,7 +401,9 @@ class MarketMetadataSync:
                 await self._cache_market(metadata)
                 return metadata
         except Exception as e:
-            logger.warning(f"Failed to fetch market {condition_id}: {e}")
+            logger.warning(
+                "Failed to fetch market %s: %s", condition_id, redact_exception_message(e)
+            )
 
         return None
 

@@ -44,6 +44,14 @@ REDIS_SCHEME = "redis"
 PREREQUISITE_EXIT_CODE = 2
 VERIFICATION_FAILURE_EXIT_CODE = 1
 
+# libpq routes connections through these regardless of the URL's host component, so a
+# loopback-validated DSN could still reach a remote server. The query keys ride inside
+# DATABASE_URL itself; the environment variables fill any conninfo parameter the DSN
+# leaves unspecified (PostgreSQL: libpq-connect, "Parameter Key Words" / "Environment
+# Variables"). Both are rejected before any client, subprocess, or database exists.
+LIBPQ_ROUTING_QUERY_KEYS = frozenset({"host", "hostaddr", "port", "service"})
+LIBPQ_ROUTING_ENVIRONMENT = ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE")
+
 # scheme://authority[path][?query][#fragment]; the authority ends at the first "/", "?", or "#".
 _URL_PATTERN = re.compile(
     r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*)://(?P<authority>[^/?#]*)(?P<path>[^?#]*)(?P<tail>[?#].*)?$",
@@ -108,8 +116,32 @@ def _require_loopback(host: str, variable: str) -> None:
         )
 
 
+def _require_no_routing_query_keys(canonical: str) -> None:
+    for key in make_url(canonical).query:
+        if key.lower() in LIBPQ_ROUTING_QUERY_KEYS:
+            raise ServicePrerequisiteError(
+                f"DATABASE_URL query parameter {key.lower()!r} lets libpq reroute the"
+                " connection past the loopback host; remove it for service verification"
+            )
+
+
+def _require_no_routing_environment(environment: Mapping[str, str] | None = None) -> None:
+    checked = os.environ if environment is None else environment
+    for name in LIBPQ_ROUTING_ENVIRONMENT:
+        if checked.get(name):
+            raise ServicePrerequisiteError(
+                f"{name} must be unset during service verification; libpq would let it"
+                " reroute the loopback connection to another server"
+            )
+
+
 def validate_loopback_database_url(database_url: str) -> str:
-    """Return a canonical URL only when every resolved host address is loopback."""
+    """Return a canonical URL only when every route the connection can take is loopback.
+
+    Loopback resolution of the host component alone is not enough: libpq honors
+    ``hostaddr``/``host``/``service`` query parameters and the corresponding environment
+    variables for the actual route, so those are rejected as prerequisites as well.
+    """
     if not database_url:
         raise ServicePrerequisiteError("DATABASE_URL is required")
     try:
@@ -121,6 +153,8 @@ def validate_loopback_database_url(database_url: str) -> str:
     if host is None:
         raise ServicePrerequisiteError("DATABASE_URL must include a loopback host")
     _require_loopback(host, "DATABASE_URL")
+    _require_no_routing_query_keys(canonical)
+    _require_no_routing_environment()
     return canonical
 
 
@@ -166,6 +200,18 @@ def validate_loopback_redis_url(redis_url: str) -> str:
 
 def _psycopg_dsn(url: URL) -> str:
     return url.set(drivername="postgresql").render_as_string(hide_password=False)
+
+
+def alembic_subprocess_environment(database_url: str) -> dict[str, str]:
+    """Build the migration subprocess environment with every libpq variable removed.
+
+    The disposable-database URL carries the complete credentials, so the subprocess never
+    needs ``PG*`` variables; dropping them all prevents any inherited libpq default (such
+    as ``PGHOSTADDR`` or ``PGSERVICE``) from rerouting the migration off the loopback URL.
+    """
+    environment = {name: value for name, value in os.environ.items() if not name.startswith("PG")}
+    environment["DATABASE_URL"] = database_url
+    return environment
 
 
 def _split_userinfo(authority: str) -> tuple[str | None, str | None, str]:
@@ -258,6 +304,9 @@ class RealMigrationBackend:
 
     def expected_revisions(self) -> tuple[str, str]:
         config = Config(str(REPOSITORY_ROOT / "alembic.ini"))
+        # The ini file's script_location is relative to the process working directory,
+        # which the test harness moves; pin it to the repository's migration tree.
+        config.set_main_option("script_location", str(REPOSITORY_ROOT / "alembic"))
         script = ScriptDirectory.from_config(config)
         head = script.get_current_head()
         if head is None:
@@ -272,8 +321,7 @@ class RealMigrationBackend:
             connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
 
     def run_alembic(self, database_url: str, command: str, target: str) -> None:
-        environment = os.environ.copy()
-        environment["DATABASE_URL"] = database_url
+        environment = alembic_subprocess_environment(database_url)
         result = subprocess.run(
             [sys.executable, "-m", "alembic", command, target],
             cwd=REPOSITORY_ROOT,
