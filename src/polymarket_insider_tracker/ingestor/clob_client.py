@@ -12,7 +12,7 @@ from py_clob_client.client import ClobClient as BaseClobClient
 from py_clob_client.clob_types import BookParams
 
 from polymarket_insider_tracker.ingestor.models import Market, Orderbook
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def _sleep_backoff(
         "Attempt %d/%d failed: %s. Retrying in %.1f seconds...",
         attempt + 1,
         max_retries + 1,
-        redact_text(str(error)),
+        redact_exception_message(error),
         delay,
     )
     time.sleep(delay)
@@ -265,7 +265,7 @@ class ClobClient:
             return Market.from_dict(response)
         except Exception as e:
             raise ClobClientError(
-                f"Failed to fetch market {condition_id}: {redact_text(str(e))}"
+                f"Failed to fetch market {condition_id}: {redact_exception_message(e)}"
             ) from e
 
     @with_retry()
@@ -285,7 +285,7 @@ class ClobClient:
             return Orderbook.from_clob_orderbook(orderbook)
         except Exception as e:
             raise ClobClientError(
-                f"Failed to fetch orderbook for {token_id}: {redact_text(str(e))}"
+                f"Failed to fetch orderbook for {token_id}: {redact_exception_message(e)}"
             ) from e
 
     @with_retry()
@@ -306,7 +306,9 @@ class ClobClient:
             orderbooks = self._client.get_order_books(params)
             return [Orderbook.from_clob_orderbook(ob) for ob in orderbooks]
         except Exception as e:
-            raise ClobClientError(f"Failed to fetch orderbooks: {redact_text(str(e))}") from e
+            raise ClobClientError(
+                f"Failed to fetch orderbooks: {redact_exception_message(e)}"
+            ) from e
 
     @with_retry()
     def get_midpoint(self, token_id: str) -> str | None:
@@ -325,7 +327,9 @@ class ClobClient:
             mid = response.get("mid")
             return str(mid) if mid is not None else None
         except Exception as e:
-            logger.warning("Failed to get midpoint for %s: %s", token_id, redact_text(str(e)))
+            logger.warning(
+                "Failed to get midpoint for %s: %s", token_id, redact_exception_message(e)
+            )
             return None
 
     @with_retry()
@@ -350,7 +354,7 @@ class ClobClient:
                 "Failed to get %s price for %s: %s",
                 side,
                 token_id,
-                redact_text(str(e)),
+                redact_exception_message(e),
             )
             return None
 
@@ -365,7 +369,7 @@ class ClobClient:
             result = self._client.get_ok()
             return str(result) == "OK"
         except Exception as e:
-            logger.error("Health check failed: %s", redact_text(str(e)))
+            logger.error("Health check failed: %s", redact_exception_message(e))
             return False
 
     def get_server_time(self) -> int | None:
@@ -379,5 +383,5 @@ class ClobClient:
             result = self._client.get_server_time()
             return int(result) if result is not None else None
         except Exception as e:
-            logger.error("Failed to get server time: %s", redact_text(str(e)))
+            logger.error("Failed to get server time: %s", redact_exception_message(e))
             return None

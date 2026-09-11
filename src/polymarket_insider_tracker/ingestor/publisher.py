@@ -15,7 +15,7 @@ from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 from redis.typing import EncodableT, FieldT
 
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 from .models import TradeEvent
 
@@ -152,7 +152,7 @@ def _parse_stream_entry(
             "Failed to deserialize %s %s: %s",
             context,
             entry_id_str,
-            redact_text(str(e)),
+            redact_exception_message(e),
         )
         return None
 

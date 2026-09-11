@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from polymarket_insider_tracker.redaction import redact_text
+
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
 
@@ -96,11 +98,19 @@ class TelegramChannel:
 
                 if error_code == 429:
                     retry_after = result.get("parameters", {}).get("retry_after", 1)
-                    logger.warning(f"Telegram rate limited, retry after {retry_after}s")
+                    logger.warning(
+                        "Telegram rate limited, retry after %ss", self._redact(str(retry_after))
+                    )
                     await asyncio.sleep(retry_after)
                     return False
 
-                logger.error(f"Telegram API error: {error_code} - {description}")
+                # error_code and description are server-controlled response
+                # values and may echo the token-bearing URL; never log them raw.
+                logger.error(
+                    "Telegram API error: %s - %s",
+                    self._redact(str(error_code)),
+                    self._redact(str(description)),
+                )
 
         except (httpx.ConnectTimeout, httpx.PoolTimeout):
             # The request never reached Telegram, so retrying cannot duplicate a delivery.
@@ -120,10 +130,16 @@ class TelegramChannel:
         return None
 
     def _redact(self, text: str) -> str:
-        """Hide the bot token and the token-bearing API URL inside diagnostic text."""
-        return text.replace(self._api_url, "<redacted api url>").replace(
+        """Hide the bot token and the token-bearing API URL inside diagnostic text.
+
+        The exact configured values are replaced first, then the central policy
+        masks every remaining URL-shaped substring, so a respelled or partial
+        form of the token-bearing URL cannot survive either.
+        """
+        replaced = text.replace(self._api_url, "<redacted api url>").replace(
             self.bot_token, "<redacted token>"
         )
+        return redact_text(replaced)
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:

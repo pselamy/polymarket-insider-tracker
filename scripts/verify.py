@@ -190,8 +190,17 @@ PROFILE_NAMES = ("static", "compatibility", "services", "all")
 
 # Service URLs are rendered with their credential hidden so diagnostics stay actionable; every
 # other configured secret is replaced completely because its value may live anywhere in the string.
+# The endpoint URLs are complete-value secrets too: their credential may ride in the path
+# (``https://host/v2/<key>``), which the partial URL rendering would keep readable.
 SERVICE_URL_KEYS = ("DATABASE_URL", "REDIS_URL")
-SECRET_VALUE_KEYS = ("POLYMARKET_API_KEY", "DISCORD_WEBHOOK_URL", "TELEGRAM_BOT_TOKEN")
+SECRET_VALUE_KEYS = (
+    "POLYMARKET_API_KEY",
+    "DISCORD_WEBHOOK_URL",
+    "TELEGRAM_BOT_TOKEN",
+    "POLYGON_RPC_URL",
+    "POLYGON_FALLBACK_RPC_URL",
+    "POLYMARKET_TRADES_URL",
+)
 TEST_CONFIGURATION_KEYS = frozenset(
     {"DATABASE_URL", "REDIS_URL", "LOG_LEVEL", "DRY_RUN", "HEALTH_PORT", "RUN_SERVICE_TESTS"}
 )

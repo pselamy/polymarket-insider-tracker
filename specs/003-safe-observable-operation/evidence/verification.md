@@ -715,3 +715,238 @@ Verification (post-fix, exact commands, fresh unless noted):
 - No mocks, no `type: ignore` added, no skips/xfails added; `git diff --check`
   clean. No live trading, notification, provider, secret-read, deployment,
   push, or merge actions occurred.
+
+## 15. Round-18 Secrets-Boundary Correction (2026-09-11, Claude Fable 5 writer lane)
+
+Escalated correction at exact start head
+`99854bf4547ec6131a060270c7131f777ff86451` (sole writer verified). Honest
+limitation, recorded first: the dispatch's findings file
+`/home/dev/dispatch-state/polymarket-slice003-fable-review-r18-20260911/FABLE_REVIEW_RESULT.md`
+was **not readable** from the writer session — the session file-access policy
+denied the file-read tool twice and blocked shell reads (sandboxed and
+unsandboxed) outside the worktree, and no copy exists inside the worktree or
+in any git ref. The dispositions below are therefore keyed by **leak class**
+from an independent audit of every log/message/config/status sink and every
+accepted malformed-URL exemption (the scope the dispatch itself states), not
+by N-R18 finding numbers. If a named N-R18 finding falls outside these
+classes, it is NOT closed by this round and must be re-dispatched with a
+readable findings file.
+
+Leak classes found and closed (all shared, fail-closed, spec-consistent):
+
+1. Port-probe exemption in `redaction.py` (`_is_port_probe_exempt`, removed):
+   a userinfo- or bracket-bearing netloc skipped the invalid-port probe, then
+   `_masked_netloc` re-emitted the port-position token verbatim
+   (`https://key@host:TOKEN` masked to `***@host:TOKEN`;
+   `https://[::1]:TOKEN/p` re-emitted whole). `parts.port` attributes the
+   colon correctly through userinfo and brackets, so the probe now runs for
+   every netloc shape and such URLs collapse to the existing fail-closed
+   invalid-port label. Defense in depth: `_safe_outer_host` now validates any
+   colon tail as a real port (`_has_valid_port_tail`) so nested-shape labels
+   can never emit a credential-shaped fake port either. Valid ports stay
+   readable (existing round-16 corpus preserved).
+2. The same exemption twin in `config.py` (`_is_port_check_exempt`, removed):
+   validation accepted `https://user@host:TOKEN` shapes that then flowed to
+   summaries/logs/status; `_check_port` now probes every shape and rejects
+   with the fixed value-free "has an invalid port" message.
+3. Logging-boundary placement in `__main__.py`: `_RedactingLogFilter` was
+   attached only to the `polymarket_insider_tracker.__main__` logger, and
+   logger-level filters never run for records propagated from other loggers —
+   every sibling module's `exc_info` chain reached the console handler raw.
+   `configure_logging` now installs the filter on the console handler itself
+   (one shared boundary for application and third-party loggers). Enabling
+   that required `_redacted_arg` to pass numbers/booleans/`None` through
+   unchanged (they cannot embed a URL-shaped secret) so `%d`/`%.1f` records
+   from every module keep rendering; containers/bytes still become the
+   placeholder.
+4. Channel response sinks in `discord.py`/`telegram.py` (supersedes the
+   round-12 "channel response bodies — not changed" disposition): the non-204
+   Discord body (`response.text`), the Telegram `error_code`/`description`
+   envelope values, and both `retry_after` interpolations are
+   server-controlled text that reached logs raw and may echo the
+   credential-bearing request URL. All now route through the channel
+   `_redact`, which additionally layers the central `redact_text` after the
+   exact-value replacements so respelled/partial URL forms cannot survive.
+   Transport, retry counts, rate-limit sleeps, and ambiguous-timeout behavior
+   are unchanged (existing dispatcher/channel behavior tests pin them).
+5. Raised-message composition in `profiler/chain.py`: `RPCError` messages
+   interpolated the raw upstream exception (which may embed the
+   path-credential RPC endpoint); both raise sites now compose with
+   `redact_text` so the raised text is safe independent of any sink.
+6. Status intake in `ingestor/health.py`: `set_stream_disconnected` stored
+   the caller's error raw and logged it raw at DEBUG; it now redacts at
+   intake so stored status and the debug line are safe regardless of caller.
+7. `storage/database_url.py` `render_database_url_safe` (unused-by-production
+   exported helper) used SQLAlchemy `hide_password`, which keeps the database
+   path and query values readable — weaker than the central policy every
+   production sink uses; it now delegates to central `redact_url`.
+8. `scripts/verify.py` `SECRET_VALUE_KEYS` omitted the path-credential
+   endpoint settings; `POLYGON_RPC_URL`, `POLYGON_FALLBACK_RPC_URL`, and
+   `POLYMARKET_TRADES_URL` are now complete-value secrets in gate-output
+   redaction (the partial URL rendering keeps paths readable, so
+   `SERVICE_URL_KEYS` would not have been fail-closed for them).
+
+Inspected and left unchanged, with reasons: `observation_boundary.py`
+checkpoint-field errors (our own Redis field names/values, no configured
+credential; poller sinks redact downstream); `runtime_services.py`
+value-based redaction (postgres/redis scope only, URLs passed per call);
+`trades_smoke.py` (records carry pre-redacted `TradesSourceError` text and
+`redacted_url` endpoints); dispatcher non-exception messages (static text or
+exception type names only); `SERVICE_URL_KEYS` partial rendering for
+DATABASE_URL/REDIS_URL (paths are database names, kept diagnosable per the
+established scripts contract); redis-URL nested-scheme validation gap
+(validation accepts `redis://https://...` shapes but every emission path
+routes through central redaction, which fails such shapes closed —
+validation tightening left to a dedicated round to avoid unreviewed
+behavior change).
+
+New durable controls (real-boundary, working fakes, no mocks):
+`TestPortExemptionRemoval` and four governed-corpus additions plus the
+`PORT_EXEMPT_SECRET_R18` corpus token (red on the start head by static trace:
+`_masked_netloc` re-emits the token at `99854bf4`);
+`TestHandlerBoundaryRedaction` (sibling-logger `exc_info` through the real
+configured console handler, numeric-arg rendering pinned);
+config userinfo/bracket port-rejection tests (validator- and
+pydantic-rendering-level); Discord/Telegram response-body redaction tests
+through the existing `FakeWebhookServer` real-`httpx.MockTransport` fakes
+with delivery outcomes and request counts pinned; health intake-redaction
+test; database-url central-policy rendering tests; verify.py
+path-credential-endpoint redaction test. The strengthened chain-retry test
+additionally pins the raised `RPCError` message as redacted.
+
+Verification status (honest; commands and outcomes verbatim):
+- `git diff --check`: clean (ran successfully).
+- **Every execution attempt was denied by the writer session's permission
+  policy with "This command requires approval"** — attempted:
+  `uv run python scripts/verify.py --profile static`,
+  `uv run python scripts/verify.py --help`, `uv run pytest --version`,
+  `uv run pytest tests/test_redaction.py -x -q`, `uv run python <probe>`,
+  `.venv/bin/python <probe>` (sandboxed and unsandboxed), `python3 <probe>`,
+  `codegraph status`, and `git log --format` variants. No gate, test, red
+  control, or probe was executed in this session. All red/green claims above
+  are static traces of the code paths, not runtime evidence.
+- Consequence: this round is **implemented, not locally verified**. Before
+  acceptance the next lane MUST run, fresh: static/compatibility/services
+  verify profiles, the full pytest suite (expecting the new controls green at
+  HEAD and the port-exemption controls red on `99854bf4` product code), and
+  the real-Redis contract suite.
+- No mocks, no `type: ignore`, no skips/xfails, no baselines or weakened
+  rules added. No live trading, notification, provider, secret-read,
+  deployment, push, or merge actions occurred. `.env` untouched.
+
+## 16. Round-18 Completion — numbered dispositions and fresh verification (2026-09-11, Claude Fable 5 correction lane, round 20)
+
+Resumed the round-19 output (uncommitted at exact start head
+`99854bf4547ec6131a060270c7131f777ff86451`, working-diff sha256
+`d5ac1060fdb8f4c1776e68fbdc9002bbe32699cc41a9795b7cd44583f50ac5de`,
+preserved intact) with execution and dispatch-state read permissions
+restored. The round-18 findings file was read in full this round, so §15's
+class-keyed dispositions now map to the numbered findings, with the
+remaining defects repaired here:
+
+- **N-R18-1 (High) — CLOSED.** §15 classes 1–2 (userinfo/bracket port
+  exemptions removed in `redaction.py` and `config.py`) close the finding's
+  three sink reproductions for every supported configuration; all four
+  `--config-check` reproductions were replayed fresh with synthetic tokens
+  and now exit 2 with a value-free failure class. Completed this round:
+  (a) the poller's `_BARE_PORT_TOKEN_PATTERN` `Invalid port:` branch now
+  masks to end of line, so the finding's (c) shapes — repr-switched quote
+  style and whitespace-bearing tokens — can no longer slip the
+  defense-in-depth mask on below-config injection (new committed probes);
+  (b) `_built_request` now names `httpx.InvalidURL` (which subclasses
+  `Exception`, not `ValueError`) so the documented trades-source boundary
+  actually engages instead of relying on the poller mask alone;
+  (c) a CLI failure-class mislabel found while replaying: the field name
+  inside `REDIS_URL has an invalid port` matched the `redis` scheme marker
+  and `--config-check` printed `must start with redis://` for a URL that
+  does start with `redis://` — `_classified_validation_message` now checks
+  hostname/port markers before the scheme table (value-free either way;
+  committed control red on the start head).
+- **N-R18-2 (Medium) — CLOSED as a class.** New central
+  `redact_exception_message()` / `redact_argument()` in `redaction.py`:
+  string arguments keep redacted text, safe scalars stay readable, bytes and
+  containers become the placeholder before any rendering. Every
+  `redact_text(str(<exception>))` sink was converted (`__main__`, `pipeline`,
+  `shutdown`, `metadata_sync`, `clob_client`, `gamma_client`, `websocket`,
+  `publisher`, `trade_poller`, `health`, `dispatcher`, `fresh_wallet`,
+  `size_anomaly`, `chain`, `analyzer`, `funding`), the raw `{e}`
+  interpolations in `pipeline.py` (`_detect_score_and_alert` path,
+  detector-failure messages, delivery/persistence errors) compose through
+  the renderer, `_handle_worker_failure` receives pre-scrubbed text,
+  `_fallback_sanitized_error` no longer stringifies the original exception,
+  and `_redact_record_message` handles exception and non-string message
+  objects at the shared handler boundary. §14.2's guarantee sentence is
+  superseded: at `99854bf4` it was falsified at the message-line sink (the
+  control below reproduces bytes rendering verbatim at the
+  `Pipeline failed:` line); at this head it holds through the renderer.
+  `scripts/runtime_services.py` intentionally keeps exact-value replacement:
+  it redacts configured URL values wherever they appear in rendered text,
+  including inside a bytes repr.
+- **N-R18-3 (Low) — CONFIRMED and corrected.** Verified fresh:
+  `httpx.InvalidURL.__mro__` is `(InvalidURL, Exception, BaseException,
+  object)`. §14.1's attribution of the invalid-port defense to
+  `_built_request`'s `except (TypeError, ValueError)` was wrong; at that head
+  the runtime protection was the poller mask alone. This supersedes §14.1's
+  attribution sentence; the boundary is now real (see N-R18-1 item (b)).
+- **N-R18-4 (Low) — CLOSED.** New
+  `test_dispatcher_release_claim_failure_is_redacted` injects failure at the
+  Redis `pipeline` boundary — the only path `release_channel_claim` can
+  raise through (`exists`/`set` overrides never reach its WATCH/get/delete
+  transaction). Green at this head; green on the parent by design (coverage
+  restoration — the dispatcher redaction pre-exists and is unchanged).
+- **N-R18-5 (Nit) — CLOSED.** The `once.replace("***path***", "")`
+  loosening is removed; the governed corpus asserts token absence directly
+  and still passes, confirming the replace excluded nothing.
+
+Fresh verification (this exact working tree, all run this round):
+
+- `verify.py --profile static`: PASS (lock, Black, Ruff, isolated strict
+  mypy, Pyright, Vulture, fail-closed Complexipy launcher — all 7 gates).
+- `verify.py --profile compatibility` (py3.13): PASS — 1367 passed,
+  3 skipped (service-gated/platform omissions unchanged).
+- Isolated locked full suite, `--python 3.11`: 1367 passed, 3 skipped.
+- Isolated locked full suite, `--python 3.12`: 1367 passed, 3 skipped.
+- Exact AGENTS complexipy launcher (isolated 3.11, `--max-complexity-allowed
+  5`, full scope): all functions within budget.
+- `verify.py --profile services`: PASS fresh — probe, real-Redis contract
+  suite (45 passed against the loopback `redis-server` on 6379), and
+  migrations (`runtime-migrations` created temporary database
+  `pit_verify_df4ed1fe…`, exercised `003 → 002 → 003`, async query and
+  cleanup succeeded) against the disposable `pit-s003-verify` PostgreSQL 16
+  cluster on 55432 with a fresh `polymarket_tracker_r20` database. The
+  worktree `.env` was neither read nor used; all service URLs were explicit
+  synthetic values. Missing-env control: exit 2 naming the missing URLs,
+  no secret bytes.
+- `git diff --check`: clean.
+
+Regression-red controls (disposable `git archive` copy of `99854bf4` product
+code with this tree's tests overlaid, locked sync, py3.13):
+
+- `tests/test_redaction.py` fails collection outright on the parent
+  (`ImportError: cannot import name 'redact_exception_message'`) — the
+  central renderer is load-bearing.
+- The six other changed test files: **17 failed, 229 passed**. Fifteen are
+  genuine controls red on the parent (6 config port-exemption rejections,
+  3 CLI failure-class messages, 2 channel response-body redactions with the
+  synthetic secret visibly leaking in the captured parent logs, 1 health
+  intake, 2 database-url central-policy renderings, 1 verify.py
+  path-credential endpoint). Two (`test_all_tracked_python_files_are_covered_by_*_scope`)
+  are environmental only: the archive copy is not a git repository, so
+  `git ls-files` fails — both pass in the real worktree.
+- Parent plus a helper-only shim (the new renderer functions appended
+  verbatim to the parent's `redaction.py`, every sink left untouched):
+  `tests/test_redaction.py` shows **16 failed, 91 passed** — isolating the
+  sink wiring as load-bearing. Captured parent leaks include
+  `Pipeline failed: (b'prefix-nonstring-mainline-secret-r18-suffix', …)` on
+  the production message line and
+  `dial failed for https://***@host:PORT_EXEMPT_SECRET_R18/ …` re-emitted
+  through the netloc mask — precisely the round-18 reproductions.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, or weakened rules; failure injection uses the
+established instance-attribute boundary idiom on `fakeredis`/fake clients
+only. No push, merge, deploy, live provider call, notification, trade, or
+secret read (the worktree `.env` was left unread and untouched); the only
+service mutations were a new disposable database in the existing
+verification cluster and the temporary migration database
+`runtime_services` itself creates and drops.

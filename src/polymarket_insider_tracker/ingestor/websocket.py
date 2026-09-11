@@ -19,7 +19,7 @@ from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +141,7 @@ class TradeStreamHandler:
         try:
             await self._on_state_change(new_state)
         except Exception as e:
-            logger.error("Error in state change callback: %s", redact_text(str(e)))
+            logger.error("Error in state change callback: %s", redact_exception_message(e))
 
     async def _set_state(self, new_state: ConnectionState) -> None:
         """Update state and notify callback."""
@@ -189,10 +189,10 @@ class TradeStreamHandler:
             return ws
 
         except Exception as e:
-            logger.error("Failed to connect: %s", redact_text(str(e)))
-            self._stats.last_error = redact_text(str(e))
+            logger.error("Failed to connect: %s", redact_exception_message(e))
+            self._stats.last_error = redact_exception_message(e)
             raise ConnectionError(
-                f"Failed to connect to {self._host}: {redact_text(str(e))}"
+                f"Failed to connect to {self._host}: {redact_exception_message(e)}"
             ) from e
 
     async def _emit_trade(self, trade: TradeEvent) -> None:
@@ -208,7 +208,7 @@ class TradeStreamHandler:
         try:
             await self._on_trade(trade)
         except Exception as e:
-            logger.error("Error in trade callback: %s", redact_text(str(e)))
+            logger.error("Error in trade callback: %s", redact_exception_message(e))
 
     async def _handle_message(self, message: str) -> None:
         """Parse and process an incoming WebSocket message."""
@@ -225,9 +225,9 @@ class TradeStreamHandler:
             else:
                 logger.debug("Received non-trade message: %s", str(data)[:120])
         except json.JSONDecodeError as e:
-            logger.warning("Invalid JSON message: %s", redact_text(str(e)))
+            logger.warning("Invalid JSON message: %s", redact_exception_message(e))
         except Exception as e:
-            logger.error("Error processing message: %s", redact_text(str(e)))
+            logger.error("Error processing message: %s", redact_exception_message(e))
 
     async def _process_stream_item(self, message: Any) -> None:
         if isinstance(message, str):
@@ -243,10 +243,10 @@ class TradeStreamHandler:
                     break
                 await self._process_stream_item(message)
         except ConnectionClosed as e:
-            logger.warning("Connection closed: %s", redact_text(str(e)))
+            logger.warning("Connection closed: %s", redact_exception_message(e))
             raise
         except Exception as e:
-            logger.error("Error in message loop: %s", redact_text(str(e)))
+            logger.error("Error in message loop: %s", redact_exception_message(e))
             raise
 
     async def _reconnect_loop(self) -> None:
@@ -269,8 +269,8 @@ class TradeStreamHandler:
                 return
 
             except Exception as e:
-                logger.error("Reconnection failed: %s", redact_text(str(e)))
-                self._stats.last_error = redact_text(str(e))
+                logger.error("Reconnection failed: %s", redact_exception_message(e))
+                self._stats.last_error = redact_exception_message(e)
 
                 # Exponential backoff with jitter
                 delay = min(delay * 2, self._max_reconnect_delay)
@@ -278,7 +278,7 @@ class TradeStreamHandler:
     async def _handle_connection_loss(self, exc: Exception) -> None:
         if not self._running:
             return
-        logger.warning("Connection lost: %s", redact_text(str(exc)))
+        logger.warning("Connection lost: %s", redact_exception_message(exc))
         await self._set_state(ConnectionState.DISCONNECTED)
         await self._reconnect_loop()
 
@@ -337,7 +337,7 @@ class TradeStreamHandler:
             try:
                 await self._ws.close()
             except Exception as e:
-                logger.debug("Error closing WebSocket: %s", redact_text(str(e)))
+                logger.debug("Error closing WebSocket: %s", redact_exception_message(e))
             finally:
                 self._ws = None
 

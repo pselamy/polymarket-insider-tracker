@@ -44,25 +44,10 @@ def _check_port(value: str, name: str) -> None:
     The token after the host colon may itself be a credential (a mistyped
     ``host:key`` for ``host/key``); it must be rejected at validation so it
     never reaches config output, logs, or status, and the message keeps only
-    the failure class, never the raw value.
+    the failure class, never the raw value. ``urlsplit().port`` attributes the
+    colon correctly through userinfo and bracketed IPv6 hosts, so no netloc
+    shape is exempt from the check.
     """
-    netloc = urlsplit(value).netloc
-    if _is_port_check_exempt(netloc):
-        return
-    _reject_bad_port(value, name)
-
-
-def _is_port_check_exempt(netloc: str) -> bool:
-    """Shapes the port check cannot attribute: userinfo, brackets, or no colon."""
-    if "@" in netloc:
-        return True
-    if "[" in netloc or "]" in netloc:
-        return True
-    return ":" not in netloc
-
-
-def _reject_bad_port(value: str, name: str) -> None:
-    """Raise the fixed invalid-port message when the probe fails."""
     try:
         port = urlsplit(value).port
     except ValueError:

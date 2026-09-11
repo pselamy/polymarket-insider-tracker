@@ -33,7 +33,11 @@ from polymarket_insider_tracker.ingestor.trade_rows import (
     TradeObservation,
 )
 from polymarket_insider_tracker.ingestor.websocket import TradeStreamHandler
-from polymarket_insider_tracker.redaction import redact_text, redact_url
+from polymarket_insider_tracker.redaction import (
+    redact_exception_message,
+    redact_text,
+    redact_url,
+)
 
 DB_SECRET = "db-userinfo-secret"
 QUERY_SECRET = "query-string-secret"
@@ -258,6 +262,10 @@ class TestAmbiguousUrlShapes:
             "https://host:PORTSHAPEDTOKEN_R16/v2/x",
             "https://host:99999/v2/x",
             "redis://host:PORTSHAPEDTOKEN_R16/0",
+            "https://user:pw@host:PORT_EXEMPT_SECRET_R18/v2/x",
+            "https://key@host:PORT_EXEMPT_SECRET_R18/",
+            "https://[::1]:PORT_EXEMPT_SECRET_R18/p",
+            "https://user@[::1]:PORT_EXEMPT_SECRET_R18/p",
         ],
     )
     def test_governed_corpus_is_fail_closed_and_idempotent(self, url: str) -> None:
@@ -271,11 +279,12 @@ class TestAmbiguousUrlShapes:
             "FRAG_SECRET_R15",
             "NESTED_PATH_SECRET_R15",
             "PORTSHAPEDTOKEN_R16",
+            "PORT_EXEMPT_SECRET_R18",
             "99999",
             "KEY@prod",
             "#FRAG",
         ):
-            assert token not in once.replace("***path***", "")
+            assert token not in once
         assert twice == once
         assert composed == once
 
@@ -649,12 +658,16 @@ class TestUpstreamSinkRedaction:
         client._w3 = FakeAsyncWeb3(LeakyRetryEth())
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            with pytest.raises(Exception, match="RPC call get_transaction_count failed"):
+            with pytest.raises(Exception, match="RPC call get_transaction_count failed") as excinfo:
                 await client.get_transaction_count("0x" + "ab" * 20)
 
         assert secret not in caplog.text
         assert caplog.text.count("failed (attempt") == 2
         assert "***" in caplog.text
+        # Round-18: the raised message itself is composed redacted, not only
+        # the log sites that happen to render it.
+        assert secret not in str(excinfo.value)
+        assert "***" in str(excinfo.value)
 
     @pytest.mark.asyncio
     async def test_size_metadata_failure_is_redacted_with_fallback_intact(
@@ -1109,6 +1122,17 @@ class TestInvalidPortShapeRedaction:
         assert self.PORTSHAPED_SECRET not in redact_error(invalid_port_text)
         assert self.PORTSHAPED_SECRET not in redact_text(redact_error(invalid_port_text))
 
+        # Round-18: the upstream token is repr-rendered, so it may switch
+        # quote style or carry whitespace; the mask cannot depend on a
+        # single-quoted, whitespace-free token shape.
+        for probe in (
+            f'Invalid port: "quoted\'{self.PORTSHAPED_SECRET}"',
+            f"Invalid port: 'spaced {self.PORTSHAPED_SECRET}'",
+        ):
+            masked = redact_error(probe)
+            assert self.PORTSHAPED_SECRET not in masked
+            assert "invalid request port: '***'" in masked
+
         settings = make_test_settings(trades_url="https://trades.invalid/trades")
         clock = FakeClock(1_788_983_720.0)
         server = FakeTradesServer(clock=clock)
@@ -1129,6 +1153,122 @@ class TestInvalidPortShapeRedaction:
         assert self.PORTSHAPED_SECRET not in last_error
         assert self.PORTSHAPED_SECRET not in caplog.text
         assert poller.status.state is IngestionState.DEGRADED
+
+
+class TestHandlerBoundaryRedaction:
+    """Round-18: the traceback scrub guards the console handler, not one logger.
+
+    ``run_pipeline`` attached ``_RedactingLogFilter`` to the ``__main__``
+    logger only; logger-level filters never run for records propagated from
+    other loggers, so a sibling module's ``exc_info`` record reached the
+    console handler with its raw exception chain. ``configure_logging`` now
+    installs the filter on the handler itself, covering every logger that
+    propagates to it with one shared fail-closed boundary.
+    """
+
+    SIBLING_SECRET = "SIBLING_LOGGER_SECRET_R18"
+
+    def test_sibling_logger_exc_info_is_scrubbed_at_the_console_handler(self) -> None:
+        import io
+        import logging as stdlib_logging
+
+        from polymarket_insider_tracker.__main__ import _RedactingLogFilter, configure_logging
+
+        configure_logging("INFO")
+        console = next(
+            handler
+            for handler in stdlib_logging.getLogger().handlers
+            if isinstance(handler, stdlib_logging.StreamHandler)
+        )
+        assert any(isinstance(f, _RedactingLogFilter) for f in console.filters)
+
+        capture = io.StringIO()
+        previous = console.setStream(capture)
+        try:
+            sibling = stdlib_logging.getLogger("polymarket_insider_tracker.ingestor.health")
+            try:
+                raise RuntimeError(
+                    f"connect failed for postgresql://tracker:{self.SIBLING_SECRET}@db:5432/x"
+                )
+            except RuntimeError:
+                sibling.error(
+                    "health check blew up: %s",
+                    f"see https://key@host:{self.SIBLING_SECRET}/v2/k",
+                    exc_info=True,
+                )
+            sibling.info("Health HTTP server started on port %d", 19118)
+        finally:
+            if previous is not None:
+                console.setStream(previous)
+
+        output = capture.getvalue()
+        assert self.SIBLING_SECRET not in output
+        assert "health check blew up" in output
+        assert "RuntimeError" in output
+        # Numeric arguments survive the boundary so %d formatting still renders.
+        assert "started on port 19118" in output
+
+
+class TestPortExemptionRemoval:
+    """Round-18: userinfo/bracket netlocs are no longer exempt from the port probe.
+
+    Under the round-16 exemption, a credential-shaped token in the port
+    position re-emitted verbatim whenever the netloc also carried userinfo or
+    an IPv6 bracket (``https://key@host:TOKEN`` masked to ``***@host:TOKEN``).
+    Every such shape now fails closed while valid ports stay readable.
+    """
+
+    PORT_SECRET = "PORT_EXEMPT_SECRET_R18"
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://user:pw@host:PORT_EXEMPT_SECRET_R18/x",
+            "https://key@host:PORT_EXEMPT_SECRET_R18/",
+            "https://[::1]:PORT_EXEMPT_SECRET_R18/path",
+            "https://user@[::1]:PORT_EXEMPT_SECRET_R18/p",
+            "https://user:pw@host:PORT_EXEMPT_SECRET_R18/a@b",
+            "redis://user@host:PORT_EXEMPT_SECRET_R18/0",
+            "https://user:pw@host:99999/x",
+        ],
+    )
+    def test_port_position_token_never_survives_any_netloc_shape(self, url: str) -> None:
+        once = redact_url(url)
+
+        assert self.PORT_SECRET not in once
+        assert "99999" not in once
+        assert ":pw@" not in once
+        assert redact_url(once) == once
+        assert redact_text(once) == once
+        assert "***" in once
+
+    def test_port_position_token_never_survives_inside_text(self) -> None:
+        message = (
+            f"dial failed for https://key@host:{self.PORT_SECRET}/ then "
+            f"wss://user:pw@[::1]:{self.PORT_SECRET}/ws (refused)"
+        )
+
+        redacted = redact_text(message)
+
+        assert self.PORT_SECRET not in redacted
+        assert "dial failed for" in redacted
+        assert "(refused)" in redacted
+
+    @pytest.mark.parametrize(
+        ("url", "must_keep"),
+        [
+            ("https://user:pw@host:8443/x", "host:8443"),
+            ("https://user@[2001:db8::1]:8443/x", "[2001:db8::1]:8443"),
+            ("redis://:pw@cache:6379/0", "cache:6379"),
+        ],
+    )
+    def test_valid_ports_stay_readable_through_the_netloc_mask(
+        self, url: str, must_keep: str
+    ) -> None:
+        redacted = redact_url(url)
+
+        assert must_keep in redacted
+        assert ":pw@" not in redacted
 
 
 class TestNonStringExceptionArgRedaction:
@@ -1189,6 +1329,65 @@ class TestNonStringExceptionArgRedaction:
         assert self.NONSTR_SECRET not in rendered
         assert "ValueError" in rendered
         assert "RuntimeError" in rendered
+
+
+class TestExceptionMessageRedaction:
+    """Round-18 N-R18-2: rendering an exception message cannot leak non-string args.
+
+    ``str(exc)`` interpolates raw arguments before any log filter or
+    text-level redaction can see them, so every message-line and status sink
+    composes through ``redact_exception_message`` instead.
+    """
+
+    MSG_SECRET = "nonstring-message-secret-r18"
+
+    def test_bytes_argument_never_renders(self) -> None:
+        exc = RuntimeError(f"prefix-{self.MSG_SECRET}-suffix".encode())
+
+        rendered = redact_exception_message(exc)
+
+        assert self.MSG_SECRET not in rendered
+        assert rendered == "***"
+
+    def test_container_arguments_never_render_but_safe_context_survives(self) -> None:
+        exc = RuntimeError(
+            {"url": f"https://x.internal?k={self.MSG_SECRET}"},
+            "context text",
+            [f"https://y.internal/v2/{self.MSG_SECRET}"],
+        )
+
+        rendered = redact_exception_message(exc)
+
+        assert self.MSG_SECRET not in rendered
+        assert "***" in rendered
+        assert "context text" in rendered
+
+    def test_string_message_keeps_its_redacted_text(self) -> None:
+        exc = RuntimeError(f"connect failed for https://key@host/{self.MSG_SECRET}")
+
+        rendered = redact_exception_message(exc)
+
+        assert self.MSG_SECRET not in rendered
+        assert "connect failed for" in rendered
+        assert rendered == redact_text(str(exc))
+
+    def test_safe_scalars_render_through_custom_str(self) -> None:
+        exc = OSError(2, "No such file or directory")
+
+        rendered = redact_exception_message(exc)
+
+        assert rendered == redact_text(str(exc))
+        assert "No such file or directory" in rendered
+
+    def test_no_argument_exception_renders_empty(self) -> None:
+        assert redact_exception_message(RuntimeError()) == ""
+
+    def test_rendering_is_idempotent_under_text_redaction(self) -> None:
+        exc = RuntimeError(f"prefix-{self.MSG_SECRET}-suffix".encode(), "context")
+
+        rendered = redact_exception_message(exc)
+
+        assert redact_text(rendered) == rendered
 
 
 class TestAdjacentSinkRedaction:
@@ -1413,6 +1612,39 @@ class TestAdjacentSinkRedaction:
         assert "Delivery claim unavailable" in caplog.text
 
     @pytest.mark.asyncio
+    async def test_dispatcher_release_claim_failure_is_redacted(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Round-18 N-R18-4: the release-failure warning redacts a raising release path.
+
+        ``release_channel_claim`` runs a WATCH/get/delete transaction, so the
+        failure must be injected at the Redis ``pipeline`` boundary — the
+        ``exists``/``set`` overrides of the claim test never reach it.
+        """
+        from fakeredis import FakeAsyncRedis as FakeClaimRedis
+
+        from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher
+        from polymarket_insider_tracker.alerter.history import AlertHistory
+
+        failing_redis = FakeClaimRedis()
+        history = AlertHistory(redis=failing_redis)
+
+        def leaky_pipeline(*_args: object, **_kwargs: object) -> object:
+            raise RuntimeError(
+                f"redis pipeline blew up for https://cache.internal?k={DISPATCHER_SECRET}"
+            )
+
+        failing_redis.__dict__["pipeline"] = leaky_pipeline
+        dispatcher = AlertDispatcher(channels=[], history=history)
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            await dispatcher._release_claim("discord", "w", "m", "token")
+
+        assert DISPATCHER_SECRET not in caplog.text
+        assert "***" in caplog.text
+        assert "Failed to release delivery claim" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_websocket_connect_failure_is_redacted(
         self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1491,6 +1723,87 @@ class TestAdjacentSinkRedaction:
         assert "ValueError" in output
         assert "RuntimeError" in output or "could not connect" in output
         assert redact_text(f"https://rpc.internal/v2/{MAIN_SECRET}") in output or "***" in output
+
+    @pytest.mark.asyncio
+    async def test_run_pipeline_nonstring_failure_never_renders_on_the_message_line(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Round-18 N-R18-2: a bytes/container payload cannot render at the message line.
+
+        ``str(e)`` before the filter re-emitted non-string arguments verbatim
+        while the traceback clone was already masked; the message line now
+        composes through the fail-closed exception renderer.
+        """
+        import logging as stdlib_logging
+
+        from polymarket_insider_tracker.__main__ import run_pipeline
+        from polymarket_insider_tracker.pipeline import Pipeline
+        from tests.fakes import make_test_settings
+
+        secret = "nonstring-mainline-secret-r18"
+        settings = make_test_settings()
+
+        class NonStringExplodingPipeline(Pipeline):
+            async def start(self) -> None:
+                raise RuntimeError(
+                    f"prefix-{secret}-suffix".encode(),
+                    {"url": f"https://x.internal?k={secret}"},
+                )
+
+        rendered: list[str] = []
+
+        class CapturingHandler(stdlib_logging.Handler):
+            def emit(self, record: stdlib_logging.LogRecord) -> None:
+                rendered.append(self.format(record))
+
+        handler = CapturingHandler()
+        handler.setFormatter(stdlib_logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+        target = stdlib_logging.getLogger("polymarket_insider_tracker.__main__")
+        target.addHandler(handler)
+        try:
+            with caplog.at_level(logging.ERROR):
+                caplog.clear()
+                code = await run_pipeline(
+                    settings, False, pipeline_factory=NonStringExplodingPipeline
+                )
+        finally:
+            target.removeHandler(handler)
+
+        output = "\n".join(rendered) + "\n" + caplog.text
+        assert code == 1
+        assert secret not in output
+        assert "Pipeline failed" in output
+        assert "***" in output
+        assert "RuntimeError" in output
+
+    @pytest.mark.asyncio
+    async def test_metadata_sync_nonstring_failure_status_is_redacted(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Round-18 N-R18-2: a bytes payload cannot reach ``stats.last_error`` or logs."""
+        from polymarket_insider_tracker.ingestor.metadata_sync import (
+            MarketMetadataSync,
+            MetadataSyncError,
+        )
+        from tests.fakes import FakeGammaClient
+        from tests.ingestor.test_metadata_sync import FakeClobClient
+
+        secret = "nonstring-status-secret-r18"
+        failing = FakeClobClient(raise_error=RuntimeError(f"boom-{secret}-payload".encode()))
+        sync = MarketMetadataSync(
+            redis=FakeAsyncRedis(),
+            clob_client=failing,
+            gamma_client=FakeGammaClient(),
+        )
+        with caplog.at_level(logging.ERROR):
+            caplog.clear()
+            with pytest.raises(MetadataSyncError, match="initial sync failed"):
+                await sync.start()
+
+        assert secret not in caplog.text
+        assert secret not in str(sync.stats.last_error or "")
+        assert sync.stats.last_error is not None
+        assert "***" in sync.stats.last_error
 
     @pytest.mark.asyncio
     async def test_poller_callback_and_repair_failures_are_redacted(

@@ -333,6 +333,48 @@ class TestPolygonSettings:
         assert "PORTSHAPEDTOKEN_R16" not in str(exc_info.value)
         assert "99999" not in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        ("validator_name", "secret_url"),
+        [
+            ("_validate_http_url", "https://user:pw@host:PORT_EXEMPT_SECRET_R18/v2/x"),
+            ("_validate_http_url", "https://key@host:PORT_EXEMPT_SECRET_R18/v2/x"),
+            ("_validate_http_url", "https://user@[::1]:PORT_EXEMPT_SECRET_R18/v2/x"),
+            ("_validate_redis_url", "redis://user@host:PORT_EXEMPT_SECRET_R18/0"),
+            ("_validate_redis_url", "redis://:pw@[::1]:PORT_EXEMPT_SECRET_R18/0"),
+        ],
+    )
+    def test_userinfo_and_bracket_shapes_are_not_exempt_from_the_port_check(
+        self, validator_name: str, secret_url: str
+    ) -> None:
+        """Round-18: the round-16 userinfo/bracket port exemption accepted these shapes.
+
+        A port-position token beside userinfo or an IPv6 bracket then leaked
+        verbatim through the redaction netloc mask, so validation must reject
+        every such shape with the value-free failure class.
+        """
+        import polymarket_insider_tracker.config as config_module
+
+        validator = getattr(config_module, validator_name)
+
+        with pytest.raises(ValueError) as exc_info:
+            validator(secret_url)
+
+        message = str(exc_info.value)
+        assert "PORT_EXEMPT_SECRET_R18" not in message
+        assert secret_url not in message
+        assert "port" in message.lower()
+
+    def test_settings_reject_userinfo_port_shaped_credential_without_echo(self) -> None:
+        """The pydantic rendering of the round-18 shape hides the raw token too."""
+        with (
+            env_context({"POLYGON_RPC_URL": "https://user:pw@host:PORT_EXEMPT_SECRET_R18/v2/x"}),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            PolygonSettings()
+
+        assert "PORT_EXEMPT_SECRET_R18" not in str(exc_info.value)
+        assert "port" in str(exc_info.value).lower()
+
 
 TRADES_REPLACEMENT_VARIABLES = (
     "POLYMARKET_TRADES_URL",

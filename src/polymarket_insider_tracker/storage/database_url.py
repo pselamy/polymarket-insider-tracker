@@ -7,6 +7,8 @@ import warnings
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
+from polymarket_insider_tracker.redaction import redact_url
+
 CANONICAL_DRIVER = "postgresql+psycopg"
 LEGACY_DRIVERS = frozenset({"postgresql", "postgresql+asyncpg"})
 SUPPORTED_DRIVERS = LEGACY_DRIVERS | {CANONICAL_DRIVER}
@@ -81,8 +83,11 @@ def normalize_database_url(value: str) -> str:
 
 
 def render_database_url_safe(value: str) -> str:
-    """Render a URL for diagnostics without exposing its password."""
-    try:
-        return make_url(value).render_as_string(hide_password=True)
-    except (ArgumentError, TypeError, ValueError):
-        return "<invalid DATABASE_URL>"
+    """Render a URL for diagnostics under the central fail-closed redaction policy.
+
+    SQLAlchemy's ``hide_password`` rendering keeps the database path and query
+    values readable; the central policy masks the password, the path, and
+    every query value because a query value or path segment may itself carry a
+    credential, while the host and port stay diagnosable.
+    """
+    return redact_url(value)

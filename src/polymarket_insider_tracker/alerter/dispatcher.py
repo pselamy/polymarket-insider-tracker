@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.history import AlertHistory
@@ -240,7 +240,7 @@ class AlertDispatcher:
                 "Deduplication check unavailable for %s (%s); attempting delivery,"
                 " a duplicate is possible",
                 channel_name,
-                redact_text(str(e)),
+                redact_exception_message(e),
             )
             return None
         if not suppressed:
@@ -265,7 +265,7 @@ class AlertDispatcher:
                 "Delivery claim unavailable for %s (%s); attempting delivery,"
                 " a duplicate is possible",
                 channel_name,
-                redact_text(str(e)),
+                redact_exception_message(e),
             )
             return CLAIM_UNVERIFIED, None
         if token is None:
@@ -293,7 +293,7 @@ class AlertDispatcher:
                 "Failed to release delivery claim for %s (%s); retry may stay"
                 " suppressed for up to %ds",
                 channel_name,
-                redact_text(str(e)),
+                redact_exception_message(e),
                 self.claim_ttl_seconds,
             )
             return
@@ -340,7 +340,7 @@ class AlertDispatcher:
                 "Failed to record %s outcome for %s (%s); a later duplicate delivery is possible",
                 status,
                 channel_name,
-                redact_text(str(e)),
+                redact_exception_message(e),
             )
 
     async def _execute_channel_send(
@@ -383,7 +383,7 @@ class AlertDispatcher:
             self._record_failure(channel_name)
             return False, "ambiguous"
         except Exception as e:
-            logger.error("Error sending to %s: %s", channel_name, redact_text(str(e)))
+            logger.error("Error sending to %s: %s", channel_name, redact_exception_message(e))
             self._record_failure(channel_name)
             return False, "failed"
         if success:
@@ -464,7 +464,7 @@ class AlertDispatcher:
             logger.warning(
                 "Failed to renew delivery claim for %s (%s)",
                 channel_name,
-                redact_text(str(e)),
+                redact_exception_message(e),
             )
             return
         if not renewed:

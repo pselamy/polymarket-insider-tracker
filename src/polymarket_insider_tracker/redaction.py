@@ -156,21 +156,12 @@ def _is_invalid_port_shape(parts: object) -> bool:
     The token after the host colon may itself be the credential (a mistyped
     ``host:key`` for ``host/key``); accessing ``parts.port`` raises
     ``ValueError`` for exactly this shape, so probing it is both the detector
-    and the proof that the port is not a diagnosable endpoint label.
+    and the proof that the port is not a diagnosable endpoint label. The probe
+    attributes the colon correctly through userinfo and bracketed IPv6 hosts,
+    so no netloc shape is exempt: ``user@host:KEY`` and ``[::1]:KEY`` must
+    never re-emit the port-position token through the netloc mask.
     """
-    netloc = str(getattr(parts, "netloc", ""))
-    if _is_port_probe_exempt(netloc):
-        return False
     return _port_probe_fails(parts)
-
-
-def _is_port_probe_exempt(netloc: str) -> bool:
-    """Shapes the port probe cannot attribute: userinfo, brackets, or no colon."""
-    if "@" in netloc:
-        return True
-    if "[" in netloc or "]" in netloc:
-        return True
-    return ":" not in netloc
 
 
 def _port_probe_fails(parts: object) -> bool:
@@ -256,9 +247,31 @@ def _safe_outer_host(netloc: str) -> str | None:
         return None
     if "[" in host or "]" in host:
         return None
+    return _validated_host_label(host)
+
+
+def _validated_host_label(host: str) -> str | None:
+    """A host label with only safe characters and, when present, a real port tail."""
     if not all(char.isascii() and (char.isalnum() or char in ".-:") for char in host):
         return None
+    if not _has_valid_port_tail(host):
+        return None
     return host
+
+
+def _has_valid_port_tail(host: str) -> bool:
+    """Any colon tail in an outer-host label must be a real port number.
+
+    A non-numeric tail is credential-shaped under this policy's contract and
+    must not survive as a fake port; more than one bare colon is not an
+    attributable host:port shape at all.
+    """
+    if ":" not in host:
+        return True
+    head, _, tail = host.rpartition(":")
+    if ":" in head:
+        return False
+    return tail.isdigit() and int(tail) <= 65535
 
 
 def _nested_scheme_kind(path: str, netloc: str, hostname: str | None) -> str | None:
@@ -298,6 +311,45 @@ def _has_embedded_nested_scheme(path: str) -> bool:
 def _has_hostless_userinfo(netloc: str, hostname: str | None) -> bool:
     """An ``@``-bearing netloc produced no usable host."""
     return "@" in netloc and not hostname
+
+
+def redact_argument(arg: object) -> object:
+    """Scrub one diagnostic argument; only plain strings have safe redaction.
+
+    Numbers, booleans, and ``None`` cannot embed a URL-shaped secret and stay
+    readable so numeric format specifiers (``%d``, ``%.1f``) keep rendering.
+    Containers (dicts, lists, tuples, bytes) may carry a credential in a
+    shape ``redact_text`` cannot see as a URL, so they become the
+    deterministic placeholder.
+    """
+    if isinstance(arg, str):
+        return redact_text(arg)
+    if arg is None or isinstance(arg, (int, float, complex)):
+        return arg
+    return MASK
+
+
+def redact_exception_message(exc: BaseException) -> str:
+    """Render an exception's message with every argument scrubbed fail-closed.
+
+    ``str(exc)`` interpolates raw arguments, so a bytes or container argument
+    re-emits its credential verbatim on the message line before any log
+    filter or text-level redaction can see it. When every argument is plain
+    text or a safe scalar the rendered message is redacted as text (custom
+    ``__str__`` output included); otherwise the message is rebuilt from the
+    scrubbed arguments alone and no raw argument is ever rendered.
+    """
+    if all(_is_safe_message_argument(arg) for arg in exc.args):
+        return redact_text(str(exc))
+    scrubbed = tuple(redact_argument(arg) for arg in exc.args)
+    if len(scrubbed) == 1:
+        return str(scrubbed[0])
+    return str(scrubbed)
+
+
+def _is_safe_message_argument(arg: object) -> bool:
+    """Only text and scalar arguments render safely through ``str(exc)``."""
+    return arg is None or isinstance(arg, (str, int, float, complex))
 
 
 def _split_trailing_delimiters(match: str) -> tuple[str, str]:

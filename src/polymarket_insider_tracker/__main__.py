@@ -28,7 +28,12 @@ from polymarket_insider_tracker.config import (
     websocket_deprecation_message,
 )
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
-from polymarket_insider_tracker.redaction import redact_text, redact_url
+from polymarket_insider_tracker.redaction import (
+    redact_argument,
+    redact_exception_message,
+    redact_text,
+    redact_url,
+)
 from polymarket_insider_tracker.shutdown import GracefulShutdown, wait_bounded
 
 # Application info
@@ -105,6 +110,13 @@ def configure_logging(level: str) -> None:
     config = {
         "version": 1,
         "disable_existing_loggers": False,
+        # The filter guards the handler, not a logger: logger-level filters do
+        # not run for records propagated from other loggers, so only the
+        # handler position covers pipeline, ingestor, alerter, and third-party
+        # (httpx/websockets/web3) records with one shared boundary.
+        "filters": {
+            "redact": {"()": _RedactingLogFilter},
+        },
         "formatters": {
             "standard": {
                 "format": "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -123,6 +135,7 @@ def configure_logging(level: str) -> None:
                 "level": level,
                 "formatter": "detailed" if level == "DEBUG" else "standard",
                 "stream": "ext://sys.stdout",
+                "filters": ["redact"],
             },
         },
         "root": {
@@ -203,25 +216,25 @@ def _sanitized_validation_message(msg: str) -> str:
 
 
 def _classified_validation_message(lowered: str) -> str:
-    """Map the failure class to its safe message without echoing the value."""
+    """Map the failure class to its safe message without echoing the value.
+
+    Hostname/port markers run before the scheme table: the field name inside
+    a message like ``REDIS_URL has an invalid port`` would otherwise match
+    the ``redis`` scheme marker and mislabel the failure as a scheme error.
+    """
+    direct = _direct_marker_message(lowered)
+    if direct is not None:
+        return direct
     scheme_message = _scheme_failure_message(lowered)
     if scheme_message is not None:
         return scheme_message
-    return _non_scheme_validation_message(lowered)
+    return _url_shape_validation_message(lowered)
 
 
 _NON_SCHEME_VALIDATION_MESSAGES: tuple[tuple[str, str], ...] = (
     ("hostname", "must include a valid hostname"),
     ("port", "has an invalid port"),
 )
-
-
-def _non_scheme_validation_message(lowered: str) -> str:
-    """Safe messages for hostname, port, database, and generic URL failures."""
-    direct = _direct_marker_message(lowered)
-    if direct is not None:
-        return direct
-    return _url_shape_validation_message(lowered)
 
 
 def _direct_marker_message(lowered: str) -> str | None:
@@ -414,6 +427,11 @@ class _RedactingLogFilter(logging.Filter):
     attached, replaces the exception with a sanitized clone whose messages and
     notes are redacted text (non-string arguments become the placeholder) and
     whose traceback frames are dropped, so formatters render only safe text.
+
+    ``configure_logging`` installs the filter on the console handler because a
+    logger-level filter never runs for records propagated from other loggers;
+    only the handler position makes the scrub a shared fail-closed boundary
+    for every application and third-party logger.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -424,29 +442,34 @@ class _RedactingLogFilter(logging.Filter):
 
 
 def _redact_record_message(record: logging.LogRecord) -> None:
-    """Scrub the record's format string so static text cannot carry a URL."""
-    record.msg = redact_text(str(record.msg))
+    """Scrub the record's message object so no shape can carry a raw secret.
+
+    A string keeps its redacted text. An exception logged directly as the
+    message renders through the fail-closed exception renderer, because
+    ``str()`` on it would interpolate raw arguments first. Any other object
+    follows the shared argument policy: safe scalars stay readable and
+    containers become the placeholder.
+    """
+    msg = record.msg
+    if isinstance(msg, str):
+        record.msg = redact_text(msg)
+    elif isinstance(msg, BaseException):
+        record.msg = redact_exception_message(msg)
+    else:
+        record.msg = redact_argument(msg)
 
 
 def _redact_record_args(record: logging.LogRecord) -> None:
-    """Scrub %-style arguments; non-string arguments pass through untouched."""
-    if isinstance(record.args, tuple):
-        record.args = tuple(map(_redacted_arg, record.args))
-    elif isinstance(record.args, dict):
-        record.args = {key: _redacted_arg(value) for key, value in record.args.items()}
+    """Scrub %-style arguments through the shared fail-closed argument policy.
 
-
-def _redacted_arg(arg: object) -> object:
-    """Scrub one log/exception argument; only plain strings have safe redaction.
-
-    Containers (dicts, lists, tuples, bytes) may carry a credential in a shape
-    ``redact_text`` cannot see as a URL, and rebuilding an exception from raw
-    containers would re-emit them verbatim in the formatted traceback. Such
-    arguments are replaced by the deterministic placeholder.
+    Numbers, booleans, and ``None`` survive unchanged so numeric format
+    specifiers (``%d``, ``%.1f``) keep rendering at the shared handler
+    boundary; containers and bytes become the deterministic placeholder.
     """
-    if isinstance(arg, str):
-        return redact_text(arg)
-    return "***"
+    if isinstance(record.args, tuple):
+        record.args = tuple(map(redact_argument, record.args))
+    elif isinstance(record.args, dict):
+        record.args = {key: redact_argument(value) for key, value in record.args.items()}
 
 
 def _redact_record_exc_info(record: logging.LogRecord) -> None:
@@ -505,7 +528,7 @@ def _clone_with_redacted_message(exc: BaseException) -> BaseException:
     clone; such constructor shapes fall back to plain redacted text instead of
     a misleading same-type claim.
     """
-    redacted_args = tuple(_redacted_arg(arg) for arg in exc.args)
+    redacted_args = tuple(redact_argument(arg) for arg in exc.args)
     try:
         clone = type(exc)(*redacted_args)
     except Exception:
@@ -515,8 +538,13 @@ def _clone_with_redacted_message(exc: BaseException) -> BaseException:
 
 
 def _fallback_sanitized_error(exc: BaseException) -> BaseException:
-    """A plain error carrying only redacted text when the type resists cloning."""
-    clone = RuntimeError(redact_text(str(exc)))
+    """A plain error carrying only redacted text when the type resists cloning.
+
+    The fallback renders through the fail-closed exception renderer, never
+    ``str(exc)`` directly: stringifying the original would re-emit bytes or
+    container arguments verbatim inside the sanitized clone's message.
+    """
+    clone = RuntimeError(redact_exception_message(exc))
     clone.__cause__ = exc
     return clone
 
@@ -582,7 +610,7 @@ async def run_pipeline(
         logger.info("Interrupted by user")
         return EXIT_INTERRUPTED
     except Exception as e:
-        logger.exception("Pipeline failed: %s", redact_text(str(e)))
+        logger.exception("Pipeline failed: %s", redact_exception_message(e))
         return EXIT_ERROR
 
 

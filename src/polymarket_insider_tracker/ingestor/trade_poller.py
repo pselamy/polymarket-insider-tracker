@@ -51,7 +51,7 @@ from polymarket_insider_tracker.ingestor.trades_source import (
     TradesSourceClient,
     TradesTerminalError,
 )
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message, redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +59,12 @@ MAX_INVALID_DIAGNOSTICS_PER_CYCLE = 5
 STATUS_LOSS_EVENTS = 5
 _WALLET_PATTERN = re.compile(r"0x[0-9a-fA-F]{40}")
 _QUERY_PATTERN = re.compile(r"\?[^\s]*")
+# Both branches mask to end of line: the quoted token after ``Invalid port:``
+# is repr-rendered upstream, so it may switch quote style or contain
+# whitespace, and no delimiter-based match can bound a credential-shaped
+# token safely.
 _BARE_PORT_TOKEN_PATTERN = re.compile(
-    r"[Ii]nvalid port:\s*'[^'\s]+'|[Pp]ort (?:could not be cast|out of range)[^\n]*"
+    r"[Ii]nvalid port:[^\n]*|[Pp]ort (?:could not be cast|out of range)[^\n]*"
 )
 
 TradeCallback = Callable[[TradeEvent], Awaitable[None]]
@@ -775,7 +779,7 @@ class TradePoller:
             logger.error(
                 "trade callback failed for %s: %s",
                 observation.identity[:12],
-                redact_text(str(exc)),
+                redact_exception_message(exc),
             )
             self._tallies.counts["callback_errors"] += 1
         self._tallies.processing_lag += max(0.0, self._clock() - started)
@@ -812,7 +816,7 @@ class TradePoller:
             metadata = await self._metadata.get_cached_market(observation.event.market_id)
         except Exception as exc:
             logger.warning(
-                "metadata lookup failed during outcome repair: %s", redact_text(str(exc))
+                "metadata lookup failed during outcome repair: %s", redact_exception_message(exc)
             )
             metadata = None
         return repair_outcome(observation, metadata)
@@ -878,4 +882,4 @@ class TradePoller:
         try:
             self._on_state_change(new_state)
         except Exception as exc:
-            logger.error("ingestion state callback failed: %s", redact_text(str(exc)))
+            logger.error("ingestion state callback failed: %s", redact_exception_message(exc))

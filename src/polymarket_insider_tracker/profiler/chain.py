@@ -24,7 +24,7 @@ from web3.exceptions import Web3Exception
 from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ class PolygonClient:
                 return value.decode()
             return str(value) if value is not None else None
         except Exception as e:
-            logger.warning("Cache get failed: %s", redact_text(str(e)))
+            logger.warning("Cache get failed: %s", redact_exception_message(e))
             return None
 
     async def _set_cached(self, key: str, value: str, ttl: int | None = None) -> None:
@@ -182,7 +182,7 @@ class PolygonClient:
         try:
             await self._redis.set(key, value, ex=ttl or self._cache_ttl)
         except Exception as e:
-            logger.warning("Cache set failed: %s", redact_text(str(e)))
+            logger.warning("Cache set failed: %s", redact_exception_message(e))
 
     def _should_try_primary(self) -> bool:
         """Check if we should try the primary RPC."""
@@ -234,7 +234,7 @@ class PolygonClient:
                     func_name,
                     attempt + 1,
                     self._max_retries,
-                    redact_text(str(e)),
+                    redact_exception_message(e),
                 )
                 delay = await self._sleep_retry_backoff(attempt, delay)
         return False, None, last_error
@@ -296,7 +296,11 @@ class PolygonClient:
             return fallback_res
 
         last_error = fallback_err or err
-        raise RPCError(f"RPC call {func_name} failed after all retries: {last_error}")
+        # The upstream message may embed the credential-bearing RPC endpoint or
+        # carry it inside non-string arguments; compose the raised text through
+        # the fail-closed exception renderer, not only at log sinks.
+        detail = redact_exception_message(last_error) if last_error is not None else "None"
+        raise RPCError(f"RPC call {func_name} failed after all retries: {detail}")
 
     async def get_transaction_count(self, address: str) -> int:
         """Get wallet transaction count (nonce).
@@ -334,7 +338,9 @@ class PolygonClient:
 
     def _record_query_result(self, results: dict[str, int], addr: str, count_or_exc: Any) -> None:
         if isinstance(count_or_exc, BaseException):
-            logger.warning("Failed to get nonce for %s: %s", addr, redact_text(str(count_or_exc)))
+            logger.warning(
+                "Failed to get nonce for %s: %s", addr, redact_exception_message(count_or_exc)
+            )
             results[addr.lower()] = 0
         else:
             results[addr.lower()] = count_or_exc
@@ -445,7 +451,7 @@ class PolygonClient:
                 AsyncWeb3.to_checksum_address(address)
             ).call()
         except Web3Exception as e:
-            raise RPCError(f"Failed to get token balance: {e}") from e
+            raise RPCError(f"Failed to get token balance: {redact_exception_message(e)}") from e
 
         # Cache result
         await self._set_cached(cache_key, str(balance))

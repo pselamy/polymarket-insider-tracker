@@ -11,7 +11,7 @@ from polymarket_insider_tracker.detector.models import FreshWalletSignal
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.models import WalletProfile
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -237,7 +237,7 @@ class FreshWalletDetector:
             logger.warning(
                 "Failed to analyze trade %s: %s",
                 trade.trade_id,
-                redact_text(str(result)),
+                redact_exception_message(result),
             )
             return None
         return result

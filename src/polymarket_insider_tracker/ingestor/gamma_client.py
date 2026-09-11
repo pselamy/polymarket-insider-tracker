@@ -17,7 +17,7 @@ from typing import cast
 
 import httpx
 
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -170,13 +170,11 @@ class GammaClient:
                     path,
                     attempt + 1,
                     self._max_retries,
-                    redact_text(str(exc)),
+                    redact_exception_message(exc),
                 )
                 delay = await self._retry_sleep(attempt, self._max_retries, delay)
-        raise GammaClientError(
-            f"gamma {path} failed after {self._max_retries} attempts: "
-            f"{redact_text(str(last_exc))}"
-        )
+        detail = redact_exception_message(last_exc) if last_exc is not None else "None"
+        raise GammaClientError(f"gamma {path} failed after {self._max_retries} attempts: {detail}")
 
     async def _fetch_single_page(
         self,

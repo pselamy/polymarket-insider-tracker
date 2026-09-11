@@ -101,6 +101,71 @@ class TestChannelErrorRedaction:
         assert "connection failed" in caplog.text
         assert token not in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_discord_failure_response_body_is_redacted(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Round-18: a non-204 response body is server text and may echo the webhook URL."""
+        secret = "WEBHOOK_ECHO_SECRET_R18"
+        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=1, retry_delay=0.0)
+        server = discord_webhook(
+            failure=httpx.Response(
+                400,
+                text=(
+                    f"invalid webhook {DISCORD_WEBHOOK_URL} "
+                    f"(proxied via https://edge.example/hook/{secret})"
+                ),
+            )
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert "Discord webhook failed" in caplog.text
+        assert "400" in caplog.text
+        assert DISCORD_WEBHOOK_URL not in caplog.text
+        assert secret not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_telegram_error_description_is_redacted(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Round-18: the API ``description`` is server text and may echo the token URL."""
+        secret = "TELEGRAM_ECHO_SECRET_R18"
+        token = "12345:SECRET-BOT-TOKEN"
+        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
+        server = telegram_bot_api(
+            failure=httpx.Response(
+                200,
+                json={
+                    "ok": False,
+                    "error_code": 401,
+                    "description": (
+                        f"unauthorized for https://api.telegram.org/bot{token}/sendMessage"
+                        f" via https://edge.example/relay?key={secret}"
+                    ),
+                },
+            )
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert "Telegram API error" in caplog.text
+        assert "401" in caplog.text
+        assert token not in caplog.text
+        assert secret not in caplog.text
+
 
 class TestDiscordChannel:
     """Tests for Discord channel."""

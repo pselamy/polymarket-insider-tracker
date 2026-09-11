@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from polymarket_insider_tracker.redaction import redact_text
+
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
 
@@ -84,11 +86,19 @@ class DiscordChannel:
 
                 if response.status_code == 429:
                     retry_after = response.json().get("retry_after", 1.0)
-                    logger.warning(f"Discord rate limited, retry after {retry_after}s")
+                    logger.warning(
+                        "Discord rate limited, retry after %ss", self._redact(str(retry_after))
+                    )
                     await asyncio.sleep(retry_after)
                     return False
 
-                logger.error(f"Discord webhook failed: {response.status_code} {response.text}")
+                # The response body is server-controlled text and may echo the
+                # credential-bearing request URL; it never reaches a log raw.
+                logger.error(
+                    "Discord webhook failed: %s %s",
+                    response.status_code,
+                    self._redact(response.text),
+                )
 
         except (httpx.ConnectTimeout, httpx.PoolTimeout):
             # The request never reached Discord, so retrying cannot duplicate a delivery.
@@ -108,8 +118,13 @@ class DiscordChannel:
         return None
 
     def _redact(self, text: str) -> str:
-        """Hide the credential-bearing webhook URL inside diagnostic text."""
-        return text.replace(self.webhook_url, "<redacted webhook url>")
+        """Hide the credential-bearing webhook URL inside diagnostic text.
+
+        The exact configured value is replaced first, then the central policy
+        masks every remaining URL-shaped substring, so a respelled or partial
+        form of the webhook URL cannot survive either.
+        """
+        return redact_text(text.replace(self.webhook_url, "<redacted webhook url>"))
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:

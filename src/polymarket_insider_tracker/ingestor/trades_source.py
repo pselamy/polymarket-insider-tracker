@@ -293,10 +293,16 @@ class TradesSourceClient:
     def _built_request(
         self, request: TradesRequest, started: float, attempt: int
     ) -> httpx.Request | TradesTransientError:
-        """The documented request, or a redacted transient error when it cannot build."""
+        """The documented request, or a redacted transient error when it cannot build.
+
+        ``httpx.InvalidURL`` subclasses ``Exception`` directly, not
+        ``ValueError``, so it must be named here explicitly or an invalid
+        injected URL would bypass this boundary entirely and rely on the
+        poller's error-text mask alone.
+        """
         try:
             return self._build_request(request)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, httpx.InvalidURL) as exc:
             return self._redacted_request_error(started, attempt, exc)
 
     def _build_request(self, request: TradesRequest) -> httpx.Request:

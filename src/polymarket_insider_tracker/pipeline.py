@@ -41,7 +41,7 @@ from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, Tra
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import FundingTracer
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message, redact_text
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.repos import (
     FundingRepository,
@@ -213,7 +213,7 @@ class Pipeline:
             latency = (time.perf_counter() - start) * 1000.0
             return ComponentStatus(status="up", latency_ms=round(latency, 2))
         except Exception as exc:
-            return ComponentStatus(status="down", last_error=redact_text(str(exc)))
+            return ComponentStatus(status="down", last_error=redact_exception_message(exc))
 
     async def _check_redis(self) -> ComponentStatus:
         if not self._redis:
@@ -225,7 +225,7 @@ class Pipeline:
             latency = (time.perf_counter() - start) * 1000.0
             return ComponentStatus(status="up", latency_ms=round(latency, 2))
         except Exception as exc:
-            return ComponentStatus(status="down", last_error=redact_text(str(exc)))
+            return ComponentStatus(status="down", last_error=redact_exception_message(exc))
 
     def _sync_poller_timestamps(self) -> None:
         if not self._trade_poller or not self._health_monitor:
@@ -333,7 +333,7 @@ class Pipeline:
                 logger.info("Pipeline started successfully")
         except Exception as e:
             self._state = PipelineState.ERROR
-            self._stats.last_error = redact_text(str(e))
+            self._stats.last_error = redact_exception_message(e)
             logger.error("Failed to start pipeline: %s", self._stats.last_error)
             await self._cleanup()
             raise
@@ -534,8 +534,8 @@ class Pipeline:
         except asyncio.CancelledError:
             logger.debug("Trade poller task cancelled")
         except Exception as e:
-            logger.error("Trade poller error: %s", redact_text(str(e)))
-            self._handle_worker_failure(str(e))
+            logger.error("Trade poller error: %s", redact_exception_message(e))
+            self._handle_worker_failure(redact_exception_message(e))
 
     async def _run_metadata_sync(self) -> None:
         """Run the initial metadata crawl without delaying acquisition."""
@@ -546,8 +546,8 @@ class Pipeline:
         except asyncio.CancelledError:
             logger.debug("Metadata sync task cancelled")
         except Exception as e:
-            logger.error("Metadata sync error: %s", redact_text(str(e)))
-            self._stats.last_error = redact_text(str(e))
+            logger.error("Metadata sync error: %s", redact_exception_message(e))
+            self._stats.last_error = redact_exception_message(e)
             self._stats.errors += 1
 
     def _on_ingestion_state(self, state: IngestionState) -> None:
@@ -618,7 +618,9 @@ class Pipeline:
         try:
             await self._detect_score_and_alert(trade)
         except Exception as e:
-            self._record_processing_error(f"Error processing trade {trade.trade_id}: {e}")
+            self._record_processing_error(
+                f"Error processing trade {trade.trade_id}: {redact_exception_message(e)}"
+            )
 
     async def _detect_score_and_alert(self, trade: TradeEvent) -> None:
         """Run detectors, count their failures, then score/alert or persist a skip row."""
@@ -709,7 +711,9 @@ class Pipeline:
                 )
         except Exception as e:
             logger.warning(
-                "Failed to persist wallet/funding data for %s: %s", address, redact_text(str(e))
+                "Failed to persist wallet/funding data for %s: %s",
+                address,
+                redact_exception_message(e),
             )
 
     async def _persist_funding_transfers(self, session: AsyncSession, address: str) -> int:
@@ -743,7 +747,10 @@ class Pipeline:
         try:
             return await self._fresh_wallet_detector.analyze(trade), None
         except Exception as e:
-            message = redact_text(f"fresh wallet detection failed for trade {trade.trade_id}: {e}")
+            message = redact_text(
+                f"fresh wallet detection failed for trade {trade.trade_id}:"
+                f" {redact_exception_message(e)}"
+            )
             logger.warning("%s", message)
             return None, message
 
@@ -756,7 +763,10 @@ class Pipeline:
         try:
             return await self._size_anomaly_detector.analyze(trade), None
         except Exception as e:
-            message = redact_text(f"size anomaly detection failed for trade {trade.trade_id}: {e}")
+            message = redact_text(
+                f"size anomaly detection failed for trade {trade.trade_id}:"
+                f" {redact_exception_message(e)}"
+            )
             logger.warning("%s", message)
             return None, message
 
@@ -873,7 +883,8 @@ class Pipeline:
                 )
         except Exception as e:
             self._record_processing_error(
-                f"Failed to record delivery outcome for assessment {assessment.assessment_id}: {e}"
+                f"Failed to record delivery outcome for assessment {assessment.assessment_id}:"
+                f" {redact_exception_message(e)}"
             )
             return False
 
@@ -943,7 +954,8 @@ class Pipeline:
                 await repo.insert(dto)
         except Exception as e:
             self._record_processing_error(
-                f"Failed to persist risk assessment {assessment.assessment_id}: {e}"
+                f"Failed to persist risk assessment {assessment.assessment_id}:"
+                f" {redact_exception_message(e)}"
             )
             return False
         return True

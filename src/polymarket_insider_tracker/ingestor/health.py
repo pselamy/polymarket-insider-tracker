@@ -18,7 +18,7 @@ from typing import Any
 from aiohttp import web
 from prometheus_client import Counter, Gauge, Histogram, generate_latest
 
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message, redact_text
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +246,7 @@ class HealthMonitor:
         try:
             reported = self._last_error_provider()
         except Exception as exc:
-            return f"last-error provider failed: {redact_text(str(exc))}"
+            return f"last-error provider failed: {redact_exception_message(exc)}"
         return redact_text(reported) if reported is not None else None
 
     def record_acquisition(self, timestamp: float | None = None) -> None:
@@ -293,9 +293,11 @@ class HealthMonitor:
         stream = self._streams[name]
         stream.status = StreamStatus.DISCONNECTED
         stream.connected_since = None
-        stream.last_error = error
+        # Redacted at intake so neither the stored status nor this log line can
+        # carry a credential-bearing URL, whatever the caller passed in.
+        stream.last_error = redact_text(error) if error else error
         STREAM_STATUS.labels(stream=name).set(0.0)
-        logger.debug("Stream disconnected: %s (error: %s)", name, error)
+        logger.debug("Stream disconnected: %s (error: %s)", name, stream.last_error)
 
     def record_event(
         self,
@@ -475,7 +477,7 @@ class HealthMonitor:
         try:
             await self._on_health_change(report)
         except Exception as e:
-            logger.error("Error in health change callback: %s", redact_text(str(e)))
+            logger.error("Error in health change callback: %s", redact_exception_message(e))
 
     async def _run_health_check_step(self) -> None:
         try:
@@ -485,7 +487,7 @@ class HealthMonitor:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error("Error in health check loop: %s", redact_text(str(e)))
+            logger.error("Error in health check loop: %s", redact_exception_message(e))
             await asyncio.sleep(1)
 
     async def _health_check_loop(self) -> None:
@@ -536,7 +538,7 @@ class HealthMonitor:
                 last_error=f"health check timed out after {COMPONENT_CHECK_TIMEOUT_SECONDS}s",
             )
         except Exception as exc:
-            return ComponentStatus(status="down", last_error=redact_text(str(exc)))
+            return ComponentStatus(status="down", last_error=redact_exception_message(exc))
 
     async def evaluate_components(self) -> dict[str, ComponentStatus]:
         """Evaluate all registered component checks concurrently under one probe budget.

@@ -176,6 +176,36 @@ class TestValidateConfig:
             "invalid host component: contains characters rejected by URL normalization"
         )
 
+    @pytest.mark.parametrize(
+        ("env_name", "poisoned"),
+        [
+            ("REDIS_URL", "redis://user:pw@host:PORTMSGSECRET_R18/0"),
+            ("REDIS_URL", "redis://[::1]:PORTMSGSECRET_R18/0"),
+            ("POLYMARKET_TRADES_URL", "https://user@[::1]:PORTMSGSECRET_R18/v2/x"),
+        ],
+    )
+    def test_port_shaped_credential_maps_to_the_port_failure_class(
+        self, monkeypatch, capsys, env_name: str, poisoned: str
+    ) -> None:
+        """Round-18: the CLI diagnostic names the real failure class, value-free.
+
+        The field name inside ``REDIS_URL has an invalid port`` used to match
+        the ``redis`` scheme marker, printing ``must start with redis://`` for
+        a URL that does start with ``redis://`` and hiding the actual defect.
+        """
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://data-api.polymarket.com/trades")
+        monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        monkeypatch.setenv(env_name, poisoned)
+
+        settings = validate_config()
+        assert settings is None
+
+        captured = capsys.readouterr()
+        assert "PORTMSGSECRET_R18" not in captured.err + captured.out
+        assert "has an invalid port" in captured.err
+
 
 class TestRunConfigCheck:
     """Tests for config check mode."""

@@ -13,7 +13,7 @@ from redis.asyncio import Redis
 
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.models import WalletProfile
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,9 @@ class WalletAnalyzer:
                 fresh_threshold=data["fresh_threshold"],
             )
         except Exception as e:
-            logger.warning("Failed to get cached profile for %s: %s", address, redact_text(str(e)))
+            logger.warning(
+                "Failed to get cached profile for %s: %s", address, redact_exception_message(e)
+            )
             return None
 
     async def _cache_profile(self, profile: WalletProfile) -> None:
@@ -129,7 +131,7 @@ class WalletAnalyzer:
             await self._redis.set(key, json.dumps(data), ex=self._cache_ttl)
         except Exception as e:
             logger.warning(
-                "Failed to cache profile for %s: %s", profile.address, redact_text(str(e))
+                "Failed to cache profile for %s: %s", profile.address, redact_exception_message(e)
             )
 
     async def analyze(
@@ -169,7 +171,9 @@ class WalletAnalyzer:
         try:
             usdc_balance = await self._client.get_token_balance(address, self._usdc_address)
         except Exception as e:
-            logger.warning("Failed to get USDC balance for %s: %s", address, redact_text(str(e)))
+            logger.warning(
+                "Failed to get USDC balance for %s: %s", address, redact_exception_message(e)
+            )
             usdc_balance = Decimal(0)
 
         # Calculate age from first transaction
@@ -266,7 +270,7 @@ class WalletAnalyzer:
 
         for addr, profile in zip(addresses, profiles, strict=True):
             if isinstance(profile, BaseException):
-                logger.warning("Failed to analyze %s: %s", addr, redact_text(str(profile)))
+                logger.warning("Failed to analyze %s: %s", addr, redact_exception_message(profile))
                 continue
             results[addr.lower()] = profile
 

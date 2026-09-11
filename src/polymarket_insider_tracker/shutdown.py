@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from typing import Any
 
-from polymarket_insider_tracker.redaction import redact_text
+from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def _consume_abandoned_result(task: asyncio.Task[Any]) -> None:
     if exception is not None:
         logger.error(
             "Abandoned shutdown work failed after its deadline: %s",
-            redact_text(str(exception)),
+            redact_exception_message(exception),
         )
 
 
@@ -216,7 +216,7 @@ class GracefulShutdown:
                 logger.debug("Installed handler for %s", sig.name)
             except (ValueError, OSError) as e:
                 logger.warning(
-                    "Could not install handler for %s: %s", sig.name, redact_text(str(e))
+                    "Could not install handler for %s: %s", sig.name, redact_exception_message(e)
                 )
 
     def _install_windows_handlers(self) -> None:
@@ -230,7 +230,7 @@ class GracefulShutdown:
                 logger.debug("Installed handler for %s", sig.name)
             except (ValueError, OSError) as e:
                 logger.warning(
-                    "Could not install handler for %s: %s", sig.name, redact_text(str(e))
+                    "Could not install handler for %s: %s", sig.name, redact_exception_message(e)
                 )
 
     def remove_signal_handlers(self) -> None:
@@ -311,7 +311,7 @@ class GracefulShutdown:
                     self._timeout,
                 )
             except Exception as e:
-                logger.error("Cleanup callback failed: %s", redact_text(str(e)))
+                logger.error("Cleanup callback failed: %s", redact_exception_message(e))
 
     async def __aenter__(self) -> GracefulShutdown:
         """Async context manager entry - install signal handlers."""
