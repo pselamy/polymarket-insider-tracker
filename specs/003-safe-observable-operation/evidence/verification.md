@@ -1091,3 +1091,143 @@ worktree `.env` was left unread and untouched); the only service mutations
 were the disposable `polymarket_tracker_r21` database (created and dropped)
 and the temporary migration database `runtime_services` itself creates and
 drops. Original review evidence preserved unmodified.
+
+## 18. Round-23 Final-Review Correction — N-R23-1 through N-R23-4 (2026-09-11, Claude Fable 5 correction lane)
+
+Correction at exact reviewed head
+`c4bb3da537b0b40ad6630cb7ee0fd59b3d965647` (tree `f582e17c…`), driven by the
+independent GPT-6 REVISE report and executed probes preserved at
+`/home/dev/dispatch-state/polymarket-gpt6-final-r23-20260911/executed-evidence/`
+(left byte-for-byte untouched; probes were copied out before execution). All
+four findings were first reproduced behaviorally at that head: with only
+this round's test additions overlaid on the unchanged product code, the
+touched suites gave **21 behavioral failures / 25 passes** — every failure a
+secret-absence, record-emission, or score assertion, none an import or
+harness error (`red-on-c4bb3da5.log` in the round-24 correction dispatch
+directory
+`/home/dev/dispatch-state/polymarket-correction-claude-r24-20260911/executed-evidence/`).
+
+- **N-R23-1 (High) — CLOSED by sink removal plus derivation repair.** The
+  report is accepted in full: a replacement list cannot enumerate the
+  reversible encodings a server-controlled body can use (a percent-encoded
+  configured path echoed decoded, an individual query value echoed bare, a
+  plain token echoed as JSON `\uXXXX`), so §17's sentence "channel response
+  echoes are masked per credential component in every escaped/encoded/bare
+  spelling" is corrected by this appended evidence — the derivation missed
+  decoded path components and individual query values, and enumeration
+  cannot establish closure. The remediation follows the report's first
+  option: untrusted response text no longer reaches any channel log in any
+  form. Discord's non-204 line logs the status code plus a fail-closed
+  label carrying only a validated plain-integer `code` and the body byte
+  count (`_rejection_label`); Telegram logs only a validated plain-integer
+  `error_code` and withholds `description` entirely; both channels' 429
+  `retry_after` values pass a validated finite non-negative numeric gate
+  (new `alerter/channels/response_values.py`) before reaching the log line
+  or the sleep. The channels' text-replacement `_redact` helpers are
+  deleted with their sinks. Independently, `url_credential_components` now
+  also derives percent-decoded spellings of every component and the
+  individual raw/decoded query keys and values (each re-encoded percent-
+  and slash-escaped), closing the derivation gap for the remaining
+  exception-text sinks that still use replacement.
+- **N-R23-2 (Medium) — CLOSED.** `discord.py`/`telegram.py` no longer
+  stringify transport errors: both render through the new shared
+  `redact_failure_with_secrets()` (argument-aware total renderer first,
+  then the channel's derived credential spellings, then the central URL
+  policy), so bytes/dict/list arguments become the placeholder before any
+  text exists to scan. The threat model is stated as the report requires:
+  HTTPX annotates error messages as `str`; these shapes are runtime-valid
+  fault injection beyond that producer contract, not something an ordinary
+  provider emits — the defense is fail-closed rendering, not a provider
+  claim.
+- **N-R23-3 (Low) — CLOSED by making the renderer total.**
+  `redact_exception_message` itself now collapses any rendering failure (a
+  raising `args` property or `__str__`) to the fixed
+  `*** (exception sanitization failed)` placeholder instead of raising, so
+  every entry point — the direct-message branch of
+  `_redact_record_message`, `run_pipeline`, the poller's `redact_failure`,
+  and every module-level `redact_exception_message` sink — inherits the
+  fail-safe without per-site guards. §16/§17's sanitizer-never-crashes
+  claim previously excluded the direct exception-message path and is
+  corrected by this appended evidence. `_failsafe_sanitized_exception`
+  keeps guarding graph cloning and now shares the same placeholder
+  constant.
+- **N-R23-4 (Medium) — CLOSED.** The retained weights API again honors the
+  pre-slice `0d5033c` semantics for previously working inputs: an empty
+  constructor mapping activates the immutable defaults
+  (`dict(weights) if weights else dict(DEFAULT_WEIGHTS)`), and `_weight`
+  contributes zero for a missing name (`.get(name, 0.0)`) both for partial
+  constructor mappings and partial `set_weights` replacements. The
+  effective configuration is still recorded — strengthened per the
+  report's requirement by writing the implied zeros explicitly:
+  `scoring_config` now records every consultable signal name (union of the
+  supplied and default names), so a row produced under a partial mapping
+  replays from its own config without knowing the missing-key rule; the
+  default path and full custom maps serialize byte-identically to before.
+  `DEFAULT_WEIGHTS` immutability, the deprecation warnings, and defensive
+  `get_weights()` copies are unchanged.
+
+New regression coverage (all red at `c4bb3da5` on unchanged product code,
+green at this head): three Discord configured-credential re-encoding cases
+(accepted `DiscordSettings` inputs, real `DiscordChannel` and `httpx`
+response through the repository transport fake, exactly one request each,
+secret and `\uXXXX` spelling asserted absent from the captured log); one
+Telegram `\uXXXX`-escaped `error_code`/`description` case; six
+bytes/dict/list × Discord/Telegram real-`ConnectError` cases; two
+total-renderer unit cases (hostile `args`, hostile `__str__`); one
+hostile-args direct-message record through the real `configure_logging`
+handler (plus a scrubbed-bytes direct-message control); four
+`url_credential_components` derivation cases plus a behavioral replacement
+case; and four weight-compatibility cases matching the review's pre-slice
+comparisons (empty constructor scores 0.32 at 0.8 confidence, partial
+constructor and partial `set_weights` score 0, partial config records
+explicit zeros).
+
+Independent-probe reruns at this head, receipts in the round-24 dispatch
+directory: the review's own `test_r23_boundaries.py` and
+`test_weight_compatibility.py` pass **18/18** (previously 10 boundary + 3
+weight behavioral failures); the unchanged prior 39-test adversarial suite
+gives the same 37 passed / 2 intentional `"`/space config rejections as
+§17; the review's real `/health` probe reports
+`leak_in_log/leak_in_poller_status/leak_in_health_response = false` with
+the 503 degradation intact for both shapes; the natural-cycle probe
+returns normally with the record rendered.
+
+Fresh verification (this exact working tree, all run this round):
+
+- `verify.py --profile static` (scrubbed env): PASS — all 7 gates (lock,
+  Black, Ruff, isolated strict mypy, Pyright, Vulture, fail-closed
+  Complexipy launcher at max 5 including module scope).
+- `verify.py --profile compatibility` (py3.13, scrubbed env): **1452
+  passed, 3 skipped** (1429 prior + 23 added this round).
+- Isolated locked full suite `--python 3.11`: 1452 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1452 passed, 3 skipped.
+- `verify.py --profile services` with explicit loopback values
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r24`,
+  `redis://127.0.0.1:6379/0`): PASS — probe, real-Redis contract suite,
+  migrations `003 → 002 → 003` in a temporary database with cleanup; the
+  fresh `polymarket_tracker_r24` database was dropped afterwards.
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q` with the same explicit
+  values: 75 passed.
+- Missing-env services control (clean tree copy, `env -i`, no `.env`):
+  exit 2, `DATABASE_URL and REDIS_URL must be set` before any downstream
+  gate.
+- `git diff --check`: clean.
+
+Behavior deliberately narrowed at the channel response boundary, recorded
+honestly: Discord/Telegram failure logs no longer include any body-derived
+free text (status/code and byte counts only); a malformed Telegram JSON
+envelope now takes the normal failed-attempt path instead of an unhandled
+`JSONDecodeError` escaping `send`; and a non-numeric or non-finite
+`retry_after` sleeps the fixed 1.0s default instead of raising `TypeError`
+mid-delivery or hanging on a smuggled `Infinity`. All existing channel
+behavior tests (delivery, retry, rate-limit, timeout-ambiguity, R18/R21
+redaction) pass unchanged.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules; no gate, lock, CI,
+launcher, or conftest changes. No push, merge, deploy, live provider call,
+notification, trade, or secret read (the worktree `.env` was left unread
+and untouched); the only service mutations were the disposable
+`polymarket_tracker_r24` database (created and dropped) and the temporary
+migration database `runtime_services` itself creates and drops. Original
+round-23 review evidence preserved unmodified.

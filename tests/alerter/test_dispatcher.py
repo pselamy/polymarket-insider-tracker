@@ -13,6 +13,7 @@ from polymarket_insider_tracker.alerter.dispatcher import (
     DispatchResult,
 )
 from polymarket_insider_tracker.alerter.models import FormattedAlert
+from polymarket_insider_tracker.config import DiscordSettings
 from tests.fakes import FakeAlertChannel
 from tests.fakes.alerts import discord_webhook, telegram_bot_api
 
@@ -231,6 +232,131 @@ class TestChannelErrorRedaction:
         assert result is False
         assert len(server.requests) == 1
         assert "Telegram API error" in caplog.text
+        assert secret not in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "style", ["encoded-path-decoded-echo", "query-value", "json-unicode-escape"]
+    )
+    async def test_discord_configured_credential_reencodings_never_reach_the_log(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        style: str,
+    ) -> None:
+        """Round-23 N-R23-1: an accepted webhook URL and a response echo may spell
+        the credential in different reversible encodings — a percent-encoded
+        configured path echoed decoded, a query value echoed bare, or a plain
+        path token echoed with JSON ``\\uXXXX`` escapes. No replacement list can
+        enumerate the encodings, so the server-controlled body never reaches the
+        log in any form.
+        """
+        secret = "R23-DISCORD-PATH-SECRET"
+        webhook = f"https://discord.invalid/api/webhooks/987654/{secret}"
+        echo = secret
+        if style == "encoded-path-decoded-echo":
+            webhook = webhook.replace(secret, "%52" + secret[1:])
+        if style == "query-value":
+            webhook = f"https://discord.invalid/api/webhooks/987654/public?token={secret}"
+        if style == "json-unicode-escape":
+            echo = "\\u0052" + secret[1:]
+        config = DiscordSettings(_env_file=None, DISCORD_WEBHOOK_URL=webhook)
+        assert config.enabled
+        assert config.webhook_url is not None
+        channel = DiscordChannel(
+            config.webhook_url.get_secret_value(), max_retries=1, retry_delay=0.0
+        )
+        body = ('{"message":"' + echo + '"}').encode()
+        server = discord_webhook(failure=httpx.Response(400, content=body))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert "Discord webhook failed" in caplog.text
+        assert "400" in caplog.text
+        assert secret not in caplog.text
+        assert "\\u0052" + secret[1:] not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_telegram_unicode_escaped_error_code_echo_never_reaches_the_log(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Round-23 N-R23-1 sibling: ``error_code`` and ``description`` are
+        server-controlled values that can spell the token with JSON ``\\uXXXX``
+        escapes no replacement list can enumerate; only a validated integer
+        code survives, and free response text is withheld entirely.
+        """
+        secret = "R23-TELEGRAM-TOKEN-SECRET"
+        token = f"987654:{secret}"
+        escaped_token = "987654:" + "\\u0052" + secret[1:]
+        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
+        server = telegram_bot_api(
+            failure=httpx.Response(
+                200,
+                json={
+                    "ok": False,
+                    "error_code": f"unauthorized {escaped_token}",
+                    "description": f"bad bot {escaped_token}",
+                },
+            )
+        )
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
+        assert "Telegram API error" in caplog.text
+        assert secret not in caplog.text
+        assert "\\u0052" + secret[1:] not in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel_kind", ["discord", "telegram"])
+    @pytest.mark.parametrize("shape", ["bytes", "dict", "list"])
+    async def test_channel_transport_error_nonstring_arguments_never_reach_the_log(
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        channel_kind: str,
+        shape: str,
+    ) -> None:
+        """Round-23 N-R23-2: HTTPX annotates error messages as ``str``, but a
+        runtime fault can carry bytes or container arguments (fault injection
+        beyond the annotated producer contract, not a shape ordinary providers
+        emit); ``str(e)`` would interpolate them verbatim before any text
+        replacement could see them. The shared argument-aware renderer runs
+        first, so no raw argument is ever rendered.
+        """
+        secret = "R23-CHANNEL-ARG-SECRET"
+        payload = {
+            "bytes": secret.encode(),
+            "dict": {"secret": secret},
+            "list": [secret],
+        }[shape]
+        error = httpx.ConnectError(payload)
+        if channel_kind == "discord":
+            server = discord_webhook(network_error=error)
+            channel: DiscordChannel | TelegramChannel = DiscordChannel(
+                "https://discord.invalid/api/webhooks/1/different-config-token",
+                max_retries=1,
+                retry_delay=0.0,
+            )
+        else:
+            server = telegram_bot_api(network_error=error)
+            channel = TelegramChannel("different-config-token", "chat-1", max_retries=1)
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 1
         assert secret not in caplog.text
 
 

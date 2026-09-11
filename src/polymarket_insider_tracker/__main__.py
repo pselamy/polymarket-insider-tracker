@@ -29,6 +29,7 @@ from polymarket_insider_tracker.config import (
 )
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.redaction import (
+    FAILSAFE_EXCEPTION_MESSAGE,
     redact_argument,
     redact_exception_message,
     redact_text,
@@ -499,7 +500,7 @@ def _failsafe_sanitized_exception(exc: BaseException) -> BaseException:
     try:
         return _sanitized_exception(exc)
     except Exception:
-        return RuntimeError("*** (exception sanitization failed)")
+        return RuntimeError(FAILSAFE_EXCEPTION_MESSAGE)
 
 
 def _sanitized_exception(exc: BaseException) -> BaseException:

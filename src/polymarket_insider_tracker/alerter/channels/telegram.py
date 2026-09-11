@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 import httpx
 
-from polymarket_insider_tracker.redaction import redact_text_with_secrets, url_credential_components
+from polymarket_insider_tracker.alerter.channels.response_values import (
+    response_json_object,
+    validated_integer,
+    validated_retry_delay,
+)
+from polymarket_insider_tracker.redaction import (
+    redact_failure_with_secrets,
+    url_credential_components,
+)
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
@@ -17,6 +25,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}/sendMessage"
+
+
+def _nested_retry_after(result: dict[str, object]) -> object:
+    """The raw ``parameters.retry_after`` value, reached fail-closed."""
+    parameters = result.get("parameters")
+    if isinstance(parameters, dict):
+        return cast(dict[str, object], parameters).get("retry_after")
+    return None
+
+
+def _code_label(error_code: int | None) -> str:
+    """Only a validated integer error code is readable; anything else collapses.
+
+    The ``description`` and a non-integer ``error_code`` are server text
+    that can echo the token-bearing URL in re-encoded spellings no
+    replacement list can enumerate, so they are withheld entirely.
+    """
+    if error_code is None:
+        return "unstructured error code"
+    return f"code {error_code}"
 
 
 class TelegramChannel:
@@ -99,29 +127,31 @@ class TelegramChannel:
                     json=payload,
                 )
 
-                result = response.json()
+                # The envelope is server-controlled; a malformed or non-object
+                # body collapses to the empty fail-closed shape here.
+                result = response_json_object(response)
 
                 if result.get("ok"):
                     logger.info("Telegram alert delivered successfully")
                     return True
 
-                error_code = result.get("error_code", 0)
-                description = result.get("description", "Unknown error")
+                error_code = validated_integer(result.get("error_code"))
 
                 if error_code == 429:
-                    retry_after = result.get("parameters", {}).get("retry_after", 1)
-                    logger.warning(
-                        "Telegram rate limited, retry after %ss", self._redact(str(retry_after))
-                    )
+                    # ``retry_after`` drives a log line and a sleep; only a
+                    # validated finite delay survives.
+                    retry_after = validated_retry_delay(_nested_retry_after(result))
+                    logger.warning("Telegram rate limited, retry after %ss", retry_after)
                     await asyncio.sleep(retry_after)
                     return False
 
-                # error_code and description are server-controlled response
-                # values and may echo the token-bearing URL; never log them raw.
+                # ``error_code`` and ``description`` are server-controlled and
+                # can echo the token in re-encoded spellings no replacement
+                # list can enumerate; only the validated integer code is logged
+                # and the description never reaches a log at all.
                 logger.error(
-                    "Telegram API error: %s - %s",
-                    self._redact(str(error_code)),
-                    self._redact(str(description)),
+                    "Telegram API error: %s (description withheld)",
+                    _code_label(error_code),
                 )
 
         except (httpx.ConnectTimeout, httpx.PoolTimeout):
@@ -137,21 +167,21 @@ class TelegramChannel:
             raise TimeoutError("Telegram API response timed out") from e
         except httpx.HTTPError as e:
             # The bot token rides in the API URL; an httpx message may embed it.
-            logger.error("Telegram API error: %s", self._redact(str(e)))
+            logger.error("Telegram API error: %s", self._redact_failure(e))
 
         return None
 
-    def _redact(self, text: str) -> str:
-        """Hide the bot token and the token-bearing API URL inside diagnostic text.
+    def _redact_failure(self, error: BaseException) -> str:
+        """Render a transport failure without re-emitting the bot token.
 
-        The configured URL, the bare token, and every credential-bearing
-        component derived from the URL (path segments — each also in its
-        JSON-escaped and percent-encoded spelling) are replaced first,
-        because a server response may echo the credential in a form the
-        URL-shaped scan cannot attribute; the central policy then masks
-        every remaining URL-shaped substring.
+        HTTPX annotates error messages as ``str``, but a runtime fault can
+        carry bytes or container arguments; ``str(error)`` would interpolate
+        them verbatim before any replacement could see them. The shared
+        argument-aware renderer runs first, then the bare token and every
+        credential spelling derived from the API URL are replaced and the
+        central policy masks remaining URL-shaped text.
         """
-        return redact_text_with_secrets(text, self._secret_components)
+        return redact_failure_with_secrets(error, self._secret_components)
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:

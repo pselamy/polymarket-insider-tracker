@@ -13,9 +13,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
 
 MASK = "***"
+# Emitted when rendering an exception itself fails (a raising ``args``
+# property or ``__str__``): sanitization must never turn an error report
+# into a new uncontrolled error, and the fixed placeholder re-emits no
+# input bytes.
+FAILSAFE_EXCEPTION_MESSAGE = "*** (exception sanitization failed)"
 
 # URL-shaped substrings inside arbitrary text (exception messages, log lines).
 # A trailing run of closing delimiters (``)``, ``]``, ``}``, quotes, or angle
@@ -346,7 +351,19 @@ def redact_exception_message(exc: BaseException) -> str:
     text or a safe scalar the rendered message is redacted as text (custom
     ``__str__`` output included); otherwise the message is rebuilt from the
     scrubbed arguments alone and no raw argument is ever rendered.
+
+    Rendering is total: a pathological exception (a raising ``args``
+    property or ``__str__``) collapses to the fixed placeholder instead of
+    raising, so no logging or status entry point needs its own guard.
     """
+    try:
+        return _rendered_exception_message(exc)
+    except Exception:
+        return FAILSAFE_EXCEPTION_MESSAGE
+
+
+def _rendered_exception_message(exc: BaseException) -> str:
+    """The argument-aware rendering that the total fail-safe wrapper guards."""
     if all(_is_safe_message_argument(arg) for arg in exc.args):
         return redact_text(str(exc))
     scrubbed = tuple(redact_argument(arg) for arg in exc.args)
@@ -409,23 +426,49 @@ def redact_text_with_secrets(text: str, secrets: Iterable[str]) -> str:
     return redact_text(text)
 
 
+def redact_failure_with_secrets(exc: BaseException, secrets: Iterable[str]) -> str:
+    """Render a failure argument-aware, then mask known secret spellings.
+
+    ``str(exc)`` interpolates raw arguments, so a bytes or container
+    argument would re-emit its secret verbatim before any text-level
+    replacement could see it; the shared total exception renderer runs
+    first, and the rendered text then takes the exact-replacement pass plus
+    the central URL policy.
+    """
+    return redact_text_with_secrets(redact_exception_message(exc), secrets)
+
+
 def url_credential_components(url: str) -> tuple[str, ...]:
     """Every substring of a configured URL that must never reach diagnostics.
 
-    A server response can echo the request credential in partial or
-    re-encoded form the URL scanner cannot attribute: the bare token alone,
-    a JSON ``\\/``-escaped spelling of the URL, or a percent-encoded one.
-    Escaping splits only at slashes, so masking each slash-free component
-    (userinfo parts, path segments, query, fragment) independently — in each
-    of its raw, percent-encoded, and escaped spellings — covers those forms.
-    Components are ordered longest-first for ``redact_text_with_secrets``.
+    A server response or transport error can echo the request credential in
+    partial or re-encoded form the URL scanner cannot attribute: the bare
+    token alone, an individual query value, the decoded form of a
+    percent-encoded segment, a JSON ``\\/``-escaped spelling of the URL, or
+    a percent-encoded one. Masking each component (userinfo parts, path
+    segments, query tokens, fragment) independently — raw and
+    percent-decoded, each also percent-encoded and slash-escaped — covers
+    those reversible forms. Components are ordered longest-first for
+    ``redact_text_with_secrets``.
     """
     components: set[str] = set()
     for component in _raw_credential_components(url):
-        components.add(component)
-        components.add(quote(component, safe=""))
-        components.add(component.replace("/", "\\/"))
+        components.update(_component_spellings(component))
     return tuple(sorted(components, key=len, reverse=True))
+
+
+def _component_spellings(component: str) -> set[str]:
+    """One component in its raw and decoded forms, each re-encoded both ways.
+
+    A whitespace-only spelling is not a credential and replacing it would
+    shred surrounding prose, so it is dropped.
+    """
+    forms = {component, unquote(component)}
+    spellings = set(forms)
+    for form in forms:
+        spellings.add(quote(form, safe=""))
+        spellings.add(form.replace("/", "\\/"))
+    return {spelling for spelling in spellings if spelling.strip()}
 
 
 def _raw_credential_components(url: str) -> set[str]:
@@ -435,10 +478,28 @@ def _raw_credential_components(url: str) -> set[str]:
         parts = urlsplit(url)
     except ValueError:
         return components
-    candidates = [parts.username, parts.password, parts.query, parts.fragment]
+    candidates = [parts.username, parts.password, parts.fragment]
     candidates.extend(parts.path.split("/"))
+    candidates.extend(_query_credential_tokens(parts.query))
     components.update(part for part in candidates if part)
     return components
+
+
+def _query_credential_tokens(query: str) -> list[str]:
+    """The whole query plus every raw and decoded key/value token inside it.
+
+    A response may echo one query value alone, so the raw pair split and the
+    decoded ``parse_qsl`` views are all credential candidates.
+    """
+    if not query:
+        return []
+    tokens = [query]
+    for pair in query.split("&"):
+        tokens.append(pair)
+        tokens.extend(pair.split("=", 1))
+    for key, value in parse_qsl(query, keep_blank_values=True):
+        tokens.extend((key, value))
+    return tokens
 
 
 def _redact_url_match(matched: str) -> str:

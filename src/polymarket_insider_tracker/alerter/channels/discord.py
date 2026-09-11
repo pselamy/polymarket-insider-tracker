@@ -8,12 +8,35 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from polymarket_insider_tracker.redaction import redact_text_with_secrets, url_credential_components
+from polymarket_insider_tracker.alerter.channels.response_values import (
+    response_json_object,
+    validated_integer,
+    validated_retry_delay,
+)
+from polymarket_insider_tracker.redaction import (
+    redact_failure_with_secrets,
+    url_credential_components,
+)
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
 
 logger = logging.getLogger(__name__)
+
+
+def _rejection_label(response: httpx.Response) -> str:
+    """A fail-closed label for a rejected response; no body byte is emitted.
+
+    The body can echo the credential-bearing webhook URL in reversible
+    encodings (percent, JSON ``\\uXXXX``, bare or decoded components) that
+    no replacement list can enumerate, so it is withheld entirely; only
+    Discord's integer ``code`` field survives validation.
+    """
+    code = validated_integer(response_json_object(response).get("code"))
+    size = len(response.content)
+    if code is None:
+        return f"({size}-byte body withheld)"
+    return f"(error code {code}, {size}-byte body withheld)"
 
 
 class DiscordChannel:
@@ -89,19 +112,22 @@ class DiscordChannel:
                     return True
 
                 if response.status_code == 429:
-                    retry_after = response.json().get("retry_after", 1.0)
-                    logger.warning(
-                        "Discord rate limited, retry after %ss", self._redact(str(retry_after))
+                    # ``retry_after`` is a server-controlled value driving a log
+                    # line and a sleep; only a validated finite delay survives.
+                    retry_after = validated_retry_delay(
+                        response_json_object(response).get("retry_after")
                     )
+                    logger.warning("Discord rate limited, retry after %ss", retry_after)
                     await asyncio.sleep(retry_after)
                     return False
 
-                # The response body is server-controlled text and may echo the
-                # credential-bearing request URL; it never reaches a log raw.
+                # The response body is server-controlled text that can echo the
+                # credential-bearing request URL in re-encoded spellings no
+                # replacement list can enumerate; it never reaches a log at all.
                 logger.error(
                     "Discord webhook failed: %s %s",
                     response.status_code,
-                    self._redact(response.text),
+                    _rejection_label(response),
                 )
 
         except (httpx.ConnectTimeout, httpx.PoolTimeout):
@@ -117,22 +143,21 @@ class DiscordChannel:
             raise TimeoutError("Discord webhook response timed out") from e
         except httpx.HTTPError as e:
             # The webhook URL is the credential; an httpx message may embed it.
-            logger.error("Discord webhook error: %s", self._redact(str(e)))
+            logger.error("Discord webhook error: %s", self._redact_failure(e))
 
         return None
 
-    def _redact(self, text: str) -> str:
-        """Hide the credential-bearing webhook URL inside diagnostic text.
+    def _redact_failure(self, error: BaseException) -> str:
+        """Render a transport failure without re-emitting the webhook credential.
 
-        The configured URL and every credential-bearing component derived
-        from it (path segments, userinfo, query — each also in its
-        JSON-escaped and percent-encoded spelling) are replaced first,
-        because a server response may echo the credential in a form the
-        URL-shaped scan cannot attribute (``https:\\/\\/…`` escaping, or the
-        bare token alone); the central policy then masks every remaining
-        URL-shaped substring.
+        HTTPX annotates error messages as ``str``, but a runtime fault can
+        carry bytes or container arguments; ``str(error)`` would interpolate
+        them verbatim before any replacement could see them. The shared
+        argument-aware renderer runs first, then every credential spelling
+        derived from the configured URL is replaced and the central policy
+        masks remaining URL-shaped text.
         """
-        return redact_text_with_secrets(text, self._secret_components)
+        return redact_failure_with_secrets(error, self._secret_components)
 
     async def _backoff(self, attempt: int) -> None:
         if attempt < self.max_retries - 1:

@@ -15,6 +15,7 @@ remain.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -36,7 +37,9 @@ from polymarket_insider_tracker.ingestor.websocket import TradeStreamHandler
 from polymarket_insider_tracker.redaction import (
     redact_exception_message,
     redact_text,
+    redact_text_with_secrets,
     redact_url,
+    url_credential_components,
 )
 
 DB_SECRET = "db-userinfo-secret"
@@ -1392,6 +1395,79 @@ class TestExceptionMessageRedaction:
 
         assert redact_text(rendered) == rendered
 
+    def test_hostile_args_property_fails_safe_to_the_placeholder(self) -> None:
+        """Round-23 N-R23-3: rendering is total — a raising ``args`` property
+        collapses to the fixed placeholder instead of raising out of an
+        error-reporting path."""
+        rendered = redact_exception_message(_HostileArgsError("diagnostic"))
+
+        assert rendered == "*** (exception sanitization failed)"
+
+    def test_hostile_str_fails_safe_to_the_placeholder(self) -> None:
+        """Round-23 N-R23-3: a raising ``__str__`` on an otherwise safe-args
+        exception is the same rendering-failure class and collapses the same way."""
+
+        class _HostileStr(RuntimeError):
+            def __str__(self) -> str:
+                raise ValueError("str exploded")
+
+        rendered = redact_exception_message(_HostileStr("safe text"))
+
+        assert rendered == "*** (exception sanitization failed)"
+
+
+class TestCredentialComponentDerivation:
+    """Round-23 N-R23-1: every reversible spelling of an accepted credential.
+
+    A response or transport error can echo one component alone — the decoded
+    form of a percent-encoded path segment, or an individual query value —
+    in a shape the URL-shaped scan cannot attribute, so the derived
+    replacement set must contain those spellings, not only the raw
+    whole-component ones.
+    """
+
+    def test_percent_encoded_path_segment_derives_its_decoded_spelling(self) -> None:
+        components = url_credential_components(
+            "https://discord.invalid/api/webhooks/1/%52EST-PATH-SECRET"
+        )
+
+        assert "REST-PATH-SECRET" in components
+        assert "%52EST-PATH-SECRET" in components
+
+    def test_individual_query_values_and_bare_tokens_are_components(self) -> None:
+        components = url_credential_components(
+            "https://hook.invalid/path?token=QUERY-VALUE-SECRET&BARE-TOKEN-SECRET"
+        )
+
+        assert "QUERY-VALUE-SECRET" in components
+        assert "BARE-TOKEN-SECRET" in components
+
+    def test_encoded_query_value_derives_its_decoded_spelling(self) -> None:
+        components = url_credential_components("https://hook.invalid/p?k=Q%5FVALUE%2FSECRET")
+
+        assert "Q_VALUE/SECRET" in components
+
+    def test_components_stay_ordered_longest_first(self) -> None:
+        components = url_credential_components(
+            "https://hook.invalid/seg/LONGER-SECRET-COMPONENT?k=SHORT"
+        )
+
+        lengths = [len(component) for component in components]
+        assert lengths == sorted(lengths, reverse=True)
+
+    def test_masking_covers_decoded_and_query_value_echoes(self) -> None:
+        url = (
+            "https://discord.invalid/api/webhooks/1/%52EST-PATH-SECRET" "?token=QUERY-VALUE-SECRET"
+        )
+
+        masked = redact_text_with_secrets(
+            "echo REST-PATH-SECRET and QUERY-VALUE-SECRET back",
+            url_credential_components(url),
+        )
+
+        assert "REST-PATH-SECRET" not in masked
+        assert "QUERY-VALUE-SECRET" not in masked
+
 
 class TestAdjacentSinkRedaction:
     """Round-12 N2/N4: every production-reachable raw-exception sink sanitizes.
@@ -2163,6 +2239,11 @@ class TestExceptionGraphSanitization:
     """
 
     def _render_through_production_handler(self, error: BaseException) -> str:
+        return self._capture_production_record(
+            lambda log: log.error("failed graph", exc_info=(type(error), error, None))
+        )
+
+    def _capture_production_record(self, emit: Callable[[logging.Logger], None]) -> str:
         import io
         import logging as stdlib_logging
 
@@ -2177,9 +2258,7 @@ class TestExceptionGraphSanitization:
         capture = io.StringIO()
         previous = console.setStream(capture)
         try:
-            stdlib_logging.getLogger("polymarket_insider_tracker.pipeline").error(
-                "failed graph", exc_info=(type(error), error, None)
-            )
+            emit(stdlib_logging.getLogger("polymarket_insider_tracker.pipeline"))
         finally:
             if previous is not None:
                 console.setStream(previous)
@@ -2258,3 +2337,23 @@ class TestExceptionGraphSanitization:
 
         assert "failed graph" in output
         assert "exception sanitization failed" in output
+
+    def test_hostile_args_direct_message_fails_safe_to_a_masked_record(self) -> None:
+        """Round-23 N-R23-3: an exception logged directly as the record message
+        renders through the same total fail-safe as ``exc_info``; a raising
+        ``args`` property must not abort the record."""
+        error = _HostileArgsError("diagnostic")
+
+        output = self._capture_production_record(lambda log: log.error(error))
+
+        assert "exception sanitization failed" in output
+
+    def test_direct_exception_message_renders_scrubbed_not_raw(self) -> None:
+        """Control: a well-formed direct exception message still emits, with its
+        bytes argument scrubbed by the argument-aware renderer."""
+        error = RuntimeError(R21_GRAPH_SECRET.encode())
+
+        output = self._capture_production_record(lambda log: log.error(error))
+
+        assert output
+        assert R21_GRAPH_SECRET not in output

@@ -804,3 +804,88 @@ class TestScoringIdentityAndCompatibility:
 
         assert stored_score == replayed_score
         assert assessment.should_alert == (stored_score >= stored_threshold)
+
+
+class TestDeprecatedWeightCompatibilityInputs:
+    """Round-23 N-R23-4: previously working empty and partial weight mappings.
+
+    The pre-slice-003 API treated an empty constructor mapping as "use the
+    defaults" (``weights or DEFAULT_WEIGHTS``) and a signal name missing from
+    a partial mapping as a zero contribution (``weights.get(name, 0.0)``).
+    The retained compatibility API must preserve those existing inputs, not
+    only complete maps, while every new assessment still records the
+    effective per-signal weights in its own ``scoring_config``.
+    """
+
+    def _single_signal_bundle(
+        self, sample_trade: TradeEvent, fresh_wallet_signal: FreshWalletSignal
+    ) -> SignalBundle:
+        return SignalBundle(trade_event=sample_trade, fresh_wallet_signal=fresh_wallet_signal)
+
+    def test_empty_constructor_weights_fall_back_to_defaults(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights={})
+
+        score, count = scorer.calculate_weighted_score(
+            self._single_signal_bundle(sample_trade, fresh_wallet_signal)
+        )
+
+        assert count == 1
+        assert score == pytest.approx(0.32)
+        assert scorer.get_weights() == dict(DEFAULT_WEIGHTS)
+
+    def test_partial_constructor_weights_score_missing_signals_as_zero(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights={"size_anomaly": 1.0})
+
+        score, count = scorer.calculate_weighted_score(
+            self._single_signal_bundle(sample_trade, fresh_wallet_signal)
+        )
+
+        assert count == 1
+        assert score == pytest.approx(0.0)
+        assert scorer.get_weights() == {"size_anomaly": 1.0}
+
+    def test_partial_set_weights_scores_missing_signals_as_zero(
+        self,
+        fake_redis: FakeAsyncRedis,
+        sample_trade: TradeEvent,
+        fresh_wallet_signal: FreshWalletSignal,
+    ) -> None:
+        scorer = RiskScorer(fake_redis)
+        with pytest.warns(DeprecationWarning, match="set_weights"):
+            scorer.set_weights({"size_anomaly": 1.0})
+
+        score, count = scorer.calculate_weighted_score(
+            self._single_signal_bundle(sample_trade, fresh_wallet_signal)
+        )
+
+        assert count == 1
+        assert score == pytest.approx(0.0)
+
+    def test_partial_weights_record_effective_zero_contributions(
+        self,
+        fake_redis: FakeAsyncRedis,
+    ) -> None:
+        """A stored row must replay from its own config without knowing the
+        missing-key rule, so the implied zeros are recorded explicitly."""
+        with pytest.warns(DeprecationWarning, match="weights constructor argument"):
+            scorer = RiskScorer(fake_redis, weights={"size_anomaly": 1.0})
+
+        config = json.loads(scorer.scoring_config)
+
+        assert config["weights"] == {
+            "fresh_wallet": "0.0",
+            "niche_market": "0.0",
+            "size_anomaly": "1.0",
+        }

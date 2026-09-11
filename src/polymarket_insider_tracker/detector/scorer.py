@@ -157,8 +157,12 @@ class RiskScorer:
             redis: Retained for public API compatibility; scoring performs no Redis
                 operations since delivery deduplication moved to the alerter (FR-008).
             weights: Deprecated custom signal weights, kept working for one
-                compatibility window. The exact active weights are recorded in every
-                new assessment's ``scoring_config`` so records stay replayable.
+                compatibility window with the pre-slice-003 semantics: an empty
+                (or omitted) mapping activates the immutable defaults, and a
+                signal name missing from a partial mapping contributes zero.
+                The effective per-signal weights — implied zeros included — are
+                recorded in every new assessment's ``scoring_config`` so records
+                stay replayable.
             alert_threshold: Minimum score to trigger alert (default 0.80).
             dedup_window_seconds: Retained for API compatibility; unused by scoring.
             key_prefix: Retained for API compatibility; unused by scoring.
@@ -169,9 +173,9 @@ class RiskScorer:
         self._key_prefix = key_prefix
         if weights is not None:
             _warn_deprecated_weights("the RiskScorer weights constructor argument")
-        self._weights: dict[str, float] = (
-            dict(weights) if weights is not None else dict(DEFAULT_WEIGHTS)
-        )
+        # Pre-slice-003 contract: an empty mapping means "use the defaults"
+        # (``weights or DEFAULT_WEIGHTS``), not "score everything as zero".
+        self._weights: dict[str, float] = dict(weights) if weights else dict(DEFAULT_WEIGHTS)
         self._scoring_config = self._build_scoring_config()
         logger.info(
             "RiskScorer algorithm=%s threshold=%s config=%s",
@@ -192,9 +196,23 @@ class RiskScorer:
             "multi_signal_bonus_2": str(Decimal(str(MULTI_SIGNAL_BONUS_2))),
             "multi_signal_bonus_3": str(Decimal(str(MULTI_SIGNAL_BONUS_3))),
             "score_quantum": str(SCORE_QUANTUM),
-            "weights": {name: str(Decimal(str(self._weights[name]))) for name in self._weights},
+            "weights": {
+                name: str(Decimal(str(weight)))
+                for name, weight in self._effective_weights().items()
+            },
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    def _effective_weights(self) -> dict[str, float]:
+        """Every weight scoring can consult, with implied zeros made explicit.
+
+        A signal name missing from a partial deprecated mapping contributes
+        zero (pre-slice-003 contract); recording that zero keeps each stored
+        assessment replayable from its own ``scoring_config`` without knowing
+        the missing-key rule.
+        """
+        names = set(self._weights) | set(DEFAULT_WEIGHTS)
+        return {name: self._weights.get(name, 0.0) for name in sorted(names)}
 
     @property
     def scoring_config(self) -> str:
@@ -205,7 +223,9 @@ class RiskScorer:
         """Update signal weights (deprecated compatibility window).
 
         Args:
-            weights: New weights dictionary.
+            weights: New weights dictionary. Replaces the mapping wholesale,
+                exactly as before slice 003: a signal name missing from the
+                new mapping contributes zero from now on.
         """
         _warn_deprecated_weights("RiskScorer.set_weights")
         self._weights = dict(weights)
@@ -291,7 +311,9 @@ class RiskScorer:
         )
 
     def _weight(self, name: str) -> Decimal:
-        return Decimal(str(self._weights[name]))
+        # A name missing from a partial deprecated mapping contributes zero,
+        # exactly as before slice 003; the zero is recorded in scoring_config.
+        return Decimal(str(self._weights.get(name, 0.0)))
 
     def _score_fresh_wallet(self, bundle: SignalBundle) -> tuple[Decimal, int]:
         if bundle.fresh_wallet_signal is None:
