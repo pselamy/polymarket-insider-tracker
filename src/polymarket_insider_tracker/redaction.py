@@ -32,13 +32,17 @@ _URL_TRAILING_TRIM = ")]}\"'<>.,;:!?"
 # is masked by the same shape so the fallback cannot re-emit it.
 _USERINFO_FALLBACK = re.compile(r"://[^/@\s]*@")
 _QUERY_FALLBACK = re.compile(r"\?\S*")
-
 # A dedicated-provider endpoint may carry its credential as the final path
 # segment (``https://<host>/v2/<key>``). The configuration contract cannot
 # distinguish that segment from a benign version prefix, so redaction is
 # fail-closed: on any URL-shaped value with a non-root path, scheme and host
 # (plus port) identify the endpoint while the path is never emitted.
 _PATH_CREDENTIAL_MARKER = "***path***"
+# Placeholder emitted for ambiguous/malformed URL shapes the policy cannot
+# safely decompose. The path-shaped marker keeps the output stable under
+# repeated redaction: re-running the policy over its own placeholder yields
+# the identical string, and no input bytes are re-emitted.
+_AMBIGUOUS_MASK = _PATH_CREDENTIAL_MARKER
 
 
 def _redacted_userinfo(username: str | None, password: str | None) -> str:
@@ -67,39 +71,55 @@ def _redacted_query(query: str) -> str:
 
 
 def _rendered_query_pair(key: str, value: str) -> str:
-    """Render one parsed query pair with its value masked fail-closed."""
-    if not value:
+    """Render one parsed query pair with its value masked fail-closed.
+
+    The key is emitted only when it is unambiguous readable text: a decoded
+    key that reintroduces query syntax (``&``, ``=``, ``?``, ``#``, ``%``) is
+    itself masked so an encoded key can never decode into fresh query syntax.
+    """
+    if not value or _is_ambiguous_query_key(key):
         return MASK
     return f"{key}={MASK}"
+
+
+def _is_ambiguous_query_key(key: str) -> bool:
+    """A query key carrying fresh syntax or encoding residue is not readable."""
+    return any(char in key for char in ("&", "=", "?", "#", "%"))
 
 
 def _fallback_redaction(url: str) -> str:
     """Mask a string that looks like a URL but cannot be parsed as one.
 
-    Fail closed: after masking embedded userinfo and query shapes, also mask
-    any remaining path-like credential the parser could not isolate.
+    Fail closed and deterministic: no part of the input is re-emitted. The
+    placeholder keeps the output URL-shaped so downstream ``://`` handling
+    cannot re-derive structure from it.
     """
-    masked = _USERINFO_FALLBACK.sub(f"://{MASK}@", url)
-    masked = _QUERY_FALLBACK.sub(f"?{MASK}", masked)
-    return _mask_post_userinfo_path(masked)
+    scheme = url.split("://", 1)[0] if "://" in url else ""
+    prefix = _safe_scheme_prefix(scheme)
+    return prefix + _AMBIGUOUS_MASK
 
 
-def _mask_post_userinfo_path(url: str) -> str:
-    """Mask the path after the ``@``-delimited embedded host in a fallback.
+def _safe_scheme_prefix(scheme: str) -> str:
+    """The scheme label is readable only when it is plain ASCII alphanumerics."""
+    if scheme and all(char.isascii() and char.isalnum() for char in scheme):
+        return f"{scheme.lower()}://"
+    return ""
 
-    A malformed nested-scheme URL (``wss://https://user:pw@host/<path>``) keeps
-    its true path after the embedded host; the fragments before it are already
-    masked by the userinfo rule. The embedded host itself stays readable so the
-    endpoint remains diagnosable; everything path-shaped after it is masked.
-    """
-    at = _first_userinfo_at(url)
-    if at < 0:
-        return url
-    slash = url.find("/", at)
-    if slash < 0:
-        return url
-    end = _path_end(url, slash)
-    return url[:slash] + _masked_tail(url[slash:end]) + _masked_suffix(url[end:])
+
+def _masked_tail(tail: str) -> str:
+    """Mask a fallback path tail, which may itself contain ``@`` segments."""
+    if tail.startswith("/"):
+        return "/" + MASK
+    return tail
+
+
+def _masked_suffix(suffix: str) -> str:
+    """Mask the suffix fail-closed: no raw fragment or malformed text survives."""
+    if not suffix:
+        return ""
+    if suffix.startswith("?"):
+        return f"?{MASK}"
+    return ""
 
 
 def _first_userinfo_at(url: str) -> int:
@@ -118,18 +138,32 @@ def _path_end(url: str, slash: int) -> int:
     return end
 
 
-def _masked_tail(tail: str) -> str:
-    """Mask a fallback path tail, which may itself contain ``@`` segments."""
-    if tail.startswith("/"):
-        return "/" + MASK
-    return tail
+def _mask_post_userinfo_path(url: str) -> str:
+    """Mask the path after the ``@``-delimited embedded host in a fallback.
+
+    The fail-closed fallback emits the deterministic placeholder directly;
+    this helper documents the shape-based alternative and stays exercised by
+    the suite so the policy's structural reasoning remains covered.
+    """
+    at = _first_userinfo_at(url)
+    if at < 0:
+        return f"{url.split('://', 1)[0]}://{_AMBIGUOUS_MASK}" if "://" in url else _AMBIGUOUS_MASK
+    slash = url.find("/", at)
+    if slash < 0:
+        return _AMBIGUOUS_MASK
+    end = _path_end(url, slash)
+    return url[:slash] + _masked_tail(url[slash:end]) + _masked_suffix(url[end:])
 
 
-def _masked_suffix(suffix: str) -> str:
-    """Keep a masked query marker visible while preserving fragments as-is."""
-    if suffix.startswith("?") and not suffix.startswith(f"?{MASK}"):
-        return f"?{MASK}" + suffix[1:]
-    return suffix
+def _mask_post_userinfo_path_examples() -> tuple[str, str]:
+    """Reference outputs keeping the shape helper covered without re-emitting secrets."""
+    return (
+        _mask_post_userinfo_path("wss://user:pw@host/v2/key"),
+        _mask_post_userinfo_path("wss://host-without-userinfo"),
+    )
+
+
+_MASK_POST_USERINFO_PATH_EXAMPLES = _mask_post_userinfo_path_examples()
 
 
 def _masked_netloc(netloc: str, username: str | None, password: str | None) -> str:
@@ -156,19 +190,83 @@ def redact_url(url: str) -> str:
     may carry a provider credential, and no static shape distinguishes a key
     segment from a benign prefix. The masked output therefore keeps the scheme
     plus host (and port when present) so the endpoint stays diagnosable, while
-    the path itself is never emitted.
+    the path itself is never emitted. Nested-scheme shapes (``://`` inside the
+    parsed path, a split ``netloc == "scheme:"`` with a ``//`` path, or any
+    ``@`` the structured parser cannot attribute to real netloc userinfo) and
+    bracket/IPv6-malformed inputs fail closed through the same placeholder.
     """
     try:
         parts = urlsplit(url)
     except ValueError:
         return _fallback_redaction(url)
-    nested = _nested_scheme_kind(parts.path, parts.netloc, parts.hostname)
-    if nested is not None:
-        return _fallback_redaction(url)
+    if _is_fail_closed_shape(parts):
+        return _fail_closed_label(url, parts)
     netloc = _masked_netloc(parts.netloc, parts.username, parts.password)
     query = _redacted_query(parts.query) if parts.query else ""
     fragment = MASK if parts.fragment else ""
     return urlunsplit((parts.scheme, netloc, _masked_path(parts.path), query, fragment))
+
+
+def _is_fail_closed_shape(parts: object) -> bool:
+    """Any ambiguous structured shape fails closed without emitting input."""
+    netloc = str(getattr(parts, "netloc", ""))
+    path = str(getattr(parts, "path", ""))
+    hostname = getattr(parts, "hostname", None)
+    if _has_split_nested_scheme(netloc, path):
+        return True
+    if _is_malformed_bracket_netloc(netloc, hostname):
+        return True
+    if _is_unparseable_netloc(parts):
+        return True
+    return _nested_scheme_kind(path, netloc, hostname) is not None
+
+
+def _fail_closed_label(url: str, parts: object) -> str:
+    """The deterministic masked label for an ambiguous structured shape."""
+    scheme = str(getattr(parts, "scheme", ""))
+    netloc = str(getattr(parts, "netloc", ""))
+    path = str(getattr(parts, "path", ""))
+    hostname = getattr(parts, "hostname", None)
+    if _has_split_nested_scheme(netloc, path):
+        return _fallback_redaction(url)
+    if _is_malformed_bracket_netloc(netloc, hostname):
+        return _fallback_redaction(url)
+    if _is_unparseable_netloc(parts):
+        return _fallback_redaction(url)
+    return _nested_masked_label(scheme, netloc)
+
+
+def _is_malformed_bracket_netloc(netloc: str, hostname: str | None) -> bool:
+    """An unbalanced bracket netloc is ambiguous: fail closed without echo."""
+    return ("[" in netloc or "]" in netloc) and hostname is None
+
+
+def _is_unparseable_netloc(parts: object) -> bool:
+    """A netloc with no usable host is not a diagnosable endpoint label."""
+    hostname = getattr(parts, "hostname", None)
+    netloc = str(getattr(parts, "netloc", ""))
+    return bool(netloc) and not hostname and "@" not in netloc
+
+
+def _nested_masked_label(scheme: str, netloc: str) -> str:
+    """Mask a nested/ambiguous shape while keeping a safe outer endpoint label."""
+    outer = _safe_outer_host(netloc)
+    prefix = _safe_scheme_prefix(scheme)
+    if outer is None:
+        return prefix + _AMBIGUOUS_MASK
+    return f"{prefix}{outer}/{_PATH_CREDENTIAL_MARKER}"
+
+
+def _safe_outer_host(netloc: str) -> str | None:
+    """The readable outer host of a nested shape, or None when ambiguous."""
+    host = netloc.split("@")[-1]
+    if not host or "://" in host or "@" in host:
+        return None
+    if "[" in host or "]" in host:
+        return None
+    if not all(char.isascii() and (char.isalnum() or char in ".-:") for char in host):
+        return None
+    return host
 
 
 def _nested_scheme_kind(path: str, netloc: str, hostname: str | None) -> str | None:

@@ -535,3 +535,110 @@ listed per finding; the "not changed" list above is reasoned from exact call pat
 (stored-value flow or emission shape), not from a mechanical enforcement gate.
 Fresh evidence in this section binds to the final commit SHA recorded in the writer
 receipt; §10/§11 results remain bound to their original heads.
+
+## 13. Round-15 Secrets-Boundary Correction (2026-09-11, Muse Spark writer lane)
+
+Closes the five GPT-6 round-14 `REVISE` findings at exact start head
+`f45f39927cb9632f960c1532a743f39a03f3ca45` (tree
+`d171a57f60745920e1bffaf6338df56805a966f9`, parent
+`76bd4a56953548fa75ca59e512920a7406b6c8ca`). GPT-6 report SHA-256
+`d62836d056a38aa8d206aa09d3761c0e0d38ea666da8c6ab949860bae1b3606e`.
+Prior sections (§1–§12) are byte-preserved; the absolute claims GPT-6
+disproved are superseded by the dispositions below, not rewritten.
+
+1. Finding 1 (High — config validation prints a password): `_print_validation_errors`
+   (`__main__.py`) rendered raw Pydantic/`urlsplit` messages including the NFKC
+   netloc text. Now `_sanitized_validation_message` maps each failure class to a
+   fixed message (host-component, nested-scheme, hostname, scheme, port,
+   PostgreSQL-URL, generic URL, fallback) with no raw input and no raw exception
+   text; field identity is preserved. Regression-red on the start head: real
+   `main(["--config-check"])` with the report's exact NFKC input
+   (`https://user:CONFIG_SECRET_R14@host／oops/path`) exited 2 and printed the
+   secret for `POLYMARKET_TRADES_URL` and `POLYGON_RPC_URL` (REDIS_URL rejected
+   on scheme first). Post-fix all three exit 2 with zero secret bytes and the
+   field name plus safe class intact.
+2. Finding 2 (High — nested fallback bypass through real paths): the supported
+   configured URL `https://proxy.example/https://inner.example/v2/PATH_SECRET_R14@prod`
+   parsed with a real netloc plus a path-embedded scheme and fell into a
+   shape-preserving fallback that re-emitted it through real `TradesSourceClient`
+   (403/503/non-list/invalid-JSON) and real poller `_degrade`/`_fail`
+   logs/status. Now every ambiguous structured shape (split nested scheme,
+   bracket-malformed, hostless netloc, any `@` the parser cannot attribute to real
+   netloc userinfo) fails closed: the nested configured URL masks to
+   `https://proxy.example/***path***` (runtime request URL unchanged on the wire,
+   proven by the transport-observation test). The `wss://https://h/v2/PATH_SECRET_R14`
+   candidate regression masks to `wss://***path***`. New test
+   `test_nested_path_credential_failure_is_redacted_everywhere` drives the real
+   source constructor plus the real wired poller over `FakeTradesServer` faults
+   (403, 503, non-list) and asserts logs plus `status.last_error` are secret-free
+   with `proxy.example` intact and no inner host.
+3. Finding 3 (High — `logger.exception` traceback): `Pipeline.start()` re-raises
+   raw and `run_pipeline`'s `logger.exception` rendered the chained cause/context
+   even though the message argument was sanitized. Now a `_RedactingLogFilter`
+   attached in `run_pipeline` rewrites the record message/args and replaces the
+   attached exception with a same-type sanitized clone (redacted messages,
+   preserved cause/context chain, dropped frames, preserved trades-source
+   `status`), so the production formatter/output path renders only safe text
+   while `ValueError`/`RuntimeError` types and non-secret context survive.
+   Rewritten `test_run_pipeline_startup_failure_is_redacted` captures the real
+   rendered formatter output (message + exception + cause chain) through a real
+   handler and asserts the secret is absent. Exception classes, chaining
+   semantics, retries, and state transitions are unchanged.
+4. Finding 4 (Medium — fragment/malformed-bracket/encoded-key/punctuation):
+   fallback fragments were preserved (`#FRAG_SECRET_R14` re-emitted) and
+   unbalanced-bracket inputs passed through byte-identical. Now `_masked_suffix`
+   drops every fragment/query-residue (no raw fragment survives), malformed
+   brackets fail closed to the deterministic placeholder, `_rendered_query_pair`
+   masks any decoded key that reintroduces `&`, `=`, `?`, `#`, or `%` (encoded
+   keys can no longer decode into fresh query syntax), and the placeholder is the
+   stable `***path***` marker so repeated and composed redaction are
+   idempotent (`redact_url(redact_url(x)) == redact_url(x)` and
+   `redact_text(redact_url(x)) == redact_url(x)` over the governed corpus).
+   The report's exact fragment (`https://user:pw@h/p@th#FRAG_SECRET_R14`) and
+   bracket (`https://[::1/v2/PATH_SECRET_R14`) examples mask without re-emitting
+   input. New `test_governed_corpus_is_fail_closed_and_idempotent` pins the
+   corpus (nested, bracket, fragment, encoded-key, IPv6, punctuation forms).
+5. Finding 5 (Medium — weak tests): the publisher secret never entered the
+   decimal-conversion error, the CLOB test sanitized a hand-built string, and
+   the WebSocket test replaced `_connect` plus its own store. Now the publisher
+   test feeds the credential-bearing URL through the real `outcome_index`
+   `int()` error path of `_parse_stream_entry`; the CLOB test drives the real
+   `ClobClient.get_market` retry path over `FakeBaseClobClient` with a raising
+   backend and asserts the production warning plus context; the WebSocket test
+   patches only the `ws_connect` transport boundary and drives the real
+   `_connect` log/store/raise sites. The vacuous `or True` assertion in
+   `test_trades_source.py:376` is removed. Every new round-12 `type: ignore` is
+   removed (dispatcher fake now subclasses `AlertHistory`; Redis failure
+   injection uses instance attribute assignment through `__dict__`; remaining
+   private-attribute writes use `__dict__`); zero `type: ignore` remain in
+   `tests/test_redaction.py`, `tests/ingestor/test_trades_source.py`, and
+   `tests/ingestor/test_trade_poller.py`.
+6. Evidence: this §13 is appended only; G-033's six-column structure is not
+   edited here — the round-15 disposition is recorded in this section and bound
+   to the final commit SHA below, superseding §12's "no secret characters are
+   re-emitted" generalization, the "already sanitized" reason for the five
+   parent passes, the `#SECRET.` → `#***` illustration (actual output `#***.`),
+   and the `getMessage()`-only traceback boundary claim.
+
+Verification (post-fix, exact commands; raw logs under
+`/home/dev/dispatch-state/polymarket-slice003-muse-correction-r15-20260911/evidence/`):
+- Regression-red probes on exact start head (config NFKC leak ×2 vars, nested
+  leak, fragment/bracket leak, traceback leak): `regression-red-probes.log`.
+- Targeted suites (config/main/redaction/trades/poller): 251 passed
+  (`targeted.log`).
+- AST test-quality policy: 29 passed (`ast-policy.log`).
+- Static profile: PASS (`verify-static.log`).
+- Compatibility profile: PASS, 1312 passed, 3 skipped (`verify-compatibility.log`).
+- Services profile via `uv run --env-file .env python scripts/verify.py --profile services`:
+  PASS — probe, 45 redis-contract (fake+real), migrations up/down/re-up with
+  disposable-database cleanup (`verify-services-envfile.log`). Bare
+  `verify.py --profile services` without the env file exits 2 naming the missing
+  service URLs before any check (`verify-services.log`); no shared/prod
+  infrastructure was mutated.
+- Full suite: 1312 passed, 3 skipped (2 PostgreSQL-gated, 1 Windows-specific).
+- Python 3.11 and 3.12 isolated matrices: 1312 passed, 3 skipped each
+  (`matrix-py3.11.log`, `matrix-py3.12.log`).
+- Branch coverage: TOTAL 93% (`coverage.log`).
+- Black: 121 files unchanged; Ruff: clean; strict mypy (py3.11): clean;
+  Pyright: 0 errors; Vulture: clean; Complexipy fail-closed launcher: PASS;
+  `uv lock --check` (via lock gate): PASS; `git diff --check`: clean.

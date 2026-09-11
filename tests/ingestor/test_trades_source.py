@@ -373,7 +373,7 @@ class TestClassification:
         assert str(status) in str(excinfo.value)
         assert "trades.invalid" in str(excinfo.value)
         assert "***path***" in str(excinfo.value)
-        assert "secret" not in str(excinfo.value).lower() or True
+        assert "secret" not in str(excinfo.value).lower()
         assert "?" not in str(excinfo.value)
         assert len(server.requests) == 1
 

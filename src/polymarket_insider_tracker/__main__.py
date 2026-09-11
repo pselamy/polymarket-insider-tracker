@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import logging.config
 import sys
@@ -188,11 +189,92 @@ def _format_error_field(loc: tuple[int | str, ...]) -> str:
     return ".".join(str(part) for part in loc)
 
 
+def _sanitized_validation_message(msg: str) -> str:
+    """Render a config-validation diagnostic without echoing raw input.
+
+    Pydantic and ``urlsplit`` error text interpolates the supplied value
+    (netloc/userinfo/path), which may carry a credential. The diagnostic keeps
+    the safe failure class but never the raw input or the raw exception message.
+    """
+    lowered = msg.lower()
+    if _is_host_component_failure(lowered):
+        return "invalid host component: contains characters rejected by URL normalization"
+    return _classified_validation_message(lowered)
+
+
+def _classified_validation_message(lowered: str) -> str:
+    """Map the failure class to its safe message without echoing the value."""
+    scheme_message = _scheme_failure_message(lowered)
+    if scheme_message is not None:
+        return scheme_message
+    return _non_scheme_validation_message(lowered)
+
+
+_NON_SCHEME_VALIDATION_MESSAGES: tuple[tuple[str, str], ...] = (
+    ("hostname", "must include a valid hostname"),
+    ("port", "has an invalid port"),
+)
+
+
+def _non_scheme_validation_message(lowered: str) -> str:
+    """Safe messages for hostname, port, database, and generic URL failures."""
+    direct = _direct_marker_message(lowered)
+    if direct is not None:
+        return direct
+    return _url_shape_validation_message(lowered)
+
+
+def _direct_marker_message(lowered: str) -> str | None:
+    """Hostname/port markers map one-to-one to their safe message."""
+    for marker, message in _NON_SCHEME_VALIDATION_MESSAGES:
+        if marker in lowered:
+            return message
+    return None
+
+
+def _url_shape_validation_message(lowered: str) -> str:
+    """Database, generic URL, and fallback messages without echoing the value."""
+    if _is_database_url_failure(lowered):
+        return "is not a valid PostgreSQL URL"
+    if "url" in lowered and ("valid" in lowered or "scheme" in lowered):
+        return "is not a valid URL"
+    return "has an invalid value"
+
+
+def _is_host_component_failure(lowered: str) -> bool:
+    """URL normalization rejected the host component carrying the raw value."""
+    return "nfkc" in lowered or "invalid characters" in lowered or "netloc" in lowered
+
+
+_SCHEME_FAILURE_MESSAGES: tuple[tuple[str, str], ...] = (
+    ("nested", "malformed nested scheme in its host component"),
+    ("redis", "must start with redis://"),
+    ("websocket", "must start with ws:// or wss://"),
+    ("ws://", "must start with ws:// or wss://"),
+    ("wss://", "must start with ws:// or wss://"),
+)
+
+
+def _scheme_failure_message(lowered: str) -> str | None:
+    """The safe scheme expectation, or None when the message is not scheme-shaped."""
+    for marker, message in _SCHEME_FAILURE_MESSAGES:
+        if marker in lowered:
+            return message
+    if "http" in lowered and "endpoint" in lowered:
+        return "must be an HTTP(S) endpoint"
+    return None
+
+
+def _is_database_url_failure(lowered: str) -> bool:
+    """The message is about the PostgreSQL URL shape, not its secret value."""
+    return "database" in lowered and ("valid" in lowered or "postgresql" in lowered)
+
+
 def _print_validation_errors(exc: ValidationError) -> None:
     print("Configuration validation failed:", file=sys.stderr)
     for error in exc.errors():
         field = _format_error_field(error["loc"])
-        msg = error["msg"]
+        msg = _sanitized_validation_message(str(error["msg"]))
         print(f"  {field}: {msg}", file=sys.stderr)
 
 
@@ -323,6 +405,103 @@ async def _stop_pipeline_within(stopper: _SingleStopGuard, timeout: float) -> bo
     return False
 
 
+class _RedactingLogFilter(logging.Filter):
+    """Scrub rendered log records so tracebacks cannot re-emit URL secrets.
+
+    ``logger.exception`` renders the exception chain and traceback from the raw
+    exception object even when the message argument is pre-sanitized. The
+    filter rewrites the record's message arguments and, when an exception is
+    attached, replaces the exception with a sanitized clone carrying the same
+    type and a redacted message, so formatters render only safe text.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        _redact_record_message(record)
+        _redact_record_args(record)
+        _redact_record_exc_info(record)
+        return True
+
+
+def _redact_record_message(record: logging.LogRecord) -> None:
+    """Scrub the record's format string so static text cannot carry a URL."""
+    record.msg = redact_text(str(record.msg))
+
+
+def _redact_record_args(record: logging.LogRecord) -> None:
+    """Scrub %-style arguments; non-string arguments pass through untouched."""
+    if isinstance(record.args, tuple):
+        record.args = tuple(map(_redacted_arg, record.args))
+    elif isinstance(record.args, dict):
+        record.args = {key: _redacted_arg(value) for key, value in record.args.items()}
+
+
+def _redacted_arg(arg: object) -> object:
+    if isinstance(arg, str):
+        return redact_text(arg)
+    return arg
+
+
+def _redact_record_exc_info(record: logging.LogRecord) -> None:
+    """Replace the attached exception with its sanitized clone and no frames."""
+    if record.exc_info and record.exc_info[0] is not None:
+        record.__dict__["exc_info"] = _sanitized_exc_info(record.exc_info)
+
+
+def _sanitized_exc_info(
+    exc_info: tuple[type[BaseException] | None, BaseException | None, object | None],
+) -> tuple[type[BaseException] | None, BaseException | None, object | None]:
+    """Clone the exception chain with redacted messages, preserving types."""
+    exc_type, exc_value, _traceback = exc_info
+    if exc_value is None:
+        return (exc_type, exc_value, None)
+    return (exc_type, _sanitized_exception(exc_value), None)
+
+
+def _sanitized_exception(exc: BaseException) -> BaseException:
+    """A same-type clone whose message and cause/context chain are redacted."""
+    clone = _clone_with_redacted_message(exc)
+    clone.__cause__ = _sanitized_cause(exc.__cause__)
+    clone.__context__ = _sanitized_cause(exc.__context__)
+    clone.__suppress_context__ = exc.__suppress_context__
+    return clone
+
+
+def _sanitized_cause(cause: BaseException | None) -> BaseException | None:
+    if cause is None:
+        return None
+    return _sanitized_exception(cause)
+
+
+def _clone_with_redacted_message(exc: BaseException) -> BaseException:
+    """Clone ``exc`` with every positional message argument redacted as text."""
+    redacted_args = tuple(_redacted_arg(arg) for arg in exc.args)
+    try:
+        clone = type(exc)(*redacted_args)
+    except Exception:
+        return _fallback_sanitized_error(exc)
+    _carry_status(clone, exc)
+    return clone
+
+
+def _fallback_sanitized_error(exc: BaseException) -> BaseException:
+    """A plain error carrying only redacted text when the type resists cloning."""
+    clone = RuntimeError(redact_text(str(exc)))
+    clone.__cause__ = exc
+    return clone
+
+
+def _carry_status(clone: BaseException, exc: BaseException) -> None:
+    """Preserve the trades-source HTTP status on the sanitized clone."""
+    if exc.__dict__.get("status") is not None:
+        _set_cloned_status(clone, exc)
+
+
+def _set_cloned_status(clone: BaseException, exc: BaseException) -> None:
+    """Copy the status attribute without disturbing the clone's type."""
+    with contextlib.suppress(AttributeError, TypeError):
+        object.__setattr__(clone, "status", exc.__dict__.get("status"))
+
+
 async def run_pipeline(
     settings: Settings,
     dry_run: bool,
@@ -343,6 +522,7 @@ async def run_pipeline(
         Exit code.
     """
     logger = logging.getLogger(__name__)
+    logger.addFilter(_RedactingLogFilter())
     shutdown = GracefulShutdown(timeout=shutdown_timeout)
 
     try:
