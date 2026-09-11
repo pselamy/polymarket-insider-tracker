@@ -59,6 +59,9 @@ MAX_INVALID_DIAGNOSTICS_PER_CYCLE = 5
 STATUS_LOSS_EVENTS = 5
 _WALLET_PATTERN = re.compile(r"0x[0-9a-fA-F]{40}")
 _QUERY_PATTERN = re.compile(r"\?[^\s]*")
+_BARE_PORT_TOKEN_PATTERN = re.compile(
+    r"[Ii]nvalid port:\s*'[^'\s]+'|[Pp]ort (?:could not be cast|out of range)[^\n]*"
+)
 
 TradeCallback = Callable[[TradeEvent], Awaitable[None]]
 Clock = Callable[[], float]
@@ -258,9 +261,18 @@ def redact_error(text: str) -> str:
 
     The legacy wallet/query scrub keeps non-secret operational context
     readable; every URL-shaped value (including a credential-bearing trades
-    endpoint path) goes through the central fail-closed policy first.
+    endpoint path) goes through the central fail-closed policy first, and a
+    bare non-URL diagnostic that names a value the URL layer cannot see
+    (for example an httpx ``Invalid port`` quoting the token) is masked to
+    its failure class.
     """
-    return _WALLET_PATTERN.sub("0x…", _QUERY_PATTERN.sub("?…", redact_text(text)))
+    scrubbed = _WALLET_PATTERN.sub("0x…", _QUERY_PATTERN.sub("?…", redact_text(text)))
+    return _mask_bare_port_token(scrubbed)
+
+
+def _mask_bare_port_token(text: str) -> str:
+    """Mask a quoted port-shaped token in a non-URL error diagnostic."""
+    return _BARE_PORT_TOKEN_PATTERN.sub("invalid request port: '***'", text)
 
 
 def _utc(timestamp: float | None) -> datetime | None:

@@ -38,11 +38,45 @@ def _check_nested_schemes(netloc: str, name: str) -> None:
             raise ValueError(f"{name} contains a malformed nested scheme in its host component")
 
 
+def _check_port(value: str, name: str) -> None:
+    """Reject a URL whose port is non-numeric or out of range.
+
+    The token after the host colon may itself be a credential (a mistyped
+    ``host:key`` for ``host/key``); it must be rejected at validation so it
+    never reaches config output, logs, or status, and the message keeps only
+    the failure class, never the raw value.
+    """
+    netloc = urlsplit(value).netloc
+    if _is_port_check_exempt(netloc):
+        return
+    _reject_bad_port(value, name)
+
+
+def _is_port_check_exempt(netloc: str) -> bool:
+    """Shapes the port check cannot attribute: userinfo, brackets, or no colon."""
+    if "@" in netloc:
+        return True
+    if "[" in netloc or "]" in netloc:
+        return True
+    return ":" not in netloc
+
+
+def _reject_bad_port(value: str, name: str) -> None:
+    """Raise the fixed invalid-port message when the probe fails."""
+    try:
+        port = urlsplit(value).port
+    except ValueError:
+        raise ValueError(f"{name} has an invalid port") from None
+    if port is not None and not 0 <= port <= 65535:
+        raise ValueError(f"{name} has an invalid port")
+
+
 def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: str) -> str:
     _check_url_scheme(value, allowed_schemes, name)
     parts = urlsplit(value)
     if not parts.hostname:
         raise ValueError(f"{name} must include a valid hostname")
+    _check_port(value, name)
     _check_nested_schemes(parts.netloc, name)
     return value
 
@@ -54,6 +88,7 @@ def _validate_redis_url(value: str) -> str:
     parts = urlsplit(value)
     if not parts.hostname:
         raise ValueError("REDIS_URL must include a valid hostname")
+    _check_port(value, "REDIS_URL")
     return value
 
 

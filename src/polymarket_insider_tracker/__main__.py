@@ -411,8 +411,9 @@ class _RedactingLogFilter(logging.Filter):
     ``logger.exception`` renders the exception chain and traceback from the raw
     exception object even when the message argument is pre-sanitized. The
     filter rewrites the record's message arguments and, when an exception is
-    attached, replaces the exception with a sanitized clone carrying the same
-    type and a redacted message, so formatters render only safe text.
+    attached, replaces the exception with a sanitized clone whose messages and
+    notes are redacted text (non-string arguments become the placeholder) and
+    whose traceback frames are dropped, so formatters render only safe text.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -436,9 +437,16 @@ def _redact_record_args(record: logging.LogRecord) -> None:
 
 
 def _redacted_arg(arg: object) -> object:
+    """Scrub one log/exception argument; only plain strings have safe redaction.
+
+    Containers (dicts, lists, tuples, bytes) may carry a credential in a shape
+    ``redact_text`` cannot see as a URL, and rebuilding an exception from raw
+    containers would re-emit them verbatim in the formatted traceback. Such
+    arguments are replaced by the deterministic placeholder.
+    """
     if isinstance(arg, str):
         return redact_text(arg)
-    return arg
+    return "***"
 
 
 def _redact_record_exc_info(record: logging.LogRecord) -> None:
@@ -458,12 +466,22 @@ def _sanitized_exc_info(
 
 
 def _sanitized_exception(exc: BaseException) -> BaseException:
-    """A same-type clone whose message and cause/context chain are redacted."""
+    """A sanitized clone whose message, notes, and cause/context chain are redacted."""
     clone = _clone_with_redacted_message(exc)
+    _copy_redacted_notes(clone, exc)
     clone.__cause__ = _sanitized_cause(exc.__cause__)
     clone.__context__ = _sanitized_cause(exc.__context__)
     clone.__suppress_context__ = exc.__suppress_context__
     return clone
+
+
+def _copy_redacted_notes(clone: BaseException, exc: BaseException) -> None:
+    """Copy exception notes as redacted text; non-string notes become the placeholder."""
+    notes = getattr(exc, "__notes__", None)
+    if not notes:
+        return
+    for note in list(notes):
+        clone.add_note(_redacted_note(note))
 
 
 def _sanitized_cause(cause: BaseException | None) -> BaseException | None:
@@ -472,8 +490,21 @@ def _sanitized_cause(cause: BaseException | None) -> BaseException | None:
     return _sanitized_exception(cause)
 
 
+def _redacted_note(note: object) -> str:
+    """One exception note as safe text; only strings have redactable structure."""
+    if isinstance(note, str):
+        return redact_text(note)
+    return "***"
+
+
 def _clone_with_redacted_message(exc: BaseException) -> BaseException:
-    """Clone ``exc`` with every positional message argument redacted as text."""
+    """Clone ``exc`` with redacted positional message arguments.
+
+    ``TradesSourceError`` subclasses take keyword-only ``status``/``kind``/
+    ``reason``, so a blind positional rebuild always raises and would lose the
+    clone; such constructor shapes fall back to plain redacted text instead of
+    a misleading same-type claim.
+    """
     redacted_args = tuple(_redacted_arg(arg) for arg in exc.args)
     try:
         clone = type(exc)(*redacted_args)
@@ -491,7 +522,7 @@ def _fallback_sanitized_error(exc: BaseException) -> BaseException:
 
 
 def _carry_status(clone: BaseException, exc: BaseException) -> None:
-    """Preserve the trades-source HTTP status on the sanitized clone."""
+    """Copy a ``status`` attribute onto the sanitized clone when present."""
     if exc.__dict__.get("status") is not None:
         _set_cloned_status(clone, exc)
 

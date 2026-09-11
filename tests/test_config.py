@@ -292,6 +292,47 @@ class TestPolygonSettings:
 
         assert "TOPSECRET" not in str(exc_info.value)
 
+    @pytest.mark.parametrize(
+        "validator_name",
+        ["_validate_http_url", "_validate_redis_url"],
+    )
+    def test_invalid_port_rejected_without_echoing_the_token(self, validator_name: str) -> None:
+        """A ``host:token`` typo is an invalid port, not a diagnosable endpoint."""
+        import polymarket_insider_tracker.config as config_module
+
+        validator = getattr(config_module, validator_name)
+        secret_url = (
+            "https://host:PORTSHAPEDTOKEN_R16/v2/x"
+            if validator_name == "_validate_http_url"
+            else "redis://host:PORTSHAPEDTOKEN_R16/0"
+        )
+
+        with pytest.raises(ValueError) as exc_info:
+            validator(secret_url)
+
+        message = str(exc_info.value)
+        assert "PORTSHAPEDTOKEN_R16" not in message
+        assert secret_url not in message
+        assert "port" in message.lower()
+
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "https://host:PORTSHAPEDTOKEN_R16/v2/x",
+            "https://host:99999/v2/x",
+        ],
+    )
+    def test_settings_reject_invalid_port_without_echo(self, bad_url: str) -> None:
+        """The pydantic rendering of an invalid-port failure hides the raw token."""
+        with (
+            env_context({"POLYGON_RPC_URL": bad_url}),
+            pytest.raises(ValidationError) as exc_info,
+        ):
+            PolygonSettings()
+
+        assert "PORTSHAPEDTOKEN_R16" not in str(exc_info.value)
+        assert "99999" not in str(exc_info.value)
+
 
 TRADES_REPLACEMENT_VARIABLES = (
     "POLYMARKET_TRADES_URL",

@@ -138,6 +138,44 @@ class TestValidateConfig:
         assert "TOPSECRET" not in captured.err
         assert "TOPSECRET" not in captured.out
 
+    @pytest.mark.parametrize(
+        "env_name",
+        ["POLYGON_RPC_URL", "POLYMARKET_TRADES_URL", "REDIS_URL"],
+    )
+    def test_nfkc_poisoned_url_never_echoes_a_credential(
+        self, monkeypatch, capsys, env_name: str
+    ) -> None:
+        """Round-14 High: an NFKC-rejected URL with a secret is mapped to a fixed message."""
+        from polymarket_insider_tracker.__main__ import _sanitized_validation_message
+
+        secret = "CONFIGNFKCSECRET_R16"
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://data-api.polymarket.com/trades")
+        monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
+        if env_name == "REDIS_URL":
+            poisoned = f"redis://user:{secret}@host\uff0foops/0"
+        else:
+            poisoned = f"https://user:{secret}@host\uff0foops/path"
+        monkeypatch.setenv(env_name, poisoned)
+
+        settings = validate_config()
+        assert settings is None
+
+        captured = capsys.readouterr()
+        assert "Configuration validation failed" in captured.err
+        assert secret not in captured.err
+        assert secret not in captured.out
+        assert "invalid host component" in captured.err
+
+        message = _sanitized_validation_message(
+            "netloc 'host\uff0foops' contains invalid characters under NFKC normalization"
+        )
+        assert secret not in message
+        assert message == (
+            "invalid host component: contains characters rejected by URL normalization"
+        )
+
 
 class TestRunConfigCheck:
     """Tests for config check mode."""

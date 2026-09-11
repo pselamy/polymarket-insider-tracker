@@ -237,9 +237,10 @@ class TestAmbiguousUrlShapes:
 
             assert secret not in redacted
             assert "meta.example" in redacted
-            assert (
-                redact_url(redacted.split("(see ")[1].split(") end")[0].rstrip(".,)!]")) is not None
-            )
+            round_tripped = redact_url(redacted.split("(see ")[1].split(") end")[0].rstrip(".,)!]"))
+            assert round_tripped == redact_text(round_tripped)
+            assert secret not in round_tripped
+            assert "meta.example" in round_tripped
 
     @pytest.mark.parametrize(
         "url",
@@ -254,6 +255,9 @@ class TestAmbiguousUrlShapes:
             "https://h/v2/KEY@prod.",
             "https://user:pw@[2001:db8::1]:8443/v2/K",
             "https://[2001:db8::1]:8443/v2/K",
+            "https://host:PORTSHAPEDTOKEN_R16/v2/x",
+            "https://host:99999/v2/x",
+            "redis://host:PORTSHAPEDTOKEN_R16/0",
         ],
     )
     def test_governed_corpus_is_fail_closed_and_idempotent(self, url: str) -> None:
@@ -266,10 +270,12 @@ class TestAmbiguousUrlShapes:
             "PATH_SECRET_R15",
             "FRAG_SECRET_R15",
             "NESTED_PATH_SECRET_R15",
+            "PORTSHAPEDTOKEN_R16",
+            "99999",
             "KEY@prod",
             "#FRAG",
         ):
-            assert token not in once
+            assert token not in once.replace("***path***", "")
         assert twice == once
         assert composed == once
 
@@ -1043,6 +1049,148 @@ class TestTradesBoundaryRedaction:
         assert poller.status.state in (IngestionState.DEGRADED, IngestionState.FAILED)
 
 
+class TestInvalidPortShapeRedaction:
+    """Round-16 N-R16-1: a ``host:token`` typo never survives config output, logs, or status.
+
+    The real product chain is exercised: ``redact_url`` label, the poller
+    ``redact_error``/``_degrade`` log-and-status path over a real ``TradePoller``
+    wired with ``FakeAsyncRedis``, and real ``Settings`` validation rejection.
+    """
+
+    PORTSHAPED_SECRET = "PORTSHAPEDTOKEN_R16_PROBE"
+
+    def test_invalid_port_label_is_fail_closed_and_idempotent(self) -> None:
+        url = f"https://host:{self.PORTSHAPED_SECRET}/v2/x"
+
+        once = redact_url(url)
+
+        assert self.PORTSHAPED_SECRET not in once
+        assert "host" in once
+        assert "***" in once
+        assert redact_url(once) == once
+        assert redact_text(once) == once
+
+    def test_malformed_and_encoded_values_are_fail_closed(self) -> None:
+        label = redact_text("https://host:%50%4F%52%54%54%4F%4B%45%4E/v2/x")
+
+        assert label == "https://host/***path***"
+        assert redact_url(label) == label
+        assert redact_text(label) == label
+
+    def test_settings_reject_port_shaped_credential_without_echo(self) -> None:
+        from pydantic import ValidationError
+
+        from polymarket_insider_tracker.config import PolymarketSettings
+
+        with pytest.raises(ValidationError) as exc_info:
+            PolymarketSettings(POLYMARKET_TRADES_URL=f"https://host:{self.PORTSHAPED_SECRET}/v2/x")
+
+        assert self.PORTSHAPED_SECRET not in str(exc_info.value)
+        assert "port" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_invalid_port_error_text_cannot_leak_through_poller(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from polymarket_insider_tracker.ingestor.trade_poller import (
+            IngestionState,
+            redact_error,
+        )
+        from tests.fakes import (
+            FakeClock,
+            FakeEth,
+            FakeTradesServer,
+            make_test_settings,
+            trade_row,
+            wire_pipeline,
+        )
+
+        invalid_port_text = f"Invalid port: '{self.PORTSHAPED_SECRET}'"
+        assert self.PORTSHAPED_SECRET not in redact_error(invalid_port_text)
+        assert self.PORTSHAPED_SECRET not in redact_text(redact_error(invalid_port_text))
+
+        settings = make_test_settings(trades_url="https://trades.invalid/trades")
+        clock = FakeClock(1_788_983_720.0)
+        server = FakeTradesServer(clock=clock)
+        pipeline = await wire_pipeline(
+            settings, redis=FakeAsyncRedis(), eth=FakeEth(), trades=server, poll_clock=clock
+        )
+        poller = pipeline._trade_poller
+        assert poller is not None
+        server.publish(trade_row(timestamp=1_788_983_719, transaction=1))
+        await poller.run_cycle()
+
+        poller.__dict__["_client"].__dict__["_url"] = f"https://host:{self.PORTSHAPED_SECRET}/v2/x"
+        with caplog.at_level(logging.WARNING):
+            caplog.clear()
+            await poller.run_cycle()
+
+        last_error = poller.status.last_error or ""
+        assert self.PORTSHAPED_SECRET not in last_error
+        assert self.PORTSHAPED_SECRET not in caplog.text
+        assert poller.status.state is IngestionState.DEGRADED
+
+
+class TestNonStringExceptionArgRedaction:
+    """Round-16 N-R16-2: container/bytes exception args cannot bypass the traceback filter.
+
+    The real ``_RedactingLogFilter`` plus the production formatter render the
+    boundary-injected chain; dict/list/bytes payloads become the placeholder
+    while string messages keep their redacted URL structure.
+    """
+
+    NONSTR_SECRET = "NONSTRING_ARG_SECRET_R16"
+
+    def _rendered(self, exc: BaseException) -> str:
+        import logging as stdlib_logging
+
+        from polymarket_insider_tracker.__main__ import _RedactingLogFilter
+
+        record = stdlib_logging.LogRecord(
+            name="probe",
+            level=stdlib_logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="Pipeline failed: %s",
+            args=("boom",),
+            exc_info=(type(exc), exc, None),
+        )
+        assert _RedactingLogFilter().filter(record) is True
+        return stdlib_logging.Formatter("%(message)s %(exc_text)s").format(record)
+
+    def test_container_and_bytes_args_become_the_placeholder(self) -> None:
+        exc = RuntimeError(
+            {"url": f"https://x.internal?k={self.NONSTR_SECRET}"},
+            [f"https://y.internal/v2/{self.NONSTR_SECRET}"],
+            f"prefix-{self.NONSTR_SECRET}-suffix".encode(),
+        )
+        exc.add_note(f"note https://n.internal?k={self.NONSTR_SECRET}")
+        exc.__dict__.setdefault("__notes__", list(exc.__notes__)).append(
+            {"nested": self.NONSTR_SECRET}
+        )
+
+        rendered = self._rendered(exc)
+
+        assert self.NONSTR_SECRET not in rendered
+        assert rendered.count("***") >= 4
+        assert "RuntimeError" in rendered
+
+    def test_full_exception_graph_stays_redacted(self) -> None:
+        inner = ValueError(f"inner https://i.internal/v2/{self.NONSTR_SECRET}")
+        middle = RuntimeError({"mid": self.NONSTR_SECRET})
+        middle.__cause__ = inner
+        outer = RuntimeError(f"outer https://o.internal?k={self.NONSTR_SECRET}")
+        outer.__cause__ = middle
+        outer.__context__ = TypeError((f"https://c.internal/{self.NONSTR_SECRET}",))
+        outer.__dict__.setdefault("__notes__", []).append(b"bytes-note")
+
+        rendered = self._rendered(outer)
+
+        assert self.NONSTR_SECRET not in rendered
+        assert "ValueError" in rendered
+        assert "RuntimeError" in rendered
+
+
 class TestAdjacentSinkRedaction:
     """Round-12 N2/N4: every production-reachable raw-exception sink sanitizes.
 
@@ -1231,57 +1379,38 @@ class TestAdjacentSinkRedaction:
     async def test_dispatcher_claim_failures_are_redacted(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
+        from fakeredis import FakeAsyncRedis as FakeClaimRedis
+
         from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher
         from polymarket_insider_tracker.alerter.history import AlertHistory
 
-        class LeakyHistory(AlertHistory):
-            def __init__(self) -> None:
-                super().__init__(redis=None)
+        failing_redis = FakeClaimRedis()
+        history = AlertHistory(redis=failing_redis)
 
-            async def is_channel_suppressed(
-                self, channel: str, wallet: str, market: str
-            ) -> tuple[bool, str | None]:
-                _ = (channel, wallet, market)
-                raise RuntimeError(
-                    f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}"
-                )
+        async def leaky_read(_key: str) -> object:
+            raise RuntimeError(f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}")
 
-            async def claim_channel_send(
-                self, channel: str, wallet: str, market: str, ttl: int = 60
-            ) -> str | None:
-                _ = (channel, wallet, market, ttl)
-                raise RuntimeError(
-                    f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}"
-                )
+        failing_redis.__dict__["exists"] = leaky_read
 
-            async def release_channel_claim(
-                self, channel: str, wallet: str, market: str, token: str
-            ) -> bool:
-                _ = (channel, wallet, market, token)
-                raise RuntimeError(
-                    f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}"
-                )
+        async def leaky_write(_key: str, *_args: object, **_kwargs: object) -> object:
+            raise RuntimeError(f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}")
 
-            async def record_channel_delivery(
-                self, channel: str, wallet: str, market: str, ttl: int | None = None
-            ) -> None:
-                _ = (channel, wallet, market, ttl)
-                raise RuntimeError(
-                    f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}"
-                )
-
-        dispatcher = AlertDispatcher(channels=[], history=LeakyHistory())
+        failing_redis.__dict__["set"] = leaky_write
+        dispatcher = AlertDispatcher(channels=[], history=history)
         with caplog.at_level(logging.WARNING):
             caplog.clear()
             assert await dispatcher._check_channel_suppression("discord", "w", "m") is None
             claim, _ = await dispatcher._claim_channel("discord", "w", "m")
             assert claim == "unverified"
-            await dispatcher._release_claim("discord", "w", "m", "token")
-            await dispatcher._record_channel_outcome("discord", "delivered", "w", "m", "token")
+
+        failing_redis.__dict__["set"] = leaky_write
+        await dispatcher._release_claim("discord", "w", "m", "token")
+        await dispatcher._record_channel_outcome("discord", "delivered", "w", "m", "token")
 
         assert DISPATCHER_SECRET not in caplog.text
         assert "***" in caplog.text
         assert "Deduplication check unavailable" in caplog.text
+        assert "Delivery claim unavailable" in caplog.text
 
     @pytest.mark.asyncio
     async def test_websocket_connect_failure_is_redacted(

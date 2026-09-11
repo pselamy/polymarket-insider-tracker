@@ -106,68 +106,8 @@ def _safe_scheme_prefix(scheme: str) -> str:
     return ""
 
 
-def _masked_tail(tail: str) -> str:
-    """Mask a fallback path tail, which may itself contain ``@`` segments."""
-    if tail.startswith("/"):
-        return "/" + MASK
-    return tail
-
-
-def _masked_suffix(suffix: str) -> str:
-    """Mask the suffix fail-closed: no raw fragment or malformed text survives."""
-    if not suffix:
-        return ""
-    if suffix.startswith("?"):
-        return f"?{MASK}"
-    return ""
-
-
-def _first_userinfo_at(url: str) -> int:
-    """Index of the first ``@`` that can delimit fallback userinfo, else -1."""
-    start = url.find("://") + 3 if "://" in url else 0
-    return url.find("@", start)
-
-
-def _path_end(url: str, slash: int) -> int:
-    """Index where the fallback path stops (before any query/fragment)."""
-    end = len(url)
-    for delimiter in ("?", "#"):
-        found = url.find(delimiter, slash)
-        if found >= 0:
-            end = min(end, found)
-    return end
-
-
-def _mask_post_userinfo_path(url: str) -> str:
-    """Mask the path after the ``@``-delimited embedded host in a fallback.
-
-    The fail-closed fallback emits the deterministic placeholder directly;
-    this helper documents the shape-based alternative and stays exercised by
-    the suite so the policy's structural reasoning remains covered.
-    """
-    at = _first_userinfo_at(url)
-    if at < 0:
-        return f"{url.split('://', 1)[0]}://{_AMBIGUOUS_MASK}" if "://" in url else _AMBIGUOUS_MASK
-    slash = url.find("/", at)
-    if slash < 0:
-        return _AMBIGUOUS_MASK
-    end = _path_end(url, slash)
-    return url[:slash] + _masked_tail(url[slash:end]) + _masked_suffix(url[end:])
-
-
-def _mask_post_userinfo_path_examples() -> tuple[str, str]:
-    """Reference outputs keeping the shape helper covered without re-emitting secrets."""
-    return (
-        _mask_post_userinfo_path("wss://user:pw@host/v2/key"),
-        _mask_post_userinfo_path("wss://host-without-userinfo"),
-    )
-
-
-_MASK_POST_USERINFO_PATH_EXAMPLES = _mask_post_userinfo_path_examples()
-
-
 def _masked_netloc(netloc: str, username: str | None, password: str | None) -> str:
-    """Mask userinfo credentials while keeping the host (and port) readable."""
+    """Mask userinfo credentials while keeping a validated host (and port) readable."""
     if "@" not in netloc:
         return netloc
     host = netloc.rpartition("@")[2]
@@ -192,19 +132,54 @@ def redact_url(url: str) -> str:
     plus host (and port when present) so the endpoint stays diagnosable, while
     the path itself is never emitted. Nested-scheme shapes (``://`` inside the
     parsed path, a split ``netloc == "scheme:"`` with a ``//`` path, or any
-    ``@`` the structured parser cannot attribute to real netloc userinfo) and
-    bracket/IPv6-malformed inputs fail closed through the same placeholder.
+    ``@`` the structured parser cannot attribute to real netloc userinfo),
+    bracket/IPv6-malformed inputs, and netlocs with an invalid port all fail
+    closed through the same placeholder.
     """
     try:
         parts = urlsplit(url)
     except ValueError:
         return _fallback_redaction(url)
+    if _is_invalid_port_shape(parts):
+        return _fail_closed_label(url, parts)
     if _is_fail_closed_shape(parts):
         return _fail_closed_label(url, parts)
     netloc = _masked_netloc(parts.netloc, parts.username, parts.password)
     query = _redacted_query(parts.query) if parts.query else ""
     fragment = MASK if parts.fragment else ""
     return urlunsplit((parts.scheme, netloc, _masked_path(parts.path), query, fragment))
+
+
+def _is_invalid_port_shape(parts: object) -> bool:
+    """A netloc whose port is non-numeric or out of range is fail-closed.
+
+    The token after the host colon may itself be the credential (a mistyped
+    ``host:key`` for ``host/key``); accessing ``parts.port`` raises
+    ``ValueError`` for exactly this shape, so probing it is both the detector
+    and the proof that the port is not a diagnosable endpoint label.
+    """
+    netloc = str(getattr(parts, "netloc", ""))
+    if _is_port_probe_exempt(netloc):
+        return False
+    return _port_probe_fails(parts)
+
+
+def _is_port_probe_exempt(netloc: str) -> bool:
+    """Shapes the port probe cannot attribute: userinfo, brackets, or no colon."""
+    if "@" in netloc:
+        return True
+    if "[" in netloc or "]" in netloc:
+        return True
+    return ":" not in netloc
+
+
+def _port_probe_fails(parts: object) -> bool:
+    """The port probe raises, or resolves outside the valid range."""
+    try:
+        port = getattr(parts, "port", None)
+    except ValueError:
+        return True
+    return port is not None and not 0 <= port <= 65535
 
 
 def _is_fail_closed_shape(parts: object) -> bool:
@@ -231,9 +206,26 @@ def _fail_closed_label(url: str, parts: object) -> str:
         return _fallback_redaction(url)
     if _is_malformed_bracket_netloc(netloc, hostname):
         return _fallback_redaction(url)
+    if _is_invalid_port_shape(parts):
+        return _port_fail_closed_label(parts)
     if _is_unparseable_netloc(parts):
         return _fallback_redaction(url)
     return _nested_masked_label(scheme, netloc)
+
+
+def _port_fail_closed_label(parts: object) -> str:
+    """Mask an invalid-port shape without re-emitting the port token.
+
+    The scheme stays readable (it names which setting produced the label) and
+    the host resolves only through the safe outer-host check; a host the check
+    cannot prove safe collapses to the bare placeholder.
+    """
+    scheme = str(getattr(parts, "scheme", ""))
+    hostname = getattr(parts, "hostname", None)
+    prefix = _safe_scheme_prefix(scheme)
+    if isinstance(hostname, str) and _safe_outer_host(hostname) == hostname:
+        return f"{prefix}{hostname}/{_PATH_CREDENTIAL_MARKER}"
+    return prefix + _AMBIGUOUS_MASK
 
 
 def _is_malformed_bracket_netloc(netloc: str, hostname: str | None) -> bool:

@@ -642,3 +642,76 @@ Verification (post-fix, exact commands; raw logs under
 - Black: 121 files unchanged; Ruff: clean; strict mypy (py3.11): clean;
   Pyright: 0 errors; Vulture: clean; Complexipy fail-closed launcher: PASS;
   `uv lock --check` (via lock gate): PASS; `git diff --check`: clean.
+
+## 14. Round-16 Secrets-Boundary Correction (2026-09-11, Muse Spark writer lane)
+
+Closes the seven Fable round-16 `REVISE` findings (N-R16-1 through N-R16-7) at
+exact start head `5136875a6dd42aebc7eeea6e53f75cd19f209de4`. Prior sections
+(§1–§13) are byte-preserved; §13.3's "preserved trades-source `status`" claim
+is superseded: `TradesSourceError` subclasses take keyword-only status
+arguments, so the sanitizer clone falls back to redacted plain text instead of
+claiming same-type status preservation (N-R16-3).
+
+1. N-R16-1 (High — validation-accepted `host:token` URL leaks its port token):
+   `redact_url` now treats a netloc whose `parts.port` probe raises or resolves
+   out of range as fail-closed (`_is_invalid_port_shape`), emitting only the
+   safe host label plus placeholder (`_port_fail_closed_label`); `_check_port`
+   rejects the same shape in `_check_url_components` and `_validate_redis_url`
+   with the fixed "has an invalid port" message (no raw value). Runtime defense
+   in depth: `TradesSourceClient._built_request` converts an httpx
+   request-construction `TypeError`/`ValueError` into a transient error carrying
+   only the redacted URL label, and poller `redact_error` masks bare
+   `Invalid port: '...'` diagnostics via `_BARE_PORT_TOKEN_PATTERN` so a
+   non-URL error text can never carry the token into logs or `last_error`.
+   Request URL, retry classification, and budgets are unchanged for valid URLs.
+2. N-R16-2 (Medium — non-string exception args bypass the traceback sanitizer):
+   `_redacted_arg` maps any non-`str` argument to the deterministic placeholder,
+   `_redacted_note` does the same for exception notes, and new
+   `_copy_redacted_notes` carries notes through the sanitized clone, so dict,
+   list, tuple, and bytes payloads (plus the full cause/context/`__notes__`
+   graph) render redacted through the real filter and production formatter.
+3. N-R16-3 (Low — unreachable `_carry_status`, false preservation claim): the
+   helpers now document that keyword-only constructor shapes fall back to plain
+   redacted text; this §14 supersedes §13.3's preservation sentence.
+4. N-R16-4 (Low — fresh vacuous `is not None` assertion): the fragment test now
+   asserts round-trip stability, secret absence, and host survival instead.
+5. N-R16-5 (Low — `LeakyHistory(AlertHistory)` subclasses the product class):
+   the dispatcher test now injects failures through instance-attribute
+   assignment on a real `FakeAsyncRedis` behind a real `AlertHistory`, matching
+   the contract's narrow failure-injection allowance; no subclass remains.
+6. N-R16-6 (Medium — no committed control for the round-14 High config
+   finding): `test_nfkc_poisoned_url_never_echoes_a_credential` pins the exact
+   NFKC sanitizer mapping for `POLYGON_RPC_URL`, `POLYMARKET_TRADES_URL`, and
+   `REDIS_URL` through real `validate_config`, plus port-shape rejection tests
+   in `test_config.py` and the poller-invalid-port end-to-end test.
+7. N-R16-7 (Low — dead helper kept alive for the dead-code gate): deleted
+   `_mask_post_userinfo_path`, `_mask_post_userinfo_path_examples`,
+   `_MASK_POST_USERINFO_PATH_EXAMPLES`, `_masked_tail`, `_masked_suffix`,
+   `_first_userinfo_at`, and `_path_end` (zero references outside the deleted
+   block; Vulture passes fresh on the deletion).
+
+Verification (post-fix, exact commands, fresh unless noted):
+- `uv run python scripts/verify.py --profile static`: PASS (lock, Black, Ruff,
+  strict mypy, Pyright, Vulture, fail-closed Complexipy launcher — the new
+  `_is_invalid_port_shape`/`_check_port` were split into flat helpers to stay
+  <= 5).
+- `uv run python scripts/verify.py --profile compatibility`: PASS, 1328 passed,
+  3 skipped (py3.13 full suite; +16 vs round-15 from the new controls).
+- `uv run --env-file .env python scripts/verify.py --profile services`: PASS
+  fresh (probe, redis-contract fake+real, disposable-database migrations
+  up/down/re-up with cleanup). Missing-service behavior: not re-probed this
+  round; no `.env` was created or mutated by the writer (the file predates the
+  round and is git-ignored).
+- `RUN_SERVICE_TESTS=1 REDIS_URL=redis://localhost:6379` real-Redis contract
+  suite: 45 passed, fresh.
+- Isolated locked py3.11 targeted suites
+  (`test_redaction.py`, `test_config.py`, `test_main.py`,
+  `test_trades_source.py`): 231 passed, fresh.
+- Regression-red: the new port-shape controls fail on the start head —
+  `redact_url('https://host:PORTSHAPEDTOKEN_R16_PROBE/v2/x')` re-emits the token
+  verbatim on `5136875a` (verified via stash) and masks it post-fix; the
+  start-head suite (stashed product code) passes 172 tests that predate the new
+  controls, and the full HEAD suite passes 1328 with the new controls green.
+- No mocks, no `type: ignore` added, no skips/xfails added; `git diff --check`
+  clean. No live trading, notification, provider, secret-read, deployment,
+  push, or merge actions occurred.
