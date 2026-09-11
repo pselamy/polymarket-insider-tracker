@@ -15,14 +15,17 @@ remain.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections import ChainMap, UserDict
+from collections.abc import Callable, Iterator, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import MappingProxyType
 
 import aiohttp
 import pytest
 from fakeredis import FakeAsyncRedis
 
+from polymarket_insider_tracker.detector.scorer import RiskScorer
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
 from polymarket_insider_tracker.ingestor.models import (
     Market,
@@ -2382,6 +2385,27 @@ def _capture_console_output(emit: Callable[[], None]) -> str:
     return capture.getvalue()
 
 
+class _ReadOnlyMapping(Mapping[str, object]):
+    """A minimal non-dict ``Mapping``: exactly what ``LogRecord`` accepts.
+
+    ``UserDict``, ``ChainMap``, and ``MappingProxyType`` all reach the same
+    branch; this one proves the boundary tests the abstract class rather than
+    any particular standard-library implementation.
+    """
+
+    def __init__(self, data: Mapping[str, object]) -> None:
+        self._data = dict(data)
+
+    def __getitem__(self, key: str) -> object:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+
 class TestCachedExceptionTextBoundary:
     """Round-25 N-R25-1: a formatter cache must not bypass the console scrub.
 
@@ -2472,11 +2496,18 @@ class TestPositionalMappingArgumentRedaction:
     positional conversions actually renders per-key; any other format now
     collapses the dict to the deterministic placeholder, while named-mapping
     diagnostics keep rendering with redacted values.
+
+    Round-27 N-R27-2 corrected the collapse itself: the placeholder mapping was
+    empty and therefore falsy, and ``LogRecord.getMessage`` interpolates only
+    ``if self.args``, so the console printed the unsubstituted format string
+    instead of the mask. Every case here now asserts the complete rendered
+    line, because a secret-absence assertion alone also passes when nothing
+    interpolated at all.
     """
 
     MAPPING_SECRET = "R26_POSITIONAL_MAPPING_SECRET"
 
-    def _emit(self, message: str, args: dict[str, object]) -> str:
+    def _emit(self, message: str, args: Mapping[str, object]) -> str:
         return _capture_console_output(
             lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(message, args)
         )
@@ -2484,13 +2515,22 @@ class TestPositionalMappingArgumentRedaction:
     def test_sole_positional_dict_value_never_reaches_the_console(self) -> None:
         output = self._emit("delivery state invalid: %s", {"token": self.MAPPING_SECRET})
 
-        assert "delivery state invalid" in output
+        assert "delivery state invalid: ***" in output
         assert self.MAPPING_SECRET not in output
 
     def test_sole_positional_dict_key_never_reaches_the_console(self) -> None:
         output = self._emit("delivery state invalid: %s", {self.MAPPING_SECRET: "queued"})
 
-        assert "delivery state invalid" in output
+        assert "delivery state invalid: ***" in output
+        assert self.MAPPING_SECRET not in output
+
+    @pytest.mark.parametrize("conversion", ["%s", "%r", "%a"])
+    def test_every_positional_conversion_renders_the_mask(self, conversion: str) -> None:
+        """``%r`` and ``%a`` render the container through ``repr``/``ascii``, so
+        the placeholder has to answer those conversions too."""
+        output = self._emit(f"delivery state invalid: {conversion}", {"token": self.MAPPING_SECRET})
+
+        assert "delivery state invalid: ***" in output
         assert self.MAPPING_SECRET not in output
 
     def test_named_mapping_values_render_redacted_diagnostics(self) -> None:
@@ -2505,6 +2545,20 @@ class TestPositionalMappingArgumentRedaction:
         assert "rpc.invalid" in output
         assert self.MAPPING_SECRET not in output
 
+    def test_named_mapping_masks_container_and_bytes_values(self) -> None:
+        """Control: the shared argument policy still applies per named value."""
+        output = self._emit(
+            "stage %(stage)s carried %(blob)s and %(raw)s",
+            {
+                "stage": "backfill",
+                "blob": {"token": self.MAPPING_SECRET},
+                "raw": self.MAPPING_SECRET.encode(),
+            },
+        )
+
+        assert "stage backfill carried *** and ***" in output
+        assert self.MAPPING_SECRET not in output
+
     def test_percent_literal_does_not_reclassify_a_named_mapping(self) -> None:
         """Control: an escaped ``%%`` literal is not a positional conversion and
         must not cost a named mapping its diagnostics."""
@@ -2512,10 +2566,189 @@ class TestPositionalMappingArgumentRedaction:
 
         assert "progress 100% at backfill" in output
 
-    def test_mixed_positional_and_named_conversions_collapse_whole(self) -> None:
-        """A format mixing ``%s`` with ``%(name)s`` renders the container itself,
-        so the whole mapping collapses while the record keeps emitting."""
-        output = self._emit("state %s for %(stage)s", {"stage": self.MAPPING_SECRET})
+    @pytest.mark.parametrize("conversion", ["%s", "%r", "%a"])
+    def test_mixed_positional_and_named_conversions_collapse_whole(self, conversion: str) -> None:
+        """A format mixing a positional conversion with ``%(name)s`` renders the
+        container itself, so the whole mapping collapses to the mask on both
+        sides while the record keeps emitting."""
+        output = self._emit(f"state {conversion} for %(stage)s", {"stage": self.MAPPING_SECRET})
 
-        assert "state" in output
+        assert "state *** for ***" in output
         assert self.MAPPING_SECRET not in output
+
+    def test_format_without_conversions_keeps_its_text(self) -> None:
+        """Control: a mapping argument no conversion consumes changes nothing."""
+        output = self._emit("delivery state invalid", {"token": self.MAPPING_SECRET})
+
+        assert "delivery state invalid" in output
+        assert self.MAPPING_SECRET not in output
+
+    def test_real_scorer_weight_update_renders_the_mask(self) -> None:
+        """The rendering correction is observed at a real application callsite:
+        ``RiskScorer.set_weights`` logs its weights mapping positionally, and
+        the console printed the literal ``%s`` before N-R27-2 was closed."""
+        scorer = RiskScorer(FakeAsyncRedis())
+
+        def update() -> None:
+            with pytest.warns(DeprecationWarning, match="set_weights"):
+                scorer.set_weights({"fresh_wallet": 0.4})
+
+        output = _capture_console_output(update)
+
+        assert "Updated risk scorer weights: ***" in output
+        assert scorer.get_weights()["fresh_wallet"] == 0.4
+
+
+class TestStandardMappingArgumentRedaction:
+    """Round-27 N-R27-1: every ``Mapping`` logging accepts crosses the boundary.
+
+    ``LogRecord.__init__`` unwraps a sole nonempty argument whenever it is a
+    ``collections.abc.Mapping`` — the standard library says so explicitly in
+    its own comment — but the filter's mapping branch tested a concrete
+    ``dict``. ``UserDict``, ``ChainMap``, ``MappingProxyType``, and any other
+    ordinary ``Mapping`` therefore passed the shared console boundary
+    untouched and rendered their keys and values verbatim, both as positional
+    containers and as named interpolation mappings.
+    """
+
+    MAPPING_SECRET = "R28_STANDARD_MAPPING_SECRET"
+
+    @staticmethod
+    def _factories() -> list[Callable[[dict[str, object]], Mapping[str, object]]]:
+        return [UserDict, ChainMap, MappingProxyType, _ReadOnlyMapping]
+
+    def _emit(self, message: str, args: Mapping[str, object]) -> str:
+        return _capture_console_output(
+            lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(message, args)
+        )
+
+    @pytest.mark.parametrize("factory", _factories())
+    @pytest.mark.parametrize("conversion", ["%s", "%r", "%a"])
+    def test_positional_standard_mapping_collapses_to_the_mask(
+        self, factory: Callable[[dict[str, object]], Mapping[str, object]], conversion: str
+    ) -> None:
+        output = self._emit(
+            f"delivery state invalid: {conversion}", factory({"token": self.MAPPING_SECRET})
+        )
+
+        assert "delivery state invalid: ***" in output
+        assert self.MAPPING_SECRET not in output
+
+    @pytest.mark.parametrize("factory", _factories())
+    def test_positional_standard_mapping_key_is_scrubbed(
+        self, factory: Callable[[dict[str, object]], Mapping[str, object]]
+    ) -> None:
+        output = self._emit("delivery state invalid: %s", factory({self.MAPPING_SECRET: "queued"}))
+
+        assert "delivery state invalid: ***" in output
+        assert self.MAPPING_SECRET not in output
+
+    @pytest.mark.parametrize("factory", _factories())
+    def test_named_standard_mapping_keeps_redacted_diagnostics(
+        self, factory: Callable[[dict[str, object]], Mapping[str, object]]
+    ) -> None:
+        """A credential-bearing URL is masked as text while the real numeric
+        diagnostic still renders, exactly as for a concrete ``dict``."""
+        output = self._emit(
+            "poll failed for %(url)s after %(attempts)d attempts",
+            factory(
+                {
+                    "url": f"https://key:{self.MAPPING_SECRET}@rpc.invalid/v2",
+                    "attempts": 3,
+                }
+            ),
+        )
+
+        assert "after 3 attempts" in output
+        assert "rpc.invalid" in output
+        assert self.MAPPING_SECRET not in output
+
+    @pytest.mark.parametrize("factory", _factories())
+    def test_mixed_standard_mapping_collapses_whole(
+        self, factory: Callable[[dict[str, object]], Mapping[str, object]]
+    ) -> None:
+        output = self._emit("state %s for %(stage)s", factory({"stage": self.MAPPING_SECRET}))
+
+        assert "state *** for ***" in output
+        assert self.MAPPING_SECRET not in output
+
+    @pytest.mark.parametrize("factory", _factories())
+    def test_downstream_handler_observes_no_mapping_contents(
+        self, factory: Callable[[dict[str, object]], Mapping[str, object]]
+    ) -> None:
+        """The filter scrubs the shared record, so a second handler that reads
+        ``record.args`` directly sees the collapsed placeholder, not the keys
+        and values of the mapping the caller passed."""
+        observed: list[logging.LogRecord] = []
+
+        class Capture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                observed.append(record)
+
+        sink = Capture()
+        package = logging.getLogger("polymarket_insider_tracker")
+        package.addHandler(sink)
+        try:
+            self._emit("delivery state invalid: %s", factory({self.MAPPING_SECRET: "queued"}))
+        finally:
+            package.removeHandler(sink)
+
+        record = observed[-1]
+        assert record.getMessage() == "delivery state invalid: ***"
+        assert dict(record.args or {}) == {}
+        assert self.MAPPING_SECRET not in repr(record.args) + str(record.args)
+
+
+class TestScrubbedRecordKeepsEmitting:
+    """Scrubbing an argument must not cost the record its emission.
+
+    A placeholder is text, so a typed conversion (``%d`` over a masked
+    container, ``%(attempts)d`` over a collapsed mapping) can no longer
+    interpolate. Stock logging drops such a record and writes a formatting
+    traceback to stderr instead; the shared boundary keeps the record by
+    dropping the arguments it can no longer render, leaving the record's own
+    already-redacted format string as the diagnostic.
+    """
+
+    MAPPING_SECRET = "R28_UNFORMATTABLE_SECRET"
+
+    def _emit(self, message: str, args: object) -> str:
+        return _capture_console_output(
+            lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(message, args)
+        )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "two containers %s and %s",
+            "counted %d",
+            "state %s after %(attempts)d",
+            "ratio %s at %(rate).2f",
+        ],
+    )
+    def test_unformattable_mapping_record_still_emits(self, message: str) -> None:
+        output = self._emit(message, {"attempts": 3, "rate": 0.5, "token": self.MAPPING_SECRET})
+
+        assert "ERROR" in output
+        assert message.split(" ")[0] in output
+        assert self.MAPPING_SECRET not in output
+
+    @pytest.mark.parametrize(
+        "message,args",
+        [
+            ("counted %d", b"raw-bytes"),
+            ("counted %d", ["item"]),
+            ("two containers %s and %s", "only-one"),
+        ],
+    )
+    def test_unformattable_positional_record_still_emits(self, message: str, args: object) -> None:
+        output = self._emit(message, args)
+
+        assert "ERROR" in output
+        assert message.split(" ")[0] in output
+
+    def test_formattable_record_is_left_exactly_as_scrubbed(self) -> None:
+        """Control: the emission guard must not disturb a record that renders."""
+        output = self._emit("poll failed after %(attempts)d attempts", {"attempts": 3})
+
+        assert "poll failed after 3 attempts" in output

@@ -1351,3 +1351,144 @@ and untouched; services ran from a copy that excluded it); the only service
 mutations were the disposable `polymarket_tracker_r26` database (created
 and dropped) and unique-namespace Redis contract keys on database 15.
 Round-25 review evidence preserved unmodified.
+
+## 20. Round-27 Final-Review Correction — N-R27-1 and N-R27-2 (2026-09-12, Claude Opus 5 correction lane)
+
+Round-27 independent review of `e4c6d808` returned **REVISE** with two
+findings, both at the shared logging redaction boundary in
+`src/polymarket_insider_tracker/__main__.py`. Both are reproduced and closed
+here; the round-27 dispatch evidence was read, not modified.
+
+- **N-R27-1 (Medium) — CLOSED by testing the class logging actually
+  accepts.** `LogRecord.__init__` unwraps a sole nonempty argument into
+  `record.args` whenever it is a `collections.abc.Mapping` — the standard
+  library says exactly that in its own source comment — but
+  `_redact_record_args` tested a concrete `dict`. Every other ordinary
+  standard-library mapping therefore crossed the shared console boundary
+  untouched and rendered its keys and values verbatim, both as a positional
+  container (`%s`/`%r`/`%a`) and as a named interpolation mapping. The
+  branch now tests `Mapping`, which is the same predicate the standard
+  library applies, so no representation can reach the console by being a
+  mapping that is not a `dict`. Named numeric diagnostics are unchanged:
+  `%(attempts)d` still renders the real integer, and only the value policy
+  in `redact_argument` decides what each value renders as.
+
+- **N-R27-2 (Low) — CLOSED by making the collapse actually interpolate.**
+  `_redacted_mapping_args` returned an *empty* `_MaskedPositionalMapping`
+  for a positionally-consumed mapping, and `LogRecord.getMessage`
+  interpolates only `if self.args`. An empty dict subclass is falsy, so
+  `getMessage` skipped interpolation entirely: the console printed the
+  unsubstituted `failure: %s`, and the class's `__str__`, `__repr__`, and
+  `__missing__` were never reached on that path. The §19 claim that a
+  positional dict "renders the placeholder" was therefore wrong about the
+  rendering, though right about the secrecy — the arguments were effectively
+  omitted rather than exposed. **That §19 sentence is corrected here:** the
+  placeholder did not render at `e4c6d808`; it renders from this commit. The
+  mapping now declares `__bool__` and stays empty, so no original key or
+  value survives the collapse while interpolation does run.
+
+  The defect was observable at a real application callsite:
+  `RiskScorer.set_weights` (`detector/scorer.py:233`) logs its weights
+  mapping positionally and printed `Updated risk scorer weights: %s`. It now
+  prints `Updated risk scorer weights: ***`, consistent with the shared
+  container policy that masks every other container argument. Scoring state
+  is untouched — only this diagnostic's rendering changed.
+
+- **Emission safety, checked as the review required.** Making the mapping
+  truthy re-enables interpolation, and interpolation can fail: a placeholder
+  is text, so a typed conversion over a collapsed mapping
+  (`state %s after %(attempts)d`) or over a masked container (`counted %d`)
+  raises inside `getMessage`, which stock logging answers by dropping the
+  record and writing a formatting traceback to stderr. `filter` now ends in
+  `_keep_record_formattable`, which drops only the arguments it can no
+  longer render and leaves the record's own already-redacted format string
+  as the diagnostic. A record that still renders is left exactly as scrubbed.
+  This strictly adds diagnostics: four unformattable mapping formats and
+  three unformattable positional formats that stock logging drops now emit.
+
+Regression coverage (all in `tests/test_redaction.py`, 44 added):
+
+- `TestStandardMappingArgumentRedaction` — 28 cases over `UserDict`,
+  `ChainMap`, `MappingProxyType`, and a minimal non-dict `Mapping` (the
+  abstract class, not one implementation) × positional `%s`/`%r`/`%a`,
+  scrubbed key, named interpolation with a credential-bearing URL and a real
+  integer, mixed positional/named collapse, and what a second handler reads
+  off `record.args` directly.
+- `TestPositionalMappingArgumentRedaction` — the round-25 class, corrected.
+  Its two original cases asserted a static word plus secret absence, which
+  also passes when nothing interpolates; every case now asserts the complete
+  rendered line. Added: all three positional conversions, container/bytes
+  named values, a no-conversion control, and the real `RiskScorer` callsite.
+- `TestScrubbedRecordKeepsEmitting` — 8 cases: four unformattable mapping
+  formats, three unformattable positional formats, and a control proving the
+  guard leaves a renderable record alone.
+
+Red controls (receipts in the round-28 dispatch directory):
+
+- The review's own `test_r27_formatting.py`, unmodified: **18 failed / 5
+  passed** at `e4c6d808` (`red-head-r27-formatting.log`), **23/23** here
+  (`green-r27-formatting.log`).
+- The 44 new native tests against unchanged `e4c6d808` product code: **40
+  behavioral failures / 148 passed** (`red-parent-native-redaction.log`),
+  including both previously-vacuous round-25 cases and the scorer callsite.
+- A 192-cell input-class × output-surface matrix (8 mapping classes × 6
+  format classes × 5 secret locations, over the console and over a second
+  handler's `record.args` plus `SocketHandler.makePickle` serialization):
+  `e4c6d808` leaks the secret in **60 cells** and leaves **16** format/class
+  pairs unsubstituted; this commit leaks **0** and leaves **0**
+  (`matrix-parent.json`, `matrix-head.json`). The two defects separate
+  cleanly by input class: the four non-`dict` mappings leak, the four
+  `dict` subclasses fail to render.
+- Bounded mutation removing only the `_keep_record_formattable` call:
+  **7 failed / 1 passed** in `TestScrubbedRecordKeepsEmitting`
+  (`mutant-emission-guard.log`, `.diff`), so the guard is load-bearing.
+
+Fresh verification (this exact working tree, all run this round; receipts in
+the round-28 dispatch directory):
+
+- `verify.py --profile static`: PASS — all 7 gates (lock, Black, Ruff,
+  isolated strict mypy, Pyright, Vulture, fail-closed Complexipy launcher at
+  max 5 including module scope), arguments unchanged.
+- `verify.py --profile compatibility` (py3.13): **1521 passed, 3 skipped**
+  (1477 prior + 44 added this round).
+- Isolated locked full suite `--python 3.11`: 1521 passed, 3 skipped.
+- Isolated locked full suite `--python 3.12`: 1521 passed, 3 skipped.
+- `verify.py --profile services` with explicit documented loopback
+  development values only
+  (`postgresql+psycopg://tracker@127.0.0.1:55432/polymarket_tracker_r28`,
+  `redis://127.0.0.1:6379/15`): PASS — probe, 45 real-Redis contracts,
+  migrations in a temporary database with cleanup; the fresh
+  `polymarket_tracker_r28` database was created and dropped, verified absent
+  afterwards (`services-cleanup.json`).
+- `RUN_SERVICE_TESTS=1 pytest tests/integration -q`, same explicit values:
+  75 passed, including PostgreSQL backfill and migration.
+- Unchanged round-23/25/27 independent probe files at this head: the three
+  round-25 files plus `test_r27_cached.py` pass **50/50**; the older
+  probe set is **153 passed / 2 failed**, byte-identical to the round-27
+  baseline — the same two cases that intentionally reject raw double-quote
+  and whitespace endpoint configuration, which fail at `e4c6d808` too and
+  are not masking leaks.
+
+Behavior notes, recorded honestly: a mapping consumed positionally now
+renders `***` where `e4c6d808` printed the raw format string — the
+`RiskScorer.set_weights` line is the one production callsite affected. Four
+non-`dict` mapping classes that previously rendered their contents now
+render redacted values for named interpolation and `***` positionally.
+Records whose scrubbed arguments cannot interpolate now emit their format
+string instead of being dropped by logging's error handling. A format that
+mixes a positional conversion with `%(name)s` collapses the whole mapping,
+including its named values, which is the round-25 policy and unchanged.
+Retry-delay, cache, and exception-clone semantics from rounds 25 and earlier
+are untouched.
+
+Policy compliance this round: no mocks, no `type: ignore`, no skips/xfails,
+no baselines, allowlists, `noqa`, or weakened rules. No gate, lock, CI,
+launcher, or conftest change; no `pyproject`/`uv.lock` change. No push,
+merge, deploy, live provider call, notification, trade, or secret read — the
+worktree `.env` was never read for its values and is byte-identical
+(`dotenv-before.sha256`); the services gates received their loopback values
+through the process environment instead. The only service mutations were the
+disposable `polymarket_tracker_r28` database (created and dropped) and
+unique-namespace Redis contract keys on database 15. Round-27 review
+evidence is preserved unmodified. This is writer-lane evidence, not an
+acceptance decision.

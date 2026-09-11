@@ -16,7 +16,7 @@ import logging
 import logging.config
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import NoReturn
 
 from pydantic import ValidationError
@@ -441,6 +441,7 @@ class _RedactingLogFilter(logging.Filter):
         _redact_record_message(record)
         _redact_record_args(record)
         _redact_record_exc_info(record)
+        _keep_record_formattable(record)
         return True
 
 
@@ -468,10 +469,17 @@ def _redact_record_args(record: logging.LogRecord) -> None:
     Numbers, booleans, and ``None`` survive unchanged so numeric format
     specifiers (``%d``, ``%.1f``) keep rendering at the shared handler
     boundary; containers and bytes become the deterministic placeholder.
+
+    ``LogRecord`` unwraps a sole nonempty argument into ``record.args`` for
+    every ``collections.abc.Mapping``, not only a concrete ``dict``, so the
+    mapping branch tests the same abstract class the standard library tests.
+    Testing ``dict`` instead let ordinary standard-library mappings —
+    ``UserDict``, ``ChainMap``, ``MappingProxyType`` — pass the boundary
+    untouched and render their keys and values verbatim.
     """
     if isinstance(record.args, tuple):
         record.args = tuple(map(redact_argument, record.args))
-    elif isinstance(record.args, dict):
+    elif isinstance(record.args, Mapping):
         record.args = _redacted_mapping_args(record.msg, record.args)
 
 
@@ -481,7 +489,7 @@ _POSITIONAL_CONVERSION_PATTERN = re.compile(r"%[^%(]|%$")
 
 
 class _MaskedPositionalMapping(dict[str, object]):
-    """A positional dict argument that renders only as the placeholder.
+    """A positional mapping argument that renders only as the placeholder.
 
     ``LogRecord`` unwraps a sole nonempty mapping into ``record.args`` even
     when the format string consumes it positionally, so the container itself
@@ -489,7 +497,16 @@ class _MaskedPositionalMapping(dict[str, object]):
     a positional conversion, key lookup for a residual named reference —
     yields the placeholder, keeping the record emitting without exposing
     keys or values.
+
+    The mapping stays empty so no original key or value survives the
+    collapse, and is deliberately truthy because ``getMessage`` interpolates
+    only ``if self.args``: an empty container that reports itself falsy is
+    skipped entirely and the console prints the unsubstituted format string
+    instead of this placeholder.
     """
+
+    def __bool__(self) -> bool:
+        return True
 
     def __str__(self) -> str:
         return MASK
@@ -501,7 +518,7 @@ class _MaskedPositionalMapping(dict[str, object]):
         return MASK
 
 
-def _redacted_mapping_args(msg: object, args: dict[str, object]) -> dict[str, object]:
+def _redacted_mapping_args(msg: object, args: Mapping[str, object]) -> dict[str, object]:
     """A named-interpolation mapping keeps redacted values; a positional dict collapses.
 
     ``LogRecord`` gives a genuine ``%(name)s`` mapping and a sole nonempty
@@ -521,6 +538,27 @@ def _has_positional_conversion(msg: object) -> bool:
     if not isinstance(msg, str):
         return False
     return _POSITIONAL_CONVERSION_PATTERN.search(msg.replace("%%", "")) is not None
+
+
+def _keep_record_formattable(record: logging.LogRecord) -> None:
+    """Scrubbing an argument must never cost the record its emission.
+
+    A placeholder is text, so a format string that types its conversion
+    (``%(attempts)d`` over a collapsed container, ``%d`` over a masked bytes
+    argument) can no longer interpolate, and the unhandled error inside
+    ``getMessage`` would drop the record at the shared handler rather than
+    log it. Dropping the unrenderable arguments keeps the record's own
+    redacted format string as the diagnostic, which emits for every format;
+    a record that still renders is left exactly as scrubbed.
+    """
+    if record.args is None:
+        return
+    try:
+        record.getMessage()
+    except Exception:
+        # Any rendering failure, not one anticipated type: the guard exists
+        # precisely because the failing conversion cannot be enumerated.
+        record.args = None
 
 
 def _redact_record_exc_info(record: logging.LogRecord) -> None:
