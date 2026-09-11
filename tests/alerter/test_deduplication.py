@@ -16,14 +16,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import httpx
 import pytest
 from fakeredis import FakeAsyncRedis
 
+from polymarket_insider_tracker.alerter.channels.discord import DiscordChannel
 from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher
 from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.ingestor.models import TradeEvent
+from tests.fakes.alerts import discord_webhook
 
 
 class FakeChannel:
@@ -269,3 +272,72 @@ class TestChannelScopedDeduplication:
 
         expected_key = f"alert:dedup:discord:{lower_wallet}:{market}"
         assert await fake_redis.exists(expected_key) == 1
+
+    @pytest.mark.asyncio
+    async def test_real_channel_read_timeout_is_ambiguous_not_failed(
+        self,
+        fake_redis: FakeAsyncRedis,
+        alert_history: AlertHistory,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A production channel read timeout must reach the ambiguous path, not confirmed failure."""
+        channel = DiscordChannel(
+            webhook_url="https://discord.com/api/webhooks/123/abc",
+            max_retries=3,
+            retry_delay=0.01,
+        )
+        server = discord_webhook(network_error=httpx.ReadTimeout("read timed out"))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        dispatcher = AlertDispatcher([channel], history=alert_history)
+
+        assessment = _make_sample_assessment()
+        result = await dispatcher.dispatch(_make_sample_alert(), assessment=assessment)
+
+        # Exactly one HTTP attempt: no channel-internal re-post of a possibly accepted payload
+        assert len(server.requests) == 1
+        assert result.channel_statuses["discord"] == "ambiguous"
+        assert result.disposition == "ambiguous"
+
+        ambiguous_key = (
+            f"alert:ambiguous:discord:{assessment.wallet_address.lower()}:{assessment.market_id}"
+        )
+        dedup_key = (
+            f"alert:dedup:discord:{assessment.wallet_address.lower()}:{assessment.market_id}"
+        )
+        assert await fake_redis.exists(ambiguous_key) == 1
+        assert await fake_redis.exists(dedup_key) == 0
+
+    @pytest.mark.asyncio
+    async def test_dedup_ttl_honors_configured_window_seconds(
+        self, fake_redis: FakeAsyncRedis
+    ) -> None:
+        """The dedup key TTL must match dedup_window_seconds, not an hour-rounded value."""
+        history = AlertHistory(fake_redis, dedup_window_seconds=1800)
+        await history.record_channel_delivery("discord", "0xAbC", "market1")
+
+        key = history.get_channel_dedup_key("discord", "0xAbC", "market1")
+        ttl = await fake_redis.ttl(key)
+        assert 0 < ttl <= 1800
+
+    @pytest.mark.asyncio
+    async def test_dedup_state_outage_does_not_block_delivery(self) -> None:
+        """A Redis outage during dispatch must not raise or block the delivery attempt."""
+
+        class BrokenRedis:
+            async def exists(self, _key: str) -> int:
+                raise ConnectionError("redis unavailable")
+
+            async def set(self, *_args: object, **_kwargs: object) -> None:
+                raise ConnectionError("redis unavailable")
+
+        history = AlertHistory(BrokenRedis(), dedup_window_hours=1)
+        discord = FakeChannel("discord")
+        dispatcher = AlertDispatcher([discord], history=history)
+
+        result = await dispatcher.dispatch(
+            _make_sample_alert(), assessment=_make_sample_assessment()
+        )
+
+        assert len(discord.calls) == 1
+        assert result.channel_statuses["discord"] == "delivered"
+        assert result.disposition == "delivered"

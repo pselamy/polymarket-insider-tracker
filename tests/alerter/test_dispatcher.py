@@ -121,6 +121,42 @@ class TestDiscordChannel:
         assert result is False
         assert len(server.requests) == 2
 
+    @pytest.mark.asyncio
+    async def test_read_timeout_is_ambiguous_and_not_retried(
+        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A read timeout after the payload was sent is ambiguous: no internal retry, raise."""
+        channel = DiscordChannel(
+            webhook_url=DISCORD_WEBHOOK_URL,
+            max_retries=3,
+            retry_delay=0.01,
+        )
+        server = discord_webhook(network_error=httpx.ReadTimeout("read timed out"))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        with pytest.raises(TimeoutError):
+            await channel.send(sample_alert)
+
+        assert len(server.requests) == 1
+
+    @pytest.mark.asyncio
+    async def test_connect_timeout_is_confirmed_failure(
+        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A connect timeout means nothing reached the server: confirmed failure, retried."""
+        channel = DiscordChannel(
+            webhook_url=DISCORD_WEBHOOK_URL,
+            max_retries=2,
+            retry_delay=0.01,
+        )
+        server = discord_webhook(network_error=httpx.ConnectTimeout("connect timed out"))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        result = await channel.send(sample_alert)
+
+        assert result is False
+        assert len(server.requests) == 2
+
 
 # ============================================================================
 # TelegramChannel Tests
@@ -209,6 +245,25 @@ class TestTelegramChannel:
 
         assert result is False
         assert len(server.requests) == 2
+
+    @pytest.mark.asyncio
+    async def test_read_timeout_is_ambiguous_and_not_retried(
+        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A read timeout after the payload was sent is ambiguous: no internal retry, raise."""
+        channel = TelegramChannel(
+            bot_token="123456:ABC-DEF",
+            chat_id="-1001234567890",
+            max_retries=3,
+            retry_delay=0.01,
+        )
+        server = telegram_bot_api(network_error=httpx.ReadTimeout("read timed out"))
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+
+        with pytest.raises(TimeoutError):
+            await channel.send(sample_alert)
+
+        assert len(server.requests) == 1
 
 
 # ============================================================================
@@ -318,13 +373,15 @@ class TestAlertDispatcher:
 
     @pytest.mark.asyncio
     async def test_dispatch_no_channels(self, sample_alert: FormattedAlert) -> None:
-        """Test dispatch with no channels configured."""
+        """Dispatch with no channels configured must not claim a delivery happened."""
         dispatcher = AlertDispatcher(channels=[])
 
         result = await dispatcher.dispatch(sample_alert)
 
         assert result.success_count == 0
         assert result.failure_count == 0
+        assert result.all_succeeded is False
+        assert result.disposition == "no_channels"
 
     @pytest.mark.asyncio
     async def test_circuit_opens_after_failures(

@@ -276,12 +276,13 @@ async def _wait_for_stop_or_shutdown(shutdown: GracefulShutdown, pipeline: Pipel
     _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
     for task in pending:
         task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
 
 
 def _exit_code_for_pipeline(pipeline: Pipeline) -> int:
+    # Only a terminal pipeline failure is exit 1; recoverable per-trade or metadata
+    # errors counted in stats must not turn a graceful shutdown into a failure.
     if pipeline.state == PipelineState.ERROR:
-        return EXIT_ERROR
-    if pipeline.stats.errors > 0 and pipeline.stats.last_error:
         return EXIT_ERROR
     return EXIT_SUCCESS
 

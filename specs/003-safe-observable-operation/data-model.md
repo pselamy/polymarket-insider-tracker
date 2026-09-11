@@ -38,7 +38,7 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 | `wallet_age_hours` | NUMERIC(10, 2) | Yes | NULL | Observed wallet age in hours |
 | `should_alert` | BOOLEAN | No | - | True if weighted_score >= threshold_at_eval |
 | `threshold_at_eval` | NUMERIC(4, 3) | No | - | Effective threshold used for evaluation |
-| `delivery_disposition` | VARCHAR(32) | No | 'dry_run' | Outcome: `dry_run`, `below_threshold`, `delivered`, `partial_failure`, `failed`, `duplicate` |
+| `delivery_disposition` | VARCHAR(32) | No | 'dry_run' | Outcome: `dry_run`, `below_threshold`, `delivered`, `partial_failure`, `failed`, `duplicate`, `ambiguous`, `no_channels` |
 | `delivery_channels` | TEXT | Yes | NULL | JSON map of channel name to delivery status |
 | `dry_run` | BOOLEAN | No | FALSE | True if evaluated under dry-run mode |
 | `volume_available` | BOOLEAN | Yes | NULL | True if 24h market volume was available |
@@ -77,7 +77,10 @@ This slice modifies the existing `risk_assessments` table via Alembic revision `
 - **Written By**: `AlertDispatcher` on network timeout or indeterminate send outcome.
 - **Semantics**:
   - While active (<60s): Suppresses automatic retry to prevent double delivery.
-  - After expiry (>=60s): Channel becomes re-eligible; dispatch notes `possible_duplicate=True`.
+  - After expiry (>=60s): Channel becomes re-eligible. The ambiguous attempt is durably
+    recorded (assessment disposition `ambiguous`) and logged with an explicit
+    possible-duplicate warning at ambiguity time, because the expired key leaves no
+    marker; a later successful retry may therefore duplicate a delivery.
 
 ---
 

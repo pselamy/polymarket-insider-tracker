@@ -232,6 +232,40 @@ async def test_health_endpoint_returns_503_when_component_down() -> None:
 
 
 @pytest.mark.asyncio
+async def test_port_already_in_use_raises_actionable_error() -> None:
+    """A second server on an occupied health port must fail loudly, not bind silently."""
+    first = HealthMonitor()
+    second = HealthMonitor()
+    port = 19108
+    await first.start()
+    await first.start_http_server(port=port)
+    try:
+        await second.start()
+        with pytest.raises(OSError):
+            await second.start_http_server(port=port)
+    finally:
+        await second.stop()
+        await first.stop()
+
+
+@pytest.mark.asyncio
+async def test_hanging_component_check_is_bounded_and_marked_down() -> None:
+    """A hung dependency check must be bounded and reported down, not hang readiness."""
+    monitor = HealthMonitor()
+
+    async def hanging_checker() -> ComponentStatus:
+        await asyncio.sleep(30)
+        return ComponentStatus(status="up")
+
+    monitor.set_component_checker("database", hanging_checker)
+
+    components = await asyncio.wait_for(monitor.evaluate_components(), timeout=5.0)
+
+    assert components["database"].status == "down"
+    assert "timed out" in (components["database"].last_error or "")
+
+
+@pytest.mark.asyncio
 async def test_metrics_endpoint() -> None:
     """Test /metrics endpoint returns Prometheus metrics in plain text."""
     monitor = HealthMonitor()

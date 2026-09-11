@@ -279,8 +279,11 @@ class Pipeline:
             await self._initialize_components()
             await self._start_background_services()
             self._stats.started_at = datetime.now(UTC)
-            self._state = PipelineState.RUNNING
-            logger.info("Pipeline started successfully")
+            # A worker may already have failed terminally during startup; never
+            # overwrite that ERROR state with RUNNING.
+            if self._state == PipelineState.STARTING:
+                self._state = PipelineState.RUNNING
+                logger.info("Pipeline started successfully")
         except Exception as e:
             self._state = PipelineState.ERROR
             self._stats.last_error = str(e)
@@ -381,8 +384,10 @@ class Pipeline:
         logger.debug("Initializing alerting components...")
         self._alert_formatter = AlertFormatter(verbosity="detailed")
         channels = self._build_alert_channels()
-        dedup_hours = max(1, settings.detector.dedup_window_seconds // 3600)
-        self._alert_history = AlertHistory(self._redis, dedup_window_hours=dedup_hours)
+        self._alert_history = AlertHistory(
+            self._redis,
+            dedup_window_seconds=settings.detector.dedup_window_seconds,
+        )
         self._alert_dispatcher = AlertDispatcher(
             channels,
             history=self._alert_history,
@@ -459,7 +464,7 @@ class Pipeline:
 
     def _handle_worker_failure(self, error: str) -> None:
         """Handle background worker crash or terminal failure."""
-        if self._state == PipelineState.RUNNING:
+        if self._state in (PipelineState.STARTING, PipelineState.RUNNING):
             self._state = PipelineState.ERROR
         self._stats.errors += 1
         self._stats.last_error = error

@@ -727,3 +727,14 @@ class TestWorkerSupervision:
             assert components.get("ingestion") == "down"
         finally:
             await pipeline._stop_background_services()
+
+    async def test_worker_failure_during_startup_transitions_to_error(self) -> None:
+        """A terminal worker failure while still STARTING must reach ERROR, not stay hidden."""
+        pipeline = Pipeline(make_test_settings())
+        pipeline._state = PipelineState.STARTING
+
+        pipeline._handle_worker_failure("terminal poller failure during startup")
+
+        assert pipeline.state is PipelineState.ERROR
+        assert pipeline.stats.errors == 1
+        assert pipeline.stats.last_error == "terminal poller failure during startup"

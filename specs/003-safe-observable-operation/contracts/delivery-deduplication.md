@@ -31,9 +31,17 @@ This contract governs the lifecycle of alert delivery, deduplication state, and 
 |---|---|---|---|---|
 | **Dry Run** | Skipped | Not written | N/A | `dry_run` |
 | **Confirmed Success** | HTTP 2xx | Written with TTL | Suppressed | `delivered` (or `partial_failure` if another channel failed) |
-| **Confirmed Failure** | HTTP 4xx, 5xx, or ConnRefused | Not written | Eligible immediately | `failed` (or `partial_failure`) |
-| **Ambiguous Timeout** | HTTP ReadTimeout | `alert:ambiguous:...` written (60s TTL) | Suppressed for 60s; then eligible with `possible_duplicate` | `ambiguous` / `failed` |
+| **Confirmed Failure** | HTTP 4xx, 5xx, ConnRefused, or connect/pool timeout | Not written | Eligible immediately | `failed` (or `partial_failure`) |
+| **Ambiguous Timeout** | Read/response timeout after the payload was sent | `alert:ambiguous:...` written (60s TTL) | Suppressed for 60s; then eligible (a duplicate remains possible) | `ambiguous` / `failed` |
 | **Duplicate** | Key exists | Untouched | Suppressed | `duplicate` |
+| **No Channels Configured** | No attempt possible | Not written | N/A | `no_channels` |
+
+Connect and pool-acquisition timeouts occur before the payload leaves the process, so they
+are confirmed failures and safe to retry. Read/response timeouts occur after the payload was
+sent; the channel MUST NOT re-post internally and MUST surface the ambiguity (raise
+`TimeoutError`) so the dispatcher applies the 60-second ambiguity window. Deduplication-state
+reads or writes that fail (for example a Redis outage) degrade toward eventual delivery with
+an explicit possible-duplicate warning; they never block an authorized delivery attempt.
 
 ---
 

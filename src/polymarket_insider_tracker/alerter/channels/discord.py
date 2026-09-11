@@ -90,8 +90,17 @@ class DiscordChannel:
 
                 logger.error(f"Discord webhook failed: {response.status_code} {response.text}")
 
-        except httpx.TimeoutException:
-            logger.warning(f"Discord webhook timeout (attempt {attempt + 1})")
+        except (httpx.ConnectTimeout, httpx.PoolTimeout):
+            # The request never reached Discord, so retrying cannot duplicate a delivery.
+            logger.warning(f"Discord webhook connect timeout (attempt {attempt + 1})")
+        except httpx.TimeoutException as e:
+            # The payload may have been accepted before the timeout: the outcome is
+            # ambiguous, so never re-post it here; the dispatcher owns the 60s window.
+            logger.warning(
+                "Discord webhook timed out after the payload was sent; outcome ambiguous, "
+                "not retrying (a duplicate is possible if the message was accepted)"
+            )
+            raise TimeoutError("Discord webhook response timed out") from e
         except httpx.HTTPError as e:
             logger.error(f"Discord webhook error: {e}")
 
@@ -109,7 +118,10 @@ class DiscordChannel:
             alert: Formatted alert with discord_embed.
 
         Returns:
-            True if delivery succeeded, False otherwise.
+            True if delivery succeeded, False on confirmed failure.
+
+        Raises:
+            TimeoutError: The outcome is ambiguous; Discord may have accepted the payload.
         """
         await self._wait_for_rate_limit()
 

@@ -37,7 +37,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "risk_assessments",
-        sa.Column("delivery_channels", sa.String(255), nullable=True),
+        sa.Column("delivery_channels", sa.Text(), nullable=True),
     )
     op.add_column(
         "risk_assessments",

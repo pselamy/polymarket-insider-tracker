@@ -69,8 +69,10 @@ class RiskScorer:
     - Aggregates signals from multiple detectors for the same trade
     - Applies configurable weights based on signal type
     - Calculates multi-signal bonuses for correlated signals
-    - Enforces deduplication to prevent alert spam
     - Produces RiskAssessment objects for downstream alerting
+
+    Scoring is pure computation with no Redis side effects. Delivery deduplication
+    is owned exclusively by the alerter (``AlertHistory`` / ``AlertDispatcher``).
 
     Scoring Formula:
         weighted_score = sum(signal.confidence * weight[type] for signal in signals)
@@ -82,7 +84,7 @@ class RiskScorer:
         # Cap at 1.0
         final_score = min(weighted_score, 1.0)
 
-        should_alert = final_score >= alert_threshold AND not deduplicated
+        should_alert = final_score >= alert_threshold
 
     Example:
         ```python
@@ -113,11 +115,12 @@ class RiskScorer:
         """Initialize the risk scorer.
 
         Args:
-            redis: Redis async client for deduplication.
+            redis: Retained for public API compatibility; scoring performs no Redis
+                operations since delivery deduplication moved to the alerter (FR-008).
             weights: Custom weights for signal types. Defaults to DEFAULT_WEIGHTS.
-            alert_threshold: Minimum score to trigger alert (default 0.6).
-            dedup_window_seconds: Window for deduplication (default 3600 = 1 hour).
-            key_prefix: Redis key prefix for dedup keys.
+            alert_threshold: Minimum score to trigger alert (default 0.80).
+            dedup_window_seconds: Retained for API compatibility; unused by scoring.
+            key_prefix: Retained for API compatibility; unused by scoring.
         """
         self._redis = redis
         self._weights = weights or DEFAULT_WEIGHTS.copy()

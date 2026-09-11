@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_STALE_THRESHOLD_SECONDS = 60  # No events for 60s = stale
 DEFAULT_HEALTH_CHECK_INTERVAL = 5  # seconds
 DEFAULT_HTTP_PORT = 8080
+COMPONENT_CHECK_TIMEOUT_SECONDS = 1.0  # Readiness checks must stay bounded
 
 
 class HealthStatus(Enum):
@@ -476,7 +477,12 @@ class HealthMonitor:
 
     async def _evaluate_single_component(self, checker: ComponentChecker) -> ComponentStatus:
         try:
-            return await checker()
+            return await asyncio.wait_for(checker(), timeout=COMPONENT_CHECK_TIMEOUT_SECONDS)
+        except TimeoutError:
+            return ComponentStatus(
+                status="down",
+                last_error=f"health check timed out after {COMPONENT_CHECK_TIMEOUT_SECONDS}s",
+            )
         except Exception as exc:
             return ComponentStatus(status="down", last_error=str(exc))
 
@@ -633,7 +639,9 @@ class HealthMonitor:
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
 
-        site = web.TCPSite(self._runner, "0.0.0.0", port, reuse_address=True, reuse_port=True)
+        # reuse_address only: SO_REUSEPORT would let a second process bind the same port
+        # silently instead of failing actionably when the health port is already in use.
+        site = web.TCPSite(self._runner, "0.0.0.0", port, reuse_address=True)
         await site.start()
 
         logger.info("Health HTTP server started on port %d", port)

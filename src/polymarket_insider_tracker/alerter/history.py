@@ -106,7 +106,10 @@ def _get_signals_from_assessment(assessment: RiskAssessment) -> list[str]:
 class AlertHistory:
     """Tracks alert history and provides deduplication.
 
-    Uses Redis for storage with configurable dedup window.
+    Uses Redis for storage with configurable dedup window. The authoritative delivery
+    deduplication is the channel-scoped API (``get_channel_dedup_key``,
+    ``is_channel_suppressed``, ``record_channel_delivery``, ``record_channel_ambiguous``);
+    the assessment-hour methods below it are a non-operational legacy analytics path.
     """
 
     # Redis key prefixes
@@ -122,6 +125,7 @@ class AlertHistory:
         *,
         dedup_window_hours: int = 1,
         retention_days: int = 30,
+        dedup_window_seconds: int | None = None,
     ) -> None:
         """Initialize alert history.
 
@@ -129,11 +133,16 @@ class AlertHistory:
             redis: Redis client (async).
             dedup_window_hours: Hours to deduplicate alerts for same wallet/market.
             retention_days: Days to retain alert history.
+            dedup_window_seconds: Exact deduplication TTL in seconds; when provided it
+                takes precedence over ``dedup_window_hours`` so the configured
+                ``DETECTOR_DEDUP_WINDOW_SECONDS`` value is honored without rounding.
         """
         self.redis = redis
         self.dedup_window_hours = dedup_window_hours
         self.retention_days = retention_days
-        self._dedup_ttl = dedup_window_hours * 3600
+        self._dedup_ttl = (
+            dedup_window_seconds if dedup_window_seconds is not None else dedup_window_hours * 3600
+        )
         self._retention_ttl = retention_days * 86400
 
     KEY_PREFIX_AMBIGUOUS = "alert:ambiguous:"
@@ -195,6 +204,10 @@ class AlertHistory:
     async def should_send(self, assessment: RiskAssessment) -> bool:
         """Check if alert should be sent (not a duplicate).
 
+        Non-operational legacy path: the pipeline does not call this method. The
+        authoritative delivery deduplication is the channel-scoped API
+        (``is_channel_suppressed`` / ``record_channel_delivery``) per FR-011.
+
         Args:
             assessment: Risk assessment to check.
 
@@ -219,6 +232,10 @@ class AlertHistory:
         channels_succeeded: dict[str, bool],
     ) -> str:
         """Record that an alert was sent.
+
+        Non-operational legacy path: the pipeline does not call this method, and its
+        hour-bucket dedup key does not participate in delivery suppression. The
+        authoritative delivery deduplication is the channel-scoped API per FR-011.
 
         Args:
             assessment: The risk assessment that was alerted.

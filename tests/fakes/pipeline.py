@@ -169,8 +169,9 @@ async def wire_pipeline(
         dedup_window_seconds=settings.detector.dedup_window_seconds,
     )
     pipeline._alert_formatter = AlertFormatter(verbosity="detailed")
-    dedup_hours = max(1, settings.detector.dedup_window_seconds // 3600)
-    pipeline._alert_history = AlertHistory(redis, dedup_window_hours=dedup_hours)
+    pipeline._alert_history = AlertHistory(
+        redis, dedup_window_seconds=settings.detector.dedup_window_seconds
+    )
     pipeline._alert_dispatcher = AlertDispatcher(
         list(channels), history=pipeline._alert_history, dry_run=pipeline._dry_run
     )

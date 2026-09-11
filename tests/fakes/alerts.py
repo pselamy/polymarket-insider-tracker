@@ -43,15 +43,19 @@ class FakeWebhookServer:
         rate_limit: httpx.Response,
         rate_limited_requests: int = 0,
         failure: httpx.Response | None = None,
+        network_error: Exception | None = None,
     ) -> None:
         self._success = success
         self._rate_limit = rate_limit
         self._rate_limited_requests = rate_limited_requests
         self._failure = failure
+        self._network_error = network_error
         self.requests: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        if self._network_error is not None:
+            raise self._network_error
         if self._failure is not None:
             return self._failure
         if len(self.requests) <= self._rate_limited_requests:
@@ -73,7 +77,10 @@ class FakeWebhookServer:
 
 
 def discord_webhook(
-    *, rate_limited_requests: int = 0, failure: httpx.Response | None = None
+    *,
+    rate_limited_requests: int = 0,
+    failure: httpx.Response | None = None,
+    network_error: Exception | None = None,
 ) -> FakeWebhookServer:
     """A Discord-shaped webhook server: 204 on success, 429 JSON with ``retry_after``."""
     return FakeWebhookServer(
@@ -81,11 +88,15 @@ def discord_webhook(
         rate_limit=httpx.Response(429, json={"retry_after": 0.01}),
         rate_limited_requests=rate_limited_requests,
         failure=failure,
+        network_error=network_error,
     )
 
 
 def telegram_bot_api(
-    *, rate_limited_requests: int = 0, failure: httpx.Response | None = None
+    *,
+    rate_limited_requests: int = 0,
+    failure: httpx.Response | None = None,
+    network_error: Exception | None = None,
 ) -> FakeWebhookServer:
     """A Telegram-shaped Bot API server: ``ok`` envelopes with error codes."""
     return FakeWebhookServer(
@@ -96,4 +107,5 @@ def telegram_bot_api(
         ),
         rate_limited_requests=rate_limited_requests,
         failure=failure,
+        network_error=network_error,
     )

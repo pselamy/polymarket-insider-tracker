@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import Text, create_engine, select
 from sqlalchemy.orm import Session
 
 from polymarket_insider_tracker.detector.models import RiskAssessment
@@ -25,6 +25,12 @@ def test_risk_assessment_model_has_slice003_columns() -> None:
     assert "book_depth_available" in columns
     assert "wallet_tx_count" in columns
     assert "wallet_age_known" in columns
+
+
+def test_delivery_channels_column_is_text() -> None:
+    """The assessment-storage contract requires TEXT for the channel status JSON map."""
+    column = RiskAssessmentModel.__table__.columns["delivery_channels"]
+    assert isinstance(column.type, Text)
 
 
 def test_risk_assessment_domain_model_has_slice003_fields() -> None:

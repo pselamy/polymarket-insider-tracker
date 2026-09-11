@@ -109,3 +109,49 @@ All verification profiles pass cleanly with zero warnings or errors.
 1. **Zero `unittest.mock` Usage**: Zero occurrences of `unittest.mock`, `MagicMock`, `patch`, or `Mock` in tests or implementation.
 2. **Cognitive Complexity Budget**: Max complexity per function <= 5 across all files in repository (`complexipy_gate.py`).
 3. **No External Side Effects in Tests**: Tests communicate exclusively with local fakes and disposable loopback services.
+
+---
+
+## 6. Phase 2 Independent Review Corrections (2026-09-11, Claude Fable 5)
+
+Phase 2 independently reproduced every phase-1 gate at commit `cbf2d2b` (all profiles
+passed; 1,145 tests, 92% line+branch coverage), then found and fixed the following
+defects. Every fix began with a failing regression test reproduced at the unfixed head.
+
+| # | Severity | Finding | Fix |
+|---|---|---|---|
+| 1 | High | Discord/Telegram channels swallowed `httpx` read timeouts, re-posted the same payload up to `max_retries` times, and returned confirmed failure, so the dispatcher's ambiguous path (FR-018) was unreachable for production channels and duplicates were possible. | Channels now treat connect/pool timeouts as retryable confirmed failures and raise `TimeoutError` on read/response timeouts without internal re-post; the dispatcher applies the 60s ambiguity window. |
+| 2 | High | Health HTTP server bound with `reuse_port=True`, letting a second process bind an occupied health port silently instead of failing actionably (spec edge case). | Removed `reuse_port`; kept `reuse_address`. A busy port now raises `OSError`. |
+| 3 | Medium | Zero-configured-channels dispatch returned the `DispatchResult` default disposition `"delivered"`, persisting an untruthful assessment. | Explicit `no_channels` disposition; documented in data-model and delivery contract. |
+| 4 | Medium | Delivery dedup TTL used `max(1, dedup_window_seconds // 3600)` hours, distorting the configured window in both directions (e.g. 1800s → 3600s, 5400s → 3600s). | `AlertHistory` accepts `dedup_window_seconds` and the pipeline passes the configured value through unrounded. |
+| 5 | Medium | `_exit_code_for_pipeline` returned exit 1 on graceful shutdown whenever `stats.errors > 0`, misclassifying recoverable per-trade/metadata errors; a worker crash during `STARTING` was overwritten to `RUNNING` by `start()`. | Exit code 1 now derives solely from `PipelineState.ERROR`; `_handle_worker_failure` covers `STARTING`, and `start()` no longer overwrites `ERROR`. |
+| 6 | Medium | Readiness/health component checks had no timeout, so a hung dependency could hang `/ready` (FR-005 requires bounded checks). | `HealthMonitor` bounds every checker with `asyncio.wait_for` at 1.0s (`COMPONENT_CHECK_TIMEOUT_SECONDS`); timeouts report `down`. |
+| 7 | Medium | `delivery_channels` was `VARCHAR(255)` in the migration and model; the assessment-storage contract requires `TEXT`. | Migration `003_safe_observable_operation` and `RiskAssessmentModel` now use `TEXT`; migration cycle re-verified on PostgreSQL. |
+| 8 | Medium | A Redis outage during dispatch raised through `asyncio.gather`, blocking delivery and skipping assessment persistence (FR-012/FR-013). | Dedup-state read/write failures now degrade with explicit possible-duplicate warnings and never block the delivery attempt or persistence. |
+| 9 | Low | FR-011 marking: `AlertHistory.should_send`/`record_sent` legacy hour-bucket dedup was neither removed nor marked; `RiskScorer` docstrings still claimed dedup enforcement. | Legacy methods and class docstring explicitly marked non-operational for delivery dedup; scorer docstrings corrected (pure computation, params retained for API compatibility). |
+| 10 | Low | README listed nonexistent `polymarket_ingest_*` metrics; research.md claimed a default Polygon fallback URL the code does not set; data-model disposition enumeration omitted `ambiguous`. | Docs corrected to the actual metric names, the actual fallback source (`.env.example`), and the full disposition set including `ambiguous`/`no_channels`. |
+| 11 | Low | `_wait_for_stop_or_shutdown` cancelled pending wait tasks without awaiting them. | Cancelled tasks are now awaited (`gather(..., return_exceptions=True)`). |
+
+Correction to §3.3 above: `market_daily_volume` is `NUMERIC(20, 6)` (as in the migration
+and contract), not `NUMERIC(20, 2)`.
+
+### Phase 2 Re-Verification (post-fix)
+
+- `uv run --env-file .env.example python scripts/verify.py --profile all`: **PASSED**
+  (all 12 gates green, 39.83s; migration cycle `003 → 002 → 003` on disposable PostgreSQL).
+- `uv run python scripts/verify.py --profile compatibility`: **PASSED** (1,156 tests).
+- `uv run pytest --cov=polymarket_insider_tracker --cov-branch`: **1,156 passed, 2 skipped**, 92% line+branch coverage.
+- Isolated per-minor suites (`uv run --isolated --locked --all-extras --python 3.11|3.12 pytest`): recorded in `PHASE2_RESULT.md`.
+- 11 new regression tests added (channel timeout semantics, port conflict, bounded health
+  checks, no-channel disposition, dedup TTL, Redis-outage resilience, startup-crash state,
+  graceful-stop exit code, `TEXT` column type); all failed at `cbf2d2b` and pass after the fixes.
+
+### Known Limitations (unchanged scope)
+
+- SC-006's negative half (no route responds on the superseded default port) is not asserted
+  by an automated test because binding/asserting on the shared default port 8080 would be
+  flaky on developer hosts; the override-port behavior and busy-port failure are tested.
+- After the 60s ambiguity key expires it leaves no marker, so the possible-duplicate
+  warning is logged (and the `ambiguous` disposition persisted) at ambiguity time rather
+  than at the later retry; README and the delivery contract document that a duplicate
+  remains possible after an ambiguous acceptance.

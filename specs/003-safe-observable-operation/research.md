@@ -68,7 +68,7 @@ This directly resolves G-014 by eliminating false "Ready to run" claims when ext
 
 ### Decision
 1. **Default Polygon RPC URL**:
-   The default `rpc_url` in `PolygonSettings` is set to `https://polygon-rpc.com`, with fallback `https://polygon-bor.publicnode.com`. Both are verified free public RPC endpoints that answer block number requests without an API key.
+   The default `rpc_url` in `PolygonSettings` is set to `https://polygon-rpc.com`. The code default for `fallback_rpc_url` remains unset; the documented `.env.example` supplies `https://polygon-bor.publicnode.com` as the fallback. Both are verified free public RPC endpoints that answer block number requests without an API key.
 2. **Diagnostic URL Validation**:
    `_validate_http_url` and `_validate_websocket_url` in `config.py` are refactored to parse the URL using `urllib.parse.urlsplit`:
    - Enforce exact scheme (`http`/`https` for HTTP, `ws`/`wss` for WebSocket).

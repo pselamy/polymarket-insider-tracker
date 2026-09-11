@@ -62,4 +62,4 @@
 - [x] T022 Update `specs/audit/gap-register.md` closing G-014 through G-021, G-030a, and G-033
 - [x] T023 Update `README.md` and user documentation
 - [x] T024 Commit changes cleanly on `feat/slice-003-safe-observable-operation`
-- [ ] T025 Generate `PHASE1_RESULT.md` in dispatch-state directory
+- [x] T025 Generate `PHASE1_RESULT.md` in dispatch-state directory (present with `PHASE1_READY`; verified during phase 2 review)

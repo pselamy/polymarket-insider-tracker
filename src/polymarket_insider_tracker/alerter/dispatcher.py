@@ -22,7 +22,12 @@ class AlertChannel(Protocol):
     name: str
 
     async def send(self, alert: FormattedAlert) -> bool:
-        """Send alert to channel. Returns True on success."""
+        """Send alert to channel.
+
+        Returns True on confirmed success and False on confirmed failure. Raises
+        TimeoutError when the outcome is ambiguous (the payload may have been accepted
+        before the timeout); the dispatcher then applies the ambiguity window.
+        """
         ...
 
 
@@ -170,7 +175,19 @@ class AlertDispatcher:
     ) -> str | None:
         if not (self.history and wallet and market):
             return None
-        suppressed, reason = await self.history.is_channel_suppressed(channel_name, wallet, market)
+        try:
+            suppressed, reason = await self.history.is_channel_suppressed(
+                channel_name, wallet, market
+            )
+        except Exception as e:
+            # Favor eventual delivery over blocking on dedup state; a duplicate is possible.
+            logger.warning(
+                "Deduplication check unavailable for %s (%s); attempting delivery,"
+                " a duplicate is possible",
+                channel_name,
+                e,
+            )
+            return None
         if not suppressed:
             return None
         return reason
@@ -180,10 +197,18 @@ class AlertDispatcher:
     ) -> None:
         if not (self.history and wallet and market):
             return
-        if status == "delivered":
-            await self.history.record_channel_delivery(channel_name, wallet, market)
-        elif status == "ambiguous":
-            await self.history.record_channel_ambiguous(channel_name, wallet, market)
+        try:
+            if status == "delivered":
+                await self.history.record_channel_delivery(channel_name, wallet, market)
+            elif status == "ambiguous":
+                await self.history.record_channel_ambiguous(channel_name, wallet, market)
+        except Exception as e:
+            logger.warning(
+                "Failed to record %s outcome for %s (%s); a later duplicate delivery is possible",
+                status,
+                channel_name,
+                e,
+            )
 
     async def _execute_channel_send(
         self, channel: AlertChannel, alert: FormattedAlert
@@ -200,7 +225,11 @@ class AlertDispatcher:
             self._record_failure(channel_name)
             return False, "failed"
         except TimeoutError:
-            logger.warning("Timeout delivering alert to channel %s", channel_name)
+            logger.warning(
+                "Delivery to %s timed out with an ambiguous outcome; suppressing retry for the"
+                " ambiguity window, after which a duplicate delivery is possible",
+                channel_name,
+            )
             self._record_failure(channel_name)
             return False, "ambiguous"
         except Exception as e:
@@ -295,7 +324,7 @@ class AlertDispatcher:
 
         if not self.channels:
             logger.warning("No channels configured for dispatch")
-            return DispatchResult(success_count=0, failure_count=0)
+            return DispatchResult(success_count=0, failure_count=0, disposition="no_channels")
 
         wallet, market = self._extract_wallet_market(wallet_address, market_id, assessment)
         results = await self._dispatch_to_channels(alert, wallet, market)

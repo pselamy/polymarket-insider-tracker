@@ -296,6 +296,17 @@ class TestMain:
         pipeline._state = PipelineState.ERROR
         assert _exit_code_for_pipeline(pipeline) == EXIT_ERROR
 
+    def test_exit_code_is_success_after_graceful_stop_with_recoverable_errors(self):
+        """Recoverable processing errors must not turn a graceful shutdown into exit 1."""
+        from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
+        from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
+
+        pipeline = Pipeline()
+        pipeline._state = PipelineState.STOPPED
+        pipeline._stats.errors = 3
+        pipeline._stats.last_error = "transient trade-processing error"
+        assert _exit_code_for_pipeline(pipeline) == EXIT_SUCCESS
+
 
 class TestIntegration:
     """Integration tests for CLI invocation."""

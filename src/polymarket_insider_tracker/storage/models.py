@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -163,7 +164,7 @@ class RiskAssessmentModel(Base):
     delivery_disposition: Mapped[str] = mapped_column(
         String(32), nullable=False, server_default="dry_run", default="dry_run"
     )
-    delivery_channels: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_channels: Mapped[str | None] = mapped_column(Text, nullable=True)
     dry_run: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false", default=False
     )
