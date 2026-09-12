@@ -534,3 +534,86 @@ def test_ignored_untracked_test_cannot_claim_committed_head(
         assert "not a committed tree entry" in str(result.errors)
     finally:
         path.unlink()
+
+
+def test_ignored_data_dependency_cannot_change_committed_result(
+    tmp_path: Path, committed_workspace: Path
+) -> None:
+    from uuid import uuid4
+
+    stem = uuid4().hex
+    path = committed_workspace / "tests" / "tooling" / f"test_t5_r3_{stem}.py"
+    path.write_text(
+        "from pathlib import Path\n"
+        "def test_r3_data_binding():\n"
+        '    target = Path(__file__).parent.parent / ".cache" / "decision.txt"\n'
+        '    assert target.exists() and target.read_text() == "pass"\n'
+    )
+    try:
+        _commit_history(committed_workspace, path)
+        node = path.relative_to(committed_workspace).as_posix() + "::test_r3_data_binding"
+        document = _document(node=node, root=committed_workspace)
+        poison = committed_workspace / "tests" / ".cache" / "decision.txt"
+        poison.parent.mkdir(exist_ok=True)
+        result = _check(document, tmp_path / "absent", root=committed_workspace)
+        assert not result.ok
+        assert "failed/skipped/not-run" in str(result.errors)
+        poison.write_text("pass")
+        try:
+            result = _check(document, tmp_path / "present", root=committed_workspace)
+            assert not result.ok
+            assert "uncommitted execution input" in str(result.errors)
+        finally:
+            poison.unlink()
+    finally:
+        path.unlink()
+
+
+def test_ignored_bytecode_cannot_change_committed_result(
+    tmp_path: Path, committed_workspace: Path
+) -> None:
+    import importlib._bootstrap_external
+    import importlib.util
+    from uuid import uuid4
+
+    stem = uuid4().hex
+    helper = committed_workspace / "tests" / f"helper_t5_r3_{stem}.py"
+    helper.write_text("def decision():\n    return False\n")
+    path = committed_workspace / "tests" / "tooling" / f"test_t5_r3_{stem}.py"
+    path.write_text(
+        f"from tests.helper_t5_r3_{stem} import decision\n"
+        "def test_r3_bytecode_binding():\n"
+        "    assert decision()\n"
+    )
+    try:
+        _commit_history(committed_workspace, helper)
+        _commit_history(committed_workspace, path)
+        node = path.relative_to(committed_workspace).as_posix() + "::test_r3_bytecode_binding"
+        result = _check(
+            _document(node=node, root=committed_workspace),
+            tmp_path / "fails",
+            root=committed_workspace,
+        )
+        assert not result.ok
+        assert "failed/skipped/not-run" in str(result.errors)
+        compiled = compile("def decision():\n    return True\n", str(helper), "exec")
+        cache = Path(importlib.util.cache_from_source(str(helper)))
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_bytes(
+            importlib._bootstrap_external._code_to_timestamp_pyc(
+                compiled, int(helper.stat().st_mtime), helper.stat().st_size
+            )
+        )
+        try:
+            result = _check(
+                _document(node=node, root=committed_workspace),
+                tmp_path / "poisoned",
+                root=committed_workspace,
+            )
+            assert not result.ok
+            assert "uncommitted execution input" in str(result.errors)
+        finally:
+            cache.unlink(missing_ok=True)
+    finally:
+        path.unlink(missing_ok=True)
+        helper.unlink(missing_ok=True)

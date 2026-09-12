@@ -38,6 +38,8 @@ def main() -> int:
             str(root),
             "-o",
             "addopts=",
+            "-p",
+            "no:cacheprovider",
             "-vv",
             *nodes,
         ],

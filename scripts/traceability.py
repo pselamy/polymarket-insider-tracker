@@ -252,7 +252,16 @@ def _execution_metadata(row: dict[str, object], expected: dict[str, object]) -> 
 
 def _environment(scratch: Path) -> dict[str, str]:
     # Only interpreter/tool discovery survives. No application config or pytest injection.
-    return {"PATH": os.defpath, "HOME": str(scratch), "TMPDIR": str(scratch)}
+    # Bytecode and pytest caches are redirected into validator-owned scratch so
+    # working-tree cache inputs can neither change execution nor be written.
+    return {
+        "PATH": os.defpath,
+        "HOME": str(scratch),
+        "TMPDIR": str(scratch),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPYCACHEPREFIX": str(scratch / "pycache"),
+        "PYTEST_ADDOPTS": f"-o cache_dir={scratch / 'pytest-cache'}",
+    }
 
 
 def _outcomes(value: object, nodes: list[str]) -> None:
@@ -267,6 +276,7 @@ def _outcomes(value: object, nodes: list[str]) -> None:
 
 def _require_committed_source(context: LedgerContext) -> None:
     _require_exact_bytes(context)
+    _require_no_supplemental_inputs(context.repository_root)
 
 
 def _require_exact_bytes(context: LedgerContext) -> None:
@@ -293,6 +303,29 @@ def _require_exact_bytes(context: LedgerContext) -> None:
     _require_tree_bytes(root)
 
 
+def _require_no_supplemental_inputs(root: Path) -> None:
+    """Reject every non-committed input as a complete class.
+
+    Any untracked path (ignored data/caches/bytecode or not) fails closed:
+    execution is bound to committed bytes, so such a file could only be an
+    uncredited side channel. The narrow exception is the checkout's own
+    virtualenv at the repository root, which is never executed (the child
+    runs with ``PATH=os.defpath`` and no inherited ``PYTHONPATH``) and is
+    the standard local tooling location this suite itself relies on.
+    """
+    untracked = _git(root, "ls-files", "--others", "-z")
+    for path in untracked.rstrip("\0").split("\0"):
+        if path and not _checkout_tooling(path):
+            raise ValueError(
+                f"uncommitted execution input {path!r} present; exact-head execution"
+                " requires committed inputs only"
+            )
+
+
+def _checkout_tooling(path: str) -> bool:
+    return path == ".venv" or path.startswith(".venv/")
+
+
 def _require_tree_bytes(root: Path) -> None:
     listed = _git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD")
     for path in listed.rstrip("\0").split("\0"):
@@ -307,28 +340,46 @@ def _execute(nodes: list[str], context: LedgerContext, output: Path) -> None:
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="traceability-", dir=output) as directory:
         scratch = Path(directory)
-        command = execution_command(nodes)
-        command[1] = str(root / command[1])
-        with (output / "stdout").open("w") as stdout, (output / "stderr").open("w") as stderr:
-            result = subprocess.run(
-                command,
-                cwd=scratch,
-                env=_environment(scratch),
-                stdout=stdout,
-                stderr=stderr,
-                timeout=300,
-                check=False,
-            )
-        receipt = scratch / "receipt.json"
-        (output / "command.json").write_text(json.dumps(command))
-        (output / "exit").write_text(str(result.returncode))
-        if not receipt.is_file():
-            raise ValueError("no executed-run receipt from harness")
-        raw = receipt.read_text()
-        (output / "receipt.json").write_text(raw)
-        _outcomes(json.loads(raw), nodes)
-        if result.returncode != 0:
-            raise ValueError("harness failed; no execution credit")
+        before = _committed_fingerprint(root)
+        _run_validated(nodes, output, root, scratch)
+        after = _committed_fingerprint(root)
+        if before != after:
+            raise ValueError("source changed during execution")
+
+
+def _committed_fingerprint(root: Path) -> str:
+    listed = _git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD")
+    digests = {
+        path: sha256(_committed_bytes(root, path)).hexdigest()
+        for path in listed.rstrip("\0").split("\0")
+        if not path.endswith("/evidence/TRACEABILITY.json")
+    }
+    return sha256(json.dumps(digests, sort_keys=True).encode()).hexdigest()
+
+
+def _run_validated(nodes: list[str], output: Path, root: Path, scratch: Path) -> None:
+    command = execution_command(nodes)
+    command[1] = str(root / command[1])
+    with (output / "stdout").open("w") as stdout, (output / "stderr").open("w") as stderr:
+        result = subprocess.run(
+            command,
+            cwd=scratch,
+            env=_environment(scratch),
+            stdout=stdout,
+            stderr=stderr,
+            timeout=300,
+            check=False,
+        )
+    receipt = scratch / "receipt.json"
+    (output / "command.json").write_text(json.dumps(command))
+    (output / "exit").write_text(str(result.returncode))
+    if not receipt.is_file():
+        raise ValueError("no executed-run receipt from harness")
+    raw = receipt.read_text()
+    (output / "receipt.json").write_text(raw)
+    _outcomes(json.loads(raw), nodes)
+    if result.returncode != 0:
+        raise ValueError("harness failed; no execution credit")
 
 
 def _new_rows(document: dict[str, object], context: LedgerContext) -> list[dict[str, object]]:
