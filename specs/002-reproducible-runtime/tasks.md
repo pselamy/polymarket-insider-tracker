@@ -418,3 +418,22 @@ The AG prefix isolates this documentation ledger from the fakes ledger above.
   reviewer returned SHIP and fresh all-profile / Python 3.11–3.12 compatibility passed.
 - [ ] AG006 Open the separate PR and verify required checks at its exact head.
 - [ ] AG007 Obtain Patrick's merge approval, merge, and verify resulting main CI.
+
+### T5 receipt-binding correction (2026-09-12)
+
+- [X] T5-R1 Prove validator-owned execution with actual collected IDs and phase outcomes;
+  reject forged sets, gate/file credit, skipped/missing/failed runs and metadata forgery.
+- [X] T5-R2 Bind configured expected revision, actual HEAD/tree and execution input bytes;
+  publish no circular or invented final-commit manifest.
+- [X] T5-R3 Preserve baseline historical rows/manifests and enforce ordered append-only
+  history against immutable Git objects and prior HEAD; rerun native 5/10 gates,
+  all supported compatibility minors and owned loopback services before candidate handoff.
+
+Correction evidence: 34 contract cases passed, including validator-owned positive
+and skipped/failing runs plus immutable prior-HEAD additions. Native static and
+separate cyclomatic <=10 passed; Python 3.11/3.12 full runs passed 1,579 tests.
+Python 3.13 full compatibility and real loopback services also passed during this
+lane. The final post-commit receipts and exact native command/source/result ledger
+are retained in `/home/dev/dispatch-state/pm-t5-binding-fix-r2-20260912-sweep1331/`.
+This is a local implementation candidate for fresh independent review; no remote
+checks, publication, approval or merge is asserted.

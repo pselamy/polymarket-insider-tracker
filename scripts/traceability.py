@@ -1,28 +1,18 @@
-"""Shared traceability-ledger validator (T5, slices 002/003 only).
-
-The validator is intentionally stdlib-only (``json`` + ``hashlib``): the
-maintained schema plus the contract test suffice, so no bespoke framework is
-added. It checks one ledger file against the repository checkout:
-
-- every row carries exactly the T5 schema keys;
-- ``state`` is one of the six enumerated ledger states;
-- every ``test`` entry names a real collected test file or a real
-  ``scripts/verify.py`` gate id (no dangling refs, no unknown states);
-- no row cites a skipped/not-run test as ``exact-head-passed``: the caller
-  supplies the executed/skipped node-id sets from a real harness run, and a
-  forged row fails validation;
-- no row claims a self-referential hash of its own ledger file
-  (``artifact_sha256`` must pin external artifacts, never the ledger itself).
-"""
+"""Validate T5 history and fresh, validator-owned execution (see traceability contract)."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, NamedTuple, cast
+from typing import NamedTuple
 
+BASELINE = "62f5b1e13aa88327b569acf99ff644c6c8e76c41"
 REQUIRED_KEYS = frozenset(
     {
         "requirement",
@@ -37,8 +27,6 @@ REQUIRED_KEYS = frozenset(
         "state",
     }
 )
-"""Exact T5 schema keys every ledger row must carry (see ``_check_keys``)."""
-
 STATES = frozenset(
     {
         "specified",
@@ -52,220 +40,277 @@ STATES = frozenset(
 
 
 class LedgerResult(NamedTuple):
-    """Outcome of validating one ledger file."""
-
     ok: bool
     errors: tuple[str, ...]
 
 
 class LedgerContext(NamedTuple):
-    """Executed-evidence inputs the validator checks rows against."""
+    """Expected revision comes from the operator, never from a receipt.
+
+    Legacy test sets are accepted for API compatibility, but grant no credit.
+    """
 
     repository_root: Path
     ledger_path: Path
-    executed_tests: frozenset[str]
-    skipped_tests: frozenset[str]
+    executed_tests: frozenset[str] = frozenset()
+    skipped_tests: frozenset[str] = frozenset()
+    expected_revision: str = ""
 
 
-def _is_ledger_artifact(path: str, context: LedgerContext) -> bool:
-    candidate = Path(path)
-    if not candidate.is_absolute():
-        candidate = context.repository_root / candidate
-    try:
-        return candidate.resolve() == context.ledger_path.resolve()
-    except OSError:
-        return False
+def object_map(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise ValueError("expected an object")
+    if not all(isinstance(key, str) for key in value):
+        raise ValueError("object keys must be strings")
+    return dict(value)
 
 
-def _check_keys(row: dict[str, Any], index: int) -> list[str]:
-    keys = set(row.keys())
-    required = set(REQUIRED_KEYS)
-    errors: list[str] = []
-    if keys != required:
-        errors.append(f"row {index}: keys {sorted(keys)} != required {sorted(required)}")
-    return errors
+def object_list(value: object) -> list[object]:
+    if not isinstance(value, list):
+        raise ValueError("expected a list")
+    return list(value)
 
 
-def _check_state(row: dict[str, Any], index: int) -> list[str]:
-    state = row.get("state")
-    if state not in STATES:
-        return [f"row {index}: unknown state {state!r}"]
-    return []
+def strings(value: object) -> list[str]:
+    values = object_list(value)
+    result: list[str] = []
+    for item in values:
+        if not isinstance(item, str) or not item:
+            raise ValueError("expected non-empty strings")
+        result.append(item)
+    return result
 
 
-def _check_test_refs(row: dict[str, Any], index: int, context: LedgerContext) -> list[str]:
-    tests: Any = row.get("test")
-    if not isinstance(tests, list) or not tests:
-        return [f"row {index}: test must be a non-empty list"]
-    errors: list[str] = []
-    claimed: Sequence[Any] = cast(Sequence[Any], tests)
-    for entry in claimed:
-        errors.extend(_check_one_test_ref(entry, index, context))
-    return errors
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
 
 
-def _check_one_test_ref(entry: Any, index: int, context: LedgerContext) -> list[str]:
-    if not isinstance(entry, str) or not entry:
-        return [f"row {index}: test entry must be a non-empty string"]
-    if entry.startswith("gate:"):
-        return _check_gate_ref(entry, index)
-    return _check_file_ref(entry, index, context)
+def _relative(path: Path, root: Path) -> str:
+    return path.resolve().relative_to(root.resolve()).as_posix()
 
 
-def _check_gate_ref(entry: str, index: int) -> list[str]:
-    gate_id = entry.removeprefix("gate:")
-    known = {
-        "lock",
-        "format",
-        "lint",
-        "strict-types",
-        "pyright",
-        "vulture",
-        "complexipy",
-        "imports",
-        "tests",
-        "services",
-        "redis-contract",
-        "migrations",
+def _artifact(root: Path, path: str) -> Path:
+    candidate = root / path
+    if _relative(candidate, root) != path or not candidate.is_file():
+        raise ValueError(f"dangling artifact or non-canonical path {path!r}")
+    return candidate
+
+
+def source_identity(context: LedgerContext) -> dict[str, object]:
+    """Bind the actual checkout commit/tree AND all working input bytes.
+
+    Ledger JSON is output, excluded to avoid self-reference. Nothing else is excluded.
+    The extra byte digest makes dirty execution explicit rather than calling it clean HEAD.
+    """
+    root = context.repository_root
+    head = _git(root, "rev-parse", "HEAD")
+    if context.expected_revision != head:
+        raise ValueError("configured expected revision must equal actual full HEAD")
+    files = _git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+    paths = sorted(set(files.rstrip("\0").split("\0")))
+    inputs = {
+        path: sha256(_artifact(root, path).read_bytes()).hexdigest()
+        for path in paths
+        if not path.endswith("/evidence/TRACEABILITY.json")
     }
-    if gate_id not in known:
-        return [f"row {index}: unknown verifier gate {entry!r}"]
-    return []
+    return {
+        "head": head,
+        "tree": _git(root, "rev-parse", "HEAD^{tree}"),
+        "inputs_sha256": sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest(),
+    }
 
 
-def _check_file_ref(entry: str, index: int, context: LedgerContext) -> list[str]:
-    file_part = entry.split("::")[0]
-    candidate = context.repository_root / file_part
-    if not candidate.is_file():
-        return [f"row {index}: dangling test path {entry!r}"]
-    return []
+def _baseline(context: LedgerContext, revision: str) -> dict[str, object]:
+    path = _relative(context.ledger_path, context.repository_root)
+    return object_map(json.loads(_git(context.repository_root, "show", f"{revision}:{path}")))
 
 
-def _check_exact_head_evidence(
-    row: dict[str, Any], index: int, context: LedgerContext
-) -> list[str]:
-    if row.get("state") != "exact-head-passed":
-        return []
-    errors: list[str] = []
-    claimed: Any = row.get("test", [])
-    if not isinstance(claimed, list):
-        return [f"row {index}: exact-head-passed test must be a list"]
-    entries: Sequence[Any] = cast(Sequence[Any], claimed)
-    for entry in entries:
-        errors.extend(_check_one_exact_head_entry(entry, index, context))
-    return errors
+def _history(document: dict[str, object], context: LedgerContext) -> int:
+    baseline = _baseline(context, BASELINE)
+    rows = object_list(document.get("rows"))
+    original = object_list(baseline.get("rows"))
+    previous = object_list(_baseline(context, "HEAD").get("rows"))
+    if rows[: len(previous)] != previous or rows[: len(original)] != original:
+        raise ValueError("append-only history differs from immutable Git baseline/prior HEAD")
+    if document.get("historical_manifest") != baseline.get("manifest"):
+        raise ValueError("historical manifest must preserve the immutable baseline")
+    return max(len(original), len(previous))
 
 
-def _check_one_exact_head_entry(entry: Any, index: int, context: LedgerContext) -> list[str]:
-    if not isinstance(entry, str):
-        return [f"row {index}: exact-head-passed test entry must be a string"]
-    if entry.startswith("gate:"):
-        return []
-    return _check_file_exact_head_entry(entry, index, context)
+def _manifest(document: dict[str, object], context: LedgerContext) -> dict[str, object]:
+    identity = source_identity(context)
+    manifest = object_map(document.get("manifest"))
+    expected = {
+        **identity,
+        "slice": context.ledger_path.parents[1].name,
+        "history_revision": BASELINE,
+    }
+    if manifest != expected:
+        raise ValueError("manifest source/head/tree does not match independently observed checkout")
+    return identity
 
 
-def _check_file_exact_head_entry(entry: str, index: int, context: LedgerContext) -> list[str]:
-    node_file = entry.split("::")[0]
-    if entry in context.skipped_tests:
-        return [f"row {index}: {entry!r} was skipped/not-run, not exact-head-passed"]
-    if "::" in entry and entry not in context.executed_tests:
-        return [f"row {index}: {entry!r} has no executed-run receipt"]
-    if "::" not in entry and not (context.repository_root / node_file).is_file():
-        return [f"row {index}: dangling test path {entry!r}"]
-    return []
+def _test_path(entry: str, context: LedgerContext) -> None:
+    path = entry.split("::")[0]
+    if not path.startswith("tests/"):
+        raise ValueError(f"dangling test path {entry!r}")
+    try:
+        _artifact(context.repository_root, path)
+    except ValueError as exc:
+        raise ValueError(f"dangling test path {entry!r}") from exc
 
 
-def _check_artifact_hash(row: dict[str, Any], index: int, context: LedgerContext) -> list[str]:
-    digest: Any = row.get("artifact_sha256")
-    if not isinstance(digest, dict) or not digest:
-        return [f"row {index}: artifact_sha256 must be a non-empty mapping"]
-    typed_digest: dict[str, str] = cast(dict[str, str], digest)
-    pairs: Sequence[tuple[str, str]] = cast(Sequence[tuple[str, str]], list(typed_digest.items()))
-    errors: list[str] = []
-    for path, pinned in pairs:
-        errors.extend(_check_one_artifact(path, pinned, index, context))
-    return errors
+def _artifacts(row: dict[str, object], context: LedgerContext) -> None:
+    artifacts = object_map(row.get("artifact_sha256"))
+    if not artifacts:
+        raise ValueError("artifact_sha256 must be non-empty")
+    for path, digest in artifacts.items():
+        _artifact_digest(path, digest, context)
 
 
-def _check_one_artifact(path: Any, pinned: Any, index: int, context: LedgerContext) -> list[str]:
-    if not isinstance(path, str) or not isinstance(pinned, str):
-        return [f"row {index}: artifact entries must be string path/digest pairs"]
-    if not pinned:
-        return [f"row {index}: artifact {path!r} has an empty digest"]
-    return _check_pinned_artifact(path, pinned, index, context)
+def _artifact_digest(path: str, digest: object, context: LedgerContext) -> None:
+    if (context.repository_root / path).resolve() == context.ledger_path.resolve():
+        raise ValueError("self-referential artifact")
+    if sha256(_artifact(context.repository_root, path).read_bytes()).hexdigest() != digest:
+        raise ValueError(f"artifact {path!r} digest mismatch")
 
 
-def _check_pinned_artifact(path: str, pinned: str, index: int, context: LedgerContext) -> list[str]:
-    if _is_ledger_artifact(path, context):
-        return [f"row {index}: artifact {path!r} is self-referential"]
-    candidate = context.repository_root / path
-    if not candidate.is_file():
-        return [f"row {index}: dangling artifact path {path!r}"]
-    actual = sha256(candidate.read_bytes()).hexdigest()
-    if actual != pinned:
-        return [f"row {index}: artifact {path!r} digest mismatch"]
-    return []
+def _row(row: dict[str, object], context: LedgerContext) -> None:
+    if set(row) != REQUIRED_KEYS:
+        raise ValueError("row keys differ from required keys")
+    if not isinstance(row.get("state"), str) or row.get("state") not in STATES:
+        raise ValueError("unknown state")
+    tests = strings(row.get("test"))
+    if not tests:
+        raise ValueError("test must be non-empty")
+    for entry in tests:
+        _test_path(entry, context)
+    _artifacts(row, context)
 
 
-def _check_row(row: Any, index: int, context: LedgerContext) -> list[str]:
-    if not isinstance(row, dict):
-        return [f"row {index}: must be an object"]
-    typed_row: dict[str, Any] = cast(dict[str, Any], row)
-    errors: list[str] = []
-    errors.extend(_check_keys(typed_row, index))
-    errors.extend(_check_state(typed_row, index))
-    errors.extend(_check_test_refs(typed_row, index, context))
-    errors.extend(_check_exact_head_evidence(typed_row, index, context))
-    errors.extend(_check_artifact_hash(typed_row, index, context))
-    return errors
+def _claim_nodes(rows: list[dict[str, object]]) -> list[str]:
+    nodes: set[str] = set()
+    for row in rows:
+        nodes.update(strings(row.get("test")))
+    if any("::" not in node for node in nodes):
+        raise ValueError("execution credit requires exact collected node IDs, never files/gates")
+    return sorted(nodes)
 
 
-def validate_ledger_document(document: Any, context: LedgerContext) -> LedgerResult:
-    """Validate an already-parsed ledger document."""
-    if not isinstance(document, dict):
-        return LedgerResult(ok=False, errors=("ledger must be a JSON object",))
-    typed_document: dict[str, Any] = cast(dict[str, Any], document)
-    manifest: Any = typed_document.get("manifest")
-    rows: Any = typed_document.get("rows")
-    errors: list[str] = []
-    errors.extend(_check_manifest(manifest))
-    if not isinstance(rows, list) or not rows:
-        errors.append("ledger rows must be a non-empty list")
-        return LedgerResult(ok=False, errors=tuple(errors))
-    typed_rows: list[dict[str, Any]] = cast(list[dict[str, Any]], rows)
-    for index, row in enumerate(typed_rows):
-        errors.extend(_check_row(row, index, context))
-    errors.extend(_check_no_duplicate_rows(typed_rows))
-    return LedgerResult(ok=len(errors) == 0, errors=tuple(errors))
+def _configuration(root: Path) -> dict[str, str]:
+    return {
+        path: sha256((root / path).read_bytes()).hexdigest()
+        for path in ("pyproject.toml", "uv.lock")
+    }
 
 
-def _check_manifest(manifest: Any) -> list[str]:
-    if not isinstance(manifest, dict):
-        return ["manifest must be an object"]
-    typed_manifest: dict[str, Any] = cast(dict[str, Any], manifest)
-    missing = {"slice", "head", "tree"} - set(typed_manifest.keys())
-    if missing:
-        return [f"manifest missing keys {sorted(missing)}"]
-    return []
+def execution_command(nodes: list[str]) -> list[str]:
+    return [sys.executable, "scripts/traceability_harness.py", *nodes]
 
 
-def _row_sort_key(claimed: list[str]) -> str:
-    return str(sorted(claimed))
+def _claims(rows: list[dict[str, object]], identity: dict[str, object], root: Path) -> list[str]:
+    nodes = _claim_nodes(rows)
+    expected: dict[str, object] = {
+        "run": shlex.join(execution_command(nodes)),
+        "source": identity,
+        "config": _configuration(root),
+        "result": "passed",
+        "state": "exact-head-passed",
+    }
+    for row in rows:
+        _execution_metadata(row, expected)
+    return nodes
 
 
-def _check_no_duplicate_rows(rows: Sequence[dict[str, Any]]) -> list[str]:
-    seen: set[str] = set()
-    errors: list[str] = []
-    for index, row in enumerate(rows):
-        claimed: Any = row.get("test", [])
-        ordered = (
-            _row_sort_key(cast(list[str], claimed)) if isinstance(claimed, list) else str(claimed)
+def _execution_metadata(row: dict[str, object], expected: dict[str, object]) -> None:
+    if any(row.get(key) != value for key, value in expected.items()):
+        raise ValueError("run/source/config/result/state differs from validator-owned execution")
+
+
+def _environment(scratch: Path) -> dict[str, str]:
+    # Only interpreter/tool discovery survives. No application config or pytest injection.
+    return {"PATH": os.defpath, "HOME": str(scratch), "TMPDIR": str(scratch)}
+
+
+def _outcomes(value: object, nodes: list[str]) -> None:
+    receipt = object_map(value)
+    if strings(receipt.get("collected")) != nodes:
+        raise ValueError("collected test IDs differ from claims")
+    reports = object_map(receipt.get("reports"))
+    expected = {node: {"setup": "passed", "call": "passed", "teardown": "passed"} for node in nodes}
+    if reports != expected:
+        raise ValueError("test was failed/skipped/not-run; no executed-run receipt")
+
+
+def _execute(nodes: list[str], context: LedgerContext, output: Path) -> None:
+    root = context.repository_root.resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    with tempfile.TemporaryDirectory(prefix="traceability-", dir=output) as directory:
+        scratch = Path(directory)
+        command = execution_command(nodes)
+        command[1] = str(root / command[1])
+        with (output / "stdout").open("w") as stdout, (output / "stderr").open("w") as stderr:
+            result = subprocess.run(
+                command,
+                cwd=scratch,
+                env=_environment(scratch),
+                stdout=stdout,
+                stderr=stderr,
+                timeout=300,
+                check=False,
+            )
+        receipt = scratch / "receipt.json"
+        (output / "command.json").write_text(json.dumps(command))
+        (output / "exit").write_text(str(result.returncode))
+        if not receipt.is_file():
+            raise ValueError("no executed-run receipt from harness")
+        raw = receipt.read_text()
+        (output / "receipt.json").write_text(raw)
+        _outcomes(json.loads(raw), nodes)
+        if result.returncode != 0:
+            raise ValueError("harness failed; no execution credit")
+
+
+def _new_rows(document: dict[str, object], context: LedgerContext) -> list[dict[str, object]]:
+    count = _history(document, context)
+    rows = [object_map(row) for row in object_list(document.get("rows"))[count:]]
+    if not rows:
+        raise ValueError("no fresh execution rows; historical claims grant no current credit")
+    for row in rows:
+        _row(row, context)
+    keys = [json.dumps([row.get("requirement"), sorted(strings(row.get("test")))]) for row in rows]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate requirement/test pair")
+    return rows
+
+
+def validate_ledger_document(
+    document: object, context: LedgerContext, *, execution_output: Path | None = None
+) -> LedgerResult:
+    """Only a newly executed child harness can grant credit; files/sets are not receipts.
+
+    execution_output must not exist. Each validation runs again and retains both streams.
+    Omitting it is read-only and always rejects execution claims.
+    """
+    try:
+        parsed = object_map(document)
+        identity = _manifest(parsed, context)
+        rows = _new_rows(parsed, context)
+        nodes = _claims(rows, identity, context.repository_root)
+        if execution_output is None:
+            raise ValueError("no executed-run receipt: validator-owned execution required")
+        _execute(nodes, context, execution_output)
+        if source_identity(context) != identity:
+            raise ValueError("source changed during execution")
+        (execution_output / "source.json").write_text(json.dumps(identity, sort_keys=True))
+        (execution_output / "validated-document.json").write_text(
+            json.dumps(parsed, indent=2) + "\n"
         )
-        key = f"{row.get('requirement')}|{ordered}"
-        if key in seen:
-            errors.append(f"row {index}: duplicate requirement/test pair")
-        seen.add(key)
-    return errors
+        return LedgerResult(True, ())
+    except (ValueError, OSError, subprocess.SubprocessError) as exc:
+        return LedgerResult(False, (str(exc),))
 
 
 def validate_ledger_file(
@@ -273,16 +318,15 @@ def validate_ledger_file(
     repository_root: Path,
     executed_tests: frozenset[str],
     skipped_tests: frozenset[str],
+    *,
+    expected_revision: str = "",
+    execution_output: Path | None = None,
 ) -> LedgerResult:
-    """Load and validate one ledger file."""
     context = LedgerContext(
-        repository_root=repository_root,
-        ledger_path=ledger_path,
-        executed_tests=executed_tests,
-        skipped_tests=skipped_tests,
+        repository_root, ledger_path, executed_tests, skipped_tests, expected_revision
     )
     try:
-        document = json.loads(ledger_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return LedgerResult(ok=False, errors=(f"cannot load ledger: {exc}",))
-    return validate_ledger_document(document, context)
+        document: object = json.loads(ledger_path.read_text())
+    except (ValueError, OSError) as exc:
+        return LedgerResult(False, (str(exc),))
+    return validate_ledger_document(document, context, execution_output=execution_output)

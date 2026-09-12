@@ -279,3 +279,14 @@ This documentation-only follow-up is a separate PR from the mocks-to-fakes imple
    reviewer criteria unchecked and obtain Patrick's approval before merging.
 
 No new dependencies, scripts, application behavior, CI gates, or schema changes are needed.
+
+### T5 R1/R2/R3 corrective binding (2026-09-12)
+
+The bounded corrective lane authorizes validator-owned real pytest receipts,
+independent checkout/revision/input binding, and immutable Git history comparison.
+See `contracts/traceability.md`. Preserve old JSON and prose evidence unchanged;
+append fresh receipts externally after committing the candidate to avoid circular
+self-head manifests. Regression evidence starts with the actual independent
+`probe.py` (all seven unsupported claims accepted on the supplied baseline), then
+real passing/skipped/missing/failing executions and individually targeted document
+mutations. Native quality/compatibility/service gates remain unchanged.

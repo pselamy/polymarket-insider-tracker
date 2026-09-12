@@ -1,272 +1,384 @@
-"""Contract tests for the T5 machine-readable traceability ledger (slices 002/003).
-
-Every row binds ``requirement -> scenario -> negative_scenario -> test ->
-run -> source -> config -> result -> artifact_sha256 -> state``. The ledger
-files live at ``specs/<slice>/evidence/TRACEABILITY.json`` and are validated
-through the shared stdlib-only ``scripts/traceability.py`` validator: unknown
-states, dangling test/artifact paths, duplicate rows, digest mismatches, and
-self-referential ledger hashes all fail. A row citing a skipped/not-run test
-as ``exact-head-passed`` fails validation (positive real-harness receipt plus
-forgery/missing/dangling/wrong-head negative controls).
-"""
+"""T5 receipt provenance, exact source binding, and immutable history contracts."""
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
+import shlex
+import subprocess
+from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-VALIDATOR_PATH = REPOSITORY_ROOT / "scripts" / "traceability.py"
-LEDGERS = (
-    REPOSITORY_ROOT / "specs" / "002-reproducible-runtime" / "evidence" / "TRACEABILITY.json",
-    REPOSITORY_ROOT / "specs" / "003-safe-observable-operation" / "evidence" / "TRACEABILITY.json",
-)
+import pytest
 
-SKIPPED_NODE_IDS = frozenset(
-    {
-        "tests/integration/test_migration_backfill.py::"
-        "test_migration_backfills_unrecorded_disposition_for_legacy_rows",
-        "tests/integration/test_runtime_services.py::"
-        "test_real_postgres_redis_and_disposable_migration_cycle",
-        "tests/test_shutdown.py::"
-        "TestWindowsSignalHandlers::test_windows_signal_handler_installed",
-    }
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+LEDGERS = tuple(
+    REPOSITORY_ROOT / "specs" / name / "evidence/TRACEABILITY.json"
+    for name in ("002-reproducible-runtime", "003-safe-observable-operation")
+)
+NODE = "tests/tooling/test_verify.py::test_profile_membership_and_ordering_are_exact"
+SKIPPED = (
+    "tests/integration/test_runtime_services.py::"
+    "test_real_postgres_redis_and_disposable_migration_cycle"
 )
 
 
 def _validator() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("traceability_under_test", VALIDATOR_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "traceability_under_test", REPOSITORY_ROOT / "scripts/traceability.py"
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def _load_ledger(path: Path) -> dict[str, object]:
-    return json.loads(path.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+def _head() -> str:
+    return subprocess.run(
+        ["git", "-C", str(REPOSITORY_ROOT), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
-def _file_test_entries(document: dict[str, object]) -> list[str]:
-    entries: list[str] = []
+def _document(ledger: Path = LEDGERS[0], node: str = NODE) -> dict[str, object]:
+    validator = _validator()
+    context = validator.LedgerContext(REPOSITORY_ROOT, ledger, expected_revision=_head())
+    old = validator.object_map(json.loads(ledger.read_text()))
+    identity = validator.source_identity(context)
+    rows = validator.object_list(old["rows"])
+    row = {
+        "requirement": "T5-R1-R2-R3",
+        "scenario": "Real harness execution",
+        "negative_scenario": "Forged or skipped outcomes cannot earn credit",
+        "test": [node],
+        "run": shlex.join(validator.execution_command([node])),
+        "source": identity,
+        "config": {
+            path: sha256((REPOSITORY_ROOT / path).read_bytes()).hexdigest()
+            for path in ("pyproject.toml", "uv.lock")
+        },
+        "result": "passed",
+        "artifact_sha256": {
+            "scripts/traceability.py": sha256(
+                (REPOSITORY_ROOT / "scripts/traceability.py").read_bytes()
+            ).hexdigest()
+        },
+        "state": "exact-head-passed",
+    }
+    return {
+        "historical_manifest": old["manifest"],
+        "manifest": {
+            **identity,
+            "slice": ledger.parents[1].name,
+            "history_revision": validator.BASELINE,
+        },
+        "rows": [*rows, row],
+    }
+
+
+def _check(document: object, output: Path | None = None, ledger: Path = LEDGERS[0]):
+    validator = _validator()
+    context = validator.LedgerContext(
+        REPOSITORY_ROOT, ledger, frozenset({NODE}), frozenset(), _head()
+    )
+    return validator.validate_ledger_document(document, context, execution_output=output)
+
+
+def _last(document: dict[str, object]) -> dict[str, object]:
     rows = document["rows"]
     assert isinstance(rows, list)
-    for row in rows:
-        entries.extend(_row_file_entries(row))
-    return entries
-
-
-def _row_file_entries(row: object) -> list[str]:
+    row = rows[-1]
     assert isinstance(row, dict)
-    tests = row["test"]
-    assert isinstance(tests, list)
-    return _listed_file_entries(tests)
+    return row
 
 
-def _listed_file_entries(tests: list[object]) -> list[str]:
-    entries: list[str] = []
-    for entry in tests:
-        assert isinstance(entry, str)
-        if not entry.startswith("gate:"):
-            entries.append(entry.split("::")[0])
-    return entries
-
-
-def test_ledgers_exist_and_validate_at_exact_head() -> None:
-    validator = _validator()
-    for ledger in LEDGERS:
-        assert ledger.is_file(), f"missing ledger {ledger}"
-        result = validator.validate_ledger_file(
-            ledger, REPOSITORY_ROOT, frozenset(), SKIPPED_NODE_IDS
-        )
-        assert result.ok, "\n".join(result.errors)
+def test_ledgers_exist_and_validate_at_exact_head(tmp_path: Path) -> None:
+    for index, ledger in enumerate(LEDGERS):
+        document = _document(ledger)
+        output = tmp_path / str(index)
+        result = _check(document, output, ledger)
+        assert result.ok, result.errors
+        receipt = json.loads((output / "receipt.json").read_text())
+        assert receipt["collected"] == [NODE]
+        assert receipt["reports"][NODE] == {
+            "setup": "passed",
+            "call": "passed",
+            "teardown": "passed",
+        }
+        assert "1 passed" in (output / "stdout").read_text()
 
 
 def test_ledger_states_are_enumerated() -> None:
-    allowed = {
-        "specified",
-        "implemented",
-        "executed",
-        "exact-head-passed",
-        "merge-required",
-        "post-merge-verified",
-    }
+    validator = _validator()
     for ledger in LEDGERS:
-        rows = _load_ledger(ledger)["rows"]
-        assert isinstance(rows, list)
-        assert rows
-        for row in rows:
-            assert isinstance(row, dict)
-            assert row["state"] in allowed
+        document = validator.object_map(json.loads(ledger.read_text()))
+        for row in validator.object_list(document["rows"]):
+            assert validator.object_map(row)["state"] in validator.STATES
 
 
 def test_ledger_has_no_dangling_test_or_artifact_paths() -> None:
+    validator = _validator()
     for ledger in LEDGERS:
-        document = _load_ledger(ledger)
-        for entry in _file_test_entries(document):
-            assert (REPOSITORY_ROOT / entry).is_file(), f"dangling test path {entry}"
-        _assert_artifacts_exist(document)
+        document = validator.object_map(json.loads(ledger.read_text()))
+        for row in validator.object_list(document["rows"]):
+            _assert_paths(validator.object_map(row))
 
 
-def _assert_artifacts_exist(document: dict[str, object]) -> None:
-    rows = document["rows"]
-    assert isinstance(rows, list)
-    for row in rows:
-        _assert_row_artifacts_exist(row)
-
-
-def _assert_row_artifacts_exist(row: object) -> None:
-    assert isinstance(row, dict)
-    digest = row["artifact_sha256"]
-    assert isinstance(digest, dict)
-    for path in digest:
-        assert (REPOSITORY_ROOT / path).is_file(), f"dangling artifact {path}"
-
-
-def test_skipped_test_cited_as_exact_head_passed_fails() -> None:
+def _assert_paths(row: dict[str, object]) -> None:
     validator = _validator()
-    ledger = LEDGERS[0]
-    document = _load_ledger(ledger)
-    rows = document["rows"]
-    assert isinstance(rows, list)
-    first = rows[0]
-    assert isinstance(first, dict)
-    forged = json.loads(json.dumps(first))
-    forged["test"] = [
-        "tests/integration/test_migration_backfill.py::"
-        "test_migration_backfills_unrecorded_disposition_for_legacy_rows"
+    paths = [
+        entry.split("::")[0]
+        for entry in validator.strings(row["test"])
+        if not entry.startswith("gate:")
     ]
-    forged["state"] = "exact-head-passed"
-    context = validator.LedgerContext(
-        repository_root=REPOSITORY_ROOT,
-        ledger_path=ledger,
-        executed_tests=frozenset(),
-        skipped_tests=SKIPPED_NODE_IDS,
-    )
-    result = validator.validate_ledger_document(
-        {"manifest": document["manifest"], "rows": [forged]}, context
-    )
-    assert not result.ok
-    assert any("skipped/not-run" in error for error in result.errors)
+    paths.extend(validator.object_map(row["artifact_sha256"]))
+    assert all((REPOSITORY_ROOT / path).is_file() for path in paths)
 
 
-def test_missing_test_cited_as_exact_head_passed_fails() -> None:
-    validator = _validator()
-    ledger = LEDGERS[0]
-    document = _load_ledger(ledger)
-    rows = document["rows"]
-    assert isinstance(rows, list)
-    first = rows[0]
-    assert isinstance(first, dict)
-    forged = json.loads(json.dumps(first))
-    forged["test"] = ["tests/tooling/test_verify.py::test_no_such_case"]
-    forged["state"] = "exact-head-passed"
-    context = validator.LedgerContext(
-        repository_root=REPOSITORY_ROOT,
-        ledger_path=ledger,
-        executed_tests=frozenset(),
-        skipped_tests=SKIPPED_NODE_IDS,
-    )
-    result = validator.validate_ledger_document(
-        {"manifest": document["manifest"], "rows": [forged]}, context
+def test_skipped_test_cited_as_exact_head_passed_fails(tmp_path: Path) -> None:
+    output = tmp_path / "skip"
+    result = _check(_document(node=SKIPPED), output)
+    assert not result.ok
+    assert "skipped/not-run" in str(result.errors)
+    receipt = json.loads((output / "receipt.json").read_text())
+    assert receipt["reports"][SKIPPED]["call"] == "skipped"
+
+
+def test_missing_test_cited_as_exact_head_passed_fails(tmp_path: Path) -> None:
+    result = _check(
+        _document(node="tests/tooling/test_verify.py::test_no_such_case"), tmp_path / "missing"
     )
     assert not result.ok
-    assert any("no executed-run receipt" in error for error in result.errors)
+    assert "collected test IDs differ" in str(result.errors)
 
 
 def test_dangling_test_path_fails() -> None:
-    validator = _validator()
-    ledger = LEDGERS[0]
-    document = _load_ledger(ledger)
-    rows = document["rows"]
-    assert isinstance(rows, list)
-    first = rows[0]
-    assert isinstance(first, dict)
-    forged = json.loads(json.dumps(first))
-    forged["test"] = ["tests/tooling/test_no_such_file.py"]
-    context = validator.LedgerContext(
-        repository_root=REPOSITORY_ROOT,
-        ledger_path=ledger,
-        executed_tests=frozenset({"tests/tooling/test_no_such_file.py"}),
-        skipped_tests=SKIPPED_NODE_IDS,
-    )
-    result = validator.validate_ledger_document(
-        {"manifest": document["manifest"], "rows": [forged]}, context
-    )
+    result = _check(_document(node="tests/tooling/test_no_such_file.py::test_absent"))
     assert not result.ok
-    assert any("dangling test path" in error for error in result.errors)
+    assert "dangling test path" in str(result.errors)
 
 
 def test_self_referential_artifact_hash_fails() -> None:
-    validator = _validator()
-    ledger = LEDGERS[0]
-    document = _load_ledger(ledger)
-    rows = document["rows"]
-    assert isinstance(rows, list)
-    first = rows[0]
-    assert isinstance(first, dict)
-    forged = json.loads(json.dumps(first))
-    forged["artifact_sha256"] = {
-        "specs/002-reproducible-runtime/evidence/TRACEABILITY.json": "0" * 64
+    document = _document()
+    _last(document)["artifact_sha256"] = {
+        LEDGERS[0].relative_to(REPOSITORY_ROOT).as_posix(): "0" * 64
     }
-    context = validator.LedgerContext(
-        repository_root=REPOSITORY_ROOT,
-        ledger_path=ledger,
-        executed_tests=frozenset(),
-        skipped_tests=SKIPPED_NODE_IDS,
-    )
-    result = validator.validate_ledger_document(
-        {"manifest": document["manifest"], "rows": [forged]}, context
-    )
+    result = _check(document)
     assert not result.ok
-    assert any("self-referential" in error for error in result.errors)
+    assert "self-referential" in str(result.errors)
 
 
 def test_unknown_state_fails() -> None:
-    validator = _validator()
-    ledger = LEDGERS[0]
-    document = _load_ledger(ledger)
-    rows = document["rows"]
-    assert isinstance(rows, list)
-    first = rows[0]
-    assert isinstance(first, dict)
-    forged = json.loads(json.dumps(first))
-    forged["state"] = "passed"
-    context = validator.LedgerContext(
-        repository_root=REPOSITORY_ROOT,
-        ledger_path=ledger,
-        executed_tests=frozenset(),
-        skipped_tests=SKIPPED_NODE_IDS,
-    )
-    result = validator.validate_ledger_document(
-        {"manifest": document["manifest"], "rows": [forged]}, context
-    )
+    document = _document()
+    _last(document)["state"] = "passed"
+    result = _check(document)
     assert not result.ok
-    assert any("unknown state" in error for error in result.errors)
+    assert "unknown state" in str(result.errors)
 
 
 def test_wrong_head_artifact_digest_fails() -> None:
+    document = _document()
+    _last(document)["artifact_sha256"] = {"scripts/traceability.py": "0" * 64}
+    result = _check(document)
+    assert not result.ok
+    assert "digest mismatch" in str(result.errors)
+
+
+@pytest.mark.parametrize("field", ["head", "tree", "inputs_sha256"])
+def test_actual_source_binding_rejects_wrong_identity(field: str) -> None:
+    document = _document()
+    manifest = document["manifest"]
+    assert isinstance(manifest, dict)
+    manifest[field] = "0" * 40
+    result = _check(document)
+    assert not result.ok
+    assert "manifest source/head/tree" in str(result.errors)
+
+
+def test_configured_expected_revision_is_independently_checked() -> None:
     validator = _validator()
-    ledger = LEDGERS[0]
-    document = _load_ledger(ledger)
+    context = validator.LedgerContext(REPOSITORY_ROOT, LEDGERS[0], expected_revision="0" * 40)
+    result = validator.validate_ledger_document(_document(), context)
+    assert not result.ok
+    assert "configured expected revision" in str(result.errors)
+
+
+@pytest.mark.parametrize("field", ["run", "source", "config", "result"])
+def test_caller_metadata_cannot_replace_execution(field: str) -> None:
+    document = _document()
+    _last(document)[field] = "caller-forged"
+    result = _check(document)
+    assert not result.ok
+    assert "validator-owned execution" in str(result.errors)
+
+
+@pytest.mark.parametrize("node", [NODE, "tests/tooling/test_verify.py", "gate:tests"])
+def test_caller_sets_never_grant_credit(node: str) -> None:
+    result = _check(_document(node=node))
+    assert not result.ok
+
+
+def test_skipped_file_reference_never_grants_credit() -> None:
+    result = _check(_document(node=SKIPPED.split("::")[0]))
+    assert not result.ok
+    assert "exact collected node IDs" in str(result.errors)
+
+
+@pytest.mark.parametrize("mutation", ["delete", "rewrite", "reorder", "manifest"])
+def test_history_is_checked_against_git_not_caller_hash(mutation: str) -> None:
+    document = _document()
     rows = document["rows"]
     assert isinstance(rows, list)
-    first = rows[0]
-    assert isinstance(first, dict)
-    forged = json.loads(json.dumps(first))
-    digest = forged["artifact_sha256"]
-    assert isinstance(digest, dict)
-    first_key = next(iter(digest))
-    digest[first_key] = "0" * 64
-    context = validator.LedgerContext(
-        repository_root=REPOSITORY_ROOT,
-        ledger_path=ledger,
-        executed_tests=frozenset(),
-        skipped_tests=SKIPPED_NODE_IDS,
+    _mutate_history(document, rows, mutation)
+    result = _check(document)
+    assert not result.ok
+    assert "history" in str(result.errors) or "historical manifest" in str(result.errors)
+
+
+def _mutate_history(document: dict[str, object], rows: list[object], mutation: str) -> None:
+    if mutation == "delete":
+        del rows[0]
+        return
+    if mutation == "reorder":
+        rows[0], rows[1] = rows[1], rows[0]
+        return
+    target = rows[0] if mutation == "rewrite" else document["historical_manifest"]
+    assert isinstance(target, dict)
+    target["scenario"] = "rewritten historical scenario"
+
+
+def test_receipt_file_and_self_consistent_hash_cannot_grant_credit(tmp_path: Path) -> None:
+    document = _document()
+    output = tmp_path / "forged"
+    output.mkdir()
+    (output / "receipt.json").write_text(
+        json.dumps(
+            {
+                "collected": [NODE],
+                "reports": {NODE: {"setup": "passed", "call": "passed", "teardown": "passed"}},
+            }
+        )
     )
-    result = validator.validate_ledger_document(
-        {"manifest": document["manifest"], "rows": [forged]}, context
+    result = _check(copy.deepcopy(document), output)
+    assert not result.ok
+    assert "File exists" in str(result.errors)
+
+
+def test_legacy_file_api_cannot_credit_shipped_claims() -> None:
+    validator = _validator()
+    result = validator.validate_ledger_file(
+        LEDGERS[0], REPOSITORY_ROOT, frozenset({NODE}), frozenset()
     )
     assert not result.ok
-    assert any("digest mismatch" in error for error in result.errors)
+
+
+def test_recorder_retains_actual_ids_and_duplicate_phase_failure(
+    request: pytest.FixtureRequest,
+) -> None:
+    spec = importlib.util.spec_from_file_location(
+        "receipt_harness", REPOSITORY_ROOT / "scripts/traceability_harness.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    recorder = module.Recorder()
+    recorder.pytest_collection_finish(request.session)
+    assert request.node.nodeid in recorder.collected
+    report = pytest.TestReport(
+        NODE, ("tests/tooling/test_verify.py", 0, "test"), {}, "passed", None, "call"
+    )
+    recorder.pytest_runtest_logreport(report)
+    recorder.pytest_runtest_logreport(report)
+    assert recorder.reports[NODE]["call"] == "duplicate"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "assert False",
+        "pytest.skip('not executed')",
+        "pytest.xfail('not passed')",
+        "Path(__file__).write_text('# changed during execution')",
+    ],
+)
+def test_real_harness_failures_and_source_mutation_are_rejected(body: str, tmp_path: Path) -> None:
+    from uuid import uuid4
+
+    path = REPOSITORY_ROOT / "tests/tooling" / f"test_t5_receipt_{uuid4().hex}.py"
+    path.write_text(
+        "import pytest\nfrom pathlib import Path\ndef test_receipt():\n    " + body + "\n"
+    )
+    try:
+        node = path.relative_to(REPOSITORY_ROOT).as_posix() + "::test_receipt"
+        result = _check(_document(node=node), tmp_path / "run")
+        assert not result.ok
+        assert (tmp_path / "run/receipt.json").is_file()
+        reason = "source changed" if body.startswith("Path") else "failed/skipped/not-run"
+        assert reason in str(result.errors)
+    finally:
+        path.unlink()
+
+
+def test_duplicate_new_requirement_test_pairs_fail() -> None:
+    document = _document()
+    rows = document["rows"]
+    assert isinstance(rows, list)
+    rows.append(copy.deepcopy(rows[-1]))
+    result = _check(document)
+    assert not result.ok
+    assert "duplicate requirement/test pair" in str(result.errors)
+
+
+def test_committed_additions_become_immutable_history(tmp_path: Path) -> None:
+    validator = _validator()
+    clone = tmp_path / "history"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--no-hardlinks", str(REPOSITORY_ROOT), str(clone)], check=True
+    )
+    ledger = clone / LEDGERS[0].relative_to(REPOSITORY_ROOT)
+    document = _document()
+    ledger.write_text(json.dumps(document))
+    _commit_history(clone, ledger)
+    context = validator.LedgerContext(clone, ledger)
+    rows = document["rows"]
+    assert isinstance(rows, list)
+    count = len(rows)
+    rows.append(copy.deepcopy(rows[-1]))
+    assert validator._history(document, context) == count
+    previous = rows[-2]
+    assert isinstance(previous, dict)
+    previous["scenario"] = "rewritten prior committed addition"
+    with pytest.raises(ValueError, match="append-only history"):
+        validator._history(document, context)
+
+
+def _commit_history(clone: Path, ledger: Path) -> None:
+    import os
+
+    environment = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "pselamy",
+        "GIT_AUTHOR_EMAIL": "pselamy@gmail.com",
+        "GIT_COMMITTER_NAME": "pselamy",
+        "GIT_COMMITTER_EMAIL": "pselamy@gmail.com",
+    }
+    subprocess.run(["git", "-C", str(clone), "add", str(ledger)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(clone),
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "-m",
+            "Record immutable test history",
+        ],
+        env=environment,
+        check=True,
+    )

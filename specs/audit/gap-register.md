@@ -147,3 +147,23 @@ remains a separate work item and is not closed by this document.
   were used.
 - The issue #93 screenshot is evidence of a historical run, not proof that every current user has the
   same malformed environment value.
+
+
+## T5 / R07-G1 receipt-binding correction — 2026-09-12
+
+The independent probe on `62f5b1e13aa88327b569acf99ff644c6c8e76c41` accepted
+unexecuted/file/skipped credit, wrong manifest identity, and deleted/rewritten
+ledger history. Those historical JSON rows and manifests remain unchanged; they
+are not current pass evidence. The bounded correction requires validator-owned
+pytest execution with actual collected IDs and phase outcomes, operator-configured
+expected revision checked against real Git HEAD/tree and working input bytes, and
+an immutable Git history prefix (including later committed additions). See slice
+002 `contracts/traceability.md` and `tests/tooling/test_traceability.py`.
+
+The 34 focused cases, native static/cognitive <=5 and separate cyclomatic <=10,
+full supported-version compatibility and owned loopback-service receipts are
+recorded in `/home/dev/dispatch-state/pm-t5-binding-fix-r2-20260912-sweep1331/`.
+Current receipt documents are written externally after the actual candidate commit,
+so no ledger invents its final hash. Status: locally implemented candidate; fresh
+independent review remains required. This does not reopen slice 003 or close T3,
+T4, T6, T7, T8, release, or remote-CI acceptance.
