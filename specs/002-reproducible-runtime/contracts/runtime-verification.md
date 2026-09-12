@@ -188,6 +188,31 @@ The configured application database is never downgraded or dropped. A non-loopba
 database privilege, mismatched revision, Redis failure, or cleanup failure fails the gate with an
 actionable redacted message.
 
+## Appendix A — Golden Policy Table (T2 ratchet)
+
+Golden-file changes require Patrick's approval. Remote branch-protection wiring
+is NOT_INSPECTED and claimed by nobody. Bound by
+`tests/tooling/test_policy_snapshot.py`, which asserts values (not merely
+cross-surface consistency) and proves a score-6 fixture fails under the golden
+policy.
+
+| Policy | Golden value |
+|---|---|
+| `max-complexity-allowed` (verifier, `[tool.complexipy]`, CI) | `5` |
+| Gate scope (verifier `complexipy`/`vulture`, `[tool.complexipy]`/`[tool.vulture]`, CI) | `src tests scripts alembic conftest.py` |
+| Blocking CI jobs (`required.needs`, in order) | `static, vulture, complexipy, compatibility, services` |
+| mypy | `strict = true` |
+| Pyright | `typeCheckingMode = strict`, `enableTypeIgnoreComments = false` |
+
+The canonical Complexipy command is:
+
+```text
+uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
+```
+
+A candidate that raises the threshold to `6` consistently in the verifier,
+config, and workflow still fails the golden suite: the pinned value stays `5`.
+
 ## Gate-Failure Proof
 
 Unit tests replace the subprocess runner with a deterministic fake. For every required gate, a table row
