@@ -22,8 +22,14 @@ is an entry point to those authorities, not a replacement for them.
 - Tests and verification must not accidentally contact market, chain, or notification
   services. Real Discord/Telegram delivery requires explicit authorization. Dry runs
   must neither deliver nor poison later real-delivery deduplication state.
-  The existing dedup-ordering gap is tracked as G-018 in slice 003; do not claim it
-  is fixed or use dry-run alone as evidence that shared delivery state is isolated.
+  The dry-run dedup-ordering gap G-018 is closed by slice 003 (see
+  `specs/audit/gap-register.md`): FR-009 dry-run safety holds because
+  `AlertDispatcher.dispatch` returns before any delivery-state write, proven by the
+  channel-scoped tests (`tests/alerter/test_deduplication.py`,
+  `tests/integration/test_end_to_end.py`) and retained in
+  `specs/003-safe-observable-operation/evidence/verification.md`. Do not treat a dry
+  run alone as evidence that shared delivery state is isolated — cite the gap-register
+  entry and the channel-scoped tests.
 - Preserve durable research assessments. Persistence failures must be observable
   without blocking an otherwise authorized alert attempt.
 - Never log secrets or credential-bearing URLs. Exercise migration downgrades only
