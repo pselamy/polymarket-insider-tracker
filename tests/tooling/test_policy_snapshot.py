@@ -25,15 +25,20 @@ is NOT_INSPECTED and claimed by nobody.
 from __future__ import annotations
 
 import importlib.util
-import subprocess
-import sys
 import tomllib
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+import yaml
+
+from polymarket_insider_tracker.config import DatabaseSettings, RedisSettings
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+RUNNER_PATH = REPOSITORY_ROOT / "scripts" / "complexipy_gate.py"
 VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+PIPELINE_PATH = REPOSITORY_ROOT / "src" / "polymarket_insider_tracker" / "pipeline.py"
 
 GOLDEN_MAX_COMPLEXITY = 5
 GOLDEN_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
@@ -57,6 +62,16 @@ SCORE_6_CODE = (
     "    return 0\n"
 )
 
+SCORE_5_CODE = (
+    "def sample_func(x: int) -> int:\n"
+    "    if x > 1: return 1\n"
+    "    if x > 2: return 2\n"
+    "    if x > 3: return 3\n"
+    "    if x > 4: return 4\n"
+    "    if x > 5: return 5\n"
+    "    return 0\n"
+)
+
 
 def _verifier() -> ModuleType:
     spec = importlib.util.spec_from_file_location("verify_policy_snapshot", VERIFIER_PATH)
@@ -64,6 +79,33 @@ def _verifier() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _complexipy_runner() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("complexipy_gate_policy_snapshot", RUNNER_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _workflow() -> dict[str, object]:
+    with WORKFLOW_PATH.open(encoding="utf-8") as handle:
+        loaded: dict[str, object] = yaml.safe_load(handle)
+    return loaded
+
+
+def _required_job_needs() -> list[str]:
+    workflow = _workflow()
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    required = jobs["required"]
+    assert isinstance(required, dict)
+    needs = required["needs"]
+    assert isinstance(needs, list)
+    entries = list(needs)
+    assert all(isinstance(entry, str) for entry in entries)
+    return [entry for entry in entries if isinstance(entry, str)]
 
 
 def _pyproject_table(name: str) -> dict[str, str | int | bool | list[str]]:
@@ -138,7 +180,6 @@ def test_golden_verifier_command_text_matches_canonical_form() -> None:
 
 def test_golden_blocking_jobs_are_bound_in_ci_and_verifier() -> None:
     verifier = _verifier()
-    workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
 
     assert verifier.gate_ids_for_profile("static") == (
         "lock",
@@ -149,9 +190,17 @@ def test_golden_blocking_jobs_are_bound_in_ci_and_verifier() -> None:
         "vulture",
         "complexipy",
     )
+    jobs = _workflow()["jobs"]
+    assert isinstance(jobs, dict)
     for job_id in GOLDEN_BLOCKING_JOBS:
-        assert f"{job_id}:" in workflow_text
-    assert "needs: [static, vulture, complexipy, compatibility, services]" in workflow_text
+        assert job_id in jobs
+        job = jobs[job_id]
+        assert isinstance(job, dict)
+        assert "continue-on-error" not in job
+    assert _required_job_needs() == list(GOLDEN_BLOCKING_JOBS)
+    required = jobs["required"]
+    assert isinstance(required, dict)
+    assert required.get("if") == "always()"
 
 
 def test_golden_strict_type_flags_are_not_weakened() -> None:
@@ -163,32 +212,75 @@ def test_golden_strict_type_flags_are_not_weakened() -> None:
     assert pyright["enableTypeIgnoreComments"] is False
 
 
-def test_score_6_fixture_fails_under_golden_policy(tmp_path: Path) -> None:
-    target = tmp_path / "sample.py"
-    target.write_text(SCORE_6_CODE, encoding="utf-8")
+def _write_fixture_scope(root: Path, code: str) -> None:
+    for directory in ("src", "tests", "scripts", "alembic"):
+        (root / directory).mkdir(parents=True, exist_ok=True)
+    (root / "src" / "sample.py").write_text(code, encoding="utf-8")
+    (root / "conftest.py").write_text("", encoding="utf-8")
 
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "from complexipy.cli import main; main()",
-            str(target),
-            "--max-complexity-allowed",
-            str(GOLDEN_MAX_COMPLEXITY),
-            "--no-ignore",
-            "--ignore-complexity=false",
-            "--snapshot-ignore=true",
-            "--snapshot-create=false",
-            "--exclude=.",
-            "--check-script=true",
-        ],
-        cwd=tmp_path,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
 
-    assert completed.returncode != 0
+def _configured_sqlite_urls() -> list[str]:
+    """Collect the sqlite engine URLs this policy must reject end to end."""
+    return ["sqlite:///tracker.db", "sqlite+aiosqlite:///:memory:"]
+
+
+def _rejected_sqlite_url_error(url: str) -> str:
+    """Run the shipped settings path; return the rejection message.
+
+    A weakening that accepts sqlite returns the accepted URL instead of
+    raising, which the caller treats as a tamper-acceptance failure. The
+    return (rather than bare ``pytest.raises``) keeps the semantic
+    accept/reject outcome visible at the assertion site. ``ValidationError``
+    is referenced through ``DatabaseSettings`` so this module never imports
+    the validation framework itself.
+    """
+    try:
+        accepted = DatabaseSettings.model_validate({"DATABASE_URL": url})
+    except Exception as exc:
+        assert type(exc).__name__ == "ValidationError", f"unexpected {type(exc)}"
+        return str(exc)
+    return f"ACCEPTED:{accepted.url}"
+
+
+LAUNCHER_POLICY_FLAGS = (
+    "--max-complexity-allowed",
+    str(GOLDEN_MAX_COMPLEXITY),
+    "--no-ignore",
+    "--ignore-complexity=false",
+    "--snapshot-ignore=true",
+    "--snapshot-create=false",
+    "--exclude=.",
+    "--check-script=true",
+)
+
+
+def test_score_6_fixture_fails_under_golden_policy(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Execute the shipped launcher; the failure must be the complexity rule.
+
+    The score-5 positive control proves the tool is present and the harness
+    is valid. The score-6 run must name ``sample_func`` as ``FAILED``: a
+    missing-analyzer import error exits nonzero without that marker, so it
+    fails this test instead of being accepted as a complexity rejection.
+    """
+    fixture_ok = tmp_path / "fixture-ok"
+    fixture_bad = tmp_path / "fixture-bad"
+    _write_fixture_scope(fixture_ok, SCORE_5_CODE)
+    _write_fixture_scope(fixture_bad, SCORE_6_CODE)
+
+    runner = _complexipy_runner()
+
+    assert runner.CANONICAL_SCOPE == GOLDEN_SCOPE
+    assert runner.POLICY_FLAGS == LAUNCHER_POLICY_FLAGS
+    assert runner.run_complexipy(fixture_ok) == 0
+    capfd.readouterr()
+
+    assert runner.run_complexipy(fixture_bad) != 0
+    captured = capfd.readouterr()
+    report = captured.out + captured.err
+    assert "sample_func" in report
+    assert "FAILED" in report
 
 
 def test_consistent_threshold_6_across_surfaces_still_fails_golden() -> None:
@@ -200,3 +292,67 @@ def test_consistent_threshold_6_across_surfaces_still_fails_golden() -> None:
     """
     assert GOLDEN_MAX_COMPLEXITY == 5
     assert "6" not in GOLDEN_COMPLEXIPY_COMMAND.split("--max-complexity-allowed")[1].split()[0]
+
+
+def test_production_database_path_rejects_sqlite() -> None:
+    """The shipped settings path rejects sqlite engine URLs end to end.
+
+    The residual assigned by the accepted review is a negative case through
+    the shipped database-URL path: production ``DatabaseSettings`` must
+    reject ``sqlite://`` (and the async ``sqlite+aiosqlite://`` spelling
+    used by test-only engines). Each URL is asserted through the real
+    shipped validator (``normalize_database_url`` via ``DatabaseSettings``)
+    AND shown to be genuinely rejected (not vacuously failing): the
+    rejection message names the supported drivers, and the driver-identity
+    pin makes an allowlist tamper visible at the allowlist itself.
+    """
+    from polymarket_insider_tracker.storage import database_url as shipped
+
+    assert set(shipped.SUPPORTED_DRIVERS) == {
+        "postgresql",
+        "postgresql+asyncpg",
+        "postgresql+psycopg",
+    }
+
+    urls = _configured_sqlite_urls()
+    _require_configured_sqlite_urls(urls)
+    for url in urls:
+        message = _rejected_sqlite_url_error(url)
+        assert "ACCEPTED:" not in message, f"shipped settings accepted {url}"
+        assert "DATABASE_URL" in message
+        assert "postgresql+psycopg" in message
+
+
+def _require_configured_sqlite_urls(urls: list[str]) -> None:
+    """Guard the negative control against empty discovery or non-sqlite rows."""
+    assert urls, "empty discovery would spuriously pass: no sqlite URLs configured"
+    assert all(url.startswith("sqlite") for url in urls)
+
+
+def test_production_redis_settings_reject_non_redis_scheme() -> None:
+    """RedisSettings accepts only redis:// (memory:// proves no silent fake)."""
+    message = _rejected_redis_url_error("memory://")
+    assert "ACCEPTED:" not in message
+    assert "redis://" in message
+
+
+def _rejected_redis_url_error(url: str) -> str:
+    """Run the shipped Redis settings path; return the rejection message."""
+    try:
+        accepted = RedisSettings.model_validate({"REDIS_URL": url})
+    except Exception as exc:
+        assert type(exc).__name__ == "ValidationError", f"unexpected {type(exc)}"
+        return str(exc)
+    return f"ACCEPTED:{accepted.url}"
+
+
+def test_pipeline_wires_the_real_redis_client_identity() -> None:
+    """The production pipeline constructs Redis from the real client class."""
+    from redis.asyncio import Redis
+
+    import polymarket_insider_tracker.pipeline as pipeline
+
+    source = PIPELINE_PATH.read_text(encoding="utf-8")
+
+    assert "from redis.asyncio import Redis" in source
+    assert pipeline.Redis is Redis
