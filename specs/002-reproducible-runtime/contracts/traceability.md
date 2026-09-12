@@ -51,3 +51,13 @@ receipts remain separate native verification evidence and are not converted into
 pytest row credit. Final candidate acceptance still requires the full native
 static, Python 3.11–3.13 compatibility and loopback services commands, cognitive
 complexity <=5 and independently measured cyclomatic complexity <=10.
+
+### Final R2 tightening — committed inputs only
+
+The earlier working-byte description is an input fingerprint, not permission to
+credit dirty code as exact-head-passed. Admission now also requires clean committed
+inputs before and after the child execution (only the two ledger output paths are
+excluded). A self-consistent caller digest for a modified harness/source is rejected.
+Tests that deliberately mutate source execute in their own committed local clones;
+they do not contaminate the shared checkout. This correction preserves the earlier
+candidate commit and adds a regression for dirty source with a recomputed manifest.

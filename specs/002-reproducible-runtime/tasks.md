@@ -437,3 +437,8 @@ lane. The final post-commit receipts and exact native command/source/result ledg
 are retained in `/home/dev/dispatch-state/pm-t5-binding-fix-r2-20260912-sweep1331/`.
 This is a local implementation candidate for fresh independent review; no remote
 checks, publication, approval or merge is asserted.
+
+- [X] T5-R2a Reject self-consistent dirty source before crediting a configured committed
+  revision, and recheck clean input status after execution. The corrective regression
+  recomputes the caller manifest after changing the harness and still requires failure.
+  Source-mutating contract cases use dedicated committed local clones.

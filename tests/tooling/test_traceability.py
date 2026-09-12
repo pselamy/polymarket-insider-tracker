@@ -35,18 +35,21 @@ def _validator() -> ModuleType:
     return module
 
 
-def _head() -> str:
+def _head(root: Path = REPOSITORY_ROOT) -> str:
     return subprocess.run(
-        ["git", "-C", str(REPOSITORY_ROOT), "rev-parse", "HEAD"],
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
         check=True,
         capture_output=True,
         text=True,
     ).stdout.strip()
 
 
-def _document(ledger: Path = LEDGERS[0], node: str = NODE) -> dict[str, object]:
+def _document(
+    ledger: Path = LEDGERS[0], node: str = NODE, root: Path = REPOSITORY_ROOT
+) -> dict[str, object]:
+    ledger = root / ledger.relative_to(REPOSITORY_ROOT)
     validator = _validator()
-    context = validator.LedgerContext(REPOSITORY_ROOT, ledger, expected_revision=_head())
+    context = validator.LedgerContext(root, ledger, expected_revision=_head(root))
     old = validator.object_map(json.loads(ledger.read_text()))
     identity = validator.source_identity(context)
     rows = validator.object_list(old["rows"])
@@ -58,13 +61,13 @@ def _document(ledger: Path = LEDGERS[0], node: str = NODE) -> dict[str, object]:
         "run": shlex.join(validator.execution_command([node])),
         "source": identity,
         "config": {
-            path: sha256((REPOSITORY_ROOT / path).read_bytes()).hexdigest()
+            path: sha256((root / path).read_bytes()).hexdigest()
             for path in ("pyproject.toml", "uv.lock")
         },
         "result": "passed",
         "artifact_sha256": {
             "scripts/traceability.py": sha256(
-                (REPOSITORY_ROOT / "scripts/traceability.py").read_bytes()
+                (root / "scripts/traceability.py").read_bytes()
             ).hexdigest()
         },
         "state": "exact-head-passed",
@@ -80,12 +83,25 @@ def _document(ledger: Path = LEDGERS[0], node: str = NODE) -> dict[str, object]:
     }
 
 
-def _check(document: object, output: Path | None = None, ledger: Path = LEDGERS[0]):
+def _check(
+    document: object,
+    output: Path | None = None,
+    ledger: Path = LEDGERS[0],
+    root: Path = REPOSITORY_ROOT,
+):
     validator = _validator()
-    context = validator.LedgerContext(
-        REPOSITORY_ROOT, ledger, frozenset({NODE}), frozenset(), _head()
-    )
+    ledger = root / ledger.relative_to(REPOSITORY_ROOT)
+    context = validator.LedgerContext(root, ledger, frozenset({NODE}), frozenset(), _head(root))
     return validator.validate_ledger_document(document, context, execution_output=output)
+
+
+@pytest.fixture
+def committed_workspace(tmp_path: Path) -> Path:
+    clone = tmp_path / "source"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--no-hardlinks", str(REPOSITORY_ROOT), str(clone)], check=True
+    )
+    return clone
 
 
 def _last(document: dict[str, object]) -> dict[str, object]:
@@ -96,11 +112,13 @@ def _last(document: dict[str, object]) -> dict[str, object]:
     return row
 
 
-def test_ledgers_exist_and_validate_at_exact_head(tmp_path: Path) -> None:
+def test_ledgers_exist_and_validate_at_exact_head(
+    tmp_path: Path, committed_workspace: Path
+) -> None:
     for index, ledger in enumerate(LEDGERS):
-        document = _document(ledger)
+        document = _document(ledger, root=committed_workspace)
         output = tmp_path / str(index)
-        result = _check(document, output, ledger)
+        result = _check(document, output, ledger, committed_workspace)
         assert result.ok, result.errors
         receipt = json.loads((output / "receipt.json").read_text())
         assert receipt["collected"] == [NODE]
@@ -139,18 +157,26 @@ def _assert_paths(row: dict[str, object]) -> None:
     assert all((REPOSITORY_ROOT / path).is_file() for path in paths)
 
 
-def test_skipped_test_cited_as_exact_head_passed_fails(tmp_path: Path) -> None:
+def test_skipped_test_cited_as_exact_head_passed_fails(
+    tmp_path: Path, committed_workspace: Path
+) -> None:
     output = tmp_path / "skip"
-    result = _check(_document(node=SKIPPED), output)
+    result = _check(
+        _document(node=SKIPPED, root=committed_workspace), output, root=committed_workspace
+    )
     assert not result.ok
     assert "skipped/not-run" in str(result.errors)
     receipt = json.loads((output / "receipt.json").read_text())
     assert receipt["reports"][SKIPPED]["call"] == "skipped"
 
 
-def test_missing_test_cited_as_exact_head_passed_fails(tmp_path: Path) -> None:
+def test_missing_test_cited_as_exact_head_passed_fails(
+    tmp_path: Path, committed_workspace: Path
+) -> None:
     result = _check(
-        _document(node="tests/tooling/test_verify.py::test_no_such_case"), tmp_path / "missing"
+        _document(node="tests/tooling/test_verify.py::test_no_such_case", root=committed_workspace),
+        tmp_path / "missing",
+        root=committed_workspace,
     )
     assert not result.ok
     assert "collected test IDs differ" in str(result.errors)
@@ -251,8 +277,10 @@ def _mutate_history(document: dict[str, object], rows: list[object], mutation: s
     target["scenario"] = "rewritten historical scenario"
 
 
-def test_receipt_file_and_self_consistent_hash_cannot_grant_credit(tmp_path: Path) -> None:
-    document = _document()
+def test_receipt_file_and_self_consistent_hash_cannot_grant_credit(
+    tmp_path: Path, committed_workspace: Path
+) -> None:
+    document = _document(root=committed_workspace)
     output = tmp_path / "forged"
     output.mkdir()
     (output / "receipt.json").write_text(
@@ -263,7 +291,7 @@ def test_receipt_file_and_self_consistent_hash_cannot_grant_credit(tmp_path: Pat
             }
         )
     )
-    result = _check(copy.deepcopy(document), output)
+    result = _check(copy.deepcopy(document), output, root=committed_workspace)
     assert not result.ok
     assert "File exists" in str(result.errors)
 
@@ -305,16 +333,23 @@ def test_recorder_retains_actual_ids_and_duplicate_phase_failure(
         "Path(__file__).write_text('# changed during execution')",
     ],
 )
-def test_real_harness_failures_and_source_mutation_are_rejected(body: str, tmp_path: Path) -> None:
+def test_real_harness_failures_and_source_mutation_are_rejected(
+    body: str, tmp_path: Path, committed_workspace: Path
+) -> None:
     from uuid import uuid4
 
-    path = REPOSITORY_ROOT / "tests/tooling" / f"test_t5_receipt_{uuid4().hex}.py"
+    path = committed_workspace / "tests/tooling" / f"test_t5_receipt_{uuid4().hex}.py"
     path.write_text(
         "import pytest\nfrom pathlib import Path\ndef test_receipt():\n    " + body + "\n"
     )
     try:
-        node = path.relative_to(REPOSITORY_ROOT).as_posix() + "::test_receipt"
-        result = _check(_document(node=node), tmp_path / "run")
+        _commit_history(committed_workspace, path)
+        node = path.relative_to(committed_workspace).as_posix() + "::test_receipt"
+        result = _check(
+            _document(node=node, root=committed_workspace),
+            tmp_path / "run",
+            root=committed_workspace,
+        )
         assert not result.ok
         assert (tmp_path / "run/receipt.json").is_file()
         reason = "source changed" if body.startswith("Path") else "failed/skipped/not-run"
@@ -382,3 +417,15 @@ def _commit_history(clone: Path, ledger: Path) -> None:
         env=environment,
         check=True,
     )
+
+
+def test_self_consistent_dirty_source_cannot_claim_committed_head(
+    tmp_path: Path,
+    committed_workspace: Path,
+) -> None:
+    path = committed_workspace / "scripts/traceability_harness.py"
+    path.write_text(path.read_text() + "\n# modified after configured revision\n")
+    document = _document(root=committed_workspace)
+    result = _check(document, tmp_path / "dirty", root=committed_workspace)
+    assert not result.ok
+    assert "uncommitted inputs" in str(result.errors)

@@ -167,3 +167,9 @@ Current receipt documents are written externally after the actual candidate comm
 so no ledger invents its final hash. Status: locally implemented candidate; fresh
 independent review remains required. This does not reopen slice 003 or close T3,
 T4, T6, T7, T8, release, or remote-CI acceptance.
+
+T5 R2 follow-up: source fingerprints alone did not establish equality with the
+configured committed revision when the worktree was dirty. Exact-head credit now
+also requires clean committed inputs before/after execution. A recomputed caller
+manifest for a modified harness fails the added regression. The preceding local
+candidate is preserved as an immutable commit; this is its bounded correction.

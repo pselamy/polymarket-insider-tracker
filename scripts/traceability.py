@@ -244,6 +244,23 @@ def _outcomes(value: object, nodes: list[str]) -> None:
         raise ValueError("test was failed/skipped/not-run; no executed-run receipt")
 
 
+def _require_committed_source(context: LedgerContext) -> None:
+    changes = _git(
+        context.repository_root,
+        "status",
+        "--porcelain",
+        "--untracked-files=all",
+        "--",
+        ".",
+        ":(exclude)specs/002-reproducible-runtime/evidence/TRACEABILITY.json",
+        ":(exclude)specs/003-safe-observable-operation/evidence/TRACEABILITY.json",
+    )
+    if changes:
+        raise ValueError(
+            "source changed or uncommitted inputs; exact-head execution requires clean source"
+        )
+
+
 def _execute(nodes: list[str], context: LedgerContext, output: Path) -> None:
     root = context.repository_root.resolve()
     output.mkdir(parents=True, exist_ok=False)
@@ -301,7 +318,9 @@ def validate_ledger_document(
         nodes = _claims(rows, identity, context.repository_root)
         if execution_output is None:
             raise ValueError("no executed-run receipt: validator-owned execution required")
+        _require_committed_source(context)
         _execute(nodes, context, execution_output)
+        _require_committed_source(context)
         if source_identity(context) != identity:
             raise ValueError("source changed during execution")
         (execution_output / "source.json").write_text(json.dumps(identity, sort_keys=True))
