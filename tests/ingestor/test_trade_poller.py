@@ -125,12 +125,21 @@ def _seed_history(server: FakeTradesServer, *, count: int = 5, newest: int = T0 
         server.publish(trade_row(timestamp=newest - offset * 60, transaction=offset, wallet=offset))
 
 
-async def _run_until(predicate: Callable[[], bool], *, cycles: int = 2000) -> None:
-    for _ in range(cycles):
-        if predicate():
-            return
-        await asyncio.sleep(0)
-    raise AssertionError("condition was not reached")
+async def _run_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
+    """Wait for a poller observable event on a wall-clock bound.
+
+    The bound is denominated in loop wall time, not bare ``sleep(0)`` spins:
+    poller progress is paced by real timer waits (``FakeClock.sleep``), so a
+    spin budget can expire before the loop's timers fire under hosted load.
+    Each iteration yields cooperatively, letting the real ``start()`` loop
+    advance while this waiter watches its observable output.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() >= deadline:
+            raise AssertionError("condition was not reached")
+        await asyncio.sleep(0.002)
 
 
 class TestFirstStart:
