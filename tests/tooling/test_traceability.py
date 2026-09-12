@@ -536,6 +536,31 @@ def test_ignored_untracked_test_cannot_claim_committed_head(
         path.unlink()
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "content"),
+    [
+        ("tests/.cache/result.json", b'{"result": "passed"}\n'),
+        ("tests/__pycache__/unrelated.cpython-313.pyc", b"validator output\n"),
+    ],
+)
+def test_ignored_outputs_do_not_block_committed_execution(
+    relative_path: str,
+    content: bytes,
+    tmp_path: Path,
+    committed_workspace: Path,
+) -> None:
+    output = committed_workspace / relative_path
+    output.parent.mkdir(exist_ok=True)
+    output.write_bytes(content)
+    result = _check(
+        _document(root=committed_workspace),
+        tmp_path / "receipt",
+        root=committed_workspace,
+    )
+    assert result.ok, result.errors
+    assert (tmp_path / "receipt/receipt.json").is_file()
+
+
 def test_ignored_data_dependency_cannot_change_committed_result(
     tmp_path: Path, committed_workspace: Path
 ) -> None:
@@ -562,7 +587,8 @@ def test_ignored_data_dependency_cannot_change_committed_result(
         try:
             result = _check(document, tmp_path / "present", root=committed_workspace)
             assert not result.ok
-            assert "uncommitted execution input" in str(result.errors)
+            assert "failed/skipped/not-run" in str(result.errors)
+            assert (tmp_path / "present/receipt.json").is_file()
         finally:
             poison.unlink()
     finally:
@@ -611,7 +637,8 @@ def test_ignored_bytecode_cannot_change_committed_result(
                 root=committed_workspace,
             )
             assert not result.ok
-            assert "uncommitted execution input" in str(result.errors)
+            assert "failed/skipped/not-run" in str(result.errors)
+            assert (tmp_path / "poisoned/receipt.json").is_file()
         finally:
             cache.unlink(missing_ok=True)
     finally:

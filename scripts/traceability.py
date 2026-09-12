@@ -102,9 +102,9 @@ def source_identity(context: LedgerContext) -> dict[str, object]:
     """Bind the actual checkout commit/tree AND all committed input bytes.
 
     Ledger JSON is output, excluded to avoid self-reference. Nothing else is excluded.
-    Identity binds working bytes, but exact-head credit additionally requires
-    _require_committed_source so dirty working bytes (including index-hidden or
-    ignored inputs) cannot earn credit for a configured committed revision.
+    Identity binds working bytes. Exact-head credit additionally rejects dirty tracked
+    bytes and runs the child from a validator-owned committed checkout, so ignored
+    working files cannot change execution.
     """
     root = context.repository_root
     head = _git(root, "rev-parse", "HEAD")
@@ -250,16 +250,19 @@ def _execution_metadata(row: dict[str, object], expected: dict[str, object]) -> 
         raise ValueError("run/source/config/result/state differs from validator-owned execution")
 
 
-def _environment(scratch: Path) -> dict[str, str]:
-    # Only interpreter/tool discovery survives. No application config or pytest injection.
+def _environment(scratch: Path, root: Path) -> dict[str, str]:
+    # Only interpreter/tool discovery and the committed source path survive.
+    # No application config or caller-controlled pytest injection is inherited.
     # Bytecode and pytest caches are redirected into validator-owned scratch so
     # working-tree cache inputs can neither change execution nor be written.
     return {
         "PATH": os.defpath,
         "HOME": str(scratch),
         "TMPDIR": str(scratch),
+        "PYTHONPATH": os.pathsep.join((str(root), str(root / "src"))),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONPYCACHEPREFIX": str(scratch / "pycache"),
+        "PYTHONNOUSERSITE": "1",
         "PYTEST_ADDOPTS": f"-o cache_dir={scratch / 'pytest-cache'}",
     }
 
@@ -276,13 +279,15 @@ def _outcomes(value: object, nodes: list[str]) -> None:
 
 def _require_committed_source(context: LedgerContext) -> None:
     _require_exact_bytes(context)
-    _require_no_supplemental_inputs(context.repository_root)
 
 
 def _require_exact_bytes(context: LedgerContext) -> None:
-    root = context.repository_root
+    _require_revision_bytes(context.repository_root, context.expected_revision)
+
+
+def _require_revision_bytes(root: Path, expected_revision: str) -> None:
     head = _git(root, "rev-parse", "HEAD")
-    if context.expected_revision != head:
+    if expected_revision != head:
         raise ValueError("configured expected revision must equal actual full HEAD")
     changes = _git(
         root,
@@ -303,29 +308,6 @@ def _require_exact_bytes(context: LedgerContext) -> None:
     _require_tree_bytes(root)
 
 
-def _require_no_supplemental_inputs(root: Path) -> None:
-    """Reject every non-committed input as a complete class.
-
-    Any untracked path (ignored data/caches/bytecode or not) fails closed:
-    execution is bound to committed bytes, so such a file could only be an
-    uncredited side channel. The narrow exception is the checkout's own
-    virtualenv at the repository root, which is never executed (the child
-    runs with ``PATH=os.defpath`` and no inherited ``PYTHONPATH``) and is
-    the standard local tooling location this suite itself relies on.
-    """
-    untracked = _git(root, "ls-files", "--others", "-z")
-    for path in untracked.rstrip("\0").split("\0"):
-        if path and not _checkout_tooling(path):
-            raise ValueError(
-                f"uncommitted execution input {path!r} present; exact-head execution"
-                " requires committed inputs only"
-            )
-
-
-def _checkout_tooling(path: str) -> bool:
-    return path == ".venv" or path.startswith(".venv/")
-
-
 def _require_tree_bytes(root: Path) -> None:
     listed = _git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD")
     for path in listed.rstrip("\0").split("\0"):
@@ -340,11 +322,33 @@ def _execute(nodes: list[str], context: LedgerContext, output: Path) -> None:
     output.mkdir(parents=True, exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="traceability-", dir=output) as directory:
         scratch = Path(directory)
-        before = _committed_fingerprint(root)
-        _run_validated(nodes, output, root, scratch)
-        after = _committed_fingerprint(root)
+        execution_root = scratch / "source"
+        _materialize_revision(root, execution_root, context.expected_revision)
+        before = _committed_fingerprint(execution_root)
+        _run_validated(nodes, output, execution_root, scratch)
+        after = _committed_fingerprint(execution_root)
         if before != after:
             raise ValueError("source changed during execution")
+        _require_revision_bytes(execution_root, context.expected_revision)
+
+
+def _materialize_revision(root: Path, destination: Path, expected_revision: str) -> None:
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--no-hardlinks",
+            "--no-recurse-submodules",
+            str(root),
+            str(destination),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    if _git(destination, "rev-parse", "HEAD") != expected_revision:
+        raise ValueError("materialized execution revision differs from configured HEAD")
 
 
 def _committed_fingerprint(root: Path) -> str:
@@ -364,7 +368,7 @@ def _run_validated(nodes: list[str], output: Path, root: Path, scratch: Path) ->
         result = subprocess.run(
             command,
             cwd=scratch,
-            env=_environment(scratch),
+            env=_environment(scratch, root),
             stdout=stdout,
             stderr=stderr,
             timeout=300,
