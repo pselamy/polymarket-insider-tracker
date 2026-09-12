@@ -429,3 +429,108 @@ def test_self_consistent_dirty_source_cannot_claim_committed_head(
     result = _check(document, tmp_path / "dirty", root=committed_workspace)
     assert not result.ok
     assert "uncommitted inputs" in str(result.errors)
+
+
+def test_assume_unchanged_dirty_test_cannot_claim_committed_head(
+    tmp_path: Path,
+    committed_workspace: Path,
+) -> None:
+    from uuid import uuid4
+
+    path = committed_workspace / "tests/tooling" / f"test_t5_index_{uuid4().hex}.py"
+    path.write_text("def test_index_binding():\n    assert True\n")
+    _commit_history(committed_workspace, path)
+    node = path.relative_to(committed_workspace).as_posix() + "::test_index_binding"
+    path.write_text("def test_index_binding():\n    assert False, 'dirty but index-hidden'\n")
+    subprocess.run(
+        ["git", "-C", str(committed_workspace), "update-index", "--assume-unchanged", str(path)],
+        check=True,
+    )
+    try:
+        assert (
+            subprocess.run(
+                ["git", "-C", str(committed_workspace), "status", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            == ""
+        )
+        result = _check(
+            _document(node=node, root=committed_workspace),
+            tmp_path / "index",
+            root=committed_workspace,
+        )
+        assert not result.ok
+        assert "differs from committed bytes" in str(result.errors)
+    finally:
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(committed_workspace),
+                "update-index",
+                "--no-assume-unchanged",
+                str(path),
+            ],
+            check=True,
+        )
+        path.unlink()
+
+
+def test_skip_worktree_dirty_test_cannot_claim_committed_head(
+    tmp_path: Path,
+    committed_workspace: Path,
+) -> None:
+    from uuid import uuid4
+
+    path = committed_workspace / "tests/tooling" / f"test_t5_worktree_{uuid4().hex}.py"
+    path.write_text("def test_worktree_binding():\n    assert True\n")
+    _commit_history(committed_workspace, path)
+    node = path.relative_to(committed_workspace).as_posix() + "::test_worktree_binding"
+    path.write_text("def test_worktree_binding():\n    assert False, 'dirty but index-hidden'\n")
+    subprocess.run(
+        ["git", "-C", str(committed_workspace), "update-index", "--skip-worktree", str(path)],
+        check=True,
+    )
+    try:
+        result = _check(
+            _document(node=node, root=committed_workspace),
+            tmp_path / "worktree",
+            root=committed_workspace,
+        )
+        assert not result.ok
+        assert "differs from committed bytes" in str(result.errors)
+    finally:
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(committed_workspace),
+                "update-index",
+                "--no-skip-worktree",
+                str(path),
+            ],
+            check=True,
+        )
+        path.unlink()
+
+
+def test_ignored_untracked_test_cannot_claim_committed_head(
+    tmp_path: Path,
+    committed_workspace: Path,
+) -> None:
+    path = committed_workspace / "tests" / ".cache" / "test_t5_ignored.py"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("def test_ignored_binding():\n    assert True\n")
+    try:
+        node = "tests/.cache/test_t5_ignored.py::test_ignored_binding"
+        result = _check(
+            _document(node=node, root=committed_workspace),
+            tmp_path / "ignored",
+            root=committed_workspace,
+        )
+        assert not result.ok
+        assert "not a committed tree entry" in str(result.errors)
+    finally:
+        path.unlink()

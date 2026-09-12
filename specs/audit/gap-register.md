@@ -173,3 +173,11 @@ configured committed revision when the worktree was dirty. Exact-head credit now
 also requires clean committed inputs before/after execution. A recomputed caller
 manifest for a modified harness fails the added regression. The preceding local
 candidate is preserved as an immutable commit; this is its bounded correction.
+
+T5 R2-INDEX/R2-IGNORED follow-up: `git status` and `ls-files
+--exclude-standard` are blind to assume-unchanged/skip-worktree dirty bytes and
+to ignored untracked tests. Claimed tests must now be regular committed blobs
+whose working bytes equal `git show HEAD:<path>`, and the full committed tree
+is byte-compared before/after validator-owned execution. Ignored side-effect
+files stay non-blocking. Regressions cover both index flags and an ignored
+`tests/.cache/` test; valid execution and ledger history are preserved.

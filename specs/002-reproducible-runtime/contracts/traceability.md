@@ -52,6 +52,27 @@ pytest row credit. Final candidate acceptance still requires the full native
 static, Python 3.11–3.13 compatibility and loopback services commands, cognitive
 complexity <=5 and independently measured cyclomatic complexity <=10.
 
+### R2-INDEX / R2-IGNORED tightening — committed-tree binding
+
+`git status` alone cannot prove equality with committed bytes: an
+assume-unchanged or skip-worktree tracked test can differ from its HEAD blob
+while status stays empty, and an ignored untracked test is invisible to both
+`ls-files --exclude-standard` and default status. Exact-head credit therefore
+additionally requires:
+
+- every claimed test path to be a regular committed blob in `HEAD` (`ls-tree`)
+  whose working bytes equal `git show HEAD:<path>` byte-for-byte;
+- the full committed tree (excluding only ledger outputs) to match working
+  bytes before and after the validator-owned child execution;
+- ignored side-effect files (`__pycache__`, caches) to remain non-blocking,
+  while ignored claimed tests and any other uncommitted/ignored source inputs
+  fail closed.
+
+Regressions cover committed-failing/passing-dirty pairs under both
+assume-unchanged and skip-worktree flags, plus an ignored untracked test under
+`tests/.cache/`. Valid harness execution and immutable ledger history are
+preserved.
+
 ### Final R2 tightening — committed inputs only
 
 The earlier working-byte description is an input fingerprint, not permission to

@@ -442,3 +442,8 @@ checks, publication, approval or merge is asserted.
   revision, and recheck clean input status after execution. The corrective regression
   recomputes the caller manifest after changing the harness and still requires failure.
   Source-mutating contract cases use dedicated committed local clones.
+- [X] T5-R2b Bind claimed tests and execution inputs to immutable committed tree
+  bytes independent of Git index flags and ignore rules (R2-INDEX, R2-IGNORED).
+  Regressions: assume-unchanged dirty, skip-worktree dirty, ignored untracked
+  `tests/.cache/` test. Ignored side-effect files (`__pycache__`/caches) stay
+  non-blocking; valid harness credit and ledger history are preserved.

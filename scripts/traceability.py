@@ -99,10 +99,12 @@ def _artifact(root: Path, path: str) -> Path:
 
 
 def source_identity(context: LedgerContext) -> dict[str, object]:
-    """Bind the actual checkout commit/tree AND all working input bytes.
+    """Bind the actual checkout commit/tree AND all committed input bytes.
 
     Ledger JSON is output, excluded to avoid self-reference. Nothing else is excluded.
-    The extra byte digest makes dirty execution explicit rather than calling it clean HEAD.
+    Identity binds working bytes, but exact-head credit additionally requires
+    _require_committed_source so dirty working bytes (including index-hidden or
+    ignored inputs) cannot earn credit for a configured committed revision.
     """
     root = context.repository_root
     head = _git(root, "rev-parse", "HEAD")
@@ -156,10 +158,29 @@ def _test_path(entry: str, context: LedgerContext) -> None:
     path = entry.split("::")[0]
     if not path.startswith("tests/"):
         raise ValueError(f"dangling test path {entry!r}")
+    _committed_test(path, context)
+
+
+def _committed_bytes(root: Path, path: str) -> bytes:
+    result = subprocess.run(
+        ["git", "-C", str(root), "show", f"HEAD:{path}"],
+        check=True,
+        capture_output=True,
+    )
+    return result.stdout
+
+
+def _committed_test(path: str, context: LedgerContext) -> None:
+    root = context.repository_root
     try:
-        _artifact(context.repository_root, path)
+        candidate = _artifact(root, path)
     except ValueError as exc:
-        raise ValueError(f"dangling test path {entry!r}") from exc
+        raise ValueError(f"dangling test path {path!r}") from exc
+    entry = _git(root, "ls-tree", "HEAD", "--", path)
+    if not entry.startswith("100644 blob ") and not entry.startswith("100755 blob "):
+        raise ValueError(f"test {path!r} is not a committed tree entry")
+    if candidate.read_bytes() != _committed_bytes(root, path):
+        raise ValueError(f"test {path!r} differs from committed bytes")
 
 
 def _artifacts(row: dict[str, object], context: LedgerContext) -> None:
@@ -245,8 +266,16 @@ def _outcomes(value: object, nodes: list[str]) -> None:
 
 
 def _require_committed_source(context: LedgerContext) -> None:
+    _require_exact_bytes(context)
+
+
+def _require_exact_bytes(context: LedgerContext) -> None:
+    root = context.repository_root
+    head = _git(root, "rev-parse", "HEAD")
+    if context.expected_revision != head:
+        raise ValueError("configured expected revision must equal actual full HEAD")
     changes = _git(
-        context.repository_root,
+        root,
         "status",
         "--porcelain",
         "--untracked-files=all",
@@ -255,10 +284,22 @@ def _require_committed_source(context: LedgerContext) -> None:
         ":(exclude)specs/002-reproducible-runtime/evidence/TRACEABILITY.json",
         ":(exclude)specs/003-safe-observable-operation/evidence/TRACEABILITY.json",
     )
-    if changes:
+    for line in changes.splitlines():
+        if line.startswith("!!"):
+            continue
         raise ValueError(
             "source changed or uncommitted inputs; exact-head execution requires clean source"
         )
+    _require_tree_bytes(root)
+
+
+def _require_tree_bytes(root: Path) -> None:
+    listed = _git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD")
+    for path in listed.rstrip("\0").split("\0"):
+        if path.endswith("/evidence/TRACEABILITY.json"):
+            continue
+        if (root / path).read_bytes() != _committed_bytes(root, path):
+            raise ValueError(f"source {path!r} differs from committed bytes")
 
 
 def _execute(nodes: list[str], context: LedgerContext, output: Path) -> None:
