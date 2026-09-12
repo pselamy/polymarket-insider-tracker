@@ -1,0 +1,427 @@
+{
+  "manifest": {
+    "slice": "003-safe-observable-operation",
+    "head": "76be49bf695cd992a571496da3799f6526b55c02",
+    "tree": "b82ee405e42ba970fcf81e375fd284a6bb45f2d9",
+    "tasks_sha256": "17a0c6bd6e6d1452c9354671436fe2e838ea86ff6b6d3230535b9525e40f4730",
+    "compatibility_json_sha256": "ba75148cc3c890401778230c87e221d5fd78f2bdbcd4dc655b91e34e64d9433e",
+    "result_summary": "static passed (7 gates); compatibility 1545 passed, 3 skipped",
+    "tool_versions": {
+      "python": "3.13.14",
+      "pytest": "9.0.2",
+      "uv": "0.11.21",
+      "black": "26.5.1",
+      "ruff": "0.14.10",
+      "mypy": "1.19.1",
+      "pyright": "1.1.411",
+      "vulture": "2.16",
+      "complexipy": "8.0.1",
+      "fakeredis": "2.38.0",
+      "pyyaml": "6.0.3"
+    }
+  },
+  "rows": [
+    {
+      "requirement": "FR-001",
+      "scenario": "US1-AC1: liveness/readiness/detailed-health/metrics exposed on the effective port",
+      "negative_scenario": "Health flags parsed but ignored; all interfaces bind a stale port",
+      "test": [
+        "tests/ingestor/test_health_server.py",
+        "tests/test_main.py"
+      ],
+      "run": "uv run pytest tests/ingestor/test_health_server.py tests/test_main.py",
+      "source": [
+        "src/polymarket_insider_tracker/ingestor/health.py",
+        "src/polymarket_insider_tracker/pipeline.py"
+      ],
+      "config": "--health-port effective-port binding; /live /ready /health /metrics",
+      "result": "static passed; health suite passed",
+      "artifact_sha256": {
+        "tests/ingestor/test_health_server.py": "5a7377db289d25ec72b625abfe0e3f1f50a0744e546a6dc6004d0ca4401f2034",
+        "tests/test_main.py": "49eb2c2b478e98af700cefe5e5b54d07035411ebf726cabf4129f916c5700129"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-002",
+      "scenario": "US1-AC4: readiness fails on dead dependency, terminal ingestion failure, or stalled progress",
+      "negative_scenario": "A crashed poller leaves readiness 200",
+      "test": [
+        "tests/ingestor/test_health_server.py",
+        "tests/test_pipeline.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "run": "uv run pytest tests/ingestor/test_health_server.py tests/test_pipeline.py tests/integration/test_end_to_end.py",
+      "source": [
+        "src/polymarket_insider_tracker/ingestor/health.py",
+        "src/polymarket_insider_tracker/pipeline.py"
+      ],
+      "config": "readiness requires database+redis+ingestion up; recent-successful-acquisition gate",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/ingestor/test_health_server.py": "5a7377db289d25ec72b625abfe0e3f1f50a0744e546a6dc6004d0ca4401f2034",
+        "tests/test_pipeline.py": "b06ba218c0bbe5cd804511476a0b3239f7917fb9cb21e33b35c6a585faba1987",
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-003",
+      "scenario": "US1-AC2/AC3: health separates acquisition freshness, trade freshness, progress, dependencies, last error",
+      "negative_scenario": "An empty successful acquisition is mislabeled a disconnected source",
+      "test": [
+        "tests/ingestor/test_health_server.py"
+      ],
+      "run": "uv run pytest tests/ingestor/test_health_server.py",
+      "source": [
+        "src/polymarket_insider_tracker/ingestor/health.py"
+      ],
+      "config": "acquisition vs trade freshness; degraded vs down",
+      "result": "static passed; health suite passed",
+      "artifact_sha256": {
+        "tests/ingestor/test_health_server.py": "5a7377db289d25ec72b625abfe0e3f1f50a0744e546a6dc6004d0ca4401f2034"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-004",
+      "scenario": "US1-AC5: every CLI override (incl. health port) affects runtime and the redacted summary",
+      "negative_scenario": "--health-port prints one value and binds another",
+      "test": [
+        "tests/test_main.py",
+        "tests/ingestor/test_health_server.py"
+      ],
+      "run": "uv run pytest tests/test_main.py tests/ingestor/test_health_server.py",
+      "source": [
+        "src/polymarket_insider_tracker/__main__.py"
+      ],
+      "config": "effective-port plumbing + redacted config summary",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_main.py": "49eb2c2b478e98af700cefe5e5b54d07035411ebf726cabf4129f916c5700129",
+        "tests/ingestor/test_health_server.py": "5a7377db289d25ec72b625abfe0e3f1f50a0744e546a6dc6004d0ca4401f2034"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-005",
+      "scenario": "US1: --config-check is offline syntax/config validation only; readiness needs bounded live checks",
+      "negative_scenario": "--config-check claims ready-to-run without touching any dependency",
+      "test": [
+        "tests/test_main.py"
+      ],
+      "run": "uv run pytest tests/test_main.py",
+      "source": [
+        "src/polymarket_insider_tracker/__main__.py"
+      ],
+      "config": "offline-syntax wording; /ready owns live checks",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_main.py": "49eb2c2b478e98af700cefe5e5b54d07035411ebf726cabf4129f916c5700129"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-006",
+      "scenario": "US1-AC4: terminal worker failure -> ERROR state, failed readiness, cleanup, CLI exit 1",
+      "negative_scenario": "The pipeline stays RUNNING after its ingestion worker dies",
+      "test": [
+        "tests/test_pipeline.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "run": "uv run pytest tests/test_pipeline.py tests/integration/test_end_to_end.py",
+      "source": [
+        "src/polymarket_insider_tracker/pipeline.py",
+        "src/polymarket_insider_tracker/__main__.py"
+      ],
+      "config": "worker supervision; EXIT_ERROR=1",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_pipeline.py": "b06ba218c0bbe5cd804511476a0b3239f7917fb9cb21e33b35c6a585faba1987",
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-007",
+      "scenario": "US1: default external-service settings pass bounded readiness under the no-key claim",
+      "negative_scenario": "Default Polygon endpoint 401s while docs promise no-key quick start",
+      "test": [
+        "tests/test_config.py"
+      ],
+      "run": "uv run pytest tests/test_config.py",
+      "source": [
+        "src/polymarket_insider_tracker/config.py"
+      ],
+      "config": "PolygonSettings default https://polygon-rpc.com; strict URL parsing",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_config.py": "cd7c9bfad6ea7fb34b819783ccecba720fcf4e3ce75e22c97f58941f1b988817"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-008",
+      "scenario": "US2: scoring and delivery-dedup are separate decisions; scoring has no delivery side effects",
+      "negative_scenario": "A threshold-passing dry run writes the dedup key (G-018)",
+      "test": [
+        "tests/detector/test_scorer.py"
+      ],
+      "run": "uv run pytest tests/detector/test_scorer.py",
+      "source": [
+        "src/polymarket_insider_tracker/detector/scorer.py"
+      ],
+      "config": "RiskScorer compute-only; zero Redis ops in assess()",
+      "result": "static passed; scorer suite passed",
+      "artifact_sha256": {
+        "tests/detector/test_scorer.py": "d47a86b321a595569499f9d783ac5edee7ac570b3e2161d7f4baf4d3bea06e8b"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-009",
+      "scenario": "US2-AC1: dry run makes zero Discord/Telegram calls and writes zero dedup keys",
+      "negative_scenario": "Dry-run verification poisons later real delivery",
+      "test": [
+        "tests/alerter/test_deduplication.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "run": "uv run pytest tests/alerter/test_deduplication.py tests/integration/test_end_to_end.py",
+      "source": [
+        "src/polymarket_insider_tracker/alerter/dispatcher.py",
+        "src/polymarket_insider_tracker/alerter/history.py"
+      ],
+      "config": "dispatch returns before any delivery-state write; dry_run disposition",
+      "result": "static passed; dedup + e2e suites passed",
+      "artifact_sha256": {
+        "tests/alerter/test_deduplication.py": "326379cb217927b80eecaef7971c49bbfbce3c9a6994b9b7439a446702a6021c",
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-010",
+      "scenario": "US2-AC2/AC3: dedup scoped per channel, written only after success; failed stays eligible",
+      "negative_scenario": "A failed channel suppresses retry; a success spams the sibling channel",
+      "test": [
+        "tests/alerter/test_deduplication.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "run": "uv run pytest tests/alerter/test_deduplication.py tests/integration/test_end_to_end.py",
+      "source": [
+        "src/polymarket_insider_tracker/alerter/history.py"
+      ],
+      "config": "alert:dedup:<channel>:<wallet>:<market>; atomic claim + ownership token",
+      "result": "static passed; dedup + e2e suites passed",
+      "artifact_sha256": {
+        "tests/alerter/test_deduplication.py": "326379cb217927b80eecaef7971c49bbfbce3c9a6994b9b7439a446702a6021c",
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-011",
+      "scenario": "US2: one authoritative delivery lifecycle; dormant competing paths removed/delegated/marked",
+      "negative_scenario": "Scorer-side and history-side dedup compete silently",
+      "test": [
+        "tests/alerter/test_deduplication.py",
+        "tests/detector/test_scorer.py"
+      ],
+      "run": "uv run pytest tests/alerter/test_deduplication.py tests/detector/test_scorer.py",
+      "source": [
+        "src/polymarket_insider_tracker/alerter/history.py",
+        "src/polymarket_insider_tracker/alerter/dispatcher.py",
+        "src/polymarket_insider_tracker/detector/scorer.py"
+      ],
+      "config": "AlertHistory + AlertDispatcher own delivery; scorer compute-only",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/alerter/test_deduplication.py": "326379cb217927b80eecaef7971c49bbfbce3c9a6994b9b7439a446702a6021c",
+        "tests/detector/test_scorer.py": "d47a86b321a595569499f9d783ac5edee7ac570b3e2161d7f4baf4d3bea06e8b"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-012",
+      "scenario": "US2/US3: every signal-bearing assessment persisted (below-threshold, dry-run, duplicate, success, partial/total failure)",
+      "negative_scenario": "A suppressed or failed delivery leaves no research record",
+      "test": [
+        "tests/test_persist_assessment.py",
+        "tests/test_pipeline_persistence.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "run": "uv run pytest tests/test_persist_assessment.py tests/test_pipeline_persistence.py tests/integration/test_end_to_end.py",
+      "source": [
+        "src/polymarket_insider_tracker/storage/models.py",
+        "src/polymarket_insider_tracker/storage/repos.py"
+      ],
+      "config": "pending-row-before-delivery; NUMERIC(4,3) decision precision",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_persist_assessment.py": "84de6c20473dab9674e23526cfadb2304187c44dacb445fde3ea93e599d76a40",
+        "tests/test_pipeline_persistence.py": "4742b9b25b2d09baf70518121fedf1ae29fa0078946970b95135737407ce06f3",
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-013",
+      "scenario": "US3-AC2: persistence failure is observable and never blocks an authorized delivery",
+      "negative_scenario": "A DB outage silently cancels the alert",
+      "test": [
+        "tests/test_persist_assessment.py",
+        "tests/integration/test_end_to_end.py"
+      ],
+      "run": "uv run pytest tests/test_persist_assessment.py tests/integration/test_end_to_end.py",
+      "source": [
+        "src/polymarket_insider_tracker/storage/repos.py",
+        "src/polymarket_insider_tracker/alerter/dispatcher.py"
+      ],
+      "config": "logged persistence failure + delivery proceeds",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_persist_assessment.py": "84de6c20473dab9674e23526cfadb2304187c44dacb445fde3ea93e599d76a40",
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-014",
+      "scenario": "US3-AC1: deterministic e2e covers ingest, profile, detect, score, persist, dispatch, health, failure, restart, shutdown",
+      "negative_scenario": "Isolated unit tests pass while wiring drops the trade",
+      "test": [
+        "tests/integration/test_end_to_end.py"
+      ],
+      "run": "uv run pytest tests/integration/test_end_to_end.py",
+      "source": [
+        "src/polymarket_insider_tracker/pipeline.py"
+      ],
+      "config": "wire_pipeline over fakeredis/FakeEth/FakeBaseClobClient/FakeAlertChannel",
+      "result": "static passed; e2e 4 scenarios passed",
+      "artifact_sha256": {
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-015",
+      "scenario": "Required verification never contacts a real notification destination or trades",
+      "negative_scenario": "A test delivers to a real webhook or recommends a trade",
+      "test": [
+        "tests/alerter/test_dispatcher.py",
+        "tests/integration/test_end_to_end.py",
+        "tests/tooling/test_trades_smoke.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile compatibility",
+      "source": [
+        "src/polymarket_insider_tracker/alerter/dispatcher.py"
+      ],
+      "config": "fake channels + MockTransport; wallet-free smoke records",
+      "result": "compatibility 1545 passed 3 skipped",
+      "artifact_sha256": {
+        "tests/alerter/test_dispatcher.py": "e426da7ea5f559734d1fc492dd6b94eb682bf76607e9a070a049fbd653415c2b",
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706",
+        "tests/tooling/test_trades_smoke.py": "0eedf52a9e3f03d9d36d5d646c85c333f69f8a9949388a498aa98c5af04d2199"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-016",
+      "scenario": "Docs define liveness/readiness/degraded/dry-run/dedup/exit-1 consistently",
+      "negative_scenario": "Docs promise ready-to-run from --config-check alone",
+      "test": [
+        "tests/test_main.py",
+        "tests/ingestor/test_health_server.py"
+      ],
+      "run": "uv run pytest tests/test_main.py tests/ingestor/test_health_server.py",
+      "source": [
+        "README.md",
+        "src/polymarket_insider_tracker/__main__.py"
+      ],
+      "config": "operational + troubleshooting wording",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_main.py": "49eb2c2b478e98af700cefe5e5b54d07035411ebf726cabf4129f916c5700129",
+        "tests/ingestor/test_health_server.py": "5a7377db289d25ec72b625abfe0e3f1f50a0744e546a6dc6004d0ca4401f2034"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-017",
+      "scenario": "US2-AC4: delivery identity is channel + normalized wallet + market",
+      "negative_scenario": "Side/score/repeat creates a fresh delivery identity and spams",
+      "test": [
+        "tests/alerter/test_deduplication.py"
+      ],
+      "run": "uv run pytest tests/alerter/test_deduplication.py",
+      "source": [
+        "src/polymarket_insider_tracker/alerter/history.py"
+      ],
+      "config": "lowercase wallet normalization; channel-scoped keys",
+      "result": "static passed; dedup suite passed",
+      "artifact_sha256": {
+        "tests/alerter/test_deduplication.py": "326379cb217927b80eecaef7971c49bbfbce3c9a6994b9b7439a446702a6021c"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-018",
+      "scenario": "US2-AC5: success/failure/ambiguous distinguished; ambiguous suppresses 60s then eligible",
+      "negative_scenario": "A post-timeout acceptance is labeled success or clean failure",
+      "test": [
+        "tests/alerter/test_deduplication.py"
+      ],
+      "run": "uv run pytest tests/alerter/test_deduplication.py",
+      "source": [
+        "src/polymarket_insider_tracker/alerter/history.py",
+        "src/polymarket_insider_tracker/alerter/dispatcher.py"
+      ],
+      "config": "60s ambiguity window; ownership token + claim guard",
+      "result": "static passed; dedup suite passed",
+      "artifact_sha256": {
+        "tests/alerter/test_deduplication.py": "326379cb217927b80eecaef7971c49bbfbce3c9a6994b9b7439a446702a6021c"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-019",
+      "scenario": "Slice owns the target assessment/delivery schema + migration incl. slice-004 evidence fields",
+      "negative_scenario": "A competing slice-004 migration forks the assessment schema",
+      "test": [
+        "tests/storage/test_risk_assessments_schema.py",
+        "tests/integration/test_migration_backfill.py"
+      ],
+      "run": "uv run pytest tests/storage/test_risk_assessments_schema.py",
+      "source": [
+        "alembic/versions/20260910_0000_safe_observable_operation.py",
+        "src/polymarket_insider_tracker/storage/models.py"
+      ],
+      "config": "delivery_disposition/channels, dry_run, evidence + reproducibility columns; unrecorded/legacy-unversioned backfill",
+      "result": "static passed; schema 6 passed in focused subset",
+      "artifact_sha256": {
+        "tests/storage/test_risk_assessments_schema.py": "a16b2cf35db2511212166ddd6dcaddfbbff57f545287ae10c48cfbc8f654dbef"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-020",
+      "scenario": "Slice owns the reusable deterministic e2e harness; other slices contribute fixtures",
+      "negative_scenario": "A competing slice-001/004 framework forks the harness",
+      "test": [
+        "tests/integration/test_end_to_end.py",
+        "tests/test_harness_isolation.py"
+      ],
+      "run": "uv run pytest tests/integration/test_end_to_end.py tests/test_harness_isolation.py",
+      "source": [
+        "tests/integration/test_end_to_end.py"
+      ],
+      "config": "FakeTradesServer/FakeEth/FakeAlertChannel; repo-dotenv isolation guard",
+      "result": "static passed; e2e + isolation passed",
+      "artifact_sha256": {
+        "tests/integration/test_end_to_end.py": "a57ad122c61a1a017d0c5e944af3a09e1cbe9bc71edb695fa940c53179477706",
+        "tests/test_harness_isolation.py": "04f1a224f878deec13846c46f2037e959b114bcc10ff85d6cd7564fd8a609897"
+      },
+      "state": "exact-head-passed"
+    }
+  ]
+}

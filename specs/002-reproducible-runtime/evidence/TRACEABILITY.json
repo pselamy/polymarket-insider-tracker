@@ -1,0 +1,468 @@
+{
+  "manifest": {
+    "slice": "002-reproducible-runtime",
+    "head": "76be49bf695cd992a571496da3799f6526b55c02",
+    "tree": "b82ee405e42ba970fcf81e375fd284a6bb45f2d9",
+    "tasks_sha256": "17a0c6bd6e6d1452c9354671436fe2e838ea86ff6b6d3230535b9525e40f4730",
+    "compatibility_json_sha256": "ba75148cc3c890401778230c87e221d5fd78f2bdbcd4dc655b91e34e64d9433e",
+    "result_summary": "static passed (7 gates); compatibility 1545 passed, 3 skipped",
+    "tool_versions": {
+      "python": "3.13.14",
+      "pytest": "9.0.2",
+      "uv": "0.11.21",
+      "black": "26.5.1",
+      "ruff": "0.14.10",
+      "mypy": "1.19.1",
+      "pyright": "1.1.411",
+      "vulture": "2.16",
+      "complexipy": "8.0.1",
+      "fakeredis": "2.38.0",
+      "pyyaml": "6.0.3"
+    }
+  },
+  "rows": [
+    {
+      "requirement": "FR-001",
+      "scenario": "US3-AC1: metadata, lock, docs and checks agree on one finite support set",
+      "negative_scenario": "A pyproject/CI drift widening supported versions passes unnoticed",
+      "test": [
+        "tests/test_setup.py",
+        "tests/tooling/test_verify.py"
+      ],
+      "run": "uv run pytest tests/test_setup.py tests/tooling/test_verify.py",
+      "source": [
+        "src/polymarket_insider_tracker/__init__.py",
+        "scripts/verify.py"
+      ],
+      "config": "pyproject.toml requires-python >=3.11,<3.14",
+      "result": "static passed; compatibility 1545 passed 3 skipped",
+      "artifact_sha256": {
+        "tests/test_setup.py": "1961c93bbdc5e8ed1e85e2d9310ba0524c784ce238d9640c579e6f67f0f0fcfc",
+        "tests/tooling/test_verify.py": "c2114c65b4871cb734c49726c4abdee541f148865251e4d4f66d30f3676ebe85",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76",
+        "pyproject.toml": "c36481b3eea5d1c10b542933a09705365d70df8001a76ab42f4c30b2061a2231"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-002",
+      "scenario": "US3-AC1/AC2: supported set is exactly 3.11/3.12/3.13; unsupported minors rejected",
+      "negative_scenario": "An advertised 3.10/3.14 install resolves instead of failing clearly",
+      "test": [
+        "tests/test_setup.py",
+        "tests/tooling/test_verify.py"
+      ],
+      "run": "uv run pytest tests/test_setup.py tests/tooling/test_verify.py",
+      "source": [
+        "src/polymarket_insider_tracker/__init__.py",
+        "scripts/verify.py"
+      ],
+      "config": "pyproject.toml requires-python >=3.11,<3.14; uv required-version >=0.11,<0.12",
+      "result": "static passed; compatibility 1545 passed 3 skipped",
+      "artifact_sha256": {
+        "tests/test_setup.py": "1961c93bbdc5e8ed1e85e2d9310ba0524c784ce238d9640c579e6f67f0f0fcfc",
+        "tests/tooling/test_verify.py": "c2114c65b4871cb734c49726c4abdee541f148865251e4d4f66d30f3676ebe85",
+        "pyproject.toml": "c36481b3eea5d1c10b542933a09705365d70df8001a76ab42f4c30b2061a2231"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-003",
+      "scenario": "US1-AC1: clean install includes async DB, migration, test, lint, format and strict-type deps",
+      "negative_scenario": "A clean Apple Silicon install omits greenlet/Psycopg and async DB tests error",
+      "test": [
+        "tests/test_setup.py",
+        "tests/storage/test_database.py",
+        "tests/tooling/test_verify.py"
+      ],
+      "run": "uv run pytest tests/test_setup.py tests/storage/test_database.py",
+      "source": [
+        "src/polymarket_insider_tracker/storage/database.py",
+        "scripts/verify.py"
+      ],
+      "config": "pyproject sqlalchemy[asyncio] + psycopg[binary]",
+      "result": "static passed; 29 focused tests passed (setup/database/database-url/harness/schema subset)",
+      "artifact_sha256": {
+        "tests/test_setup.py": "1961c93bbdc5e8ed1e85e2d9310ba0524c784ce238d9640c579e6f67f0f0fcfc",
+        "tests/storage/test_database.py": "7b614e6c0d22c97266d10e92d5afce42da414004fc281737aa0c98f43da71f21",
+        "pyproject.toml": "c36481b3eea5d1c10b542933a09705365d70df8001a76ab42f4c30b2061a2231"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-004",
+      "scenario": "US1-AC2: one documented DATABASE_URL usable by tracker and migrations; legacy preserved, incompatible rejected",
+      "negative_scenario": "A sync/async driver mismatch silently selects the wrong engine",
+      "test": [
+        "tests/test_config.py",
+        "tests/storage/test_database.py",
+        "tests/storage/test_database_url.py"
+      ],
+      "run": "uv run pytest tests/test_config.py tests/storage/test_database.py tests/storage/test_database_url.py",
+      "source": [
+        "src/polymarket_insider_tracker/config.py",
+        "src/polymarket_insider_tracker/storage/database.py",
+        "src/polymarket_insider_tracker/storage/database_url.py"
+      ],
+      "config": "DatabaseSettings canonical URL normalization; SUPPORTED_DRIVERS postgresql triplet",
+      "result": "static passed; focused subset passed",
+      "artifact_sha256": {
+        "tests/test_config.py": "cd7c9bfad6ea7fb34b819783ccecba720fcf4e3ce75e22c97f58941f1b988817",
+        "tests/storage/test_database.py": "7b614e6c0d22c97266d10e92d5afce42da414004fc281737aa0c98f43da71f21",
+        "tests/storage/test_database_url.py": "392386c0ed6054953b12158d6f419e106e0ca6d8ea4bdba443cec902ad2172a0",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-005",
+      "scenario": "US3-AC3: example env has working local defaults, marks required values, holds no real credential",
+      "negative_scenario": "A real credential ships in .env.example or a required value is unexplained",
+      "test": [
+        "tests/test_config.py"
+      ],
+      "run": "uv run pytest tests/test_config.py",
+      "source": [
+        "src/polymarket_insider_tracker/config.py",
+        ".env.example"
+      ],
+      "config": " .env.example local defaults; redacted diagnostics",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_config.py": "cd7c9bfad6ea7fb34b819783ccecba720fcf4e3ce75e22c97f58941f1b988817"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-006",
+      "scenario": "US1: quick start runs install, service startup, migration and bounded validation in order",
+      "negative_scenario": "A contributor must hand-edit config between install and migration",
+      "test": [
+        "tests/integration/test_runtime_services.py",
+        "tests/test_main.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile services",
+      "source": [
+        "scripts/runtime_services.py",
+        "src/polymarket_insider_tracker/__main__.py"
+      ],
+      "config": ".env.example service stack; runtime_services phases probe/migrations/all",
+      "result": "services profile exercised via contract suite; static passed",
+      "artifact_sha256": {
+        "tests/integration/test_runtime_services.py": "ce9574624978463014e871aff91e9d07b64b36df116304c8b54a9c0cd9774951",
+        "tests/test_main.py": "49eb2c2b478e98af700cefe5e5b54d07035411ebf726cabf4129f916c5700129",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-007",
+      "scenario": "US1-AC3: every migration keeps a downgrade path; automation exercises up/down/re-up on Psycopg",
+      "negative_scenario": "A migration ships without a downgrade or the cycle is never executed",
+      "test": [
+        "tests/integration/test_runtime_services.py",
+        "tests/storage/test_risk_assessments_schema.py"
+      ],
+      "run": "uv run --env-file .env.example python scripts/verify.py --profile services",
+      "source": [
+        "alembic/versions/20260910_0000_safe_observable_operation.py",
+        "scripts/runtime_services.py"
+      ],
+      "config": "alembic upgrade/downgrade/re-upgrade in disposable database",
+      "result": "static passed; schema tests 6 passed in focused subset",
+      "artifact_sha256": {
+        "tests/integration/test_runtime_services.py": "ce9574624978463014e871aff91e9d07b64b36df116304c8b54a9c0cd9774951",
+        "tests/storage/test_risk_assessments_schema.py": "a16b2cf35db2511212166ddd6dcaddfbbff57f545287ae10c48cfbc8f654dbef"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-008",
+      "scenario": "US2-AC1/AC2: format, lint, strict mypy, strict Pyright, Vulture, Complexipy, test, migration and compatibility checks block",
+      "negative_scenario": "A weakening (threshold 5->6, advisory job, diff-only mode) stays green",
+      "test": [
+        "gate:complexipy",
+        "gate:vulture",
+        "gate:strict-types",
+        "gate:pyright",
+        "gate:format",
+        "gate:lint",
+        "tests/tooling/test_policy_snapshot.py",
+        "tests/tooling/test_complexipy.py",
+        "tests/tooling/test_ci_workflow.py",
+        "tests/tooling/test_gate_negatives.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile static",
+      "source": [
+        "scripts/verify.py",
+        "scripts/complexipy_gate.py",
+        ".github/workflows/ci.yml"
+      ],
+      "config": "max-complexity-allowed 5; scope src tests scripts alembic conftest.py; blocking jobs static/vulture/complexipy/compatibility/services",
+      "result": "static passed (7 gates)",
+      "artifact_sha256": {
+        "tests/tooling/test_policy_snapshot.py": "4070536a095e09f5c9ff66a414dfdf7e16c5ba58b700741649877b1912dc201b",
+        "tests/tooling/test_complexipy.py": "af6ac24142a6b945698ccf6713ae6db81863e316d3cce4fb975d951002c9cb98",
+        "tests/tooling/test_ci_workflow.py": "f6fc97405c208b5b2b32494b13caeaa2627c62fb425e3ccf036cae6c74da42c4",
+        "tests/tooling/test_gate_negatives.py": "ece8238bf2358257290c8382a026b5e0bcb77a9394f8e03bcc6f40428fe46abf",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76",
+        "scripts/complexipy_gate.py": "468886e5232c72ed62f3eecadb1e7e62d704464985dd361f63e799c377d84700",
+        ".github/workflows/ci.yml": "a5361623b4afde93a47f21fce7d2756d92bf943a4369fd7113a9b7b83f67fad6",
+        "pyproject.toml": "c36481b3eea5d1c10b542933a09705365d70df8001a76ab42f4c30b2061a2231"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-009",
+      "scenario": "Locked dependency set used by tests (no per-run resolution drift)",
+      "negative_scenario": "A test run resolves an unrelated environment and passes vacuously",
+      "test": [
+        "tests/tooling/test_verify.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile compatibility",
+      "source": [
+        "scripts/verify.py"
+      ],
+      "config": "uv.lock --check gate; --locked --all-extras invocations",
+      "result": "compatibility 1545 passed 3 skipped",
+      "artifact_sha256": {
+        "tests/tooling/test_verify.py": "c2114c65b4871cb734c49726c4abdee541f148865251e4d4f66d30f3676ebe85",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-010",
+      "scenario": "At least one required check exercises real local PostgreSQL and Redis",
+      "negative_scenario": "CI starts services nobody ever touches",
+      "test": [
+        "tests/integration/test_redis_contract.py",
+        "tests/integration/test_runtime_services.py"
+      ],
+      "run": "RUN_SERVICE_TESTS=1 uv run --env-file .env pytest tests/integration/test_redis_contract.py",
+      "source": [
+        "scripts/runtime_services.py",
+        "scripts/verify.py"
+      ],
+      "config": "services profile: probe + redis-contract + migrations on loopback services",
+      "result": "contract suite runs against fakeredis and real loopback Redis when enabled",
+      "artifact_sha256": {
+        "tests/integration/test_redis_contract.py": "45db446fec0312d07b93c150c9d3c5dc037a0e4f8f9d42e8836571ee1e179cf6",
+        "tests/integration/test_runtime_services.py": "ce9574624978463014e871aff91e9d07b64b36df116304c8b54a9c0cd9774951",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-011",
+      "scenario": "One documented aggregate verification entry point running the required gates",
+      "negative_scenario": "Contributors must hand-assemble gate commands that drift from CI",
+      "test": [
+        "tests/tooling/test_verify.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile all --json",
+      "source": [
+        "scripts/verify.py"
+      ],
+      "config": "`verify.py --help` direct gate commands; profiles static/compatibility/services/all",
+      "result": "static passed; compatibility passed",
+      "artifact_sha256": {
+        "tests/tooling/test_verify.py": "c2114c65b4871cb734c49726c4abdee541f148865251e4d4f66d30f3676ebe85",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-012",
+      "scenario": "Gate output names the failing prerequisite/command without leaking credential-bearing URLs",
+      "negative_scenario": "A DB failure prints the password or hides which gate failed",
+      "test": [
+        "tests/tooling/test_verify.py",
+        "tests/test_config.py",
+        "tests/test_main.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile static",
+      "source": [
+        "scripts/verify.py",
+        "src/polymarket_insider_tracker/config.py"
+      ],
+      "config": "redact_text over DATABASE_URL/REDIS_URL/secrets; first-failed-gate summary",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/tooling/test_verify.py": "c2114c65b4871cb734c49726c4abdee541f148865251e4d4f66d30f3676ebe85",
+        "tests/test_config.py": "cd7c9bfad6ea7fb34b819783ccecba720fcf4e3ce75e22c97f58941f1b988817",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-013",
+      "scenario": "Anchor format/mypy/pyright failures resolved, never hidden via exclusions or non-blocking status",
+      "negative_scenario": "A blanket ignore silences the anchor failures",
+      "test": [
+        "gate:format",
+        "gate:strict-types",
+        "gate:pyright",
+        "tests/tooling/test_gate_negatives.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile static",
+      "source": [
+        "scripts/verify.py"
+      ],
+      "config": "strict mypy + strict Pyright, no baselines/suppressions",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/tooling/test_gate_negatives.py": "ece8238bf2358257290c8382a026b5e0bcb77a9394f8e03bcc6f40428fe46abf",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-014",
+      "scenario": "README/commands/config/automation/metadata share one setup vocabulary",
+      "negative_scenario": "Docs promise a flow the automation does not implement",
+      "test": [
+        "tests/test_main.py",
+        "tests/test_setup.py"
+      ],
+      "run": "uv run pytest tests/test_main.py tests/test_setup.py",
+      "source": [
+        "README.md",
+        "src/polymarket_insider_tracker/__main__.py"
+      ],
+      "config": "quickstart + --config-check offline-syntax wording",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/test_main.py": "49eb2c2b478e98af700cefe5e5b54d07035411ebf726cabf4129f916c5700129",
+        "tests/test_setup.py": "1961c93bbdc5e8ed1e85e2d9310ba0524c784ce238d9640c579e6f67f0f0fcfc"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-015",
+      "scenario": "Pyright stays independent, pinned, locked, strict over the full package at 3.11",
+      "negative_scenario": "Pyright is downgraded, narrowed, or set advisory",
+      "test": [
+        "gate:pyright",
+        "tests/tooling/test_gate_negatives.py",
+        "tests/tooling/test_policy_snapshot.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile static",
+      "source": [
+        "scripts/verify.py"
+      ],
+      "config": "pyright 1.1.411 strict; typeCheckingMode strict; enableTypeIgnoreComments false",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/tooling/test_gate_negatives.py": "ece8238bf2358257290c8382a026b5e0bcb77a9394f8e03bcc6f40428fe46abf",
+        "tests/tooling/test_policy_snapshot.py": "4070536a095e09f5c9ff66a414dfdf7e16c5ba58b700741649877b1912dc201b",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76",
+        "pyproject.toml": "c36481b3eea5d1c10b542933a09705365d70df8001a76ab42f4c30b2061a2231"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-016",
+      "scenario": "Vulture stays independent, pinned, locked, default-confidence over every tracked Python file",
+      "negative_scenario": "Dead code is exempted via allowlist or confidence games",
+      "test": [
+        "gate:vulture",
+        "tests/tooling/test_verify.py",
+        "tests/tooling/test_ci_workflow.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile static",
+      "source": [
+        "scripts/verify.py"
+      ],
+      "config": "vulture 2.16 default confidence; paths src tests scripts alembic conftest.py",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/tooling/test_verify.py": "c2114c65b4871cb734c49726c4abdee541f148865251e4d4f66d30f3676ebe85",
+        "tests/tooling/test_ci_workflow.py": "f6fc97405c208b5b2b32494b13caeaa2627c62fb425e3ccf036cae6c74da42c4",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76",
+        "pyproject.toml": "c36481b3eea5d1c10b542933a09705365d70df8001a76ab42f4c30b2061a2231"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-017",
+      "scenario": "Complexipy stays independent, pinned, locked, max 5 over functions and module flow",
+      "negative_scenario": "A score-6 function or module body passes; a snapshot/cwd config relaxes the gate",
+      "test": [
+        "gate:complexipy",
+        "tests/tooling/test_complexipy.py",
+        "tests/tooling/test_policy_snapshot.py"
+      ],
+      "run": "uv run python scripts/verify.py --profile static",
+      "source": [
+        "scripts/complexipy_gate.py",
+        "scripts/verify.py"
+      ],
+      "config": "complexipy 8.0.1; --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true",
+      "result": "static passed",
+      "artifact_sha256": {
+        "tests/tooling/test_complexipy.py": "af6ac24142a6b945698ccf6713ae6db81863e316d3cce4fb975d951002c9cb98",
+        "tests/tooling/test_policy_snapshot.py": "4070536a095e09f5c9ff66a414dfdf7e16c5ba58b700741649877b1912dc201b",
+        "scripts/complexipy_gate.py": "468886e5232c72ed62f3eecadb1e7e62d704464985dd361f63e799c377d84700",
+        "scripts/verify.py": "f59dfb57c304e12aba0fdd252c8f7deffcb2e4c0ac2b70cb219a8572e0134c76",
+        "pyproject.toml": "c36481b3eea5d1c10b542933a09705365d70df8001a76ab42f4c30b2061a2231"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-018",
+      "scenario": "No test imports/aliases unittest.mock or dynamic mock frameworks",
+      "negative_scenario": "A mock-framework double returns; interaction assertions replace state assertions",
+      "test": [
+        "tests/tooling/test_test_quality.py"
+      ],
+      "run": "uv run pytest tests/tooling/test_test_quality.py",
+      "source": [
+        "tests/tooling/test_test_quality.py"
+      ],
+      "config": "AST policy over tests/ + root conftest.py",
+      "result": "static passed; quality suite passed",
+      "artifact_sha256": {
+        "tests/tooling/test_test_quality.py": "2aca760375ac91f2a25cf829fb8bfb9b0bdcf5c8b2c4213c1bff80885dbf4252"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-019",
+      "scenario": "Reusable Redis double is pinned fakeredis; one shared contract runs against fake and real loopback Redis",
+      "negative_scenario": "A hand-rolled fake drifts from real Redis stream/NX/TTL semantics",
+      "test": [
+        "tests/integration/test_redis_contract.py"
+      ],
+      "run": "RUN_SERVICE_TESTS=1 uv run --env-file .env pytest tests/integration/test_redis_contract.py",
+      "source": [
+        "tests/integration/test_redis_contract.py",
+        "scripts/runtime_services.py"
+      ],
+      "config": "fakeredis 2.38.0; fail-closed loopback selection with per-run namespace",
+      "result": "contract suite green on fakeredis; real-service parity when enabled",
+      "artifact_sha256": {
+        "tests/integration/test_redis_contract.py": "45db446fec0312d07b93c150c9d3c5dc037a0e4f8f9d42e8836571ee1e179cf6"
+      },
+      "state": "exact-head-passed"
+    },
+    {
+      "requirement": "FR-020",
+      "scenario": "AST regression enforces the mock prohibition without self-triggering or banning monkeypatch/transports",
+      "negative_scenario": "The policy bans pytest.MonkeyPatch or httpx.MockTransport, or misses alias spellings",
+      "test": [
+        "tests/tooling/test_test_quality.py"
+      ],
+      "run": "uv run pytest tests/tooling/test_test_quality.py",
+      "source": [
+        "tests/tooling/test_test_quality.py"
+      ],
+      "config": "allowlist: monkeypatch, httpx.MockTransport, string literals",
+      "result": "static passed; quality suite passed",
+      "artifact_sha256": {
+        "tests/tooling/test_test_quality.py": "2aca760375ac91f2a25cf829fb8bfb9b0bdcf5c8b2c4213c1bff80885dbf4252"
+      },
+      "state": "exact-head-passed"
+    }
+  ]
+}
