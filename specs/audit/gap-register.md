@@ -181,3 +181,13 @@ whose working bytes equal `git show HEAD:<path>`, and the full committed tree
 is byte-compared before/after validator-owned execution. Ignored side-effect
 files stay non-blocking. Regressions cover both index flags and an ignored
 `tests/.cache/` test; valid execution and ledger history are preserved.
+
+T5 R1-CI-HISTORY follow-up: the blocking Linux compatibility matrix and advisory
+Apple compatibility job now request full Git history from the pinned checkout action.
+A workflow-bound regression proves the fail-closed validator rejects a real depth-1
+local checkout without the immutable baseline, then accepts the same ledger history
+after local history restoration. The validator and historical ledgers are unchanged.
+Fresh local static cognitive <=5, separate cyclomatic <=10, Python 3.11/3.12/3.13
+compatibility, and private loopback PostgreSQL/Redis 7 service gates passed. This is
+a local correction candidate; remote CI, independent review, approval, publication,
+merge, and main verification remain pending.

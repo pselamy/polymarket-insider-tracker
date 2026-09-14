@@ -447,3 +447,11 @@ checks, publication, approval or merge is asserted.
   Regressions: assume-unchanged dirty, skip-worktree dirty, ignored untracked
   `tests/.cache/` test. Ignored side-effect files (`__pycache__`/caches) stay
   non-blocking; valid harness credit and ledger history are preserved.
+- [X] T5-R2c Correct R1-CI-HISTORY by configuring the blocking Linux compatibility
+  and advisory Apple compatibility checkouts with `fetch-depth: 0`. The workflow-bound
+  regression creates a real depth-1 local checkout, proves immutable-history validation
+  fails while the baseline object is absent, restores history using the configured full-history
+  contract, and proves the same validation succeeds. The fail-closed validator and historical
+  ledgers remain unchanged. Fresh local static cognitive <=5, separate cyclomatic <=10,
+  Python 3.11/3.12/3.13 compatibility, and private loopback PostgreSQL/Redis 7 service gates
+  passed; publication and independent review remain pending.
