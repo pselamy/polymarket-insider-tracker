@@ -147,3 +147,47 @@ remains a separate work item and is not closed by this document.
   were used.
 - The issue #93 screenshot is evidence of a historical run, not proof that every current user has the
   same malformed environment value.
+
+
+## T5 / R07-G1 receipt-binding correction — 2026-09-12
+
+The independent probe on `62f5b1e13aa88327b569acf99ff644c6c8e76c41` accepted
+unexecuted/file/skipped credit, wrong manifest identity, and deleted/rewritten
+ledger history. Those historical JSON rows and manifests remain unchanged; they
+are not current pass evidence. The bounded correction requires validator-owned
+pytest execution with actual collected IDs and phase outcomes, operator-configured
+expected revision checked against real Git HEAD/tree and working input bytes, and
+an immutable Git history prefix (including later committed additions). See slice
+002 `contracts/traceability.md` and `tests/tooling/test_traceability.py`.
+
+The 34 focused cases, native static/cognitive <=5 and separate cyclomatic <=10,
+full supported-version compatibility and owned loopback-service receipts are
+recorded in `/home/dev/dispatch-state/pm-t5-binding-fix-r2-20260912-sweep1331/`.
+Current receipt documents are written externally after the actual candidate commit,
+so no ledger invents its final hash. Status: locally implemented candidate; fresh
+independent review remains required. This does not reopen slice 003 or close T3,
+T4, T6, T7, T8, release, or remote-CI acceptance.
+
+T5 R2 follow-up: source fingerprints alone did not establish equality with the
+configured committed revision when the worktree was dirty. Exact-head credit now
+also requires clean committed inputs before/after execution. A recomputed caller
+manifest for a modified harness fails the added regression. The preceding local
+candidate is preserved as an immutable commit; this is its bounded correction.
+
+T5 R2-INDEX/R2-IGNORED follow-up: `git status` and `ls-files
+--exclude-standard` are blind to assume-unchanged/skip-worktree dirty bytes and
+to ignored untracked tests. Claimed tests must now be regular committed blobs
+whose working bytes equal `git show HEAD:<path>`, and the full committed tree
+is byte-compared before/after validator-owned execution. Ignored side-effect
+files stay non-blocking. Regressions cover both index flags and an ignored
+`tests/.cache/` test; valid execution and ledger history are preserved.
+
+T5 R1-CI-HISTORY follow-up: the blocking Linux compatibility matrix and advisory
+Apple compatibility job now request full Git history from the pinned checkout action.
+A workflow-bound regression proves the fail-closed validator rejects a real depth-1
+local checkout without the immutable baseline, then accepts the same ledger history
+after local history restoration. The validator and historical ledgers are unchanged.
+Fresh local static cognitive <=5, separate cyclomatic <=10, Python 3.11/3.12/3.13
+compatibility, and private loopback PostgreSQL/Redis 7 service gates passed. This is
+a local correction candidate; remote CI, independent review, approval, publication,
+merge, and main verification remain pending.

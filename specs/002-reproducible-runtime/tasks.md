@@ -418,3 +418,40 @@ The AG prefix isolates this documentation ledger from the fakes ledger above.
   reviewer returned SHIP and fresh all-profile / Python 3.11–3.12 compatibility passed.
 - [ ] AG006 Open the separate PR and verify required checks at its exact head.
 - [ ] AG007 Obtain Patrick's merge approval, merge, and verify resulting main CI.
+
+### T5 receipt-binding correction (2026-09-12)
+
+- [X] T5-R1 Prove validator-owned execution with actual collected IDs and phase outcomes;
+  reject forged sets, gate/file credit, skipped/missing/failed runs and metadata forgery.
+- [X] T5-R2 Bind configured expected revision, actual HEAD/tree and execution input bytes;
+  publish no circular or invented final-commit manifest.
+- [X] T5-R3 Preserve baseline historical rows/manifests and enforce ordered append-only
+  history against immutable Git objects and prior HEAD; rerun native 5/10 gates,
+  all supported compatibility minors and owned loopback services before candidate handoff.
+
+Correction evidence: 34 contract cases passed, including validator-owned positive
+and skipped/failing runs plus immutable prior-HEAD additions. Native static and
+separate cyclomatic <=10 passed; Python 3.11/3.12 full runs passed 1,579 tests.
+Python 3.13 full compatibility and real loopback services also passed during this
+lane. The final post-commit receipts and exact native command/source/result ledger
+are retained in `/home/dev/dispatch-state/pm-t5-binding-fix-r2-20260912-sweep1331/`.
+This is a local implementation candidate for fresh independent review; no remote
+checks, publication, approval or merge is asserted.
+
+- [X] T5-R2a Reject self-consistent dirty source before crediting a configured committed
+  revision, and recheck clean input status after execution. The corrective regression
+  recomputes the caller manifest after changing the harness and still requires failure.
+  Source-mutating contract cases use dedicated committed local clones.
+- [X] T5-R2b Bind claimed tests and execution inputs to immutable committed tree
+  bytes independent of Git index flags and ignore rules (R2-INDEX, R2-IGNORED).
+  Regressions: assume-unchanged dirty, skip-worktree dirty, ignored untracked
+  `tests/.cache/` test. Ignored side-effect files (`__pycache__`/caches) stay
+  non-blocking; valid harness credit and ledger history are preserved.
+- [X] T5-R2c Correct R1-CI-HISTORY by configuring the blocking Linux compatibility
+  and advisory Apple compatibility checkouts with `fetch-depth: 0`. The workflow-bound
+  regression creates a real depth-1 local checkout, proves immutable-history validation
+  fails while the baseline object is absent, restores history using the configured full-history
+  contract, and proves the same validation succeeds. The fail-closed validator and historical
+  ledgers remain unchanged. Fresh local static cognitive <=5, separate cyclomatic <=10,
+  Python 3.11/3.12/3.13 compatibility, and private loopback PostgreSQL/Redis 7 service gates
+  passed; publication and independent review remain pending.

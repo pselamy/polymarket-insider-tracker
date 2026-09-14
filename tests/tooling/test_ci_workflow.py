@@ -7,6 +7,7 @@ cannot drift from the verifier or from the documented fail-closed contract witho
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -22,6 +23,8 @@ import yaml
 REPOSITORY_ROOT = Path(__file__).parents[2]
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
+TRACEABILITY_PATH = REPOSITORY_ROOT / "scripts" / "traceability.py"
+TRACEABILITY_LEDGER = Path("specs/002-reproducible-runtime/evidence/TRACEABILITY.json")
 
 # Every job the protected aggregator must depend on, in workflow order.
 BLOCKING_JOBS = ("static", "vulture", "complexipy", "compatibility", "services")
@@ -60,8 +63,22 @@ def _verifier() -> ModuleType:
     return module
 
 
+def _traceability_validator() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("traceability_for_ci_contract", TRACEABILITY_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _run_steps(job: Mapping[str, Any]) -> list[str]:
     return [step["run"].strip() for step in job["steps"] if "run" in step]
+
+
+def _checkout_step(job: Mapping[str, Any]) -> Mapping[str, Any]:
+    steps = [step for step in job["steps"] if "actions/checkout@" in step.get("uses", "")]
+    assert len(steps) == 1
+    return steps[0]
 
 
 def _required_step() -> dict[str, Any]:
@@ -110,6 +127,56 @@ def test_static_job_runs_the_verifier_static_profile_that_includes_vulture_and_c
     assert _run_steps(_workflow()["jobs"]["static"])[-1] == (
         "uv run python scripts/verify.py --profile static"
     )
+
+
+def test_compatibility_checkouts_restore_immutable_traceability_history(tmp_path: Path) -> None:
+    validator = _traceability_validator()
+    shallow = tmp_path / "shallow"
+    subprocess.run(
+        [
+            "git",
+            "clone",
+            "--quiet",
+            "--depth",
+            "1",
+            "--single-branch",
+            "--no-hardlinks",
+            REPOSITORY_ROOT.as_uri(),
+            str(shallow),
+        ],
+        check=True,
+    )
+    ledger = shallow / TRACEABILITY_LEDGER
+    historical = validator.object_map(json.loads(ledger.read_text()))
+    document = {
+        "historical_manifest": historical["manifest"],
+        "rows": historical["rows"],
+    }
+    context = validator.LedgerContext(shallow, ledger)
+
+    assert (
+        subprocess.run(
+            ["git", "-C", str(shallow), "rev-parse", "--is-shallow-repository"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        == "true"
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        validator._history(document, context)
+
+    jobs = _workflow()["jobs"]
+    compatibility_jobs = [jobs[job_id] for job_id in ("compatibility", "apple")]
+    assert all(
+        _checkout_step(job).get("with", {}).get("fetch-depth") == 0 for job in compatibility_jobs
+    )
+
+    subprocess.run(
+        ["git", "-C", str(shallow), "fetch", "--unshallow", "--no-tags", "origin"],
+        check=True,
+    )
+    assert validator._history(document, context) == len(validator.object_list(document["rows"]))
 
 
 def test_vulture_job_is_independent_and_runs_the_canonical_gate_command() -> None:
