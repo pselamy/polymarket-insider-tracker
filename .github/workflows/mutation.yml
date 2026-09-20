@@ -1,0 +1,82 @@
+name: Mutation (mutmut, redaction target)
+
+# R02 revised approach: ONE genuine trusted-OSS mutation-runner integration
+# under HOSTED CI. No local install is performed or required by this file;
+# hosted runners satisfy the acquisition floor that binds local execution.
+#
+# Tool: mutmut 3.8.0 (PyPI, pinned source verified at ?ref=3.8.0:
+# `run` accepts ONLY --max-children + positional mutant names;
+# scoping is via [tool.mutmut] config, NOT CLI flags; the CI-stats
+# command is `export-cicd-stats`, hyphen form, from bare
+# @cli.command() on `def export_cicd_stats`).
+# Target: src/polymarket_insider_tracker/redaction.py in
+# pselamy/polymarket-insider-tracker @ c3b1c3dd, exercised by the existing
+# tests/test_redaction.py (pure-Python secret-redaction behavior, no services).
+# Scope is intentionally ONE file so the run stays bounded on hosted CI.
+#
+# Fail-closed controls (all enforced by the script's own exit code):
+# - syntax / import / test-collection errors NEVER count as kills: the
+#   baseline pytest run must exit 0 first, otherwise the job fails;
+# - mutmut's own forced-fail guard runs inside `mutmut run` (a suite that
+#   cannot fail is rejected with exit 1 before any mutant verdict);
+# - the mutation run must produce a result artifact
+#   (mutants/mutmut-cicd-stats.json via `mutmut export-cicd-stats`);
+# - a zero-mutant result (misconfiguration) fails the job instead of
+#   passing silently;
+# - survivors are listed for triage via `mutmut results` (informational,
+#   exit code preserved and non-gating); the gate itself is
+#   "runner executed + baseline green + mutants generated", not a score
+#   threshold claim.
+#
+# Required companion change: apply `pyproject-mutmut-delta.toml` to the
+# target repo's pyproject.toml (adds the [tool.mutmut] section). Without
+# it mutmut falls back to source-path guessing and the run is unscoped.
+#
+# Enrollment: append the `mutation` job below to the existing
+# `.github/workflows/ci.yml` `jobs:` map in polymarket-insider-tracker.
+# It modifies no existing job. The `Required checks` aggregator is owned by
+# that repo; wiring this job into it is a publication-lane decision, so this
+# file does NOT claim requiredness. Status: PROPOSED_UNVERIFIED until a
+# real hosted run on the owning repo.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: Mutation (mutmut redaction target)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.11.26"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install Python
+        run: uv python install 3.11
+      - name: Sync locked dependencies
+        run: uv sync --locked --all-extras --python 3.11
+      - name: Install mutmut 3.8.0
+        run: uv pip install --python 3.11 "mutmut==3.8.0"
+      - name: Baseline must be green (else nothing counts as killed)
+        run: uv run --python 3.11 pytest tests/test_redaction.py -q -p no:cacheprovider
+      - name: Run mutmut on the redaction target
+        run: |
+          set -euo pipefail
+          uv run --python 3.11 mutmut run
+      - name: Export CI stats and require a non-empty mutant set
+        run: |
+          set -euo pipefail
+          uv run --python 3.11 mutmut export-cicd-stats
+          test -s mutants/mutmut-cicd-stats.json
+          python3 -c "import json; s=json.load(open('mutants/mutmut-cicd-stats.json')); n=int(s.get('total', 0)); print('mutants:', n, 'killed:', s.get('killed'), 'survived:', s.get('survived')); raise SystemExit(0 if n > 0 else 1)"
+      - name: Report survivors for triage (informational, non-gating)
+        run: uv run --python 3.11 mutmut results
