@@ -132,8 +132,12 @@ def _allowlist_values(config: Path) -> tuple[str, ...]:
             data = tomllib.load(handle)
     except (OSError, ValueError):
         return ()
-    return _allowlist_regexes(_allowlist_table(data)) + _allowlist_regexes(
-        _probe_table(data), "digest_regexes"
+    probe = _probe_table(data)
+    return (
+        _allowlist_regexes(_allowlist_table(data))
+        + _allowlist_regexes(probe, "digest_regexes")
+        + _allowlist_regexes(probe, "content_hash_regexes")
+        + _allowlist_regexes(probe, "placeholder_postgres_regexes")
     )
 
 
