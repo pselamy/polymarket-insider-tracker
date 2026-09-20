@@ -76,7 +76,7 @@ jobs:
       - name: Run mutmut on the redaction target
         run: |
           set -euo pipefail
-          uv run --python 3.11 mutmut run
+          uv run --python 3.11 mutmut run --debug
       - name: Export CI stats and require a non-empty mutant set
         run: |
           set -euo pipefail
@@ -85,3 +85,4 @@ jobs:
           python3 -c "import json; s=json.load(open('mutants/mutmut-cicd-stats.json')); n=int(s.get('total', 0)); print('mutants:', n, 'killed:', s.get('killed'), 'survived:', s.get('survived')); raise SystemExit(0 if n > 0 else 1)"
       - name: Report survivors for triage (display-only, exit code preserved)
         run: uv run --python 3.11 mutmut results
+

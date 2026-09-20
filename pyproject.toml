@@ -147,7 +147,19 @@ exclude_lines = [
 # ".py" or "*"). pytest_add_cli_args_test_selection feeds the harness
 # selection list used by stats, forced-fail, clean-test, and per-mutant
 # runs. -p no:cacheprovider keeps the run hermetic.
+# also_copy closes the mutants/ import graph: run_stats executes inside
+# change_cwd("mutants"), and copy_src_dir copies only source_paths (here one
+# file), while mutmut's also_copy defaults already carry tests/ and
+# pyproject.toml. The selected tests import sibling source modules
+# (detector, ingestor, storage, ...) through the installed package path, but
+# the copied mutants/src/polymarket_insider_tracker/__init__.py shadows that
+# package without its siblings, so collection fails with exit 4
+# (BadTestExecutionCommandsException) before any mutant verdict. Listing the
+# package explicitly keeps only_mutate = ["*/redaction.py"] as the sole
+# mutation fence: only redaction.py is ever mutated.
 [tool.mutmut]
 source_paths = ["src/polymarket_insider_tracker/redaction.py"]
 only_mutate = ["*/redaction.py"]
+also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
 pytest_add_cli_args_test_selection = ["tests/test_redaction.py", "-q", "-p", "no:cacheprovider"]
+
