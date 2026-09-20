@@ -76,7 +76,7 @@ jobs:
       - name: Run mutmut on the redaction target
         run: |
           set -euo pipefail
-          uv run --python 3.11 mutmut run --debug
+          uv run --python 3.11 mutmut run
       - name: Export CI stats and require a non-empty mutant set
         run: |
           set -euo pipefail
