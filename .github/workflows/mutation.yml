@@ -1,8 +1,8 @@
 name: Mutation (mutmut, redaction target)
 
-# R02 revised approach: ONE genuine trusted-OSS mutation-runner integration
-# under HOSTED CI. No local install is performed or required by this file;
-# hosted runners satisfy the acquisition floor that binds local execution.
+# ONE genuine trusted-OSS mutation-runner integration under HOSTED CI.
+# No local install is performed or required by this file; hosted runners
+# satisfy the acquisition floor that binds local execution.
 #
 # Tool: mutmut 3.8.0 (PyPI, pinned source verified at ?ref=3.8.0:
 # `run` accepts ONLY --max-children + positional mutant names;
@@ -10,7 +10,7 @@ name: Mutation (mutmut, redaction target)
 # command is `export-cicd-stats`, hyphen form, from bare
 # @cli.command() on `def export_cicd_stats`).
 # Target: src/polymarket_insider_tracker/redaction.py in
-# pselamy/polymarket-insider-tracker @ c3b1c3dd, exercised by the existing
+# pselamy/polymarket-insider-tracker, exercised by the existing
 # tests/test_redaction.py (pure-Python secret-redaction behavior, no services).
 # Scope is intentionally ONE file so the run stays bounded on hosted CI.
 #
@@ -23,21 +23,26 @@ name: Mutation (mutmut, redaction target)
 #   (mutants/mutmut-cicd-stats.json via `mutmut export-cicd-stats`);
 # - a zero-mutant result (misconfiguration) fails the job instead of
 #   passing silently;
-# - survivors are listed for triage via `mutmut results` (informational,
-#   exit code preserved and non-gating); the gate itself is
+# - survivors are listed for triage via `mutmut results`. That step is
+#   display-only: its exit code is preserved, so if `mutmut results`
+#   itself errors the job fails; it never turns surviving mutants into
+#   a pass or a failure by itself. The gate itself is
 #   "runner executed + baseline green + mutants generated", not a score
 #   threshold claim.
 #
-# Required companion change: apply `pyproject-mutmut-delta.toml` to the
-# target repo's pyproject.toml (adds the [tool.mutmut] section). Without
-# it mutmut falls back to source-path guessing and the run is unscoped.
+# Scoping lives in the repo's own pyproject.toml ([tool.mutmut] section:
+# source_paths narrows mutation to the redaction module, only_mutate is a
+# second fence on the same file, pytest_add_cli_args_test_selection feeds
+# the harness the redaction test file). mutmut reads pyproject.toml
+# relative to CWD, and this job runs at the repo root, so the config
+# applies with no extra step. Without that section mutmut falls back to
+# source-path guessing and the run is unscoped.
 #
-# Enrollment: append the `mutation` job below to the existing
-# `.github/workflows/ci.yml` `jobs:` map in polymarket-insider-tracker.
-# It modifies no existing job. The `Required checks` aggregator is owned by
-# that repo; wiring this job into it is a publication-lane decision, so this
-# file does NOT claim requiredness. Status: PROPOSED_UNVERIFIED until a
-# real hosted run on the owning repo.
+# Placement: this file IS .github/workflows/mutation.yml, a standalone
+# workflow. It modifies no existing job. The `Required checks` aggregator
+# in `.github/workflows/ci.yml` is untouched; wiring this job into it is
+# a publication-lane decision, so this file does NOT claim requiredness.
+# Status: PROPOSED_UNVERIFIED until a real hosted run on the owning repo.
 
 on:
   pull_request:
@@ -78,5 +83,5 @@ jobs:
           uv run --python 3.11 mutmut export-cicd-stats
           test -s mutants/mutmut-cicd-stats.json
           python3 -c "import json; s=json.load(open('mutants/mutmut-cicd-stats.json')); n=int(s.get('total', 0)); print('mutants:', n, 'killed:', s.get('killed'), 'survived:', s.get('survived')); raise SystemExit(0 if n > 0 else 1)"
-      - name: Report survivors for triage (informational, non-gating)
+      - name: Report survivors for triage (display-only, exit code preserved)
         run: uv run --python 3.11 mutmut results

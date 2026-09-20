@@ -137,3 +137,17 @@ exclude_lines = [
     "raise NotImplementedError",
     "if TYPE_CHECKING:",
 ]
+
+
+# Mutation testing (mutmut 3.8.0): scope the mutation job to the
+# secret-redaction module and its existing test file. mutmut reads
+# pyproject.toml relative to CWD; the mutation workflow runs at the repo
+# root so this section applies with no extra step. only_mutate glob form
+# "*/redaction.py" satisfies the config validator (patterns must end with
+# ".py" or "*"). pytest_add_cli_args_test_selection feeds the harness
+# selection list used by stats, forced-fail, clean-test, and per-mutant
+# runs. -p no:cacheprovider keeps the run hermetic.
+[tool.mutmut]
+source_paths = ["src/polymarket_insider_tracker/redaction.py"]
+only_mutate = ["*/redaction.py"]
+pytest_add_cli_args_test_selection = ["tests/test_redaction.py", "-q", "-p", "no:cacheprovider"]
