@@ -1,0 +1,35 @@
+# Gitleaks allowlist-scoped secret scan for polymarket-insider-tracker.
+# Fail-closed: any finding outside the allowlist fails the gate (exit 1).
+# The allowlist covers ONLY deterministic placeholder/test credentials that
+# are already asserted by the repository's own redaction/contract tests.
+# This file is the SINGLE allowlist authority: scripts/secret_scan.py reads
+# its fallback values from here, so no second hardcoded list can drift.
+title = "polymarket-insider-tracker secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "deterministic placeholder credentials asserted by repo tests"
+regexTarget = "line"
+regexes = [
+  '''tracker:unused@127\.0\.0\.1:1''',
+  '''tracker:dev_password@localhost''',
+]
+paths = [
+  '''\.gitleaks\.toml$''',
+]
+
+# Probe-only sha256 digest exclusion. Gitleaks never reads this table, so the
+# authoritative `secrets` job keeps the exact accepted allowlist above: a
+# digest entry under [allowlist] would exempt the whole line for EVERY rule
+# (regexTarget = "line"), blinding the scan to a real credential that shares
+# a line with a digest (every uv.lock package line carries a URL plus a hash).
+# The fallback probe instead REDACTS these spans and still scans the rest of
+# each line. Entries stay match-scoped: the full "sha256:<64hex>" token, so a
+# bare 64-hex wallet key never matches.
+[secret-scan-probe]
+description = "probe-only span-redacted digest exclusion (see comment above)"
+digest_regexes = [
+  '''(?:@sha256:|sha256:)[0-9a-fA-F]{64}''',
+]
