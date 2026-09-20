@@ -192,3 +192,28 @@ class RiskAssessmentModel(Base):
         Index("idx_risk_assessments_score", "weighted_score"),
         Index("idx_risk_assessments_disposition", "delivery_disposition"),
     )
+
+
+class PipelineTerminalErrorModel(Base):
+    """Durable record of one terminal pipeline worker failure.
+
+    Written once when the pipeline enters ``PipelineState.ERROR`` from a
+    terminal ingestion worker failure. ``/ready`` and ``/health`` read
+    through to the newest row, so the terminal reason survives process
+    exit. The stored reason is already redacted at the pipeline
+    boundary, never a raw secret-bearing string.
+    """
+
+    __tablename__ = "pipeline_terminal_errors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    worker: Mapped[str] = mapped_column(String(32), nullable=False, default="trade_poller")
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+    __table_args__ = (Index("idx_pipeline_terminal_errors_recorded", "recorded_at"),)
