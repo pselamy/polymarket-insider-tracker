@@ -1,0 +1,292 @@
+# Gitleaks allowlist-scoped secret scan for polymarket-insider-tracker.
+# Fail-closed: any finding outside the allowlist fails the gate (exit 1).
+# The allowlist covers ONLY deterministic placeholder/test credentials that
+# are already asserted by the repository's own redaction/contract tests.
+# This file is the SINGLE allowlist authority: scripts/secret_scan.py reads
+# its fallback values from here, so no second hardcoded list can drift.
+title = "polymarket-insider-tracker secret scan"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "deterministic placeholder credentials asserted by repo tests"
+regexTarget = "line"
+regexes = [
+  '''tracker:unused@127\.0\.0\.1:1''',
+  '''tracker:dev_password@localhost''',
+]
+paths = [
+  '''\.gitleaks\.toml$''',
+]
+
+# Probe-only sha256 digest exclusion. Gitleaks never reads this table, so the
+# authoritative `secrets` job keeps the exact accepted allowlist above: a
+# digest entry under [allowlist] would exempt the whole line for EVERY rule
+# (regexTarget = "line"), blinding the scan to a real credential that shares
+# a line with a digest (every uv.lock package line carries a URL plus a hash).
+# The fallback probe instead REDACTS these spans and still scans the rest of
+# each line. Entries stay match-scoped: the full "sha256:<64hex>" token, so a
+# bare 64-hex wallet key never matches.
+[secret-scan-probe]
+description = "probe-only span-redacted digest exclusion (see comment above)"
+digest_regexes = [
+  '''(?:@sha256:|sha256:)[0-9a-fA-F]{64}''',
+]
+
+# Probe-only content-hash exclusion. The fallback probe flags bare 64-hex
+# tokens that are content-addressed file hashes, not credentials. Both
+# entries name precise benign key grammars (never bare "any JSON value",
+# never bare "any dotted key", never "any backticked hex"), because the
+# probe redaction list applies to every line of every file: a key-agnostic
+# or dot/slash-heuristic entry would redact a 64-hex credential that merely
+# sits in JSON-value or backtick position before the
+# selamy-hex-private-key rule runs (prior B-prime-B1: "wallet.private_key",
+# "app.secret_key", "secrets/wallet_key", "signing.key" and "hash_key" all
+# fired at head and were missed under the dot/slash heuristic).
+#  Entry 1 (JSON): only digest-map values whose key is an observed benign
+#  shape — a canonical hash key (sha256, content_hash/file_hash,
+#  content_digest/file_digest, e.g. "tasks_sha256", "response_sha256"), a
+#  slash-bearing file path with a supported evidence extension, or one of
+#  the closed bare evidence filenames (pyproject.toml, package-lock.json,
+#  uv.lock, Cargo.lock). A credential-name guard (private, secret, signing,
+#  wallet, seed, mnemonic, passwd, password, api key, token) takes
+#  precedence: a credential key still fails even when it ends in a
+#  supported extension (adversarial: a key literally named "evil.toml" or
+#  "config.json" holding a 64-hex secret is real credential context and
+#  must fail). Bare "hash"/"digest" alone are NOT benign keys, so
+#  "hash_key" and "digest_key" credentials still fail (default detect).
+#  Entry 2 (backtick): only evidence-table rows whose first cell is a
+#  precise benign evidence path (supported extension, same credential-name
+#  guard): `| `name` | `<64hex>` |`. A lone backticked credential (no path
+#  cell, no pipes) matches nothing, so it still fails — and neither does a
+#  row whose first cell is itself credential-named ("wallet.private_key").
+# Both spellings keep the rest of the line visible to every rule (span
+# redaction, not a line exemption), so a real credential on the same line
+# still fails. Gitleaks never reads this table.
+content_hash_regexes = [
+  '''"(?![^"]*(?i:private|secret|signing|wallet|seed|mnemonic|passwd|password|api[_-]?key|token)[^"]*")(?:[^"]*(?i:sha256|content_hash|file_hash|content_digest|file_digest)[^"]*|[^"]*/[^"]*\.(?:toml|json|ya?ml|md|py|lock|txt|cfg|ini)|pyproject\.toml|package-lock\.json|uv\.lock|Cargo\.lock)"\s*:\s*"[0-9a-fA-F]{64}"''',
+  '''\|[^`]*`(?![^`]*(?i:private|secret|signing|wallet|seed|mnemonic|passwd|password|api[_-]?key|token)[^`]*`)[^`]*\.(?:toml|json|ya?ml|md|py|lock|txt|cfg|ini)[^`]*`\s*\|\s*`[0-9a-fA-F]{64}`''',
+]
+
+# Probe-only deterministic-placeholder postgres exclusion. These exact
+# user/password/host shapes are asserted by the repository's own
+# redaction/contract tests (test_config, test_redaction, storage database
+# URL tests) and carry no credential value. Any other password, any other
+# host, or any non-localhost authority still fails the gate.
+placeholder_postgres_regexes = [
+  '''postg(?:res|resql)(?:\+[a-z]+)?://[^:\s/"']+:(?:pass|secret|secretpass|password|dev_password|db-userinfo-secret|MAIN_SECRET|SIBLING_SECRET|QUERY_SECRET|DB_SECRET|p%40ss|\{secret\}|\{DB_SECRET\}|\{SIBLING_SECRET\}|\{MAIN_SECRET\}|\{QUERY_SECRET\}|\*\*\*)@(?:localhost|db|db\.internal|\[::1\])''',
+]
+
+# Narrow generic-api-key-only fixture allowlists (8.24.3: per-rule
+# [[rules.allowlists]] with AND condition + path scope). Each entry names
+# its exact benign fixture shape; no rule except generic-api-key is
+# affected, and no test/history path is excluded.
+# NOTE (residual risk, verified by simulation 2026-09-20): the edited
+# test_gate_negatives.py keeps ONLY stopword-suppressed generic-api-key
+# shapes (monkeypatch/pytest.MonkeyPatch lines, killed by the default
+# "monkey" stopword, plus entropy/length-killed halves). The 18 entries
+# below are defense-in-depth for the exact benign fixture lines that CI
+# actually reported (10 rows); they change nothing when gitleaks already
+# suppresses a line, and they cannot suppress a real credential (every
+# regex names a fixture identifier AND is path-scoped to one file).
+[[rules]]
+id = "generic-api-key"
+
+    [[rules.allowlists]]
+    description = "seeded-finding marker prefix half"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_SYNTHETIC_MARKER_PREFIX''',
+    ]
+
+    [[rules.allowlists]]
+    description = "seeded-finding marker body half"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_SYNTHETIC_MARKER_BODY''',
+    ]
+
+    [[rules.allowlists]]
+    description = "seeded-finding runtime assembly"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''SECRETfindings_MARKER = _synthetic_marker\(\)''',
+    ]
+
+    [[rules.allowlists]]
+    description = "stripe key head half"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_STRIPE_KEY_HEAD''',
+    ]
+
+    [[rules.allowlists]]
+    description = "stripe key tail half"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_STRIPE_KEY_TAIL''',
+    ]
+
+    [[rules.allowlists]]
+    description = "stripe body assembly"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_STRIPE_KEY_BODY = _STRIPE_KEY_HEAD''',
+    ]
+
+    [[rules.allowlists]]
+    description = "slack fixture halves"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_SYNTHETIC_SLACK_(PREFIX|MIDDLE|SUFFIX)''',
+    ]
+
+    [[rules.allowlists]]
+    description = "postgres password halves"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_DB_PASSWORD''',
+    ]
+
+    [[rules.allowlists]]
+    description = "wallet hex halves"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_WALLET_HEX_(HEAD|TAIL)''',
+    ]
+
+    [[rules.allowlists]]
+    description = "digest halves"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_DIGEST_(HEAD|TAIL)''',
+    ]
+
+    [[rules.allowlists]]
+    description = "pat halves"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/tooling/test_(gate_probes|secret_fallback|secret_branches|secret_redaction)\.py$''',
+    ]
+    regexes = [
+      '''_PAT_(PREFIX|HEAD|TAIL)''',
+    ]
+
+    [[rules.allowlists]]
+    description = "redaction placeholder constant"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/test_redaction\.py$''',
+    ]
+    regexes = [
+      '''_SECRET = "[a-z0-9-]+-secret''',
+    ]
+
+    [[rules.allowlists]]
+    description = "redaction placeholder local"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/test_redaction\.py$''',
+    ]
+    regexes = [
+      '''secret = "[a-z0-9-]+-secret''',
+    ]
+
+    [[rules.allowlists]]
+    description = "telegram echo fixture"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/alerter/test_dispatcher\.py$''',
+    ]
+    regexes = [
+      '''TELEGRAM_ECHO_SECRET_R18''',
+    ]
+
+    [[rules.allowlists]]
+    description = "telegram token fixtures"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/alerter/test_dispatcher\.py$''',
+    ]
+    regexes = [
+      '''R2[13]-TELEGRAM-TOKEN-SECRET''',
+    ]
+
+    [[rules.allowlists]]
+    description = "claim renewal token parameter (name only, no value)"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''src/polymarket_insider_tracker/alerter/dispatcher\.py$''',
+    ]
+    regexes = [
+      '''channel_name, wallet, market, token, ttl''',
+    ]
+
+    [[rules.allowlists]]
+    description = "eth address fixture"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/profiler/test_chain\.py$''',
+    ]
+    regexes = [
+      '''VALID_(ADDRESS(_[23])?|TOKEN) = "0x''',
+    ]
+
+    [[rules.allowlists]]
+    description = "eth address comment"
+    condition = "AND"
+    regexTarget = "line"
+    paths = [
+      '''tests/profiler/test_chain\.py$''',
+    ]
+    regexes = [
+      '''# Valid Ethereum addresses for testing''',
+    ]

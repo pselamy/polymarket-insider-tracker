@@ -1,18 +1,21 @@
-"""Negative controls proving the four unproven static gates fail red.
+"""Negative controls proving the static gates fail red.
 
-Scope (T1, accepted): this module only. ``scripts/verify.py``,
+Scope: this module only. ``scripts/verify.py``,
 ``.github/workflows/ci.yml``, and all slice 003 sources are unchanged.
 Every probe reuses the exact gate command from ``verify.GATES`` (tool plus
 flags); only the scope argument is pointed at an isolated ``tmp_path``
 fixture, so no tracked file can weaken a repository gate.
 
-Covered gates: ``format`` (black), ``lint`` (ruff), ``strict-types``
-(mypy, strict), ``pyright`` (strict). For each gate there is a
-passing control and a violating fixture, both asserting exit code AND
-diagnostic text. ``missing-tool``, ``malformed-report``, and
+Covered gates: ``secrets`` (fail-closed secret scan), ``format`` (black),
+``lint`` (ruff), ``strict-types`` (mypy, strict), ``pyright`` (strict).
+For each gate there is a passing control and a violating fixture, both
+asserting exit code AND diagnostic text. ``missing-tool``,
+``malformed-report``, ``missing-report``, ``swallowed-exit-code``, and
 ``empty-discovery`` negatives close the vacuous-pass loopholes: a PR
-that deletes the violating file still fails the discovery guard, and a
-PR that downgrades a diagnostic still fails the diagnostic assertion.
+that deletes the violating file still fails the discovery guard, a PR
+that downgrades a diagnostic still fails the diagnostic assertion, a PR
+that deletes the report still fails the report guard, and a wrapper that
+swallows the analyzer exit code still fails the exit-code assertion.
 
 Redaction (round-18) and the G-018 dedup-ordering gap are out of scope
 here; they are reported as separate existing gaps, not reopened.
@@ -85,7 +88,15 @@ def _format_prefix(module: ModuleType) -> tuple[str, ...]:
 
 def _lint_prefix(module: ModuleType) -> tuple[str, ...]:
     command = cast(Sequence[str], module.GATES["lint"].command)
-    assert tuple(command) == (sys.executable, "-m", "ruff", "check", "src", "tests", "scripts")
+    assert tuple(command) == (
+        sys.executable,
+        "-m",
+        "ruff",
+        "check",
+        "src",
+        "tests",
+        "scripts",
+    )
     return tuple(command[:-3])
 
 
@@ -120,6 +131,18 @@ def _pyright_prefix(module: ModuleType) -> tuple[str, ...]:
     return tuple(command[:-1])
 
 
+def _secrets_prefix(module: ModuleType) -> tuple[str, ...]:
+    command = cast(Sequence[str], module.GATES["secrets"].command)
+    assert tuple(command) == (
+        sys.executable,
+        "scripts/secret_scan.py",
+        "--config",
+        ".gitleaks.toml",
+        "--fail-closed",
+    )
+    return tuple(command)
+
+
 def test_negative_probes_reuse_verifier_gate_commands() -> None:
     module = _verifier()
 
@@ -127,6 +150,7 @@ def test_negative_probes_reuse_verifier_gate_commands() -> None:
     assert _lint_prefix(module) == (sys.executable, "-m", "ruff", "check")
     assert _mypy_prefix(module)[-1] == "mypy"
     assert _pyright_prefix(module)[-1] == "pyright"
+    assert _secrets_prefix(module)[-1] == "--fail-closed"
 
 
 def test_static_profile_passes_as_control() -> None:

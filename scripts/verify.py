@@ -76,6 +76,16 @@ Runner = Callable[[Gate], CommandExecution]
 
 GATES: Mapping[str, Gate] = {
     "lock": Gate("lock", ("uv", "lock", "--check")),
+    "secrets": Gate(
+        "secrets",
+        (
+            sys.executable,
+            "scripts/secret_scan.py",
+            "--config",
+            ".gitleaks.toml",
+            "--fail-closed",
+        ),
+    ),
     "format": Gate("format", (sys.executable, "-m", "black", "--check", ".")),
     "lint": Gate("lint", (sys.executable, "-m", "ruff", "check", "src", "tests", "scripts")),
     "strict-types": Gate(
@@ -182,7 +192,16 @@ GATES: Mapping[str, Gate] = {
 }
 
 BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
-    "static": ("lock", "format", "lint", "strict-types", "pyright", "vulture", "complexipy"),
+    "static": (
+        "lock",
+        "secrets",
+        "format",
+        "lint",
+        "strict-types",
+        "pyright",
+        "vulture",
+        "complexipy",
+    ),
     "compatibility": ("lock", "imports", "tests"),
     "services": ("services", "redis-contract", "migrations"),
 }
@@ -222,6 +241,7 @@ _URL_PATTERN = re.compile(
 # Direct equivalents of every aggregate gate, kept literal so contributors can copy them verbatim.
 DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ("lock", "uv lock --check"),
+    ("secrets", "uv run python scripts/secret_scan.py --config .gitleaks.toml --fail-closed"),
     ("format", "uv run black --check ."),
     ("lint", "uv run ruff check src tests scripts"),
     ("strict-types", "uv run --isolated --locked --all-extras --python 3.11 mypy"),
