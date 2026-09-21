@@ -139,8 +139,8 @@ def test_expected_revisions_do_not_depend_on_the_working_directory(
     backend = module.RealMigrationBackend(LOCAL_DATABASE_URL)
     head, previous = backend.expected_revisions()
 
-    assert head == "003_safe_observable_operation"
-    assert previous == "002_risk_assessments"
+    assert head == "004_terminal_errors"
+    assert previous == "003_safe_observable_operation"
 
 
 def test_alembic_subprocess_environment_drops_libpq_variables(
