@@ -12,6 +12,7 @@ from polymarket_insider_tracker.storage.database import (
 from polymarket_insider_tracker.storage.models import (
     Base,
     FundingTransferModel,
+    PipelineTerminalErrorModel,
     WalletProfileModel,
     WalletRelationshipModel,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "FundingRepository",
     "FundingTransferDTO",
     "FundingTransferModel",
+    "PipelineTerminalErrorModel",
     "RelationshipRepository",
     "WalletProfileDTO",
     "WalletProfileModel",

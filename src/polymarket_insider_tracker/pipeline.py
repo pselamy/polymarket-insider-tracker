@@ -7,7 +7,6 @@ components and manages the event flow from ingestion to alerting.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import dataclasses
 import json
 import logging
@@ -20,6 +19,7 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from redis.asyncio import Redis
 
+from polymarket_insider_tracker import terminal_errors as terminal
 from polymarket_insider_tracker.alerter.channels.discord import DiscordChannel
 from polymarket_insider_tracker.alerter.channels.telegram import TelegramChannel
 from polymarket_insider_tracker.alerter.dispatcher import (
@@ -37,6 +37,7 @@ from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
+from polymarket_insider_tracker.ingestor.readiness import running_ingestion_status
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.chain import PolygonClient
@@ -169,6 +170,7 @@ class Pipeline:
         self._stop_event: asyncio.Event | None = None
         self._poller_task: asyncio.Task[None] | None = None
         self._metadata_task: asyncio.Task[None] | None = None
+        self._terminal_writes: set[asyncio.Task[None]] = set()
 
     @property
     def state(self) -> PipelineState:
@@ -194,6 +196,20 @@ class Pipeline:
     def stop_event(self) -> asyncio.Event | None:
         """Event signaled when the pipeline stops or encounters an unrecoverable worker failure."""
         return self._stop_event
+
+    @property
+    def db_manager(self) -> DatabaseManager | None:
+        """Database manager used for durable terminal rows."""
+        return self._db_manager
+
+    @property
+    def terminal_writes(self) -> set[asyncio.Task[None]]:
+        """Retained durable writes drained across stop/shutdown."""
+        return self._terminal_writes
+
+    def record_processing_error(self, message: str) -> None:
+        """Count a recoverable per-trade failure and surface it at /health (lifecycle §5)."""
+        self._record_processing_error(message)
 
     def _wire_health_monitor(self) -> None:
         self._health_monitor.set_component_checker("database", self._check_database)
@@ -239,62 +255,21 @@ class Pipeline:
         if status.last_trade_at is not None:
             self._health_monitor.record_trade_arrival(status.last_trade_at.timestamp())
 
-    # Recoverable poller states that must surface as a degraded component with their
-    # error instead of being hidden behind "up" (FR-002, FR-003).
-    _DEGRADED_INGESTION_STATES = (IngestionState.DEGRADED, IngestionState.POSSIBLE_DATA_LOSS)
-
     async def _check_ingestion(self) -> ComponentStatus:
         self._sync_poller_timestamps()
         if not self._trade_poller:
             return ComponentStatus(status="down", last_error="Trade poller not initialized")
         if self._state == PipelineState.ERROR or self._trade_poller.state is IngestionState.FAILED:
-            error = (
-                self._trade_poller.status.last_error
-                or self._stats.last_error
-                or "ingestion_worker_failed"
+            reason = await terminal.resolve_terminal_reason_live(
+                self.db_manager,
+                self._trade_poller.status.last_error,
+                self._state == PipelineState.ERROR,
+                self._stats.last_error,
             )
-            return ComponentStatus(status="down", last_error=error)
+            return ComponentStatus(status="down", last_error=reason)
         if not self._trade_poller.is_running:
             return ComponentStatus(status="down", last_error="Trade poller stopped")
-        return self._running_ingestion_status()
-
-    def _running_ingestion_status(self) -> ComponentStatus:
-        """Readiness needs proof of reachability: a recent successful acquisition.
-
-        A poller that is merely running (STARTING, or DEGRADED because every request
-        failed) has not acquired anything; reporting it "up" would make a
-        never-connected or unreachable source look ready. A progressing
-        POSSIBLE_DATA_LOSS or transiently DEGRADED source keeps a fresh success and
-        stays a visible, ready-compatible "degraded" component.
-        """
-        assert self._trade_poller is not None
-        poller = self._trade_poller
-        success_age = poller.seconds_since_last_success
-        if success_age is None:
-            return ComponentStatus(status="down", last_error=self._no_acquisition_error())
-        if success_age > self._health_monitor.stale_threshold_seconds:
-            return ComponentStatus(status="down", last_error=self._stale_success_error(success_age))
-        state = poller.state
-        if state in self._DEGRADED_INGESTION_STATES:
-            error = poller.status.last_error or f"ingestion state: {state.value}"
-            return ComponentStatus(status="degraded", last_error=error)
-        return ComponentStatus(status="up")
-
-    def _no_acquisition_error(self) -> str:
-        assert self._trade_poller is not None
-        last_error = self._trade_poller.status.last_error
-        message = "trade source has not completed a successful acquisition"
-        return f"{message}: {last_error}" if last_error else message
-
-    def _stale_success_error(self, success_age: float) -> str:
-        assert self._trade_poller is not None
-        last_error = self._trade_poller.status.last_error
-        threshold = self._health_monitor.stale_threshold_seconds
-        message = (
-            f"last successful acquisition was {success_age:.0f}s ago"
-            f" (staleness bound {threshold:.0f}s)"
-        )
-        return f"{message}: {last_error}" if last_error else message
+        return running_ingestion_status(self._trade_poller, self._health_monitor)
 
     async def check_readiness(self) -> tuple[bool, str | None, dict[str, str]]:
         """Evaluate current readiness across all dependencies."""
@@ -516,14 +491,19 @@ class Pipeline:
         self._stats.errors += 1
         self._stats.last_error = redacted
 
-    def _handle_worker_failure(self, error: str) -> None:
+    def _handle_worker_failure(
+        self, error: str, worker: str = terminal.DEFAULT_TERMINAL_WORKER
+    ) -> None:
         """Handle background worker crash or terminal failure."""
-        if self._state in (PipelineState.STARTING, PipelineState.RUNNING):
-            self._state = PipelineState.ERROR
-        self._stats.errors += 1
-        self._stats.last_error = redact_text(error)
-        if self._stop_event and not self._stop_event.is_set():
-            self._stop_event.set()
+        terminal.record_terminal_failure(self, error, worker)
+
+    def enter_terminal_state(self) -> None:
+        """Move to ERROR; bookkeeping lives in terminal_errors."""
+        self._state = PipelineState.ERROR
+
+    async def _drain_terminal_writes(self) -> None:
+        """Await retained failure writes across stop/shutdown. Never raises."""
+        await terminal.drain_terminal_writes(self.terminal_writes, self.record_processing_error)
 
     async def _run_trade_poller(self) -> None:
         """Run the poller in a task; a terminal failure is reported through the state callback."""
@@ -554,36 +534,27 @@ class Pipeline:
         """Record terminal ingestion failures on the pipeline statistics."""
         if state is not IngestionState.FAILED or not self._trade_poller:
             return
-        error = self._trade_poller.status.last_error or "ingestion_worker_failed"
-        self._handle_worker_failure(error)
+        terminal.note_poller_failure(self, self._trade_poller.status.last_error)
 
     async def _stop_background_services(self) -> None:
         """Stop the poller and its task before the metadata task and sync."""
         if self._trade_poller:
             logger.debug("Stopping trade poller...")
             await self._trade_poller.stop()
-        await self._cancel_task(self._poller_task)
-        await self._cancel_task(self._metadata_task)
+        await terminal.cancel_task(self._poller_task)
+        await terminal.cancel_task(self._metadata_task)
         self._poller_task = None
         self._metadata_task = None
-
+        await self._drain_terminal_writes()
         if self._metadata_sync:
             logger.debug("Stopping metadata sync...")
             await self._metadata_sync.stop()
-
         if self._health_monitor:
             await self._health_monitor.stop()
 
-    @staticmethod
-    async def _cancel_task(task: asyncio.Task[None] | None) -> None:
-        if task is None:
-            return
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
     async def _cleanup(self) -> None:
         """Clean up resources."""
+        await self._drain_terminal_writes()
         await self._health_monitor.stop()
 
         # Close database connections
