@@ -217,3 +217,35 @@ concurrency cancellation bounds redundant work.
 ## Resolved Unknowns
 
 All Phase 0 technical unknowns and post-analysis remediations are resolved. No `NEEDS CLARIFICATION` item remains.
+
+## Decision 13: Mutation testing with mutmut 3.8.0 on the redaction target
+
+**Decision**: Run one bounded hosted mutation job (`Mutation (mutmut redaction target)` in
+`.github/workflows/mutation.yml`) with `mutmut==3.8.0` over
+`src/polymarket_insider_tracker/redaction.py`, exercised by `tests/test_redaction.py`.
+Scoping is via the `[tool.mutmut]` section of `pyproject.toml`
+(`source_paths` narrows mutation to the redaction module, `only_mutate` is a second fence
+on the same file, `also_copy` closes the `mutants/` import graph,
+`pytest_add_cli_args_test_selection` feeds the harness the redaction test file); `mutmut
+run` accepts only `--max-children` plus positional mutant names, and the CI-stats command
+is `mutmut export-cicd-stats` (Click hyphenates `export_cicd_stats`), writing
+`mutants/mutmut-cicd-stats.json`. Enforceable test requirements live in
+[contracts/test-quality.md](contracts/test-quality.md) section 6; the workflow and
+`pyproject.toml` are the executable authority.
+
+**Rationale**: The redaction module is pure Python with stdlib-only imports (`re`,
+`urllib.parse`) — no services, network, DB, or Redis on the mutation leg — and the
+existing 110 KB adversarial suite asserts every captured surface stays secret-free, which
+is the property a mutation run must exercise (secret-leak fail-closed). The runner fits
+the host natively: the `src/`-layout pytest project maps onto mutmut's `source_paths` /
+test-selection config model, and mutmut emits a machine-readable CI-stats JSON artifact
+the workflow gates on. Compatibility: the host supports Python 3.11–3.13 while mutmut's
+floor is 3.10, covering all three. No score threshold and no requiredness are claimed.
+
+**Alternatives considered**:
+
+- Cosmic-Ray: rejected because mutmut maps directly onto the host's `src/`-layout
+  pytest config model and emits the CI-stats artifact the workflow gates on.
+- A standalone rationale document under `docs/`: rejected per the canonical-specs
+  directive — lasting tool/quality rationale belongs in this existing spec package,
+  not in a parallel report.

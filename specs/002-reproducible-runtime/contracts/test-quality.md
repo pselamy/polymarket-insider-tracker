@@ -80,3 +80,28 @@ never flushed, and an unreachable or non-loopback service fails the gate instead
    literals are allowed.
 2. Black, Ruff, strict mypy and Pyright, default-confidence Vulture over `tests/` (no unused fake
    methods or recorded attributes), and fail-closed Complexipy `<= 5` for functions and modules.
+
+## 6. Mutation testing (fault-detection dimension)
+
+The mutation job adds the one missing quality dimension — fault detection — over the
+secret-redaction path, without touching any gate in section 5. Authority is executable
+configuration: `.github/workflows/mutation.yml` (job `mutation`,
+`Mutation (mutmut redaction target)`) and the `[tool.mutmut]` section of `pyproject.toml`.
+Tool-selection rationale lives in [research.md](../research.md) Decision 13; this contract
+states only the enforceable test requirements:
+
+1. Scope: mutation is fenced to `src/polymarket_insider_tracker/redaction.py`, exercised
+   by the existing `tests/test_redaction.py` adversarial suite. The scoping mechanism is
+   defined once in [research.md](../research.md) Decision 13: `source_paths` selects the
+   redaction module as the mutation set and `only_mutate` is the redundant glob fence on
+   the same file, so nothing else in the widened `also_copy` package is mutated;
+   `also_copy` closes the `mutants/` import graph so collection succeeds.
+2. Baseline-green precondition: the baseline `tests/test_redaction.py` run must exit 0
+   first; syntax, import, or collection errors never count as kills.
+3. Non-empty mutant-set gate: `mutmut export-cicd-stats` must produce a non-empty
+   `mutants/mutmut-cicd-stats.json`; a zero `total` fails the job, so misconfiguration
+   never passes silently.
+4. Display-only triage: `mutmut results` runs as a separate informational step with its
+   exit code preserved (no `|| true`); it is non-gating display.
+5. No score threshold and no requiredness are claimed. The gate is "runner executed +
+   baseline green + mutants generated", not a kill-rate claim.
