@@ -155,7 +155,7 @@ exclude_lines = [
 # the copied mutants/src/polymarket_insider_tracker/__init__.py shadows that
 # package without its siblings, so collection fails with exit 4
 # (BadTestExecutionCommandsException) before any mutant verdict. Listing the
-# package explicitly keeps only_mutate = ["*/redaction.py"] as the sole
+# package explicitly keeps source_paths plus only_mutate = ["*/redaction.py"] as the combined
 # mutation fence: only redaction.py is ever mutated.
 [tool.mutmut]
 source_paths = ["src/polymarket_insider_tracker/redaction.py"]
