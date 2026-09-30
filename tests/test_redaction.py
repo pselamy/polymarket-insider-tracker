@@ -100,6 +100,13 @@ class TestRedactUrl:
         assert DB_SECRET not in redacted
         assert redacted == "postgresql://tracker:***@localhost:5432"
 
+    def test_empty_username_with_password_masks_without_synthetic_username(self) -> None:
+        redacted = redact_url("https://:pw@host/x")
+
+        assert redacted == "https://:***@host/***path***"
+        assert "XXXX" not in redacted
+        assert ":pw@" not in redacted
+
     def test_lone_userinfo_token_is_fully_masked(self) -> None:
         redacted = redact_url(f"https://{TOKEN_SECRET}@rpc.example.com")
 
