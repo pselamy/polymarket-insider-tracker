@@ -27,7 +27,7 @@ TRACEABILITY_PATH = REPOSITORY_ROOT / "scripts" / "traceability.py"
 TRACEABILITY_LEDGER = Path("specs/002-reproducible-runtime/evidence/TRACEABILITY.json")
 
 # Every job the protected aggregator must depend on, in workflow order.
-BLOCKING_JOBS = ("static", "vulture", "complexipy", "compatibility", "services")
+BLOCKING_JOBS = ("static", "secrets", "vulture", "complexipy", "compatibility", "services")
 # Every tracked repository Python file lives under exactly one of these paths, in gate order.
 CANONICAL_VULTURE_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
 CANONICAL_VULTURE_COMMAND = (

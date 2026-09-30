@@ -38,6 +38,7 @@ def test_profile_membership_and_ordering_are_exact() -> None:
 
     assert module.gate_ids_for_profile("static") == (
         "lock",
+        "secrets",
         "format",
         "lint",
         "strict-types",
@@ -58,6 +59,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
 
     assert module.gate_ids_for_profile("all") == (
         "lock",
+        "secrets",
         "format",
         "lint",
         "strict-types",
@@ -232,6 +234,7 @@ def test_runtime_gates_stay_in_the_selected_python_environment() -> None:
     for gate_id in (
         "format",
         "lint",
+        "secrets",
         "imports",
         "tests",
         "services",
@@ -450,6 +453,7 @@ def test_help_lists_every_direct_gate_command() -> None:
 
     assert result.returncode == 0
     for command in (
+        "uv run python scripts/secret_scan.py --config .gitleaks.toml --fail-closed",
         "uv run black --check .",
         "uv run ruff check src tests scripts",
         "uv run --isolated --locked --all-extras --python 3.11 mypy",

@@ -42,7 +42,7 @@ PIPELINE_PATH = REPOSITORY_ROOT / "src" / "polymarket_insider_tracker" / "pipeli
 
 GOLDEN_MAX_COMPLEXITY = 5
 GOLDEN_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
-GOLDEN_BLOCKING_JOBS = ("static", "vulture", "complexipy", "compatibility", "services")
+GOLDEN_BLOCKING_JOBS = ("static", "secrets", "vulture", "complexipy", "compatibility", "services")
 
 GOLDEN_COMPLEXIPY_COMMAND = (
     "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
@@ -183,6 +183,7 @@ def test_golden_blocking_jobs_are_bound_in_ci_and_verifier() -> None:
 
     assert verifier.gate_ids_for_profile("static") == (
         "lock",
+        "secrets",
         "format",
         "lint",
         "strict-types",
