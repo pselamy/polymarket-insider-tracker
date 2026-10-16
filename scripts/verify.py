@@ -14,36 +14,49 @@ import time
 from collections.abc import Callable as Callable
 from collections.abc import Mapping as Mapping
 from collections.abc import Sequence
+from importlib.machinery import ModuleSpec as _ModuleSpec
+from importlib.util import module_from_spec as _module_from_spec
 from pathlib import Path
 from typing import Literal, NoReturn, cast
 from typing import NamedTuple as NamedTuple
 from urllib.parse import unquote as unquote
+from uuid import uuid4 as _uuid4
 
-# Support the documented script path and arbitrary importlib loading without an installed project.
-if not sys.path or sys.path[0] != str(Path(__file__).resolve().parents[1]):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# Each entry-point load owns its sibling modules; cached packages cannot redirect policy.
+_helper_name = f"_polymarket_verifier_{_uuid4().hex}"
+_helper_package = _module_from_spec(_ModuleSpec(_helper_name, loader=None, is_package=True))
+_helper_package.__path__.append(str(Path(__file__).resolve().parent))
+sys.modules[_helper_name] = _helper_package
+_entry_package = __package__
+_entry_spec = __spec__
+try:
+    __package__ = _helper_name
+    __spec__ = _ModuleSpec(f"{_helper_name}.entry", loader=None)
+    from ._verify_models import CommandExecution as CommandExecution
+    from ._verify_models import Gate as Gate
+    from ._verify_models import GateResult as GateResult
+    from ._verify_models import GateStatus as GateStatus
+    from ._verify_models import InvocationErrorPayload as _InvocationErrorPayload
+    from ._verify_models import ProfileName as ProfileName
+    from ._verify_models import RedactionPolicy as RedactionPolicy
+    from ._verify_models import Runner as Runner
+    from ._verify_models import VerificationResult as VerificationResult
+    from ._verify_policy import APPLY_MIGRATIONS_COMMAND as APPLY_MIGRATIONS_COMMAND
+    from ._verify_policy import BASE_PROFILES as BASE_PROFILES
+    from ._verify_policy import DIRECT_GATE_COMMANDS as DIRECT_GATE_COMMANDS
+    from ._verify_policy import GATES as GATES
+    from ._verify_policy import PROFILE_NAMES as PROFILE_NAMES
+    from ._verify_policy import help_epilog as _help_epilog
+    from ._verify_redaction import SECRET_VALUE_KEYS as SECRET_VALUE_KEYS
+    from ._verify_redaction import SERVICE_URL_KEYS as SERVICE_URL_KEYS
+    from ._verify_redaction import redact_text as redact_text
+finally:
+    __package__ = _entry_package
+    __spec__ = _entry_spec
 
-from scripts._verify_models import (
-    CommandExecution,
-    Gate,
-    GateResult,
-    GateStatus,
-    ProfileName,
-    Runner,
-    VerificationResult,
-)
-from scripts._verify_models import InvocationErrorPayload as _InvocationErrorPayload
-from scripts._verify_models import RedactionPolicy as RedactionPolicy
-from scripts._verify_policy import (
-    APPLY_MIGRATIONS_COMMAND,
-    BASE_PROFILES,
-    DIRECT_GATE_COMMANDS,
-    GATES,
-    PROFILE_NAMES,
-)
-from scripts._verify_redaction import SECRET_VALUE_KEYS as SECRET_VALUE_KEYS
-from scripts._verify_redaction import SERVICE_URL_KEYS as SERVICE_URL_KEYS
-from scripts._verify_redaction import redact_text
+# Keep public values serializable through the original entry-point module.
+for _export in (Gate, CommandExecution, GateResult, VerificationResult, redact_text):
+    _export.__module__ = __name__
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 GATE_FAILURE_EXIT_CODE = 1
@@ -317,24 +330,6 @@ def render_invocation_error(message: str) -> str:
         "error": message,
     }
     return json.dumps(payload, separators=(",", ":"))
-
-
-def _help_epilog() -> str:
-    width = max(len(gate_id) for gate_id, _ in DIRECT_GATE_COMMANDS)
-    lines = ["direct gate commands (every aggregate gate remains directly runnable):"]
-    lines.extend(f"  {gate_id:<{width}}  {command}" for gate_id, command in DIRECT_GATE_COMMANDS)
-    lines.append("")
-    lines.append("related commands:")
-    lines.append(f"  {'apply-migrations':<{width}}  {APPLY_MIGRATIONS_COMMAND}")
-    lines.append("")
-    lines.append(
-        "services and migrations read DATABASE_URL and REDIS_URL; load them with --env-file .env."
-    )
-    lines.append(
-        "exit status: 0 every selected gate passed; 1 a gate ran and failed; "
-        "2 invocation or prerequisite error."
-    )
-    return "\n".join(lines)
 
 
 class _ArgumentParser(argparse.ArgumentParser):

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Mapping
 
-from scripts._verify_models import Gate
+from ._verify_models import Gate
 
 GATES: Mapping[str, Gate] = {
     "lock": Gate("lock", ("uv", "lock", "--check")),
@@ -205,3 +205,21 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
 
 
 APPLY_MIGRATIONS_COMMAND = "uv run --env-file .env alembic upgrade head"
+
+
+def help_epilog() -> str:
+    width = max(len(gate_id) for gate_id, _ in DIRECT_GATE_COMMANDS)
+    lines = ["direct gate commands (every aggregate gate remains directly runnable):"]
+    lines.extend(f"  {gate_id:<{width}}  {command}" for gate_id, command in DIRECT_GATE_COMMANDS)
+    lines.append("")
+    lines.append("related commands:")
+    lines.append(f"  {'apply-migrations':<{width}}  {APPLY_MIGRATIONS_COMMAND}")
+    lines.append("")
+    lines.append(
+        "services and migrations read DATABASE_URL and REDIS_URL; load them with --env-file .env."
+    )
+    lines.append(
+        "exit status: 0 every selected gate passed; 1 a gate ran and failed; "
+        "2 invocation or prerequisite error."
+    )
+    return "\n".join(lines)
