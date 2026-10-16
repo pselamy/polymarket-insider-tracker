@@ -80,7 +80,7 @@ def _redacted_url(value: str) -> str:
     return f"{match.group('scheme')}://{credential}{hostinfo}{match.group('path')}{query}"
 
 
-def redact_text(value: str, *sensitive_urls: str) -> str:
+def _redact_text(value: str, *sensitive_urls: str) -> str:
     """Hide every given URL, and every spelling of its password, inside diagnostic text."""
     redacted = value
     for url in sensitive_urls:
@@ -90,3 +90,6 @@ def redact_text(value: str, *sensitive_urls: str) -> str:
         for form in _credential_forms(url):
             redacted = redacted.replace(form, "***")
     return redacted
+
+
+redact_text = _redact_text

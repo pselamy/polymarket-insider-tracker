@@ -161,3 +161,30 @@ assert tuple(str(error) for error in errors) == ("prerequisite", "verification")
 """
     completed = _run(tmp_path, program, str(SERVICE.parents[1]), str(payload))
     assert completed.returncode == 0, completed.stderr
+
+
+def test_private_redaction_callable_pickles_across_fresh_interpreters(tmp_path: Path) -> None:
+    payload = tmp_path / "redactor.pickle"
+    program = """
+import pickle
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from scripts import runtime_services
+Path(sys.argv[2]).write_bytes(pickle.dumps(runtime_services._redact_text))
+"""
+    completed = _run(tmp_path, program, str(SERVICE.parents[1]), str(payload))
+    assert completed.returncode == 0, completed.stderr
+    program = """
+import pickle
+from pathlib import Path
+import sys
+sys.path.insert(0, sys.argv[1])
+from scripts import runtime_services
+redact = pickle.loads(Path(sys.argv[2]).read_bytes())
+assert redact is runtime_services._redact_text
+assert redact.__qualname__ == "_redact_text"
+assert redact("unchanged diagnostic") == "unchanged diagnostic"
+"""
+    completed = _run(tmp_path, program, str(SERVICE.parents[1]), str(payload))
+    assert completed.returncode == 0, completed.stderr
