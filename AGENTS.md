@@ -135,6 +135,10 @@ or weaker types to make checks green. Do not replace full-tree enforcement with
 diff/staged checks or use snapshots, report-only success, or cwd configuration to
 evade the launcher. Low scores do not by themselves prove low cognitive load.
 
+The static profile separately enforces per-function cyclomatic complexity **10** with native Ruff
+C901 and missing-path E902 across the same owned scope. Its explicit isolated invocation disables
+inline suppression, Git ignores and path exclusions; use `verify.py --help` for the exact command.
+
 ## Review and delivery
 
 When the requested multi-tool workflow is used, the sequence is Agy first pass →

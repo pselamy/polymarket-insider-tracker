@@ -290,3 +290,21 @@ self-head manifests. Regression evidence starts with the actual independent
 `probe.py` (all seven unsupported claims accepted on the supplied baseline), then
 real passing/skipped/missing/failing executions and individually targeted document
 mutations. Native quality/compatibility/service gates remain unchanged.
+
+### Relentless CI: independent cyclomatic control (2026-10-16)
+
+The requested Relentless CI adoption adds FR-021/SC-009 without changing product behavior or the
+existing cognitive maximum. Use the locked Ruff package already present, not another analyzer or
+launcher. Add one `cyclomatic` entry to the existing static/all profiles, with C901 at maximum 10
+and E902 for missing-path failures. Explicit isolation, no inline suppressions, no Git ignores and
+an empty exclusion list bind the command's policy and full owned scope.
+
+First execute the new contract tests against the absent gate (eight failures), then add the native
+entry and require a complexity-10 pass, complexity-11 failures in all five owned roots under bypass
+attempts, and a missing-root failure. C901 alone warns and exits zero on a missing root; the actual
+negative control requires E902 as part of the final native selection. Test failure propagation
+through the aggregate rather than introducing a second workflow/job registry.
+
+Run the existing static, supported compatibility and disposable service profiles. Preserve exact
+candidate identity and independent review before protected publication. No dependency, migration,
+source exclusion, suppression, threshold increase, or detector/scoring change is needed.

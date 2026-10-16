@@ -148,7 +148,7 @@ fakes and real values guarantee tests assert outcome and state faithfully.
   End-to-end dry-run startup belongs to slices 001 and 003 and MUST NOT be claimed by this foundation slice.
 - **FR-007**: Every migration MUST retain a downgrade path, and automation MUST exercise upgrade to head,
   one-step downgrade, and re-upgrade using the supported PostgreSQL driver.
-- **FR-008**: Required format, lint, strict mypy, strict Pyright, Vulture dead-code check, Complexipy cognitive complexity check, test, migration, and compatibility checks MUST be blocking.
+- **FR-008**: Required format, lint, strict mypy, strict Pyright, Vulture dead-code check, Complexipy cognitive complexity check, Ruff cyclomatic complexity check, test, migration, and compatibility checks MUST be blocking.
   Any approved exception MUST be explicit, time-bounded, owned, and visible in the gap register.
 - **FR-009**: Automated tests MUST use the declared locked dependency set rather than resolving an
   unrelated environment on each run.
@@ -190,6 +190,12 @@ fakes and real values guarantee tests assert outcome and state faithfully.
 - **FR-020**: An AST-based static regression test MUST enforce the prohibition of `unittest.mock` imports across all
   test files without self-triggering or banning `pytest.monkeypatch` or production-safe HTTP transports.
 
+- **FR-021**: The static and aggregate verification profiles MUST independently enforce cyclomatic
+  complexity at most 10 per function with locked native Ruff C901 across `src`, `tests`, `scripts`,
+  `alembic`, and root `conftest.py`. The command MUST ignore local configuration, inline suppressions,
+  Git ignore rules and default path exclusions. Missing owned paths MUST fail through native E902.
+  This control supplements, and MUST NOT replace or relax, the cognitive complexity maximum of 5.
+
 ### Key Entities
 
 - **Support Matrix**: The finite set of supported Python minors and host operating-system families, with
@@ -223,6 +229,10 @@ fakes and real values guarantee tests assert outcome and state faithfully.
 - **SC-008**: 100% of `unittest.mock` uses are replaced with working fakes and real values across all 22 baseline test
   files; zero files under `tests/` import or alias `unittest.mock`; an AST-based regression enforces this continuously;
   every one of the 862 baseline test IDs is retained; and combined coverage does not regress below the 91% baseline.
+
+- **SC-009**: The actual cyclomatic command accepts a complexity-10 fixture, rejects a complexity-11
+  fixture in each owned root even with inline/local-config/Git-ignore bypass attempts, and rejects a
+  missing owned root. A cyclomatic failure MUST stop the aggregate and mark subsequent gates not-run.
 
 ## Assumptions
 
