@@ -87,7 +87,6 @@ def test_cyclomatic_limit_rejects_eleven_paths_in_every_owned_root(
     if target.is_dir():
         target /= "violation.py"
     target.write_text(_source(10), encoding="utf-8")
-    (tmp_path / ".gitignore").write_text("src/\ntests/\nscripts/\nalembic/\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(
         '[tool.ruff]\nexclude = ["**"]\n'
         '[tool.ruff.lint]\nignore = ["C901"]\n'
@@ -100,6 +99,32 @@ def test_cyclomatic_limit_rejects_eleven_paths_in_every_owned_root(
     assert completed.returncode != 0
     assert "C901" in completed.stdout
     assert "11 > 10" in completed.stdout
+
+
+def test_cyclomatic_gate_checks_effectively_gitignored_source(tmp_path: Path) -> None:
+    _tree(tmp_path)
+    subprocess.run(["git", "init", "--quiet", str(tmp_path)], check=True)
+    (tmp_path / ".gitignore").write_text("*.py\n", encoding="utf-8")
+    nested = tmp_path / "src/nested"
+    nested.mkdir()
+    target = nested / "violation.py"
+    target.write_text(_source(10), encoding="utf-8")
+    subprocess.run(["git", "check-ignore", str(target)], cwd=tmp_path, check=True)
+    control_command = tuple(
+        argument
+        for argument in _verifier().GATES["cyclomatic"].command
+        if argument != "--no-respect-gitignore"
+    )
+
+    control = subprocess.run(
+        control_command, cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    protected = _run(tmp_path)
+
+    assert control.returncode == 0, control.stdout + control.stderr
+    assert protected.returncode != 0
+    assert "C901" in protected.stdout
+    assert "11 > 10" in protected.stdout
 
 
 def test_cyclomatic_gate_rejects_missing_owned_root(tmp_path: Path) -> None:
