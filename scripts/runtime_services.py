@@ -6,18 +6,24 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import ipaddress
+import ipaddress as ipaddress
 import json
 import os
-import re
-import socket
+import re as re
+import socket as socket
 import subprocess
 import sys
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable as Awaitable
+from collections.abc import Callable as Callable
+from collections.abc import Mapping, Sequence
+from importlib.machinery import ModuleSpec as _ModuleSpec
+from importlib.util import module_from_spec as _module_from_spec
 from pathlib import Path
-from typing import Protocol
-from urllib.parse import SplitResult, unquote, urlsplit
+from typing import Protocol as Protocol
+from urllib.parse import SplitResult as SplitResult
+from urllib.parse import unquote as unquote
+from urllib.parse import urlsplit as urlsplit
 
 import psycopg
 from alembic.config import Config
@@ -29,9 +35,50 @@ from sqlalchemy.engine import URL, make_url
 
 from polymarket_insider_tracker.storage.database import create_async_db_engine
 from polymarket_insider_tracker.storage.database_url import (
-    DatabaseUrlError,
-    normalize_database_url,
+    DatabaseUrlError as DatabaseUrlError,
 )
+from polymarket_insider_tracker.storage.database_url import (
+    normalize_database_url as normalize_database_url,
+)
+
+# Bind extracted helpers to this entry point, even under cached foreign packages or aliases.
+_helper_name = f"_polymarket_services_{uuid.uuid4().hex}"
+_helper_package = _module_from_spec(_ModuleSpec(_helper_name, loader=None, is_package=True))
+_helper_package.__path__.append(str(Path(__file__).resolve().parent))
+sys.modules[_helper_name] = _helper_package
+_entry_package = __package__
+_entry_spec = __spec__
+try:
+    __package__ = _helper_name
+    __spec__ = _ModuleSpec(f"{_helper_name}.entry", loader=None)
+    from ._service_models import BackendFactory as BackendFactory
+    from ._service_models import MigrationBackend as MigrationBackend
+    from ._service_models import MigrationRunner as MigrationRunner
+    from ._service_models import ProbeRunner as ProbeRunner
+    from ._service_models import ServicePrerequisiteError as ServicePrerequisiteError
+    from ._service_models import ServiceVerificationError as ServiceVerificationError
+    from ._service_redaction import redact_text as _redact_text
+    from ._service_safety import LIBPQ_ROUTING_ENVIRONMENT as LIBPQ_ROUTING_ENVIRONMENT
+    from ._service_safety import LIBPQ_ROUTING_QUERY_KEYS as LIBPQ_ROUTING_QUERY_KEYS
+    from ._service_safety import REDIS_SCHEME as REDIS_SCHEME
+    from ._service_safety import validate_loopback_database_url as validate_loopback_database_url
+    from ._service_safety import validate_loopback_redis_url as validate_loopback_redis_url
+    from ._service_safety import validate_redis_url as validate_redis_url
+finally:
+    __package__ = _entry_package
+    __spec__ = _entry_spec
+
+# Preserve public classes/functions and private redaction serialization through this entry point.
+for _export in (
+    ServicePrerequisiteError,
+    ServiceVerificationError,
+    MigrationBackend,
+    validate_loopback_database_url,
+    validate_redis_url,
+    validate_loopback_redis_url,
+    _redact_text,
+):
+    _export.__module__ = __name__
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 PHASES = ("probe", "migrations", "all")
@@ -40,162 +87,8 @@ REQUIRED_ENVIRONMENT: Mapping[str, tuple[str, ...]] = {
     "migrations": ("DATABASE_URL",),
     "all": ("DATABASE_URL", "REDIS_URL"),
 }
-REDIS_SCHEME = "redis"
 PREREQUISITE_EXIT_CODE = 2
 VERIFICATION_FAILURE_EXIT_CODE = 1
-
-# libpq routes connections through these regardless of the URL's host component, so a
-# loopback-validated DSN could still reach a remote server. The query keys ride inside
-# DATABASE_URL itself; the environment variables fill any conninfo parameter the DSN
-# leaves unspecified (PostgreSQL: libpq-connect, "Parameter Key Words" / "Environment
-# Variables"). Both are rejected before any client, subprocess, or database exists.
-LIBPQ_ROUTING_QUERY_KEYS = frozenset({"host", "hostaddr", "port", "service"})
-LIBPQ_ROUTING_ENVIRONMENT = ("PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE")
-
-# scheme://authority[path][?query][#fragment]; the authority ends at the first "/", "?", or "#".
-_URL_PATTERN = re.compile(
-    r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*)://(?P<authority>[^/?#]*)(?P<path>[^?#]*)(?P<tail>[?#].*)?$",
-    re.DOTALL,
-)
-
-
-class ServicePrerequisiteError(RuntimeError):
-    """Raised before a destructive service-verification operation begins."""
-
-
-class ServiceVerificationError(RuntimeError):
-    """Raised when a real service or migration verification step fails."""
-
-
-class MigrationBackend(Protocol):
-    """Operations needed to prove a disposable migration lifecycle."""
-
-    def expected_revisions(self) -> tuple[str, str]: ...
-
-    def create_database(self, name: str) -> None: ...
-
-    def run_alembic(self, database_url: str, command: str, target: str) -> None: ...
-
-    def current_revision(self, database_url: str) -> str: ...
-
-    async def async_query(self, database_url: str) -> None: ...
-
-    def drop_database(self, name: str) -> None: ...
-
-
-ProbeRunner = Callable[[str, str], Awaitable[dict[str, object]]]
-MigrationRunner = Callable[[str], Awaitable[dict[str, object]]]
-BackendFactory = Callable[[str], MigrationBackend]
-
-
-def _resolved_addresses(
-    host: str, variable: str = "DATABASE_URL"
-) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
-    try:
-        records = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    except socket.gaierror as exc:
-        raise ServicePrerequisiteError(
-            f"{variable} host could not be resolved for loopback verification"
-        ) from exc
-    addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
-    for record in records:
-        try:
-            addresses.add(ipaddress.ip_address(record[4][0]))
-        except ValueError as exc:
-            raise ServicePrerequisiteError(
-                f"{variable} host returned an invalid address during loopback verification"
-            ) from exc
-    return addresses
-
-
-def _require_loopback(host: str, variable: str) -> None:
-    addresses = _resolved_addresses(host, variable)
-    if not addresses or any(not address.is_loopback for address in addresses):
-        raise ServicePrerequisiteError(
-            f"{variable} must resolve only to loopback addresses for service verification"
-        )
-
-
-def _require_no_routing_query_keys(canonical: str) -> None:
-    for key in make_url(canonical).query:
-        if key.lower() in LIBPQ_ROUTING_QUERY_KEYS:
-            raise ServicePrerequisiteError(
-                f"DATABASE_URL query parameter {key.lower()!r} lets libpq reroute the"
-                " connection past the loopback host; remove it for service verification"
-            )
-
-
-def _require_no_routing_environment(environment: Mapping[str, str] | None = None) -> None:
-    checked = os.environ if environment is None else environment
-    for name in LIBPQ_ROUTING_ENVIRONMENT:
-        if checked.get(name):
-            raise ServicePrerequisiteError(
-                f"{name} must be unset during service verification; libpq would let it"
-                " reroute the loopback connection to another server"
-            )
-
-
-def validate_loopback_database_url(database_url: str) -> str:
-    """Return a canonical URL only when every route the connection can take is loopback.
-
-    Loopback resolution of the host component alone is not enough: libpq honors
-    ``hostaddr``/``host``/``service`` query parameters and the corresponding environment
-    variables for the actual route, so those are rejected as prerequisites as well.
-    """
-    if not database_url:
-        raise ServicePrerequisiteError("DATABASE_URL is required")
-    try:
-        canonical = normalize_database_url(database_url)
-    except DatabaseUrlError as exc:
-        # The product error names the offending component or key without echoing the value.
-        raise ServicePrerequisiteError(str(exc)) from exc
-    host = make_url(canonical).host
-    if host is None:
-        raise ServicePrerequisiteError("DATABASE_URL must include a loopback host")
-    _require_loopback(host, "DATABASE_URL")
-    _require_no_routing_query_keys(canonical)
-    _require_no_routing_environment()
-    return canonical
-
-
-def _validate_redis_port(parsed: SplitResult) -> None:
-    try:
-        port = parsed.port
-    except ValueError as exc:
-        raise ServicePrerequisiteError(
-            "REDIS_URL port must be an integer between 1 and 65535"
-        ) from exc
-    if port is not None and not 1 <= port <= 65535:
-        raise ServicePrerequisiteError("REDIS_URL port must be an integer between 1 and 65535")
-
-
-def validate_redis_url(redis_url: str) -> str:
-    """Return ``redis_url`` unchanged when it is usable, or fail without echoing any value."""
-    if not redis_url:
-        raise ServicePrerequisiteError("REDIS_URL is required")
-    try:
-        parsed = urlsplit(redis_url)
-    except ValueError as exc:
-        raise ServicePrerequisiteError("REDIS_URL could not be parsed as a URL") from exc
-    if parsed.scheme != REDIS_SCHEME:
-        raise ServicePrerequisiteError("REDIS_URL must use the redis:// scheme")
-    if not parsed.hostname:
-        raise ServicePrerequisiteError("REDIS_URL must include a host")
-    _validate_redis_port(parsed)
-    return redis_url
-
-
-def validate_loopback_redis_url(redis_url: str) -> str:
-    """Return ``redis_url`` only when it is usable and every resolved host address is loopback.
-
-    Shared Redis contract tests write and delete keys, so they may only ever target a disposable
-    local service; an arbitrary external ``REDIS_URL`` is rejected before any client exists.
-    """
-    validated = validate_redis_url(redis_url)
-    host = urlsplit(validated).hostname
-    assert host is not None
-    _require_loopback(host, "REDIS_URL")
-    return validated
 
 
 def _psycopg_dsn(url: URL) -> str:
@@ -212,87 +105,6 @@ def alembic_subprocess_environment(database_url: str) -> dict[str, str]:
     environment = {name: value for name, value in os.environ.items() if not name.startswith("PG")}
     environment["DATABASE_URL"] = database_url
     return environment
-
-
-def _split_userinfo(authority: str) -> tuple[str | None, str | None, str]:
-    """Split an authority into (username, password, hostinfo) exactly like URL consumers do."""
-    userinfo, separator, hostinfo = authority.rpartition("@")
-    if not separator:
-        return None, None, hostinfo
-    username, separator, password = userinfo.partition(":")
-    return username, (password if separator else None), hostinfo
-
-
-def _extract_query_password(pair: str) -> str | None:
-    name, separator, raw_value = pair.partition("=")
-    if not separator or not raw_value:
-        return None
-    return raw_value if name.casefold() == "password" else None
-
-
-def _query_credentials(tail: str) -> list[str]:
-    if not tail.startswith("?"):
-        return []
-    query = tail[1:].partition("#")[0]
-    results: list[str] = []
-    for pair in query.split("&"):
-        pwd = _extract_query_password(pair)
-        if pwd:
-            results.append(pwd)
-    return results
-
-
-def _url_credentials(value: str) -> tuple[str, ...]:
-    """Return the raw credentials a consumer would read from ``value``.
-
-    Both the userinfo password and any ``password`` query parameter count, because redis-py and
-    libpq accept either spelling. Parsing never requires a well-formed URL.
-    """
-    match = _URL_PATTERN.match(value)
-    if match is None:
-        return ()
-    credentials: list[str] = []
-    password = _split_userinfo(match.group("authority"))[1]
-    if password:
-        credentials.append(password)
-    credentials.extend(_query_credentials(match.group("tail") or ""))
-    return tuple(credentials)
-
-
-def _credential_forms(value: str) -> tuple[str, ...]:
-    """Return every encoded or decoded credential spelling a tool might echo from ``value``."""
-    raw_forms: list[str] = []
-    for credential in _url_credentials(value):
-        raw_forms.extend((credential, unquote(credential)))
-    return tuple(dict.fromkeys(raw_forms))
-
-
-def _redacted_url(value: str) -> str:
-    """Render a URL with its credential and query hidden, or ``***`` when it is unparseable."""
-    match = _URL_PATTERN.match(value)
-    if match is None:
-        return "***"
-    username, password, hostinfo = _split_userinfo(match.group("authority"))
-    if username is None:
-        credential = ""
-    elif password is None:
-        credential = f"{username}@"
-    else:
-        credential = f"{username}:***@"
-    query = "?***" if match.group("tail") else ""
-    return f"{match.group('scheme')}://{credential}{hostinfo}{match.group('path')}{query}"
-
-
-def _redact_text(value: str, *sensitive_urls: str) -> str:
-    """Hide every given URL, and every spelling of its password, inside diagnostic text."""
-    redacted = value
-    for url in sensitive_urls:
-        if not url:
-            continue
-        redacted = redacted.replace(url, _redacted_url(url))
-        for form in _credential_forms(url):
-            redacted = redacted.replace(form, "***")
-    return redacted
 
 
 class RealMigrationBackend:
