@@ -467,8 +467,8 @@ All new human checklist markers remain unchecked. SEC tasks cover FR-023–030 a
 
 - [X] SEC001 [US5] Preserve direction approval/native receipts and source-bound Phase0 research in `evidence/security-policy/`; clarify tree/history identity and donor preservation (FR-024,027,029).
 - [X] SEC002 [US5] Prepare spec/plan/model/contract/quickstart, exact amendment proposal and reviewer-owned `checklists/security-policy.md`; run managed tasks/analyze before implementation (FR-023–030). This box records document preparation only; analysis verdict is separate.
-- [ ] SEC003 [US5] Write RED parser/schema controls in `tests/tooling/test_secret_report.py` and `tests/tooling/test_secret_schema.py`, covering exit/report contradictions, full schema, duplicate JSON/rows, native coordinate/collision cases and safe output. Put a synthetic private-context sentinel in path/rule/fingerprint/tags and source fields; prove finding/report repr and formatted error/log output do not expose it (FR-024,026,027; SC-011,012).
-- [ ] SEC004 [US5] Implement immutable safe metadata in `scripts/_secret_models.py`, bounded JSON/schema in `_secret_json.py`/`_secret_schema.py` and pure `_secret_report.py`; no approval, CLI or gate registration (FR-024,026,027).
+- [X] SEC003 [US5] Write RED parser/schema controls in `tests/tooling/test_secret_report.py` and `tests/tooling/test_secret_schema.py`, covering exit/report contradictions, full schema, duplicate JSON/rows, native coordinate/collision cases and safe output. Put a synthetic private-context sentinel in path/rule/fingerprint/tags and source fields; prove finding/report repr and formatted error/log output do not expose it (FR-024,026,027; SC-011,012).
+- [X] SEC004 [US5] Implement immutable safe metadata in `scripts/_secret_models.py`, bounded JSON/schema in `_secret_json.py`/`_secret_schema.py` and pure `_secret_report.py`; no approval, CLI or gate registration (FR-024,026,027).
 - [ ] SEC005 [US5] Verify exact source objects/line bounds in `scripts/_secret_source.py` and `tests/tooling/test_secret_source.py`; immutable tree/history membership and full-blob identities reject all mismatch/unsupported cases (FR-023,024,026; SC-012,013).
 
 ### Native worker and donor preservation
@@ -502,3 +502,15 @@ identities remain ordered, and findings have no approval path. Full US5 independ
 the complete native/trusted/hosted journey in the spec. Parallel examples: donor preservation007 and
 source005 can be researched in separate files; only the root writer edits this checkout. Incremental
 local commits are review checkpoints, never a partial secrets-gate publication or convergence claim.
+
+### SEC003/004 exact preparation completion
+
+Corrected parser e4c21a434a1244f197e970c8079b2af1802e593e independently reviewed SHIP for these
+two tasks only.121 controls pass on each3.11/3.12/3.13, full native static/types/complexity pass,
+and committed-source full3.11 compatibility passes1716/3skipped/55warnings in285.62s aggregate.
+The three skips are two real-service checks and one Windows-only check, not three service checks.
+All1598 baseline IDs and1706 first-pass IDs remain; corrected collection1719 adds13 regressions.
+The first-pass REVISE and failing13-control evidence remain preserved. External exact-head review/
+verification receipts are in the task outputs; code/report hashes were independently checked.
+This documentation-only checkpoint changes no reviewed source or test bytes. SEC005–015 and every
+human-owned checklist marker remain unchecked; no finding, full security control or merge is approved.

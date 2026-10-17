@@ -53,3 +53,19 @@ suppressed context, allowing only those two exact categories. No accepted-input 
 First-pass review is preserved externally at outputs/polymarket-security-parser-review-first-pass.md.
 Corrected code requires fresh native checks, independent rereview and committed-source compatibility;
 this paragraph does not assert those pending results or accept any native repository finding.
+
+## Corrected preparation verified
+
+Exact code e4c21a434a1244f197e970c8079b2af1802e593e received independent SHIP for SEC003/004
+only. All121 controls pass on3.11/3.12/3.13; full static21.98s, explicit strict types and canonical
+full-scope C90110/E902 pass. Full committed-source3.11 compatibility passed1716tests,3skips and
+55warnings:279.97s pytest,285.62s aggregate. Skip clarification: the earlier wording saying three
+service-dependent skips was inaccurate. Two require real services; one is Windows-only, outside
+the approved Linux/Apple scope. No real service/migration acceptance is newly asserted.
+
+Independent updated collection preserves all1598 baseline and1706 first-pass IDs, with1719 final
+IDs. The grader executed all30 domain rejection sites under private exception context without
+traceback/log disclosure and retained458 broader probes. Root verified every reviewed source/test
+SHA against both the committed blobs and working bytes. Final review is preserved externally at
+outputs/polymarket-security-parser-review.md; verification JSON records exact source/test hashes.
+SEC005–015 remain open. This is a pure-parser checkpoint, not native finding or full-gate acceptance.
