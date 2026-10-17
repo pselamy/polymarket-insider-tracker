@@ -63,13 +63,21 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   enrichment, and Redis unchanged; usable only when `0 <= evaluated_at - acquired_at <= 600s`.
   Never synthesize from cache reads, TTL, CLOB refresh, or generic `last_updated`.
 - **Operator surface**: keep `DETECTOR_ALERT_THRESHOLD` default 0.80 (inclusive `>=`,
-  0.001 quantum); add `DETECTOR_FRESH_TRANSACTION_BOUNDARY` default 5 (exclusive nonce `< 5`)
+  0.001 quantum); add `DETECTOR_FRESH_TRANSACTION_BOUNDARY` default 5, positive integer and
+  exclusive nonce bound — every classification rule uses the captured effective boundary
+  `B`, with 5 only its default (boundary 3 excludes nonce 3, boundary 10 includes nonce 9;
+  nonce exactly `B` never qualifies; see [data-model.md](data-model.md) §2) —
   and `DETECTOR_SIZE_VOLUME_THRESHOLD` default 0.02 (strict `>`). Existing wallet minimum
   notional 1000, age ceiling 48h, niche volume 50000 / niche-only minimum 500, confidence
   constants, and weight rules stay fixed.
-- **Wallet/size semantics**: known-age requires notional ≥ 1000, nonce < boundary,
-  age ≤ 48h; unknown-age low-activity confidence exactly 0.50, no age/new-wallet/large-trade
-  additions; missing retrieval supplies no freshness fact. Usable positive current volume
+- **Wallet/size semantics**: known-age requires notional ≥ 1000, `nonce < B` (effective
+  boundary), age ≤ 48h; unknown-age low-activity requires notional ≥ 1000, `nonce < B`,
+  confidence exactly 0.50, no age/new-wallet/large-trade additions; missing retrieval
+  supplies no freshness fact. The canonical freshness rule in
+  [data-model.md](data-model.md) §2a governs signal JSON, assessment evidence, cached
+  profiles, and persisted wallet rows coherently, with the legacy
+  `profiler/analyzer.py:210–229` unknown-age-`True` path named as an explicit compatibility
+  exception. Usable positive current volume
   enables notional/volume ratio; unavailable/nonpositive/stale/invalid volume yields no
   observed ratio; unavailable volume may use category fallback with basis recorded. Book
   depth stays unavailable in the live core.
@@ -82,9 +90,12 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   (proposed algorithm/evidence identity `004.1`); keep `RiskScorer.scoring_config` as pure
   effective configuration; retain `multi_signal_bonus_3` as documented-neutral compatibility
   key with the unreachable branch removed. No competing migration or harness.
-- **Compatibility**: new exclusive transaction-boundary keyword coexists with deprecated
-  inclusive `max_nonce` alias (conflicts rejected); unavailable impacts never serialize as
-  measured zero (nullable authoritative fields; exact migration documented in Phase1 tasks);
+- **Compatibility**: new exclusive `fresh_transaction_boundary` keyword coexists with the
+  deprecated inclusive `max_nonce` alias (omitted → 5; alias-only → `B = N + 1` with
+  warning; conflicts rejected) per [contracts/detector-api.md](contracts/detector-api.md);
+  unavailable impacts never serialize as measured zero via additive nullable
+  `volume_impact_measured`/`book_impact_measured` companions (required-float legacy fields
+  and wire positions unchanged);
   same quantized score/threshold on every output; niche as size modifier; research wording kept.
 
 See [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md),

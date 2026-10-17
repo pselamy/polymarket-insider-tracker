@@ -17,14 +17,33 @@ Pins exact current interfaces (base `46e4192`); implementation is not authorized
 
 ## Proposed compatible path
 
-1. New exclusive keyword (e.g. `fresh_transaction_boundary`, default 5) coexists with an
+1. New exclusive keyword `fresh_transaction_boundary` (default 5) coexists with an
    explicitly-supplied, deprecated inclusive `max_nonce` alias; conflicting controls rejected.
-   Supported runtime uses only the exclusive control; default contract is nonce `< 5`.
+   Omitted both → effective boundary `B = 5`. Explicit `max_nonce=N` alone → `B = N + 1`
+   with a deprecation warning (legacy inclusive semantics preserved: old `max_nonce=5` means
+   `nonce <= 5`, i.e. `B = 6`). Explicit `fresh_transaction_boundary=B` alone → `B`.
+   Both supplied → reject unless `B == N + 1`, then warn and use `B`. Supported runtime
+   evaluates only `nonce < B`. Current code pins: `detector/fresh_wallet.py:56-63`
+   (`max_nonce: int = DEFAULT_MAX_NONCE = 5`, `profile.nonce > self._max_nonce` reject) and
+   `profiler/analyzer.py:24,225` (`DEFAULT_FRESH_THRESHOLD = 5`, `nonce >= threshold`
+   reject). No external non-use is asserted: additive keyword, alias retained.
 2. New additive evaluation entry point returns immutable wallet/market evaluation evidence
    alongside optional signals, sharing one acquisition/calculation with `analyze` (no second
    fetch). Existing signal-returning wrappers preserved.
-3. Unavailable `volume_impact`/`book_impact` stay nullable authoritative fields; they must
-   never serialize, persist, or render as measured zero. Direct library consumers get an
-   explicit semantic note: null + availability reason = non-measurement, not zero impact.
+3. Impact migration (explicit type/semantic change, additive/versioned — Phase 1 choice
+   now closed): current `SizeAnomalySignal.volume_impact`/`book_impact` are required
+   `float`s (`detector/models.py:106-107`) emitted directly (`detector/models.py:148-149`)
+   with `0.0`-on-unknown docstrings (`:96-97`) — they do NOT “stay nullable” today.
+   Proposed: keep the two required-float attributes and wire positions unchanged, and add
+   authoritative nullable companions `volume_impact_measured: float | None` /
+   `book_impact_measured: float | None`, where `None` + availability reason =
+   non-measurement. Serializers (`to_dict` `:138-154`),
+   `scorer.py::_extract_size_diagnostics`, `RiskAssessment` persistence projection,
+   formatters (`alerter/formatter.py`, `alerter/channels/*`), health/capability surfaces,
+   and storage readers consume the nullable companions; operational unavailable
+   volume/book/ratio MUST NOT look like a measured zero anywhere. Legacy numeric
+   sentinels (including `0.0`) keep version-specific reader semantics and are documented
+   as non-measurements. Compatibility window covers the deprecated custom-weight
+   API/window per 003.
 4. Same quantized score and actual threshold on every output surface; unknown age and
    unavailable volume/book explicitly labeled; niche shown as size modifier.

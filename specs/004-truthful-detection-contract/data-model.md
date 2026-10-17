@@ -8,9 +8,10 @@ migration or harness. Implementation is not authorized.
 
 | Field | Type | Rule |
 |---|---|---|
-| `daily_volume` | Decimal, finite, `> 0` | Gamma market `volume24hr`, interpreted as provider USD-denominated monetary market volume over the provider's 24-hour window (R01 disposition in [research.md](research.md)). |
-| `daily_volume_acquired_at` | aware UTC datetime | Stamped once at successful HTTP-page body acquisition; carried through `GammaMarketStats`, enrichment, and Redis unchanged. |
-| `daily_volume_source` | string | Source identifier (endpoint + revision note). |
+| `volume24hr_raw` | `str \| float \| int \| None` (exact provider value, byte-preserved) | Immutable raw Gamma market `volume24hr` observation as received: missing (`None`), zero, negative, non-numeric/malformed string, or numeric. Never coerced, never substituted, never dropped. Malformed/non-numeric input is retained verbatim as evidence of its `invalid` state. |
+| `daily_volume` | `Decimal \| None` (usable denominator) | Separate from raw: set only when raw parses to a finite positive value; otherwise `None` with `volume_state` explaining why. This is the only value that may enter `notional / daily_volume`. |
+| `daily_volume_acquired_at` | aware UTC datetime \| null | Stamped once at successful HTTP-page body acquisition; carried through `GammaMarketStats`, enrichment, and Redis unchanged. Null when no successful acquisition produced the raw value. |
+| `daily_volume_source` | string | Source identifier (endpoint + first-party revision note `49ec9991b7f3e95197a4d53910f6086bf3ff2294`). |
 | `volume_state` | enum | `available` \| `missing` \| `nonpositive` \| `invalid` \| `stale` \| `invalid_time` \| `unqualified`. Zero, missing, malformed, nonpositive, stale, invalid-time remain distinct; never substituted, never measured zero. |
 | Usability | rule | `available` only when finite positive volume has valid aware timestamp with `0 <= evaluated_at - acquired_at <= 600s`. Fixed 600s matches cache TTL; not a provider measurement guarantee. Never synthesize from cache reads, TTL, CLOB refresh, or generic `last_updated`. |
 
@@ -21,8 +22,32 @@ migration or harness. Implementation is not authorized.
 | `tx_count` (nonce) | int \| null | Observed prior-transaction count; null when retrieval failed. |
 | `age_hours` | Decimal \| null | Known age; null = unknown. |
 | `age_state` | enum | `known` \| `unknown`. |
-| `classification` | enum | `fresh` (known age ≤ 48h, nonce < 5, notional ≥ 1000) \| `low_activity_unknown_age` (unknown age, nonce < 5; confidence exactly 0.50, no age/new-wallet/large-trade additions) \| `known_nonqualifying` (immutable evidence of a non-qualifying input, distinct from missing) \| `not_requested` \| `retrieval_failed`. |
+| `classification` | enum | `fresh` (known age ≤ 48h, `nonce < B`, notional ≥ 1000, where `B` is the captured effective exclusive boundary, default 5) \| `low_activity_unknown_age` (unknown age, `nonce < B`, notional ≥ 1000; confidence exactly 0.50, no age/new-wallet/large-trade additions) \| `known_nonqualifying` (immutable evidence of a non-qualifying input, distinct from missing) \| `not_requested` \| `retrieval_failed`. The `5` is the default of `DETECTOR_FRESH_TRANSACTION_BOUNDARY`, never a hardcoded constant: boundary 3 excludes nonce 3 (`transaction-override-3-3` emits no wallet signal), boundary 10 includes nonce 9 (`transaction-override-10-9` emits a wallet signal). Equality rule: nonce exactly `B` never qualifies. |
 | `observation_time` | aware UTC | Evidence observation timestamp. |
+
+### 2a. Canonical freshness rule (governs all surfaces)
+
+The proposed classification in §2 is the single authoritative meaning of “fresh” for
+signal JSON (`FreshWalletSignal.to_dict()['wallet_is_fresh']` at `detector/models.py:78`),
+assessment evidence, persisted wallet rows (`pipeline.py:671`
+`WalletProfileDTO.is_fresh`), cached profiles, and rendered output. Effective configuration
+provenance: the captured `DETECTOR_FRESH_TRANSACTION_BOUNDARY` value stored per assessment in
+`evaluation_evidence.detector_config` (§4); classification always evaluates against that
+captured `B`, never against a reread mutable setting.
+
+Legacy interpretation (explicit compatibility exception, not current measurement): the
+existing library surfaces `profiler/analyzer.py:210–229` (`_is_wallet_fresh`, unknown age →
+`True`), `WalletProfile.is_fresh`, and `pipeline.py:671` retain their earlier meaning on old
+rows and unamended code paths. They MUST NOT be presented as the new known-age
+classification. Old rows keep version-specific reader semantics (§4); unknown-age
+`is_fresh=True` flags on those rows are legacy facts, not measured known-age claims.
+
+Configured-boundary-10 mismatch closed: when the effective boundary is 10, the default
+analyzer rule would mark nonce 9 non-fresh while the new detector correctly classifies a
+known-age nonce-9 candidate as `fresh`. The joint regression (tasks T009c) asserts the
+classified signal, JSON flag, persisted row, rendered label, confidence `≤ 0.50` for
+unknown age, no age bonus, and listed factors together — for both the unknown-age case and
+the boundary-10 override case.
 
 ## 3. Size Evaluation Evidence (immutable snapshot)
 

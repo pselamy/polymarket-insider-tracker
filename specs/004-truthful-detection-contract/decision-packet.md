@@ -8,11 +8,13 @@ request is preserved and untouched.
 ## Final behavior (if authorized)
 
 Two-group research core (fresh/low-activity wallet + size anomaly; niche as size modifier),
-threshold 0.80 inclusive, exclusive nonce `< 5`, strict volume-ratio `> 0.02`, unknown-age
-confidence exactly 0.50 with no age bonus, seven distinct volume-availability states (never
-measured zero), per-page acquisition stamps with a 0–600s local recency rule, immutable
-evaluation evidence in a versioned `004.1` envelope amending shared 003 storage (no new
-migration), additive evaluation API with a deprecated inclusive-alias path.
+threshold 0.80 inclusive, effective exclusive boundary `B` (default `< 5`; boundary 3
+excludes nonce 3, boundary 10 includes nonce 9; nonce exactly `B` never qualifies), strict
+volume-ratio `> 0.02`, unknown-age confidence exactly 0.50 with no age bonus, seven
+distinct volume-availability states (never measured zero), per-page acquisition stamps with
+a 0–600s local recency rule, immutable evaluation evidence in a versioned `004.1` envelope
+amending shared 003 storage (no new migration), additive evaluation API with a deprecated
+inclusive-alias path.
 
 ## Evidence and limitations
 
@@ -34,8 +36,10 @@ Additive envelope inside existing TEXT column; old `003.1`/legacy rows untouched
 
 ## Operational assumptions
 
-Near-real-time Gamma polling per slice 001; local 600s age rule (matches cache TTL, not a
-provider SLA); conservative omission on fetch failure; dry-run safety per G-018.
+Slice 001 owns near-real-time anonymous participant trade polling (5s cadence); Gamma
+market metadata syncs every 300s with a 600s cache TTL
+(`ingestor/metadata_sync.py:41-42`). Local 600s acquisition-age rule (matches cache TTL,
+not a provider SLA); conservative omission on fetch failure; dry-run safety per G-018.
 
 ## Exact scope to authorize
 

@@ -78,6 +78,10 @@ from cache reads, TTL, CLOB refresh or generic`last_updated`. The latter current
 when deserialization cannot read a timestamp (`ingestor/models.py::MarketMetadata.from_dict`).
 
 **Rationale**: per-page timestamps prevent a long crawl making early pages appear newly acquired.
+The one aware acquisition timestamp is stamped at successful HTTP body acquisition
+(`ingestor/gamma_client.py` page fetch) and preserved unchanged on Redis cache write/read
+(`ingestor/metadata_sync.py::_enrich_and_cache_market`); a cache read never restamps it, so
+local age 0–600s is a local recency rule distinct from provider measurement freshness.
 **Alternatives**: whole-crawl timestamps overstate recency; retaining old values after failures adds
 carry-forward behavior. Keep the current conservative omission policy: unavailable Gamma results
 leave volume unavailable while CLOB metadata remains usable. Partial results or omitted markets are
@@ -108,10 +112,15 @@ constructors; slice004 userstory3; fixed114-case corpus.
 
 ## R04 — Core wallet and size semantics
 
-**Proposed decision**: known-age wallet candidates require notional>=1000, nonce<configured boundary
-and age<=48h. Keep the current known-age confidence formula. Unknown-age low-activity candidates
-have confidence exactly0.50 and only a low-activity factor; no new-wallet, age or large-trade addition
-survives. Missing wallet retrieval never supplies a freshness fact.
+**Proposed decision**: known-age wallet candidates require notional>=1000, nonce<effective
+boundary B (captured `DETECTOR_FRESH_TRANSACTION_BOUNDARY`, default5) and age<=48h. Keep
+the current known-age confidence formula. Unknown-age low-activity candidates require
+notional>=1000 and nonce<B, have confidence exactly0.50 and only a low-activity factor; no
+new-wallet, age or large-trade addition survives. Missing wallet retrieval never supplies a
+freshness fact. Equality: nonce exactly B never qualifies. Counterexamples fixed by this
+rule: `transaction-override-3-3` (nonce3, B=3) emits no wallet signal; `transaction-override-10-9`
+(nonce9, B=10) emits one — the replay already decides both correctly, and the data model now
+uses B everywhere instead of a hardcoded5.
 
 Usable daily volume enables notional/volume ratio. Unusable volume has no observed ratio. Usable
 volume<50000 gives numeric niche context; unavailable volume may use existing category fallback
@@ -163,14 +172,18 @@ not a claim that the old field already stored source evidence.
 
 ## R07 — Compatibility and truthful output are review decisions
 
-**Proposed direction**: preserve public call shapes and signal-returning wrappers. A new exclusive
-transaction-boundary keyword can coexist with an explicitly supplied, deprecated inclusive
-`max_nonce` alias, with conflicting controls rejected; supported runtime uses only the exclusive
-control. Validate the exact migration in Phase1.
+**Decided Phase1 choice** (this packet; implementation still reserved): preserve public
+call shapes and signal-returning wrappers. The new exclusive `fresh_transaction_boundary`
+keyword coexists with an explicitly supplied, deprecated inclusive `max_nonce` alias, with
+conflicting controls rejected; supported runtime uses only the exclusive control; see
+[contracts/detector-api.md](contracts/detector-api.md) for the omitted/default/explicit/
+conflicting argument table. No research sentence is left open.
 
-Unavailable impacts must never be serialized, persisted or rendered as measured zero. Phase1 must
-choose and document nullable authoritative impact fields and compatibility behavior, including direct
-library consumers; retaining a numeric sentinel without an explicit non-measurement contract is not
+Unavailable impacts must never be serialized, persisted or rendered as measured zero. The
+decided migration is additive/versioned nullable companions
+(`volume_impact_measured`/`book_impact_measured`), documented in
+[contracts/detector-api.md](contracts/detector-api.md) with exact current-interface pins
+(required floats at `detector/models.py:106-107`, direct emission at `:148-149`); retaining a numeric sentinel without an explicit non-measurement contract is not
 a solution. Render the same quantized score and actual threshold on every output, identify unknown
 age and unavailable volume/book, and show niche as a size modifier. Keep research/non-accusatory
 wording; funding is enrichment, sniper is experimental and backtesting is deferred.

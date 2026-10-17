@@ -1,8 +1,20 @@
 # Contract: Scoring Configuration Amendment (004.1)
 
 **Feature**: `specs/004-truthful-detection-contract` | **Date**: 2026-10-17 | **Status**: proposed.
-Amends the shared [003 assessment-storage contract](../003-safe-observable-operation/contracts/assessment-storage.md)
+Amends the shared [003 assessment-storage contract](../../003-safe-observable-operation/contracts/assessment-storage.md)
 without a competing migration. Implementation is not authorized.
+
+## Proposed vs existing (read carefully)
+
+Everything below is a **proposed** amendment for the future implementation to author under
+reserved human validation. Existing behavior on main `46e4192`: `scoring_config` is the
+canonical pure-configuration JSON recorded on every new assessment
+(`detector/scorer.py:217-220`); assessment rows carry scalar columns plus nullable
+`scoring_config` TEXT (`storage/models.py:168`, `storage/repos.py:573,617`). No existing
+strict reader accepts the additive keys — direct library consumers reading
+`scoring_config` JSON MUST tolerate them after implementation (pure-config readers keep
+working; envelope readers opt into `evaluation_evidence`). There is exactly one versioned
+`scoring_config`/`evaluation_evidence` amendment in this proposal; no second migration.
 
 ## Amendment
 
