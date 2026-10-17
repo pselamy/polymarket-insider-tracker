@@ -62,3 +62,16 @@ boundary.36 regression cases were all observed failing on the unmodified initial
 after correction; six adjacent controls extend malformed kind/version/native-path coverage. Final
 verification/re-review remain required before a completion marker. No original result is relabeled
 accepted, and no full security or native-finding acceptance is implied.
+
+
+## Preserved first-correction rejection
+
+Commit351405c7c586a74e02fc6a4db8d36e22aaae85e8 passed1861 tests with3 skips and55 warnings
+(pytest288.74s; compatibility292.65s), all266 focused controls on3.11–3.13, native static/types and
+unexcluded component coverage587 statements184 branches. Independent re-review nevertheless REVISE
+for the four adjacent boundary defects in `source-first-correction-review.md`. This green suite is
+preserved as compatibility evidence, not security acceptance. The next correction adds17 controls,
+16 observed RED before its implementation, then59 boundary controls GREEN. It removes virtual base
+validation/hash dispatch and tightens singleton enum, renderable native path and literal kind checks.
+The original normal byte-report behavior is retained; unsupported forged enum values now fail safely.
+Final review and committed verification remain pending. SEC005 stays unchecked until those exist.

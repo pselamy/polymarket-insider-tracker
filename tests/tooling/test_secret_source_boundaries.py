@@ -11,10 +11,11 @@ from pathlib import Path, PosixPath
 from typing import SupportsIndex, cast
 
 import pytest
-from scripts._secret_git import GitObjects, validate_objects
+from scripts._secret_git import GitObjects, ObjectType, ResolutionBudget, validate_objects
 from scripts._secret_identity import FindingIdentityV1, SourceScope, validate_scope
-from scripts._secret_models import NativeFinding, NativeReportError
+from scripts._secret_models import NativeFinding, NativeReportError, ScanMode
 from scripts._secret_process import GitLocation, run_git, validate_location
+from scripts._secret_report import parse_report
 from scripts._secret_schema import validate_native_finding
 from scripts._secret_source import bind_finding
 from tests.tooling.secret_source_fixtures import finding, repository, single_file, source_scope
@@ -175,3 +176,67 @@ def test_location_fields_require_native_path_values(tmp_path: Path) -> None:
 def test_location_subclass_methods_never_run(tmp_path: Path) -> None:
     redirected = RedirectLocation(tmp_path)
     assert_private_failure(lambda: GitLocation(redirected, tmp_path))
+
+
+class SkippedIdentityValidation(FindingIdentityV1):
+    def __post_init__(self) -> None:
+        self._validate()
+
+    def _validate(self) -> None:
+        pass
+
+
+class ReplacedIdentitySerialization(SkippedIdentityValidation):
+    def canonical_bytes(self) -> bytes:
+        return b"forged-noncanonical-payload"
+
+
+@pytest.mark.parametrize(
+    "entrypoint", ["canonical", "hash", "base-post", "overridden-serialization"]
+)
+def test_identity_subclass_cannot_bypass_base_entrypoints(entrypoint: str) -> None:
+    subtype = (
+        ReplacedIdentitySerialization
+        if entrypoint == "overridden-serialization"
+        else SkippedIdentityValidation
+    )
+    identity = subtype(True, "private", finding("1" * 40), "1" * 40, "private", "private")
+    object.__setattr__(identity, "schema_version", 7)
+    operations: dict[str, Callable[[], object]] = {
+        "canonical": identity.canonical_bytes,
+        "hash": lambda: identity.sha256,
+        "base-post": lambda: FindingIdentityV1.__post_init__(identity),
+        "overridden-serialization": lambda: identity.sha256,
+    }
+    assert_private_failure(operations[entrypoint])
+
+
+@pytest.mark.parametrize("value", ["dir", "git", "private"])
+@pytest.mark.parametrize("entrypoint", ["metadata", "report", "canonical"])
+def test_uninitialized_enum_values_are_not_scan_modes(value: str, entrypoint: str) -> None:
+    forged = str.__new__(ScanMode, value)
+    row = replace(finding("1" * 40, ScanMode.TREE), mode=forged)
+    operations: dict[str, Callable[[], object]] = {
+        "metadata": lambda: validate_native_finding(row),
+        "report": lambda: parse_report(b"[]", forged, 0),
+        "canonical": lambda: FindingIdentityV1(
+            17, "a" * 64, row, "1" * 40, "2" * 40, "3" * 64
+        ).canonical_bytes(),
+    }
+    assert_private_failure(operations[entrypoint])
+
+
+@pytest.mark.parametrize("kind", [True, None, NativeText("blob")])
+def test_direct_reader_requires_exact_supported_kind(tmp_path: Path, kind: object) -> None:
+    repo = repository(tmp_path / "repo.git")
+    head = single_file(repo)
+    blob = repo.git("rev-parse", f"{head}:note.py").decode().strip()
+    objects = GitObjects(repo.location)
+    assert_private_failure(lambda: objects.read(blob, cast(ObjectType, kind), ResolutionBudget()))
+
+
+def test_partially_initialized_native_path_fails_privately(tmp_path: Path) -> None:
+    partial = object.__new__(PosixPath)
+    object.__setattr__(partial, "_root", "/")
+    object.__setattr__(partial, "_drv", "")
+    assert_private_failure(lambda: run_git(GitLocation(partial, tmp_path), ()))

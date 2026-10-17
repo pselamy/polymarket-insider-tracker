@@ -67,6 +67,31 @@ def _schema_version(value: object) -> None:
         raise NativeReportError("native identity schema version") from None
 
 
+def _identity_fields(value: FindingIdentityV1) -> None:
+    _schema_version(value.schema_version)
+    _repository_id(value.repository_id)
+    hexadecimal(value.scanner_policy_sha256, 64)
+    validate_native_finding(value.finding)
+    hexadecimal(value.source_commit, 40)
+    hexadecimal(value.source_blob_oid, 40)
+    hexadecimal(value.source_blob_sha256, 64)
+    if (
+        value.finding.mode is ScanMode.HISTORY
+        and value.finding.native_commit != value.source_commit
+    ):
+        raise NativeReportError("native identity source mismatch") from None
+
+
+def validate_identity(value: object) -> FindingIdentityV1:
+    if type(value) is not FindingIdentityV1:
+        raise NativeReportError("native identity schema") from None
+    try:
+        _identity_fields(value)
+    except AttributeError:
+        raise NativeReportError("native identity schema") from None
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class FindingIdentityV1:
     """Exact restricted data, never an accepted or authenticated decision."""
@@ -80,28 +105,11 @@ class FindingIdentityV1:
     schema_version: Literal[1] = field(default=1, init=False)
 
     def __post_init__(self) -> None:
-        try:
-            self._validate()
-        except AttributeError:
-            raise NativeReportError("native identity schema") from None
-
-    def _validate(self) -> None:
-        _schema_version(self.schema_version)
-        _repository_id(self.repository_id)
-        hexadecimal(self.scanner_policy_sha256, 64)
-        validate_native_finding(self.finding)
-        hexadecimal(self.source_commit, 40)
-        hexadecimal(self.source_blob_oid, 40)
-        hexadecimal(self.source_blob_sha256, 64)
-        if (
-            self.finding.mode is ScanMode.HISTORY
-            and self.finding.native_commit != self.source_commit
-        ):
-            raise NativeReportError("native identity source mismatch") from None
+        validate_identity(self)
 
     def canonical_bytes(self) -> bytes:
         """Restricted evidence serialization; do not log or use as an output renderer."""
-        self.__post_init__()
+        validate_identity(self)
         row = self.finding
         data = {
             "schema_version": self.schema_version,
@@ -132,5 +140,5 @@ class FindingIdentityV1:
     @property
     def sha256(self) -> str:
         return hashlib.sha256(
-            b"polymarket-native-finding-v1\0" + self.canonical_bytes()
+            b"polymarket-native-finding-v1\0" + FindingIdentityV1.canonical_bytes(self)
         ).hexdigest()

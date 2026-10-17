@@ -6,7 +6,7 @@ import hashlib
 
 from scripts._secret_json import decode_array
 from scripts._secret_models import NativeFinding, NativeReport, NativeReportError, ScanMode
-from scripts._secret_schema import parse_finding
+from scripts._secret_schema import native_scan_mode, parse_finding
 
 
 def _exit_relationship(exit_code: int, count: int) -> None:
@@ -30,9 +30,7 @@ def _findings(rows: list[object], mode: ScanMode) -> tuple[NativeFinding, ...]:
 
 
 def _scan_mode(value: object) -> ScanMode:
-    if not isinstance(value, ScanMode):
-        raise NativeReportError("invalid native mode") from None
-    return value
+    return native_scan_mode(value)
 
 
 def parse_report(payload: bytes, mode: ScanMode, exit_code: int) -> NativeReport:

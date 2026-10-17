@@ -128,3 +128,22 @@ made a protected authority. Original native source, complete scan/worker and hum
 remain unchanged.36 new adversarial controls were observed RED before correction; six further controls
 cover closely related malformed kinds, versions and native paths. Logging and traceback checks both
 run inside an unrelated active private exception handler.
+
+## Exact base entrypoints and mode/location correction
+
+Independent re-review of351405c remained REVISE: virtual canonical validation/hash dispatch,
+uninitialized enum instances, partially initialized native paths and a direct reader kind misuse
+violated the safe boundary. The preserved report is `source-first-correction-review.md`.
+
+Base identity construction, canonical serialization and hashing now use an exact-class non-virtual
+validator; base hashing anchors the base canonical implementation. An entirely replaced arbitrary
+Python method is not a protected authority. Both report and direct metadata validators accept only
+the actual two ScanMode singletons. Location validation checks renderable native paths before use;
+the transport also translates malformed-state failures safely. The public reader validates its
+supported literal native object kind before native operations. Its resolution accountant remains
+internally constructed by resolve, not authenticated candidate metadata.
+
+17 additional controls cover the family;16 were observed RED on the unchanged first correction,
+while the existing argument guard already safely rejected one text-subclass kind. All59 boundary
+controls now pass in the initial corrective run. Full gates, matrix, committed compatibility and
+independent exact-artifact re-review remain required; no completion or acceptance is inferred here.

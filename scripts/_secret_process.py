@@ -22,9 +22,10 @@ COMMAND_SECONDS = 10.0
 def _absolute(value: object) -> Path:
     if not isinstance(value, Path) or type(value) is not type(Path()):
         raise NativeReportError("native absolute location") from None
-    if not value.is_absolute():
+    path = Path(str(value))
+    if not path.is_absolute():
         raise NativeReportError("native absolute location") from None
-    return value
+    return path
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +45,7 @@ def validate_location(value: object) -> GitLocation:
     try:
         _absolute(value.executable)
         _absolute(value.store)
-    except AttributeError:
+    except (AttributeError, TypeError):
         raise NativeReportError("native location schema") from None
     return value
 
@@ -189,7 +190,7 @@ def run_git(
             return _execute(location, arguments, source, limit, end)
     except subprocess.TimeoutExpired:
         raise NativeReportError("native command timeout") from None
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, AttributeError, TypeError) as error:
         if isinstance(error, NativeReportError):
             raise error from None
         raise NativeReportError("native transport failure") from None

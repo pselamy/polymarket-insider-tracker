@@ -158,9 +158,12 @@ def _exact_text(value: object) -> str:
     return _text(value)
 
 
-def _finding_mode(value: object) -> None:
-    if not isinstance(value, ScanMode):
-        raise NativeReportError("invalid native mode") from None
+def native_scan_mode(value: object) -> ScanMode:
+    if value is ScanMode.TREE:
+        return ScanMode.TREE
+    if value is ScanMode.HISTORY:
+        return ScanMode.HISTORY
+    raise NativeReportError("invalid native mode") from None
 
 
 def _finding_tags(value: object) -> None:
@@ -171,7 +174,7 @@ def _finding_tags(value: object) -> None:
 
 
 def _finding_fields(value: NativeFinding) -> None:
-    _finding_mode(value.mode)
+    native_scan_mode(value.mode)
     for text in (value.native_commit, value.path, value.rule_id, value.native_fingerprint):
         _exact_text(text)
     if not value.rule_id:

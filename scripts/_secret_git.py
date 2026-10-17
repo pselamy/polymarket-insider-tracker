@@ -19,6 +19,13 @@ PATH_COMPONENTS = 256
 ObjectType = Literal["commit", "tree", "blob"]
 
 
+def _object_type(value: object) -> ObjectType:
+    supported: dict[str, ObjectType] = {"commit": "commit", "tree": "tree", "blob": "blob"}
+    if type(value) is not str or value not in supported:
+        raise NativeReportError("native object kind") from None
+    return supported[value]
+
+
 @dataclass(slots=True)
 class ResolutionBudget:
     """Per-resolution accountant, not a worker sandbox or authenticity claim."""
@@ -94,6 +101,7 @@ class GitObjects:
 
     def read(self, oid: str, kind: ObjectType, budget: ResolutionBudget) -> bytes:
         validate_objects(self)
+        kind = _object_type(kind)
         hexadecimal(oid, 40)
         if self._run(("cat-file", "-t", oid), budget) != kind.encode() + b"\n":
             raise NativeReportError("native direct object type") from None
