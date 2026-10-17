@@ -136,6 +136,8 @@ def test_oversized_integer_entropy_fails_as_a_safe_domain_error() -> None:
 
 
 def test_excessively_nested_json_fails_without_a_decoder_trace() -> None:
-    with pytest.raises(NativeReportError, match="JSON") as failure:
+    with pytest.raises(NativeReportError) as failure:
         parse_report(b"[" * 2000 + b"]" * 2000, ScanMode.TREE, 0)
+    # Python3.11 stops in its decoder; newer decoders reach the invalid row shape.
+    assert str(failure.value) in {"invalid report JSON", "finding object schema"}
     assert failure.value.__suppress_context__ is True

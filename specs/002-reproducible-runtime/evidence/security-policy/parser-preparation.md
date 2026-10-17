@@ -34,3 +34,22 @@ are pending at this checkpoint. Later exact-head receipts belong outside this co
 self-head evidence. SEC003/004 remain unchecked until that review and verification are recorded.
 SEC005–015, every real finding decision, native worker/transport/issuer/freshness qualification,
 complete security/Relentless controls, actual required hosting and approved merge/main remain required.
+
+## First-pass rejection and corrective preparation
+
+Immutable first pass1d978b70b3215424bde025c589b478f6098ca133 passed full Python3.11 compatibility:
+1703passed/3service-dependent skips/55warnings,320.67s aggregate (315.95s pytest). Independent
+collection retained all1598 baseline IDs and added108. Despite those results, independent review
+returned REVISE: domain rejection paths inherited an active caller exception's private context in
+formatted tracebacks. Decoder failures already suppressed their context; other rejections did not.
+
+Thirteen targeted regressions all failed on1d978b7. The correction adds explicit context suppression
+to every domain rejection path, retaining the first pass and all121 control IDs. The added tests
+require the synthetic caller sentinel to be absent from formatted tracebacks. Cross-minor checks
+also exposed a test assumption: Python3.11 rejects deeply nested input in the decoder, while3.12/13
+can reach the invalid row schema. The portable control requires the safe domain rejection and
+suppressed context, allowing only those two exact categories. No accepted-input policy is weakened.
+
+First-pass review is preserved externally at outputs/polymarket-security-parser-review-first-pass.md.
+Corrected code requires fresh native checks, independent rereview and committed-source compatibility;
+this paragraph does not assert those pending results or accept any native repository finding.

@@ -33,16 +33,16 @@ COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 
 def _mapping(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
-        raise NativeReportError("finding object schema")
+        raise NativeReportError("finding object schema") from None
     data = cast(dict[str, object], value)
     if REQUIRED_FIELDS - data.keys() or data.keys() - ALLOWED_FIELDS:
-        raise NativeReportError("finding field schema")
+        raise NativeReportError("finding field schema") from None
     return data
 
 
 def _text(value: object) -> str:
     if not isinstance(value, str):
-        raise NativeReportError("finding text schema")
+        raise NativeReportError("finding text schema") from None
     try:
         value.encode("utf-8")
     except UnicodeError:
@@ -52,51 +52,51 @@ def _text(value: object) -> str:
 
 def _integer(value: object) -> int:
     if type(value) is not int:
-        raise NativeReportError("coordinate integer schema")
+        raise NativeReportError("coordinate integer schema") from None
     if value < 1:
-        raise NativeReportError("unsupported native coordinate")
+        raise NativeReportError("unsupported native coordinate") from None
     return value
 
 
 def _entropy(value: object) -> None:
     if type(value) not in (int, float):
-        raise NativeReportError("entropy number schema")
+        raise NativeReportError("entropy number schema") from None
     try:
         finite = math.isfinite(cast(int | float, value))
     except OverflowError:
         raise NativeReportError("entropy number limit") from None
     if not finite:
-        raise NativeReportError("nonfinite entropy")
+        raise NativeReportError("nonfinite entropy") from None
 
 
 def _tags(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
-        raise NativeReportError("tags array schema")
+        raise NativeReportError("tags array schema") from None
     return tuple(_text(tag) for tag in cast(list[object], value))
 
 
 def _path(value: str) -> None:
     if value.startswith("/") or "\\" in value:
-        raise NativeReportError("native relative path")
+        raise NativeReportError("native relative path") from None
     if set(value.split("/")) & {"", ".", ".."}:
-        raise NativeReportError("native path component")
+        raise NativeReportError("native path component") from None
     if any(unicodedata.category(char) == "Cc" for char in value):
-        raise NativeReportError("native path control character")
+        raise NativeReportError("native path control character") from None
 
 
 def _coordinates(finding: NativeFinding) -> None:
     if finding.end_line < finding.start_line:
-        raise NativeReportError("native line order")
+        raise NativeReportError("native line order") from None
     if finding.start_line == finding.end_line and finding.end_column < finding.start_column:
-        raise NativeReportError("native column order")
+        raise NativeReportError("native column order") from None
 
 
 def _commit(finding: NativeFinding) -> None:
     if finding.mode is ScanMode.HISTORY:
         if COMMIT_PATTERN.fullmatch(finding.native_commit) is None:
-            raise NativeReportError("native history commit")
+            raise NativeReportError("native history commit") from None
     elif finding.native_commit:
-        raise NativeReportError("native tree commit")
+        raise NativeReportError("native tree commit") from None
 
 
 def _identity(finding: NativeFinding) -> None:
@@ -104,7 +104,7 @@ def _identity(finding: NativeFinding) -> None:
     prefix = f"{finding.native_commit}:" if finding.mode is ScanMode.HISTORY else ""
     expected = f"{prefix}{finding.path}:{finding.rule_id}:{finding.start_line}"
     if finding.native_fingerprint != expected:
-        raise NativeReportError("native fingerprint mismatch")
+        raise NativeReportError("native fingerprint mismatch") from None
 
 
 def _native_text(data: dict[str, object]) -> dict[str, str]:
@@ -117,9 +117,9 @@ def _native_text(data: dict[str, object]) -> dict[str, str]:
 
 def _enrolled_text(text: dict[str, str]) -> None:
     if not text["RuleID"] or not text["Fingerprint"]:
-        raise NativeReportError("empty native identity")
+        raise NativeReportError("empty native identity") from None
     if text["SymlinkFile"] or text["Secret"] != "REDACTED":
-        raise NativeReportError("unsupported or unredacted finding")
+        raise NativeReportError("unsupported or unredacted finding") from None
 
 
 def parse_finding(value: object, mode: ScanMode) -> NativeFinding:

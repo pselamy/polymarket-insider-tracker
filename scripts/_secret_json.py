@@ -15,19 +15,19 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
-            raise NativeReportError("duplicate JSON key")
+            raise NativeReportError("duplicate JSON key") from None
         result[key] = value
     return result
 
 
 def _nonfinite(_value: str) -> NoReturn:
-    raise NativeReportError("nonfinite JSON number")
+    raise NativeReportError("nonfinite JSON number") from None
 
 
 def decode_array(payload: bytes) -> list[object]:
     """Reject invalid/budget-exceeding input rather than return partial rows."""
     if len(payload) > MAX_REPORT_BYTES:
-        raise NativeReportError("report size limit")
+        raise NativeReportError("report size limit") from None
     try:
         value: object = json.loads(
             payload.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_nonfinite
@@ -37,8 +37,8 @@ def decode_array(payload: bytes) -> list[object]:
     except (ValueError, UnicodeError, RecursionError):
         raise NativeReportError("invalid report JSON") from None
     if not isinstance(value, list):
-        raise NativeReportError("report root schema")
+        raise NativeReportError("report root schema") from None
     rows = cast(list[object], value)
     if len(rows) > MAX_REPORT_ROWS:
-        raise NativeReportError("report row limit")
+        raise NativeReportError("report row limit") from None
     return rows

@@ -7,6 +7,7 @@ import json
 import logging
 import traceback
 from dataclasses import FrozenInstanceError
+from typing import cast
 
 import pytest
 from scripts._secret_models import NativeReportError, ScanMode
@@ -179,3 +180,59 @@ def test_byte_limit_fails_before_decoding_or_truncation() -> None:
 def test_row_limit_fails_before_processing_partial_rows() -> None:
     with pytest.raises(NativeReportError, match="row"):
         parse_report(b"[" + b"0," * 100_000 + b"0]", ScanMode.TREE, 42)
+
+
+@pytest.mark.parametrize(
+    "payload,exit_code",
+    [
+        (b"null", 0),
+        (b"[]", 1),
+        (b"[1]", 42),
+        (b"[NaN]", 42),
+        (b'[{"key":1,"key":2}]', 42),
+        (report_bytes(native_row(StartColumn=0)), 42),
+        (report_bytes(native_row(Description=None)), 42),
+        (report_bytes(native_row(File="../escape.py")), 42),
+        (report_bytes(native_row(Fingerprint="mismatch")), 42),
+        (report_bytes(native_row(EndColumn=0)), 42),
+        (report_bytes(native_row()), 0),
+        (report_bytes(native_row(), native_row()), 42),
+    ],
+    ids=[
+        "root",
+        "exit",
+        "row",
+        "nonfinite",
+        "duplicate-key",
+        "coordinate",
+        "text",
+        "path",
+        "fingerprint",
+        "range",
+        "findings-exit",
+        "duplicate-row",
+    ],
+)
+def test_rejections_suppress_active_caller_exception_context(
+    payload: bytes, exit_code: int
+) -> None:
+    sentinel = "private-context-marker-for-negative-control"
+    try:
+        raise ValueError(sentinel)
+    except ValueError:
+        with pytest.raises(NativeReportError) as failure:
+            parse_report(payload, ScanMode.TREE, exit_code)
+    formatted = "".join(traceback.format_exception(failure.value))
+    assert sentinel not in formatted
+    assert failure.value.__suppress_context__ is True
+
+
+def test_mode_rejection_suppresses_active_caller_exception_context() -> None:
+    sentinel = "private-context-marker-for-negative-control"
+    try:
+        raise ValueError(sentinel)
+    except ValueError:
+        with pytest.raises(NativeReportError) as failure:
+            parse_report(b"[]", cast(ScanMode, "dir"), 0)
+    assert sentinel not in "".join(traceback.format_exception(failure.value))
+    assert failure.value.__suppress_context__ is True

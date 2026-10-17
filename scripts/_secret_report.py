@@ -11,10 +11,10 @@ from scripts._secret_schema import parse_finding
 
 def _exit_relationship(exit_code: int, count: int) -> None:
     if type(exit_code) is not int:
-        raise NativeReportError("invalid native exit")
+        raise NativeReportError("invalid native exit") from None
     expected = 42 if count else 0
     if exit_code != expected:
-        raise NativeReportError("inconsistent or fatal native exit")
+        raise NativeReportError("inconsistent or fatal native exit") from None
 
 
 def _findings(rows: list[object], mode: ScanMode) -> tuple[NativeFinding, ...]:
@@ -23,7 +23,7 @@ def _findings(rows: list[object], mode: ScanMode) -> tuple[NativeFinding, ...]:
     for value in rows:
         finding = parse_finding(value, mode)
         if finding in seen:
-            raise NativeReportError("duplicate native identity")
+            raise NativeReportError("duplicate native identity") from None
         seen.add(finding)
         findings.append(finding)
     return tuple(findings)
@@ -31,7 +31,7 @@ def _findings(rows: list[object], mode: ScanMode) -> tuple[NativeFinding, ...]:
 
 def _scan_mode(value: object) -> ScanMode:
     if not isinstance(value, ScanMode):
-        raise NativeReportError("invalid native mode")
+        raise NativeReportError("invalid native mode") from None
     return value
 
 
