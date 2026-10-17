@@ -100,3 +100,59 @@ docker compose down
 
 This stops containers without removing the contributor's normal volumes. The verifier separately proves
 that its generated migration-test database was removed.
+
+
+## Native security preparation validation
+
+The pure parser is an internal preparation increment, not a registered secrets gate. With the locked
+development environment, run `uv run --isolated --locked --all-extras --python 3.11 python -m pytest
+tests/tooling/test_secret_report.py tests/tooling/test_secret_schema.py` once those files exist.
+Expected: native clean0/empty and findings42/nonempty metadata parse; all schema/exit/duplicate/
+coordinate negatives fail with safe domain errors. Parsing findings is not approval. The untouched
+real product reports still fail native scanning and no individual finding is approved.
+
+Before calling the complete security extension usable, additionally execute and record:
+
+1. Qualified pinned native artifact/config and immutable tree/all-retained-history commands on clean,
+   tree-finding, removed/history-only, same-line collision and approved-one/unapproved-other controls.
+2. Exact source/blob/head/policy changes, omitted refs/donor history, unreadable or excluded authored
+   files, dirty snapshots, stale/missing/symlink/oversized reports, process fatal/timeout/swallowed exit,
+   inline allows and Git-ignore defects. Each must fail; complete clean controls must pass.
+3. Real protected transport/issuer controls: candidate artifact/policy forgery, Bot/non-independent
+   human, wrong repository/head/base/run/App, merged-record provenance, review dismissal after green,
+   role/policy drift and the actual native stale-approval-before-merge barrier. Fixture reevaluation
+   alone is insufficient. Test credential isolation without exposing/placing a real token in a worker.
+4. Exact governed amendment and individually authenticated dispositions, complete supported native
+   quality/matrix/services and installed behavior, retained test IDs/fresh traceability, actual required
+   hosting readback, independent exact-head review, separately approved merge and resulting-main CI.
+
+Do not run App provisioning, access/credential changes, real notifications or external messages as a
+quickstart side effect. Prepare those concrete changes for their applicable separate authorization.
+
+
+## SEC005 source-binding controls
+
+Once implemented, run `uv run --isolated --locked --all-extras --python 3.11 python -m pytest
+ tests/tooling/test_secret_source.py tests/tooling/test_secret_tree.py tests/tooling/test_secret_identity.py
+ tests/tooling/test_secret_process.py tests/tooling/test_secret_git.py` (one shell line).
+Use an absolute capable Git and owned disposable repositories. Expected: exact declared tree/history
+source binds to complete blob digests; corrupted commit/root/nested tree/blob, missing/unsupported source,
+changed tree bytes, malformed raw trees, invalid/missing scope, process limits and inherited-config
+attacks fail with constant context-suppressed errors. No network transport is permitted.
+Repeat controls on3.12/3.13; run existing full native gates and exact-code independent review. These
+controls do not prove protected worker provenance, complete source enrollment or actual finding approval.
+
+
+## Native completion correction preparation
+
+Keep the application unchanged while using owned disposable native-source checkouts pinned by
+`contracts/native-completion-correction.md`. Preserve the untouched full upstream test result for
+both regex modes and the parser dependency. Reproduce late native reader/parse/source/child errors
+before implementing strict completion. Use isolated pinned Go/module/build inputs, not candidate
+setup hooks or a globally replaced scanner. Capture raw native test/log output as restricted evidence;
+ordinary summaries expose safe test IDs, counts, exits and digests only.
+
+Before any artifact-import or real worker claim, complete the contract's full engine, process cleanup,
+ordered report/schema, Linux/Apple runtime and exact artifact review scenarios. An available archive,
+byte hash, version, successful cross-build or diagnostic matcher is not native completion/authenticity.
+The application profiles and existing supported Python matrix remain unchanged.

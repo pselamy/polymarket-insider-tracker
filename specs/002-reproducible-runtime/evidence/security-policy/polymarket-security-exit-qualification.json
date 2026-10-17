@@ -1,0 +1,58 @@
+{
+  "observed_utc": "2026-10-17T00:00:04.368883+00:00",
+  "scanner_version": "8.30.1",
+  "resolved_executable": "/opt/homebrew/Cellar/gitleaks/8.30.1/bin/gitleaks",
+  "executable_sha256": "f414bc2fb952be6c9072b75cb411e3368614ef4b16d48dbd9ad238034afd2302",
+  "configuration_sha256": "cbfe27d79c2a4719ceccec534e087e9d769f10a1bebdb98f785f0a62c1053e7a",
+  "source_reference": "b8b191341e3061d7600bb1666f39da5374a492d9",
+  "native_findings_exit": 42,
+  "cases": [
+    {
+      "case": "clean",
+      "mode": "dir",
+      "exit_code": 0,
+      "finding_count": 0,
+      "report_present": true,
+      "rules": []
+    },
+    {
+      "case": "current-tree-finding",
+      "mode": "dir",
+      "exit_code": 42,
+      "finding_count": 1,
+      "report_present": true,
+      "rules": [
+        "github-pat"
+      ]
+    },
+    {
+      "case": "clean-tree-after-removal",
+      "mode": "dir",
+      "exit_code": 0,
+      "finding_count": 0,
+      "report_present": true,
+      "rules": []
+    },
+    {
+      "case": "history-only-finding",
+      "mode": "git",
+      "exit_code": 42,
+      "finding_count": 1,
+      "report_present": true,
+      "rules": [
+        "github-pat"
+      ]
+    },
+    {
+      "case": "fatal-configuration-error",
+      "mode": "dir",
+      "exit_code": 1,
+      "finding_count": null,
+      "report_present": false,
+      "rules": []
+    }
+  ],
+  "scope": "Real pinned-version CLI exit semantics on disposable synthetic current-tree/history fixtures;not product clean-scan,disposition approval or complete security-control acceptance.",
+  "supply_chain_limit": "Observed installed native binary/version/digest;release provenance is not independently qualified by this receipt.",
+  "privacy": "No native Match/Secret values copied into this receipt;temporary fixtures and raw logs removed."
+}

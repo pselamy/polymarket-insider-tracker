@@ -455,3 +455,123 @@ checks, publication, approval or merge is asserted.
   ledgers remain unchanged. Fresh local static cognitive <=5, separate cyclomatic <=10,
   Python 3.11/3.12/3.13 compatibility, and private loopback PostgreSQL/Redis 7 service gates
   passed; publication and independent review remain pending.
+
+
+## Native security extension — story5 (P1), preparation approved
+
+Original task/evidence history above is retained. Direction approval permits preparation for review;
+it does not approve individual findings, governance ratification, access changes or a merge.
+All new human checklist markers remain unchecked. SEC tasks cover FR-023–030 and SC-011–015.
+
+### Setup and foundation
+
+- [X] SEC001 [US5] Preserve direction approval/native receipts and source-bound Phase0 research in `evidence/security-policy/`; clarify tree/history identity and donor preservation (FR-024,027,029).
+- [X] SEC002 [US5] Prepare spec/plan/model/contract/quickstart, exact amendment proposal and reviewer-owned `checklists/security-policy.md`; run managed tasks/analyze before implementation (FR-023–030). This box records document preparation only; analysis verdict is separate.
+- [X] SEC003 [US5] Write RED parser/schema controls in `tests/tooling/test_secret_report.py` and `tests/tooling/test_secret_schema.py`, covering exit/report contradictions, full schema, duplicate JSON/rows, native coordinate/collision cases and safe output. Put a synthetic private-context sentinel in path/rule/fingerprint/tags and source fields; prove finding/report repr and formatted error/log output do not expose it (FR-024,026,027; SC-011,012).
+- [X] SEC004 [US5] Implement immutable safe metadata in `scripts/_secret_models.py`, bounded JSON/schema in `_secret_json.py`/`_secret_schema.py` and pure `_secret_report.py`; no approval, CLI or gate registration (FR-024,026,027).
+- [X] SEC005 [US5] Verify exact source objects/line bounds in `scripts/_secret_source.py` and `tests/tooling/test_secret_source.py`; immutable tree/history membership and full-blob identities reject all mismatch/unsupported cases (FR-023,024,026; SC-012,013).
+
+### Native worker and donor preservation
+
+- [ ] SEC006 [US5] Implement `scripts/_secret_worker.py` and `tests/tooling/test_secret_worker.py`: qualified release/config/commands, immutable credential-free snapshots, fresh bounded reports, both scopes/exits and protected execution/scope receipts (FR-023,026,030; SC-012,013).
+- [ ] SEC007 [US5] Retain main test IDs/history; port PR129's useful scenarios to explicit auxiliary/stub/native layers without its detector allowlists/fallback success or module rename; prove collection retention in `evidence/security-policy/` (FR-029; SC-013).
+- [ ] SEC008 [US5] Execute real native clean/tree/history-only/collision and every file/ref/report/process/scope negative in `tests/tooling/test_secret_native.py`; keep safe source-bound receipts in `evidence/security-policy/` (FR-023,024,026,027; SC-011–013).
+
+### Protected approval and complete acceptance
+
+- [ ] SEC009 [US5] Implement protected adapters in `scripts/secret_policy/` and `tests/tooling/test_secret_policy.py`: native repository/head/base, exact reviewed set digest, independent eligible human, merged-record mapping and revocation (FR-025,028,030; SC-012,014).
+- [ ] SEC010 [US5] Qualify worker transport/App isolation and actual hosting revocation/merge-freshness barrier with `tests/tooling/test_secret_hosting.py`; keep nonempty acceptance disabled until conclusive native proof; prepare exact deployment diff/readback plan (FR-025,030; SC-014,015).
+- [ ] SEC011 [US5] Obtain exact governed amendment approval, then update `AGENTS.md`, constitution and owned runtime/security contracts consistently; retain every other prohibition and qualify this variation against upstream (FR-028; SC-015).
+- [ ] SEC012 [US5] Construct fresh full-field individual proposals from native/source evidence; obtain separately authenticated exact human false-positive decisions and preserve native reports with separate deterministic summaries (FR-024,025,027,028; SC-011,012,015).
+- [ ] SEC013 [US5] Integrate fully remediated gate in `scripts/verify.py`, CI and canonical runtime contract; no partial-green bootstrap, synthetic acceptance or weakening of other controls (FR-023,026,028,030; SC-011–015).
+
+### Convergence
+
+- [ ] SEC014 [US5] Run every applicable Relentless native gate, supported3.11–3.13/Linux/Apple compatibility, real disposable PostgreSQL/Redis/migrations, installed behavior, collection retention and fresh committed-head traceability; update owned gap/evidence ledgers (FR-029,030; SC-013,015).
+- [ ] SEC015 [US5] Independently review exact code/evidence, legitimately provision separately authorized required App/hosting with native readback, verify exact-head defect-fails/clean-passes controls, obtain merge approval and verify resulting main (FR-025,028,030; SC-014,015).
+
+Dependencies: SEC001→002→analysis/validated preparation→003→004→005→006→008.
+SEC007 may run alongside source/worker work in distinct files; SEC009 starts after source/worker
+contracts, SEC010 requires009 and real native transport. SEC011/012/013 require the qualified
+worker/issuer and their reserved exact approvals;014/015 require the complete implementation.
+Analysis can authorize the isolated pure-parser preparation without treating future trust/activation
+prerequisites as satisfied. SEC002 is not evidence that analysis or human domain review passed.
+
+Independent parser test: invalid bytes/exit/schema produce a safe domain failure, distinct same-line
+identities remain ordered, and findings have no approval path. Full US5 independent test remains
+the complete native/trusted/hosted journey in the spec. Parallel examples: donor preservation007 and
+source005 can be researched in separate files; only the root writer edits this checkout. Incremental
+local commits are review checkpoints, never a partial secrets-gate publication or convergence claim.
+
+### SEC003/004 exact preparation completion
+
+Corrected parser e4c21a434a1244f197e970c8079b2af1802e593e independently reviewed SHIP for these
+two tasks only.121 controls pass on each3.11/3.12/3.13, full native static/types/complexity pass,
+and committed-source full3.11 compatibility passes1716/3skipped/55warnings in285.62s aggregate.
+The three skips are two real-service checks and one Windows-only check, not three service checks.
+All1598 baseline IDs and1706 first-pass IDs remain; corrected collection1719 adds13 regressions.
+The first-pass REVISE and failing13-control evidence remain preserved. External exact-head review/
+verification receipts are in the task outputs; code/report hashes were independently checked.
+This documentation-only checkpoint changes no reviewed source or test bytes. SEC005–015 and every
+human-owned checklist marker remain unchecked; no finding, full security control or merge is approved.
+
+
+### SEC005 refinement and verification order
+
+1. Complete/read preserved Phase0 probes; managed plan/model/source-binding contract refinements,
+   then read-only managed analysis. Direction approval remains preparation only.
+2. Write failing real-Git source/integrity and strict tree/identity/process controls at the plan's
+   five test paths before source implementation. Keep every prior native test ID.
+3. Implement the five cohesive owned script modules with actual caps/deadlines, raw-chain verification,
+   exact tree-byte equality and full identity. No CLI, gate registration or finding acceptance.
+4. Run source controls across3.11–3.13, all full native static/type/complexity checks, retained-ID
+   comparison, committed-source compatibility and independent exact-artifact adversarial review.
+5. Record actual limits and known worker deployment dependencies before checking SEC005 complete.
+   SEC006–015, full OS matrix/service/hosting/individual-decision requirements remain open.
+
+### SEC005 exact preparation completion - 2026-10-17
+
+Code96b0faf9d4eb7d4fa21e5b4c2a298c673c0291d4 received independent SHIP for this source-binding
+layer only. The three prior REVISE commits/reports remain preserved. The final exact-byte correction
+rejects unsupported decoder inputs before their methods run; four controls were observed RED first.
+A narrow real-child wait failure additionally proves safe private-error/log handling and child reap.
+Root compared25 reviewed source/document hashes against actual files and committed blobs,19 review
+evidence hashes and all18 owned source/test files. Source/test files are at most265 physical lines.
+
+Exact committed full locked3.11 compatibility passed1883/3skipped/55warnings (272.54s pytest,
+276.39s profile). Two skips require real services and one is Windows-only. All1719 previous IDs
+remain, with167 new; all1881 immediately prior IDs remain plus5. Independent exact-head focused
+controls pass288 each on3.11/3.12/3.13. Nine-module coverage is604statements/190branches,100% with
+zero excluded lines, not whole-repository coverage. Seven currently configured native static gates,
+both explicit strict checkers on18files, cognitive5 and full-scope C90110/E902 passed. The earlier
+inline guard's cognitive6 failure and timing-sensitive coverage miss are retained as historical
+failed results; neither threshold nor required gate changed.
+
+See `evidence/security-policy/source-final-review.md` and `source-verification.md`. This closes only
+the declared source-binding layer. Complete source/export enrollment, qualified scanner/Git release
+and native execution provenance, full worker isolation, human decisions, supported OS/services,
+hosting and SEC006–015 remain open. All11 human-owned checklist markers remain unchecked. Root
+governance and individual decisions are unchanged; no acceptance, activation or merge follows.
+
+
+### SEC006 readiness checkpoint
+
+Phase0 research and root artifact/config measurements are preserved; see native-worker-readiness
+contract. Resolve silent native read/process failures with independent design analysis before
+implementation. SEC006 remains unchecked, as do SEC007-015 and all human criteria. Tool/config
+byte measurements are preparation evidence only and cannot close the native-worker milestone.
+
+
+### SEC006 native completion correction substeps
+
+These author-owned substeps refineSEC006; checking one cannot close the entire native-worker task.
+
+- [x] NC001 Preserve native upstream baselines; repair two production-engine generator imports without rule changes. Verified a990152f2651c61664e5d3f5e28350c8397cfe58; all275 IDs retained in both full engines; native lifecycle vet warning remains open forNC003.
+- [ ] NC002 Add runtime old-parser error-loss counterexamples and strict native completion controls, then implement the opt-in parser endpoint.
+- [x] NC003 Add failing native file/read/close/task/callback/cancellation controls, then propagate errors and collect actual source-group results. Independent SHIP atbc836bb1cff5feca40cf3e57131b810c3f59682c; both full engines291 IDs retain275 baseline; both vet modes and four independent probes pass. See evidence/security-policy/native-files-review.md.
+- [ ] NC004 Add failing Git parser/child/early-abort/EOF-hang controls, then own/cancel/reap the strict native stream and join terminal results.
+- [ ] NC005 Run full native engine/dependency checks, preserve IDs/schema/detectors, record build/module/patch identities and qualify platform behavior honestly.
+- [ ] NC006 Independently review exact correction/artifacts, prepare revised import/qualification/worker contract; retain all reserved activation decisions.
+
+OrderNC001→002→003→004→005→006. See `contracts/native-completion-correction.md`.
+No native correction code has been accepted; no partial passing security gate is registered.

@@ -290,3 +290,138 @@ self-head manifests. Regression evidence starts with the actual independent
 `probe.py` (all seven unsupported claims accepted on the supplied baseline), then
 real passing/skipped/missing/failing executions and individually targeted document
 mutations. Native quality/compatibility/service gates remain unchanged.
+
+
+## Native secret-policy preparation — 2026-10-16 (Phase0)
+
+Branch: `codex/polymarket-secrets-reconciliation`, baseline523b0a35466e799c36e85e3bc5ea046cf3263c31.
+Original plan and delivered foundation remain intact. This appendix implements story5,
+FR-023–FR-030 and SC-011–SC-015 under the direct approved direction. No actual finding is accepted.
+
+### Technical context and constitution check
+
+- Language/runtime: existing locked Python3.11–3.13; standard-library parser/identity/source adapters
+  where sufficient; current native formatting, lint, independent types and complexity gates retained.
+- Native scanner: Gitleaks8.30.1, protected qualified configuration, findings-only exit42, full tree
+  and retained history. Five real disposable CLI controls distinguish clean0/findings42/fatal1.
+- Native approval: adapt the pinned reference's real protected-base/App/native-review machinery,
+  rather than accept candidate approval files. Exact human principal/proposal lifecycle, report
+  execution binding and bootstrap require Phase0 source research before Phase1 design.
+- No trading, provider calls, notifications, access changes, App provisioning, history rewrite,
+  real finding acceptance or merge is authorized by this preparation.
+- The existing no-baseline/allowlist rule remains active. The draft amendment will show the exact
+  exception for trusted post-scan false positives. Direction approval authorizes preparing code and
+  text for review; it is not ratification of an arbitrary amendment or individual disposition.
+- Required checks remain blocking. The future policy defines a valid post-scan result; it does
+  not turn arbitrary failed checks into success or grant exclusions to other quality controls.
+
+### Phase0 research dispatched
+
+1. Trusted boundary: protected-base source, native human identity/review, proposal/merged-policy
+   lifecycle, dismissal/supersession, revocation reevaluation, worker/App isolation and honest bootstrap.
+2. Native boundary: complete report schema, all native coordinates, duplicate fingerprints, exact
+   source blobs and report/execution/exit binding. Existing adjudication is evidence, not a registry.
+3. PR129 reconciliation: preserve useful negative/redaction obligations, replace incomplete/custom
+   fallback and detector allowlists, retain historical main IDs/evidence and original donor refs.
+
+Research is recorded in `research.md` once consolidated. Phase1 data model/contracts/quickstart and
+final tasks/analyze follow only after every research question has a concrete disposition. Unknown
+live deployment values may remain unconfigured dependencies with fail-closed activation; an
+unresolved security design cannot be relabeled as completed research.
+
+### Research disposition and Phase1 design
+
+Research notes are preserved in `evidence/security-policy/research/`. The native parser, exact
+identity/worker boundary, protected approval lifecycle and activation conditions are specified in
+`contracts/native-secret-policy.md`. The reference is reusable metadata/App machinery, not an
+existing authenticated finding-disposition system. Do not transplant its matrix or trust claims.
+
+Conservative design choices resolve policy latitude without granting additional acceptance:
+tree decisions bind the exact head (no cross-head carry), approval is independent/non-contributor,
+eligible human IDs default empty, native columns remain opaque positive metadata, unknown schema
+fails, and unqualified merge methods/freshness mechanisms cannot activate nonempty acceptance.
+Deployment identities and native merge-freshness proof are explicit later activation prerequisites,
+not guessed values or a claimed completed trust service. The first increment has no approval path.
+
+Implementation order:
+
+1. A side-effect-free `scripts/__init__.py` gives new imports one strict-checker module identity;
+   existing direct script entry points remain. Pure parser under `scripts/_secret_models.py`,
+   `_secret_json.py`, `_secret_schema.py` and
+   `_secret_report.py`, with `tests/tooling/test_secret_report.py` plus focused schema cases. New
+   code uses frozen typed values, stdlib JSON bounds and constant errors. Arbitrary native identity
+   text stays restricted and is omitted from repr/normal output. Its ordered result is
+   untrusted metadata and cannot certify full scanning, source resolution or approve any row.
+2. Independently bound source objects and native worker under `scripts/_secret_source.py` and
+   `scripts/_secret_worker.py`, with exact-policy/artifact/scope receipts and real native controls.
+   Preserve donor obligations and all old main test IDs. Do not register a partial passing gate.
+3. Protected `scripts/secret_policy/` adapters and worker transport with separate credentials,
+   real native review/merged-record/revocation controls and conclusive merge-freshness proof.
+   Proposed governance text lives in `contracts/security-amendment-proposal.md`; ratified root
+   guidance/constitution do not change merely because this preparation exists.
+4. Complete remediation and gate/hosting enrollment, exact individual decisions, fresh traceability,
+   native matrix/services and independent review, then separately approved merge/main validation.
+
+Post-design constitution check: pure preparation preserves research-only/safe effects, compatibility,
+all required native gates and governance. No baseline/allowlist is created. The proposed exception
+is not active. Existing direction approval permits preparing code for review; no new acceptance or
+access assumption is treated as approved. Full extension completion remains gated by SEC tasks.
+
+Each new file stays <=399 physical lines, cognitive <=5 and cyclomatic <=10. Both strict mypy and
+Pyright explicitly inspect new scripts in locked Python3.11, even though current Pyright's normal
+repository gate covers src only. Preserve full native gates; focused checks are incremental evidence.
+No added runtime dependency, network/product side effect, schema or public product API change.
+
+
+## SEC005 detailed source-binding design — 2026-10-17
+
+The direct approved preparation covers this dependency-ordered increment. See
+`contracts/native-source-binding.md` for exact inputs, raw commit/tree/blob integrity, actual tree-byte
+comparison, canonical identity and bounded native process behavior. Phase0 research and safe probe
+summaries are preserved under `evidence/security-policy/research/source-binding/`. No public product
+contract, supported platform or live acceptance changes. Native source/data types confer no authority.
+
+Code remains in owned scripts: `_secret_process.py` isolates/caps native Git commands, `_secret_git.py`
+verifies raw native object bodies, `_secret_tree.py` parses verified tree entries, `_secret_identity.py`
+owns frozen declared scope/canonical identity, and `_secret_source.py` joins exact source with finding
+metadata. Tests use `tests/tooling/secret_source_fixtures.py` for real disposable Git construction plus
+`test_secret_source.py`, `test_secret_tree.py`, `test_secret_identity.py`, `test_secret_process.py` and
+`test_secret_git.py`. No inherited env, custom fallback detector or arbitrary candidate script runs.
+
+Git2.46+ no-lazy capability is a known additional worker dependency: unsupported executables fail
+visibly. Local Apple Git2.50.1 controls do not qualify a release artifact or Ubuntu. Whole approved
+OS/Python scope, protected worker and all full controls remain required; no platform is excluded.
+The prior native LF-position bound preserves a possible terminal empty position (LF count+1), not
+Git-only physical-line counting. Native columns remain opaque. Bounded actual stdout and per-resolution
+budgets fail without partial identity; worker sandbox/provenance/completeness is not inferred.
+
+Constitution check: research-only preparation, zero external effects; exact data/identity semantics,
+no approval/disposition path, root governance unchanged; all native gates/compatibility remain.
+Before code, run managed analysis against this refinement and add failing meaningful controls.
+Independent exact-code adversarial review and committed-source verification precede SEC005 completion.
+
+
+## SEC006 native-worker readiness research - 2026-10-17
+
+SEC005 is verified at96b0faf; its doc checkpoint75d1332 closes that layer only. The managed Phase0
+worker research and independent root measurements are preserved in `evidence/security-policy/research/worker/`.
+See `contracts/native-worker-readiness.md` for the pinned artifact/config, fixed complete-history
+format, immutable owned inputs and strict observation/authority boundaries. Extensions hooks are
+absent; explicit slice002 setup/prerequisites selected the existing plan without replacing it.
+
+A complete worker is not yet implementation-ready: unmodified scanner file opens can fail silently,
+so exit/report/diagnostic checks plus before/after manifests alone do not establish native read
+completion. Independent adversarial design analysis must resolve this before worker coding. No
+byte-only helper will be substituted for the SEC006 milestone. Retain all supported platforms and
+every original goal requirement. The proposed removal-only config and archive/executable measurements
+confer no active policy, protected origin or signer/build provenance.
+
+
+### Native completion correction preparation
+
+Independent analysis in `evidence/security-policy/worker-readiness-analysis.md` is SHIP for measurements/
+honestNOT_READY, REVISE for full unmodified-worker design. Follow the concrete isolated correction
+plan in `contracts/native-completion-correction.md`: preserve native source/detectors/legacy parser,
+add strict terminal error propagation, join source work and child status, test and build reviewable
+derived artifacts. Preparation is within existing authorization; actual substituted artifact import
+and protected acceptance remain reserved. Run managed analysis on this correction before code.

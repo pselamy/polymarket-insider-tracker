@@ -1,0 +1,58 @@
+{
+  "release_id": 299662760,
+  "source_commit": "83d9cd684c87d95d656c1458ef04895a7f1cbd8e",
+  "records": [
+    {
+      "platform": "gitleaks_8.30.1_darwin_arm64.tar.gz",
+      "asset_id": 378332059,
+      "archive_bytes": 7897593,
+      "archive_sha256": "b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5",
+      "binary_bytes": 21324882,
+      "binary_sha256": "ba52fb1bfabbcde42f032afad3d6e0b19dff8ed105229a16e7caa338bbc0e84f",
+      "members": [
+        {
+          "name": "LICENSE",
+          "bytes": 1069,
+          "mode": 420
+        },
+        {
+          "name": "README.md",
+          "bytes": 29998,
+          "mode": 420
+        },
+        {
+          "name": "gitleaks",
+          "bytes": 21324882,
+          "mode": 493
+        }
+      ],
+      "scope": "byte measurements; Linux executable not run; no signer/authentication claim"
+    },
+    {
+      "platform": "gitleaks_8.30.1_linux_x64.tar.gz",
+      "asset_id": 378332058,
+      "archive_bytes": 8230402,
+      "archive_sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+      "binary_bytes": 21958840,
+      "binary_sha256": "88f91962aa2f93ac6ab281d553b9e125f5197bbbce38f9f2437f7299c32e5509",
+      "members": [
+        {
+          "name": "LICENSE",
+          "bytes": 1069,
+          "mode": 420
+        },
+        {
+          "name": "README.md",
+          "bytes": 29998,
+          "mode": 420
+        },
+        {
+          "name": "gitleaks",
+          "bytes": 21958840,
+          "mode": 493
+        }
+      ],
+      "scope": "byte measurements; Linux executable not run; no signer/authentication claim"
+    }
+  ]
+}

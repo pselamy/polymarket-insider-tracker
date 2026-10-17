@@ -1,0 +1,37 @@
+{
+  "exact_cap": {
+    "category": "returned",
+    "bytes": 1024,
+    "elapsed_ms": 19
+  },
+  "overflow": {
+    "category": "source command output limit",
+    "suppressed": true,
+    "elapsed_ms": 16
+  },
+  "endless_output": {
+    "category": "source command output limit",
+    "suppressed": true,
+    "elapsed_ms": 16
+  },
+  "no_output_timeout": {
+    "category": "source command timeout",
+    "suppressed": true,
+    "elapsed_ms": 105
+  },
+  "stderr_nonzero": {
+    "category": "source command failed",
+    "suppressed": true,
+    "elapsed_ms": 22
+  },
+  "stderr_flood": {
+    "category": "returned",
+    "bytes": 2,
+    "elapsed_ms": 18
+  },
+  "eof_then_hang": {
+    "category": "source command timeout",
+    "suppressed": true,
+    "elapsed_ms": 103
+  }
+}

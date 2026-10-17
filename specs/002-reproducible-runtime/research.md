@@ -249,3 +249,66 @@ floor is 3.10, covering all three. No score threshold and no requiredness are cl
 - A standalone rationale document under `docs/`: rejected per the canonical-specs
   directive — lasting tool/quality rationale belongs in this existing spec package,
   not in a parallel report.
+
+
+## Native security Phase0 research — 2026-10-17
+
+Source-bound research is preserved under [security-policy/research](evidence/security-policy/research/).
+Native report/coordinate controls qualify the parser design, donor analysis records unsafe fallback
+paths/test-ID changes, and the trusted-boundary note distinguishes reusable upstream metadata logic
+from the new authenticated report/disposition service still to implement. These are research, not
+product scan acceptance or findings approval.
+
+Decisions: retain every native row; complete coordinates plus full blob, never fingerprint-only;
+native columns opaque and positive in qualified v1; duplicate complete metadata fails; exact schema
+and exit0/empty or exit42/nonempty only; constant errors and no Match/Secret in safe models. Tree
+decisions are exact-head-specific; history decisions never carry to tree. Use empty eligible-human
+policy and fail-closed activation until real identities/independent review/native freshness qualify.
+No fallback may certify a native scan. Keep main's13 original gate-test functions at their old path.
+
+The full architecture and known activation prerequisites are in
+[native-secret-policy.md](contracts/native-secret-policy.md). The pure-parser increment is completely
+specified and needs no live trust configuration or policy exception. Protected transport, exact release
+provenance, merged-record mapping and native revocation/merge-freshness proof remain explicit later
+implementation/qualification tasks. They are not satisfied by these notes, a JSON flag or green fixture.
+The implementation must remain unable to accept nonempty reports until those tasks pass. New evidence
+that contradicts qualified coordinate/schema behavior requires a versioned contract correction.
+
+
+## SEC005 research decisions
+
+Decision: independently verify the complete raw commit→tree(s)→blob chain using native Git hashing,
+then parse verified raw tree bytes and SHA256 the full blob. A real nested-tree corruption probe showed
+recursive ls-tree can return a changed mapping successfully; blob-only validation is insufficient.
+Use a bounded isolated native process reader, not capture_output then truncation, and require the
+fail-visible no-lazy-fetch capability plus no allowed protocols. Use a fresh protected worker store;
+no candidate Git config/remotes/alternates becomes authority. See the preserved source-binding research.
+
+Alternatives rejected: recursive ls-tree alone (unverified nested mapping); rereading after verification
+(race); app-specific SHA1 (native Git already owns protocol/collision detection); env-only no-lazy flag
+(older Git silently ignores it); config-policing framework (fresh worker-owned store is simpler).
+The Git-only note's alternate physical-line count is not adopted: retain the prior qualified LF count+1
+position upper bound and opaque columns. The pinned8.30.1 location implementation counts LF byte
+positions and has a last-line fallback: https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/location.go.
+Existing19-row native source bounds were independently checked; this is not fresh scan/approval proof.
+
+Protected Git artifact provenance/full OS matrix, complete frozen enrollment and actual scan/export/
+execution authentication remain known later worker qualifications, with no success fallback. No policy
+latitude or individual finding is granted by these technical decisions.
+
+
+## SEC006 worker Phase0 findings - 2026-10-17
+
+Decision: retain full native detectors/source/history; use stronger suppression-free protected
+configuration and explicit complete-history formatting. Root independently verified all222 remaining
+rule records and measured exact official Darwin/Linux archives/executables. Detailed primary sources,
+synthetic failures and alternatives are in `evidence/security-policy/research/worker/research.md`.
+Rationale: explicit empty ignore, default config, default history formatting and native0/[] alone
+all produced incomplete scans in bounded controls. Unsigned checksums establish byte/publication
+identity only. A protected reviewed import boundary remains distinct from signed upstream provenance.
+
+Unresolved design: complete native read/process evidence, including silent non-permission opens
+and swallowed worker errors. Independent analysis is pending; no full-worker design completion is
+claimed. Conservative refusal handles known unsupported source/ignore/archive cases without omitting
+bytes. A conclusive native completion mechanism or separately qualified minimal source correction
+must resolve the remaining blocker before worker implementation.

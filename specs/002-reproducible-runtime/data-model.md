@@ -121,3 +121,60 @@ Ephemeral proof emitted by the `services` profile.
 | `cleanup_succeeded` | boolean | Temporary database removed or absence confirmed |
 
 Service evidence is diagnostic output, not a persisted product record. Cleanup failure is a failed gate.
+
+
+## Native secret evidence extension (preparation)
+
+No product database/schema changes. All objects are evidence, not automatic approval.
+
+| Entity | Fields and invariant |
+| --- | --- |
+| ScanMode | Enum: dir/current tree, git/retained history |
+| NativeFinding | Frozen mode, commit, path, rule, fingerprint, four positive native coordinates and ordered tags; restricted exact metadata, never Match/Secret or source prose; candidate text omitted from repr/normal output |
+| NativeReport | Frozen raw-byte SHA256 and ordered NativeFinding tuple; duplicates fail, fingerprint collisions retain distinct rows; no acceptance property; repr omits findings |
+| FindingIdentityV1 | NativeFinding plus immutable repository ID, scanner-policy digest, exact source commit and independently resolved Git blob OID/full-byte SHA256 |
+| ScannerPolicyV1 | Qualified version/platform/executable/config/ignore/command/environment/scope identity; no candidate override |
+| ScanRunReceiptV1 | Protected run/head/base/tree/worker plus frozen complete ref/history/file/blob manifests, both mode completions/exits and report-byte identities |
+| ProposedDispositionSet | Canonical versioned exact identities and false-positive rationale; untrusted data, no authority |
+| AuthenticatedDecision | Protected policy revision, native human/review/PR/commit/set digest and current lifecycle; created only by independently authenticated adapter |
+| AcceptanceSummary | Every native row joined to exact current permitted decision or failure; native reports remain unmodified and visible |
+
+NativeReport does not prove source, freshness or execution. Native path/rule/fingerprint/tags are
+untrusted textual identity data, not safe display strings. Normal output uses fixed categories,
+enum mode, counts and digests; internal serialization must not be rendered as ordinary output.
+A typed decision constructor does not
+establish trust. The protected issuer owns authentication; no candidate-provided Boolean does so.
+Proposed → authenticated for one head → active after legitimate protected merge, with stale/revoked/
+superseded states invalidating acceptance. See [the contract](contracts/native-secret-policy.md).
+
+
+## SEC005 source-binding values
+
+- `GitLocation`: absolute executable/object-store paths, hidden from repr. A constructor is not trust.
+- `SourceScope`: immutable native repository ID, scanner-policy SHA256, scanned head and frozen
+  declared retained commits including head; every format/member is validated, completeness is not inferred.
+- `SourceBlob`: exact verified native source commit/path/mode/blob OID and complete bytes; all source
+  text/path is restricted and absent from repr. Read-only object measurement, no scan authenticity.
+- `FindingIdentityV1`: native metadata plus repository/policy/source/full-blob identities; canonical
+  restricted UTF-8 JSON and domain-separated SHA256. No accepted/approved property.
+- `ResolutionBudget`: fixed per-resolution time/byte/native-command accounting; exhaustion fails
+  without returning a partially bound identity. Worker-wide limits/provenance remain separate.
+
+History source is the exact native commit in declared scope; tree source is the exact scanned head
+and requires caller-measured full tree bytes equal to the committed blob. No cross-mode/cross-head carry.
+
+
+## Native completion correction values (proposed preparation)
+
+- Strict parser terminal result: a native error after any reader/header/hunk/callback/context failure;
+  success only after full exhaustion and callback completion. Partial emitted files carry no completed-run authority.
+- Native source result: joined walk/open/read/close/parser/task/context/Git-child completion, with failure
+  dominant over produced findings. Restricted native details stay out of ordinary output.
+- Derived scanner build measurement: exact upstream and parser revisions, patch/module checksums,
+  toolchain/flags/regex engine/platform, artifact bytes/hashes and native qualification receipts.
+  It is a derived build, not an untouched release or a signed/authenticated source claim.
+- Protected import authority: independent reviewed registry/deployment evidence, separate from the
+  measurements above. No value constructor, candidate digest or private local build grants that authority.
+
+These describe the correction plan only. No new product schema, worker implementation, acceptance
+property or active import policy is introduced; SEC006 and later trust/activation requirements remain.

@@ -1,0 +1,80 @@
+{
+  "purpose": "Additional synthetic zero-column/encoded-boundary controls; no native report values",
+  "cases": [
+    {
+      "RuleID": "github-pat",
+      "File": "pat-eof.txt",
+      "StartLine": 1,
+      "EndLine": 1,
+      "StartColumn": 1,
+      "EndColumn": 40,
+      "Fingerprint": "pat-eof.txt:github-pat:1",
+      "Tags": []
+    },
+    {
+      "RuleID": "github-pat",
+      "File": "blank-prefix.txt",
+      "StartLine": 2,
+      "EndLine": 2,
+      "StartColumn": 2,
+      "EndColumn": 41,
+      "Fingerprint": "blank-prefix.txt:github-pat:2",
+      "Tags": []
+    },
+    {
+      "RuleID": "github-pat",
+      "File": "base64.txt",
+      "StartLine": 1,
+      "EndLine": 1,
+      "StartColumn": 1,
+      "EndColumn": 56,
+      "Fingerprint": "base64.txt:github-pat:1",
+      "Tags": [
+        "decoded:base64",
+        "decode-depth:1"
+      ]
+    },
+    {
+      "RuleID": "generic-api-key",
+      "File": "generic-crlf.txt",
+      "StartLine": 1,
+      "EndLine": 2,
+      "StartColumn": 1,
+      "EndColumn": 38,
+      "Fingerprint": "generic-crlf.txt:generic-api-key:1",
+      "Tags": []
+    },
+    {
+      "RuleID": "generic-api-key",
+      "File": "generic-eof.txt",
+      "StartLine": 1,
+      "EndLine": 1,
+      "StartColumn": 1,
+      "EndColumn": 46,
+      "Fingerprint": "generic-eof.txt:generic-api-key:1",
+      "Tags": []
+    },
+    {
+      "RuleID": "generic-api-key",
+      "File": "generic-newline.txt",
+      "StartLine": 1,
+      "EndLine": 1,
+      "StartColumn": 1,
+      "EndColumn": 46,
+      "Fingerprint": "generic-newline.txt:generic-api-key:1",
+      "Tags": []
+    },
+    {
+      "RuleID": "generic-api-key",
+      "File": "generic-multiline-noquote.txt",
+      "StartLine": 1,
+      "EndLine": 2,
+      "StartColumn": 1,
+      "EndColumn": 37,
+      "Fingerprint": "generic-multiline-noquote.txt:generic-api-key:1",
+      "Tags": []
+    }
+  ],
+  "exit_code": 42,
+  "count": 7
+}

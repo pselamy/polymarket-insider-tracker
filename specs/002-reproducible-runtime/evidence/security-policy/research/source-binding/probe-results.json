@@ -1,0 +1,98 @@
+{
+  "runtime": {
+    "python": "3.11.15",
+    "git": "git version 2.50.1 (Apple Git-155)",
+    "machine": "arm64",
+    "system": "Darwin"
+  },
+  "literal_paths": {
+    "a.txt": true,
+    "space name.txt": true,
+    "bracket[1].txt": true,
+    "star*.txt": true,
+    ":(glob)*": true,
+    "--dash.txt": true,
+    "caf\u00e9.txt": true
+  },
+  "nested_path_exact": true,
+  "mode_output": {
+    "a.txt": "100644",
+    "executable": "100755",
+    "link": "120000",
+    "dir": "040000",
+    "submodule": "160000"
+  },
+  "raw_tree_modes": {
+    "a.txt": "100644",
+    "executable": "100755",
+    "link": "120000",
+    "dir": "40000",
+    "submodule": "160000"
+  },
+  "raw_tree_consumed_exactly": true,
+  "missing_path_empty": true,
+  "blob_raw_hash": true,
+  "blob_full_sha256": "e49c81e2d2f84e259d40e2fb8192f3bcd198b355184845d76d8f58807d0d78ee",
+  "tag_direct_type": "tag",
+  "cat_file_blob_dereferences_blob_tag": true,
+  "commit_tag_direct_type": "tag",
+  "commit_tag_peels_to_commit": true,
+  "replace_commit_changes_ls_tree_without_guard": true,
+  "replace_commit_guard_keeps_original": true,
+  "replace_blob_changes_cat_file_without_guard": true,
+  "replace_blob_guard_keeps_original": true,
+  "graft_count_even_with_no_replace": {
+    "before": 2,
+    "after": 1
+  },
+  "graft_does_not_change_raw_commit_parent": true,
+  "graft_override_dev_null_restores_history": true,
+  "tampered_blob_raw_read_succeeds": true,
+  "tampered_blob_hash_recomputation_rejects": true,
+  "tampered_tree_raw_read_succeeds": true,
+  "tampered_tree_hash_recomputation_rejects": true,
+  "tampered_tree_ls_tree_exit": 128,
+  "tampered_tree_changes_path_mapping": false,
+  "tampered_subtree_raw_read_succeeds": true,
+  "tampered_subtree_hash_recomputation_rejects": true,
+  "tampered_subtree_ls_tree_exit": 0,
+  "tampered_subtree_changes_path_mapping": true,
+  "tampered_commit_raw_read_succeeds": true,
+  "tampered_commit_hash_recomputation_rejects": true,
+  "tampered_commit_ls_tree_exit": 128,
+  "tampered_commit_changes_path_mapping": false,
+  "missing_object_no_lazy_fetch": {
+    "exit": 128,
+    "helper_invoked": false,
+    "stderr_bytes": 71
+  },
+  "missing_object_without_guard": {
+    "exit": 128,
+    "helper_invoked": true,
+    "stderr_bytes": 215
+  },
+  "missing_object_protocol_deny_only": {
+    "exit": 128,
+    "helper_invoked": false,
+    "stderr_bytes": 191
+  },
+  "ambient_object_directory_redirect_fails_existing_object": true,
+  "allowlisted_environment_reads_existing_object": true,
+  "raw_read_ignores_configured_programs": true,
+  "explicit_filters_positive_control_invokes_program": true,
+  "explicit_textconv_positive_control_invokes_program": true,
+  "global_include_can_break_read": true,
+  "disabled_global_include_restores_read": true,
+  "local_include_still_parsed_with_global_system_disabled": true,
+  "line_count_lf_contract": {
+    "b''": 0,
+    "b'a'": 1,
+    "b'a\\n'": 1,
+    "b'\\n'": 1,
+    "b'a\\nb'": 2,
+    "b'a\\r\\nb\\r\\n'": 2,
+    "b'a\\rb'": 1,
+    "b'a\\xe2\\x80\\xa8b'": 1
+  },
+  "capability_probe_no_lazy_fetch": true
+}
