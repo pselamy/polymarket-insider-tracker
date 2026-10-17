@@ -240,3 +240,26 @@ def test_partially_initialized_native_path_fails_privately(tmp_path: Path) -> No
     object.__setattr__(partial, "_root", "/")
     object.__setattr__(partial, "_drv", "")
     assert_private_failure(lambda: run_git(GitLocation(partial, tmp_path), ()))
+
+
+class RedirectReportBytes(bytes):
+    def decode(self, encoding: str = "utf-8", errors: str = "strict") -> str:
+        return b"[]".decode(encoding, errors)
+
+
+class RaisingReportBytes(bytes):
+    def decode(self, encoding: str = "utf-8", errors: str = "strict") -> str:
+        raise RuntimeError(f"candidate-byte-{encoding}-{errors}")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(RedirectReportBytes(b"not-json"), id="non-json-subclass"),
+        pytest.param(RedirectReportBytes(b"\xff"), id="invalid-utf8-subclass"),
+        pytest.param(bytearray(b"[]"), id="mutable-bytearray"),
+        pytest.param(RaisingReportBytes(b"[]"), id="decode-must-not-run"),
+    ],
+)
+def test_report_bytes_are_exact_immutable_input(payload: object) -> None:
+    assert_private_failure(lambda: parse_report(cast(bytes, payload), ScanMode.TREE, 0))

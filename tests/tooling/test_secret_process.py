@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -145,3 +146,33 @@ def test_native_guards_are_real_argv(tmp_path: Path) -> None:
         "-t",
         "1" * 40,
     ]
+
+
+def test_wait_timeout_is_private_and_reaps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    children: list[subprocess.Popen[bytes]] = []
+    private = "private-wait-sentinel"
+
+    class InterruptedWait(subprocess.Popen[bytes]):
+        def wait(self, timeout: float | None = None) -> int:
+            if timeout is not None:
+                children.append(self)
+                raise subprocess.TimeoutExpired(private, timeout, output=private, stderr=private)
+            return super().wait(timeout=timeout)
+
+    location = program(tmp_path, "import os, time; os.close(1); time.sleep(60)")
+    monkeypatch.setattr(subprocess, "Popen", InterruptedWait)
+    try:
+        raise RuntimeError(private)
+    except RuntimeError:
+        with pytest.raises(NativeReportError, match="native command timeout") as error:
+            run_git(location, ())
+        logging.getLogger(__name__).exception("safe native failure", exc_info=error.value)
+    assert private not in "".join(traceback.format_exception(error.value))
+    assert private not in caplog.text
+    assert error.value.__suppress_context__
+    assert len(children) == 1
+    assert children[0].returncode is not None
+    with pytest.raises(ProcessLookupError):
+        os.kill(children[0].pid, 0)

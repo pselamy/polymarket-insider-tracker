@@ -147,3 +147,22 @@ internally constructed by resolve, not authenticated candidate metadata.
 while the existing argument guard already safely rejected one text-subclass kind. All59 boundary
 controls now pass in the initial corrective run. Full gates, matrix, committed compatibility and
 independent exact-artifact re-review remain required; no completion or acceptance is inferred here.
+
+## Exact immutable report bytes correction
+
+The second correction fb5c792 remained independently REVISE: a bytes subclass could replace the
+decoded JSON while the report digest still described its invalid underlying bytes, or raise an
+exception exposing active private context. The preserved result is `source-second-correction-review.md`.
+
+The JSON boundary now requires exact immutable bytes before invoking length or decoding. Other input
+kinds fail with a constant, context-suppressed domain error. Four regressions were observed RED before
+the guard: invalid JSON and invalid UTF-8 subclasses, mutable bytearray and a raising decoder tripwire.
+The tests check formatted traceback and standard exception logging inside an unrelated private handler.
+This changes no native byte-report schema, source authenticity or approval authority. Exact corrected
+source verification and independent review remain necessary before SEC005 can close.
+
+The guard is factored into one byte-input validator to preserve the existing cognitive5 budget.
+An intermediate287-case run passed all assertions but missed the wait-timeout handler under
+concurrent startup load (99.87% coverage). A narrow deterministic wait failure now additionally
+checks constant error/log output and actual child reap; the original real EOF/silent hang tests remain.
+Historical failed gate and coverage evidence are retained, not relabeled as success.

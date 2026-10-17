@@ -24,10 +24,16 @@ def _nonfinite(_value: str) -> NoReturn:
     raise NativeReportError("nonfinite JSON number") from None
 
 
-def decode_array(payload: bytes) -> list[object]:
-    """Reject invalid/budget-exceeding input rather than return partial rows."""
+def _report_bytes(payload: bytes) -> None:
+    if type(payload) is not bytes:
+        raise NativeReportError("report bytes schema") from None
     if len(payload) > MAX_REPORT_BYTES:
         raise NativeReportError("report size limit") from None
+
+
+def decode_array(payload: bytes) -> list[object]:
+    """Reject invalid/budget-exceeding input rather than return partial rows."""
+    _report_bytes(payload)
     try:
         value: object = json.loads(
             payload.decode("utf-8"), object_pairs_hook=_unique_object, parse_constant=_nonfinite
