@@ -32,7 +32,8 @@ signal JSON (`FreshWalletSignal.to_dict()['wallet_is_fresh']` at `detector/model
 assessment evidence, persisted wallet rows (`pipeline.py:671`
 `WalletProfileDTO.is_fresh`), cached profiles, and rendered output. Effective configuration
 provenance: the captured `DETECTOR_FRESH_TRANSACTION_BOUNDARY` value stored per assessment in
-`evaluation_evidence.detector_config` (§4); classification always evaluates against that
+the root `detector_config` member of the serialized per-assessment scoring_config envelope
+(§4), a sibling of `evaluation_evidence`; classification always evaluates against that
 captured `B`, never against a reread mutable setting.
 
 Legacy interpretation (explicit compatibility exception, not current measurement): the
