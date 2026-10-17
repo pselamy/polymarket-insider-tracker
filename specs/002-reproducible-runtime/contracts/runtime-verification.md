@@ -238,24 +238,3 @@ forces that gate to return nonzero and asserts:
 - no secret appears in human or JSON output.
 
 Integration tests—not fakes—prove PostgreSQL/Redis connectivity and the disposable migration lifecycle.
-
-
-## Source scope and physical size (pending full-tree remediation)
-
-`scripts/source_scope.py` is preparation for FR-022/SC-010. It must use complete filesystem discovery
-plus a NUL-delimited native Git inventory, protect generated-root omissions against tracked content,
-and count physical lines including blank lines/comments with a fixed maximum399. All `.py`, `.pyi`
-and `.pyw`-shaped candidates are discovered; only `.py` in the enrolled runtime roots and `.pyi` in
-`typings` are accepted. Case variants or other Python-language formats require explicit enrollment.
-The root `conftest.py` is enrolled as one exact file. No new root or nested generated/cache directory
-is silently ignored. Each required root must be real and contain enrolled source.
-
-The standalone command accepts no gate-weakening flags; the repository root derives from its own
-script location. It exits0 only after discovery, tracked-path integrity and all file sizes pass;
-all failures are nonzero and diagnostic. It is not yet a member of static/all while real source
-remediation is incomplete. Final registration and profile-failure proof belong to the same branch.
-
-The physical-line definition is `len(UTF-8 text.splitlines())`, matching the pinned reference,
-including comments and blank lines. Native Git must identify this exact worktree root; inherited
-`GIT_*` redirection cannot substitute another index or repository. Reject an entry-point symlink
-before resolving the parent root. FIFO/non-regular Python candidates must fail without blocking.

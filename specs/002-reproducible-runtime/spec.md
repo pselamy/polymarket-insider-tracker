@@ -265,21 +265,3 @@ without implying unresolved product gaps such as G-018 are fixed.
 Acceptance: a contributor can identify the active slice, required verification, prohibited shortcuts,
 and human-owned approvals from the root file; each material rule traces to existing approval or an
 owned specification. See [the guidance contract](contracts/agent-guidance.md).
-
-
-### Relentless source enrollment and physical-size extension (2026-10-16)
-
-- **FR-022**: Required verification MUST discover every authored Python runtime or declaration file
-  independently of Git/tool ignore rules, reject unenrolled paths and authored symlinks, and enforce
-  at most399 physical lines including comments and blank lines per enrolled file. All tracked
-  Python-language inputs MUST remain discoverable; tracked files in protected generated directories
-  and missing tracked source MUST fail closed. Runtime roots are `src`, `tests`, `scripts`, `alembic`
-  and exact root `conftest.py`; authored `.pyi` declarations belong to `typings`. Declaration-file
-  applicability to execution-only coverage/mutation MUST be separately justified, never silently
-  dropped from inventory. No source exclusion, allowlist, baseline, threshold change or diff-only
-  enforcement may replace whole-tree acceptance.
-- **SC-010**: Native clean controls with399 physical lines pass and400-line controls fail in every
-  enrolled location; ignored authored source, off-root/nested-generated source, tracked generated
-  inputs, missing roots/source, symlinks, malformed text and unavailable Git fail closed. Only after
-  every enrolled real file passes may this control be enrolled in required static/all verification
-  and presented as ready for protected publication.
