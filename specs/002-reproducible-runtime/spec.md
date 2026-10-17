@@ -255,3 +255,104 @@ without implying unresolved product gaps such as G-018 are fixed.
 Acceptance: a contributor can identify the active slice, required verification, prohibited shortcuts,
 and human-owned approvals from the root file; each material rule traces to existing approval or an
 owned specification. See [the guidance contract](contracts/agent-guidance.md).
+
+
+## Native secret findings: approved-direction preparation (2026-10-16)
+
+This extension is on `codex/polymarket-secrets-reconciliation`. Baseline approval above remains
+historical. Patrick approved preparing the reviewed narrow policy direction and implementation
+for review; no H0–H10 finding, exact constitutional amendment, activation or merge is approved.
+The immutable direction packet, approval receipt and native qualification live in
+[evidence/security-policy](evidence/security-policy/README.md). FR-021/022 and SC-009/010 remain
+reserved by the separate cyclomatic/source-enrollment candidates; this extension starts at023/011.
+
+### User Story 5 - Trust Native Secret Findings and Human Dispositions (Priority: P1)
+
+As a maintainer, I can see every native secret finding in current source and retained history,
+while an exact, independently human-reviewed false positive can receive a visible disposition
+without hiding that finding or accepting new, changed, unknown or real credential material.
+
+**Why this priority**: Preserved test history makes empty-report acceptance fail, but detector
+allowlists, incomplete fallback scans and candidate-authored approvals would conceal real findings.
+
+**Independent Test**: Scan clean, current-tree and history-only controlled inputs; present exact
+trusted approvals, adjacent unapproved findings and forged/stale approvals; inspect the complete
+native report, separate dispositions, failing/clean outcomes and independent merge-required issuer.
+
+**Acceptance Scenarios**:
+
+1. Given complete clean scans, when validation runs, then both scopes pass with no finding omitted.
+2. Given an exact independently approved false positive, when the same native identity and source
+   blob recur under the approved policy, then the finding stays visible and its approval is separate.
+3. Given a new/changed/adjacent or unreviewed finding, when validation runs, then acceptance fails
+   even if another finding has the same native fingerprint or previously approved source role.
+4. Given candidate-authored approval data, a bot, dismissed review, wrong repository/head/base or
+   changed scanner policy, when required verification runs, then it cannot grant acceptance.
+5. Given missing, stale, malformed, duplicate, incomplete or mismatched reports or any scanner
+   error, when verification runs, then it fails; findings-only status never masks fatal failure.
+6. Given private or privileged approval credentials, when untrusted source is scanned, then the
+   scanner cannot access those credentials or execute candidate application/workflow code.
+
+### Extension requirements
+
+- **FR-023**: Native scanning MUST cover the complete current tree and all retained available Git
+  history with the pinned qualified scanner/configuration, without detector suppressions, ignored
+  paths, shortened history or an incomplete/custom fallback being accepted as equivalent evidence.
+- **FR-024**: A false-positive disposition MUST bind exact repository, scan scope, scanner/configuration,
+  native fingerprint, rule, path, full native position metadata, applicable commit/head and independently
+  resolved full source blob. Fingerprints alone, source roles, directories, token grammar and historic
+  approvals MUST NOT approve different rows or future changed tree content. Native positions remain
+  exact metadata; source-character slicing MUST NOT silently reinterpret scanner coordinates.
+- **FR-025**: Finding approval MUST come from an independently authenticated human policy boundary
+  whose source/revision and identity are protected from the candidate. Candidate JSON, flags, reports,
+  statuses, tokens, bots and this direction approval alone MUST NOT authorize a finding. Missing,
+  dismissed, superseded or mismatched approval MUST fail. Policy revocation MUST cause reevaluation.
+- **FR-026**: The gate MUST distinguish clean scans, completed findings scans and fatal/tool failures,
+  bind fresh complete bounded reports to exact execution and source, and reject malformed/duplicate
+  identities, unknown exits, missing reports and scope omissions. It MUST NOT drop rows or convert
+  an arbitrary nonzero scanner exit into success.
+- **FR-027**: Redacted native findings MUST remain visible separately from deterministic disposition
+  summaries. Normal output and review evidence MUST NOT expose candidate values or native Match/Secret
+  fields. Source-role evidence MUST NOT imply unverified issuer provenance or credential validity.
+- **FR-028**: New, changed, unreviewed, unsupported or real credential findings MUST fail. The sole
+  proposed exception to the blanket acceptance ban is exact trusted post-scan false-positive
+  disposition, explicitly different from unchanged upstream empty-report policy. No real repository
+  finding is approved by these requirements; activation requires the exact governed amendment and
+  authenticated per-finding decisions, with no baselines/exemptions in other quality controls.
+- **FR-029**: Reconciliation MUST preserve PR129's donor and useful redaction/negative scenarios,
+  retain every existing main test ID and historical evidence path, and replace unsound native/fallback
+  acceptance rather than copy detector-side allowlists or silently remove a behavioral obligation.
+- **FR-030**: Required independent hosting MUST bind the actual candidate, protected policy, native
+  human approval and complete scan execution without privileged candidate-code execution. Current
+  Python3.11–3.13/Linux/Apple scope and existing required gates remain. Implementation preparation,
+  finding approval, trusted-service provisioning, hosted requiredness and merge are distinct states.
+
+### Extension entities and measurable outcomes
+
+Entities: native scan execution; full native finding identity; independently resolved source blob;
+proposed disposition set; authenticated human decision; protected policy revision; separate acceptance
+summary. Their lifecycle is proposed → authenticated/eligible → revoked/stale or applied to one exact
+finding; a candidate cannot promote its own proposal.
+
+- **SC-011**: Clean controls and exactly approved controlled findings pass; every unapproved or changed
+  finding fails, including two distinct findings sharing one fingerprint. Native findings stay intact.
+- **SC-012**: Every documented scanner/report/identity/approval/source/scope/failure/revocation negative
+  control fails with no false success and no candidate value exposed in normal output or evidence.
+- **SC-013**: Independent source/history inventory and execution binding prove no required current or
+  retained historical scope was omitted; old evidence and all existing main native test IDs remain.
+- **SC-014**: Candidate-supplied or forged approval, dismissed/superseded review, bot identity and
+  privileged candidate execution cannot produce the independent required success check in any control.
+- **SC-015**: Exact implementation review, supported checks/services, authenticated finding decisions,
+  required hosting, legitimate merge and resulting-main verification all exist before this security
+  extension is called complete. Empty proposed policy or synthetic controls alone are insufficient.
+
+### Clarification record for this extension
+
+- Authority: direct answer “Approve reviewed policy direction” authorizes preparing this amendment
+  and implementation for review. Individual findings and merging remain unapproved.
+- Complete retained history includes the original unmerged PR129 donor. Main-only scanning is diagnostic.
+- Current-tree findings need their own exact binding; a historical identity does not approve them.
+- Native full position metadata and full-blob binding are required; duplicate fingerprints are not
+  deduplicated. Exact coordinate/source semantics and issuer bootstrap are technical research inputs.
+- Access/App/credential changes require their separate authorization; absence of provisioning cannot
+  become security success. Preparation may proceed with activation visibly blocked on those states.

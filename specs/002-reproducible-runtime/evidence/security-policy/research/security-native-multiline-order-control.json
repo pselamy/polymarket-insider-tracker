@@ -1,0 +1,15 @@
+{
+  "purpose": "Synthetic multiline coordinate ordering only",
+  "exit_code": 42,
+  "findings": [
+    {
+      "RuleID": "generic-api-key",
+      "File": "indented-multiline.txt",
+      "StartLine": 1,
+      "EndLine": 2,
+      "StartColumn": 81,
+      "EndColumn": 39,
+      "Fingerprint": "indented-multiline.txt:generic-api-key:1"
+    }
+  ]
+}

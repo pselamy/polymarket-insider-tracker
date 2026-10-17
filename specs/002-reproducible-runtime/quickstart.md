@@ -100,3 +100,31 @@ docker compose down
 
 This stops containers without removing the contributor's normal volumes. The verifier separately proves
 that its generated migration-test database was removed.
+
+
+## Native security preparation validation
+
+The pure parser is an internal preparation increment, not a registered secrets gate. With the locked
+development environment, run `uv run --isolated --locked --all-extras --python 3.11 python -m pytest
+tests/tooling/test_secret_report.py tests/tooling/test_secret_schema.py` once those files exist.
+Expected: native clean0/empty and findings42/nonempty metadata parse; all schema/exit/duplicate/
+coordinate negatives fail with safe domain errors. Parsing findings is not approval. The untouched
+real product reports still fail native scanning and no individual finding is approved.
+
+Before calling the complete security extension usable, additionally execute and record:
+
+1. Qualified pinned native artifact/config and immutable tree/all-retained-history commands on clean,
+   tree-finding, removed/history-only, same-line collision and approved-one/unapproved-other controls.
+2. Exact source/blob/head/policy changes, omitted refs/donor history, unreadable or excluded authored
+   files, dirty snapshots, stale/missing/symlink/oversized reports, process fatal/timeout/swallowed exit,
+   inline allows and Git-ignore defects. Each must fail; complete clean controls must pass.
+3. Real protected transport/issuer controls: candidate artifact/policy forgery, Bot/non-independent
+   human, wrong repository/head/base/run/App, merged-record provenance, review dismissal after green,
+   role/policy drift and the actual native stale-approval-before-merge barrier. Fixture reevaluation
+   alone is insufficient. Test credential isolation without exposing/placing a real token in a worker.
+4. Exact governed amendment and individually authenticated dispositions, complete supported native
+   quality/matrix/services and installed behavior, retained test IDs/fresh traceability, actual required
+   hosting readback, independent exact-head review, separately approved merge and resulting-main CI.
+
+Do not run App provisioning, access/credential changes, real notifications or external messages as a
+quickstart side effect. Prepare those concrete changes for their applicable separate authorization.

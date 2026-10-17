@@ -1,0 +1,36 @@
+# Pure parser preparation checkpoint
+
+Prepared against main523b0a35466e799c36e85e3bc5ea046cf3263c31. The direction receipt authorizes this
+preparation for review; no actual finding is accepted and no governed exception is activated.
+Original receipts/decision packet remain unchanged. The managed-analysis report hashes its reviewed
+document snapshot; the later side-effect-free scripts package marker is an implementation-driven
+module-identity correction, covered by implementation review rather than retroactively inserted
+into that analysis receipt.
+
+RED: locked Python3.11 native pytest collected the two new modules and failed with missing parser
+module errors (exit2) before implementation. An earlier copy command used the wrong working
+directory and is a preparation error, not the RED behavioral evidence.
+
+Prepared code: strict bounded JSON/schema/exit parsing, frozen restricted metadata, full native
+coordinates and collision retention, constant errors, no candidate text in repr. It has no CLI,
+filesystem/source/execution proof, approval input, disposition mechanism or passing gate integration.
+The scripts package marker resolves mypy's duplicate module-name error without changing gate scope.
+Two initial score6 functions were separated into cohesive commit/fingerprint and schema/enrollment
+checks; the existing cognitive ceiling5 was retained. No suppression/baseline/allowlist was added.
+
+Observed local checks before the implementation commit:
+
+-108 focused controls pass on locked Python3.11, including arbitrary native text repr/log/error,
+same-line collisions, native coordinate semantics, schema/duplicate/exit errors and budget failures.
+-All174 statements and60 branches in the four new parser modules execute; this is not whole-repository
+coverage or a native product scan claim.
+-The existing full static profile passes in19.25s: lock, Black, Ruff, strict mypy, native src Pyright,
+Vulture and fail-closed full-scope Complexipy5. Independent strict mypy and Pyright additionally pass
+all six new parser/test files. Full-scope isolated native Ruff C90110/E902 also passes.
+-All seven new Python files are below399 physical lines. Old source/tests are unchanged.
+
+Independent exact-implementation review and committed-source full compatibility/collection retention
+are pending at this checkpoint. Later exact-head receipts belong outside this commit to avoid circular
+self-head evidence. SEC003/004 remain unchecked until that review and verification are recorded.
+SEC005–015, every real finding decision, native worker/transport/issuer/freshness qualification,
+complete security/Relentless controls, actual required hosting and approved merge/main remain required.

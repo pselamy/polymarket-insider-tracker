@@ -455,3 +455,50 @@ checks, publication, approval or merge is asserted.
   ledgers remain unchanged. Fresh local static cognitive <=5, separate cyclomatic <=10,
   Python 3.11/3.12/3.13 compatibility, and private loopback PostgreSQL/Redis 7 service gates
   passed; publication and independent review remain pending.
+
+
+## Native security extension — story5 (P1), preparation approved
+
+Original task/evidence history above is retained. Direction approval permits preparation for review;
+it does not approve individual findings, governance ratification, access changes or a merge.
+All new human checklist markers remain unchecked. SEC tasks cover FR-023–030 and SC-011–015.
+
+### Setup and foundation
+
+- [X] SEC001 [US5] Preserve direction approval/native receipts and source-bound Phase0 research in `evidence/security-policy/`; clarify tree/history identity and donor preservation (FR-024,027,029).
+- [X] SEC002 [US5] Prepare spec/plan/model/contract/quickstart, exact amendment proposal and reviewer-owned `checklists/security-policy.md`; run managed tasks/analyze before implementation (FR-023–030). This box records document preparation only; analysis verdict is separate.
+- [ ] SEC003 [US5] Write RED parser/schema controls in `tests/tooling/test_secret_report.py` and `tests/tooling/test_secret_schema.py`, covering exit/report contradictions, full schema, duplicate JSON/rows, native coordinate/collision cases and safe output. Put a synthetic private-context sentinel in path/rule/fingerprint/tags and source fields; prove finding/report repr and formatted error/log output do not expose it (FR-024,026,027; SC-011,012).
+- [ ] SEC004 [US5] Implement immutable safe metadata in `scripts/_secret_models.py`, bounded JSON/schema in `_secret_json.py`/`_secret_schema.py` and pure `_secret_report.py`; no approval, CLI or gate registration (FR-024,026,027).
+- [ ] SEC005 [US5] Verify exact source objects/line bounds in `scripts/_secret_source.py` and `tests/tooling/test_secret_source.py`; immutable tree/history membership and full-blob identities reject all mismatch/unsupported cases (FR-023,024,026; SC-012,013).
+
+### Native worker and donor preservation
+
+- [ ] SEC006 [US5] Implement `scripts/_secret_worker.py` and `tests/tooling/test_secret_worker.py`: qualified release/config/commands, immutable credential-free snapshots, fresh bounded reports, both scopes/exits and protected execution/scope receipts (FR-023,026,030; SC-012,013).
+- [ ] SEC007 [US5] Retain main test IDs/history; port PR129's useful scenarios to explicit auxiliary/stub/native layers without its detector allowlists/fallback success or module rename; prove collection retention in `evidence/security-policy/` (FR-029; SC-013).
+- [ ] SEC008 [US5] Execute real native clean/tree/history-only/collision and every file/ref/report/process/scope negative in `tests/tooling/test_secret_native.py`; keep safe source-bound receipts in `evidence/security-policy/` (FR-023,024,026,027; SC-011–013).
+
+### Protected approval and complete acceptance
+
+- [ ] SEC009 [US5] Implement protected adapters in `scripts/secret_policy/` and `tests/tooling/test_secret_policy.py`: native repository/head/base, exact reviewed set digest, independent eligible human, merged-record mapping and revocation (FR-025,028,030; SC-012,014).
+- [ ] SEC010 [US5] Qualify worker transport/App isolation and actual hosting revocation/merge-freshness barrier with `tests/tooling/test_secret_hosting.py`; keep nonempty acceptance disabled until conclusive native proof; prepare exact deployment diff/readback plan (FR-025,030; SC-014,015).
+- [ ] SEC011 [US5] Obtain exact governed amendment approval, then update `AGENTS.md`, constitution and owned runtime/security contracts consistently; retain every other prohibition and qualify this variation against upstream (FR-028; SC-015).
+- [ ] SEC012 [US5] Construct fresh full-field individual proposals from native/source evidence; obtain separately authenticated exact human false-positive decisions and preserve native reports with separate deterministic summaries (FR-024,025,027,028; SC-011,012,015).
+- [ ] SEC013 [US5] Integrate fully remediated gate in `scripts/verify.py`, CI and canonical runtime contract; no partial-green bootstrap, synthetic acceptance or weakening of other controls (FR-023,026,028,030; SC-011–015).
+
+### Convergence
+
+- [ ] SEC014 [US5] Run every applicable Relentless native gate, supported3.11–3.13/Linux/Apple compatibility, real disposable PostgreSQL/Redis/migrations, installed behavior, collection retention and fresh committed-head traceability; update owned gap/evidence ledgers (FR-029,030; SC-013,015).
+- [ ] SEC015 [US5] Independently review exact code/evidence, legitimately provision separately authorized required App/hosting with native readback, verify exact-head defect-fails/clean-passes controls, obtain merge approval and verify resulting main (FR-025,028,030; SC-014,015).
+
+Dependencies: SEC001→002→analysis/validated preparation→003→004→005→006→008.
+SEC007 may run alongside source/worker work in distinct files; SEC009 starts after source/worker
+contracts, SEC010 requires009 and real native transport. SEC011/012/013 require the qualified
+worker/issuer and their reserved exact approvals;014/015 require the complete implementation.
+Analysis can authorize the isolated pure-parser preparation without treating future trust/activation
+prerequisites as satisfied. SEC002 is not evidence that analysis or human domain review passed.
+
+Independent parser test: invalid bytes/exit/schema produce a safe domain failure, distinct same-line
+identities remain ordered, and findings have no approval path. Full US5 independent test remains
+the complete native/trusted/hosted journey in the spec. Parallel examples: donor preservation007 and
+source005 can be researched in separate files; only the root writer edits this checkout. Incremental
+local commits are review checkpoints, never a partial secrets-gate publication or convergence claim.

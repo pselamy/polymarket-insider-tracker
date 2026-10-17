@@ -249,3 +249,27 @@ floor is 3.10, covering all three. No score threshold and no requiredness are cl
 - A standalone rationale document under `docs/`: rejected per the canonical-specs
   directive — lasting tool/quality rationale belongs in this existing spec package,
   not in a parallel report.
+
+
+## Native security Phase0 research — 2026-10-17
+
+Source-bound research is preserved under [security-policy/research](evidence/security-policy/research/).
+Native report/coordinate controls qualify the parser design, donor analysis records unsafe fallback
+paths/test-ID changes, and the trusted-boundary note distinguishes reusable upstream metadata logic
+from the new authenticated report/disposition service still to implement. These are research, not
+product scan acceptance or findings approval.
+
+Decisions: retain every native row; complete coordinates plus full blob, never fingerprint-only;
+native columns opaque and positive in qualified v1; duplicate complete metadata fails; exact schema
+and exit0/empty or exit42/nonempty only; constant errors and no Match/Secret in safe models. Tree
+decisions are exact-head-specific; history decisions never carry to tree. Use empty eligible-human
+policy and fail-closed activation until real identities/independent review/native freshness qualify.
+No fallback may certify a native scan. Keep main's13 original gate-test functions at their old path.
+
+The full architecture and known activation prerequisites are in
+[native-secret-policy.md](contracts/native-secret-policy.md). The pure-parser increment is completely
+specified and needs no live trust configuration or policy exception. Protected transport, exact release
+provenance, merged-record mapping and native revocation/merge-freshness proof remain explicit later
+implementation/qualification tasks. They are not satisfied by these notes, a JSON flag or green fixture.
+The implementation must remain unable to accept nonempty reports until those tasks pass. New evidence
+that contradicts qualified coordinate/schema behavior requires a versioned contract correction.

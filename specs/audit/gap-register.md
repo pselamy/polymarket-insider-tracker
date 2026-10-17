@@ -191,3 +191,12 @@ Fresh local static cognitive <=5, separate cyclomatic <=10, Python 3.11/3.12/3.1
 compatibility, and private loopback PostgreSQL/Redis 7 service gates passed. This is
 a local correction candidate; remote CI, independent review, approval, publication,
 merge, and main verification remain pending.
+
+
+## Native secret policy extension — 2026-10-17
+
+Open owned slice002 gap: exact native secret evidence and independently trusted human false-positive
+dispositions (FR-023–030/SC-011–015). Direction preparation is approved; original native scans fail,
+no finding is approved and no required secrets gate is enrolled. Preserve PR129 donor e677332 and all
+retained history. Parser/source/worker/issuer/hosting/governance/individual-decision tasks SEC003–015
+remain distinct; pure offline controls cannot close this gap. See002 contracts/native-secret-policy.md.

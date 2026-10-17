@@ -1,0 +1,20 @@
+{
+  "recorded_utc": "2026-10-16T23:53:09.950221+00:00",
+  "human_answer": "Approve reviewed policy direction",
+  "approved_artifact": "outputs/polymarket-security-policy-decision.md",
+  "approved_artifact_sha256": "09005ab481006d8a3c2f1226d71f5930922afbe83525df925db82158d3ae0127",
+  "approved_scope": "Prepare the narrow policy amendment and implementation for review, retaining native scanning and Git history. Exact individual historical false-positive dispositions must use the trusted human policy boundary.",
+  "not_approved": [
+    "Individual findings H0-H10",
+    "A merge",
+    "History rewrite or ref removal",
+    "Native detector exclusions or ignored findings",
+    "Credential verification/rotation or external messages"
+  ],
+  "original_decision_packet_preserved": true,
+  "implementation_enabled": false,
+  "remaining_preexisting_requests": [
+    "001 API v2 contract implementation validation",
+    "PR135 merge at752a918"
+  ]
+}
