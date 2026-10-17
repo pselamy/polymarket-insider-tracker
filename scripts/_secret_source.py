@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
-from scripts._secret_git import GitObjects
+from scripts._secret_git import GitObjects, validate_objects
 from scripts._secret_identity import (
     FindingIdentityV1,
     SourceScope,
@@ -43,6 +43,7 @@ def bind_finding(
     """Equality/membership are not execution, complete enrollment or human authority."""
     row = validate_native_finding(finding)
     scope = validate_scope(scope)
+    objects = validate_objects(objects)
     commit = _source_commit(row, scope, tree_bytes)
     blob = objects.resolve(commit, row.path)
     _source_bytes(row, blob.body, tree_bytes)

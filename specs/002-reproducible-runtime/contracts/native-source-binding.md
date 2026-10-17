@@ -106,3 +106,25 @@ visible SEC006 dependency; Ubuntu support is not removed or claimed verified by 
 SEC005 can close only this source-binding layer. Full source enrollment/export equality, retained
 history completeness, immutable worker evidence, scanner provenance, human decisions and actual
 required hosting remain separate blocking completion requirements in SEC006–015.
+
+## Direct nominal-value hardening after independent refutation
+
+The initial implementation1490299 was independently REVISE despite passing local gates and the
+full compatibility suite. Uninitialized slotted models leaked active caller exception context;
+primitive subclasses redirected a literal path or expanded declared retained membership.
+`source-initial-review.md` preserves that first-pass result unchanged.
+
+The correction requires exact built-in strings, tuple tags and frozenset commit sets at the direct
+metadata boundary. Scope, finding, location, object-reader and canonical-identity entrypoints validate
+initialized fields and suppress malformed-state exception context with constant schema categories.
+Canonical serialization revalidates schema1 and every identity field; it does not trust a frozen
+constructor having run. A fixed raw-finding repr also hides deliberately invalid mode/coordinate text.
+Git paths require native Path values; process argv/input/capacity/deadline primitives are validated.
+The original byte-report parser behavior remains; its existing schema byte prefix is preserved.
+
+These checks reject unsupported Python values; they do not authenticate a caller, scope declaration,
+source store, scanner execution or approval. Arbitrary Python with memory mutation privileges is not
+made a protected authority. Original native source, complete scan/worker and human/hosting obligations
+remain unchanged.36 new adversarial controls were observed RED before correction; six further controls
+cover closely related malformed kinds, versions and native paths. Logging and traceback checks both
+run inside an unrelated active private exception handler.

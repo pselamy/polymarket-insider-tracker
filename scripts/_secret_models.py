@@ -32,6 +32,9 @@ class NativeFinding:
     end_column: int
     tags: tuple[str, ...] = field(repr=False)
 
+    def __repr__(self) -> str:
+        return "NativeFinding(<restricted>)"
+
 
 @dataclass(frozen=True, slots=True)
 class NativeReport:

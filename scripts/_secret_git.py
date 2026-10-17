@@ -8,7 +8,7 @@ from typing import Literal
 
 from scripts._secret_identity import hexadecimal
 from scripts._secret_models import NativeReportError
-from scripts._secret_process import OBJECT_BYTES, GitLocation, run_git
+from scripts._secret_process import OBJECT_BYTES, GitLocation, run_git, validate_location
 from scripts._secret_schema import native_path
 from scripts._secret_tree import select_entry
 
@@ -93,6 +93,7 @@ class GitObjects:
             raise NativeReportError("native object format unsupported") from None
 
     def read(self, oid: str, kind: ObjectType, budget: ResolutionBudget) -> bytes:
+        validate_objects(self)
         hexadecimal(oid, 40)
         if self._run(("cat-file", "-t", oid), budget) != kind.encode() + b"\n":
             raise NativeReportError("native direct object type") from None
@@ -106,6 +107,7 @@ class GitObjects:
         return body
 
     def resolve(self, commit: str, path: str) -> SourceBlob:
+        validate_objects(self)
         path = native_path(path)
         budget = ResolutionBudget()
         self._format(budget)
@@ -120,3 +122,13 @@ class GitObjects:
         entry = select_entry(self.read(tree, "tree", budget), components[-1].encode("utf-8"))
         _regular(entry.mode)
         return SourceBlob(commit, entry.oid, entry.mode, self.read(entry.oid, "blob", budget))
+
+
+def validate_objects(value: object) -> GitObjects:
+    if type(value) is not GitObjects:
+        raise NativeReportError("native objects schema") from None
+    try:
+        validate_location(value.location)
+    except AttributeError:
+        raise NativeReportError("native objects schema") from None
+    return value

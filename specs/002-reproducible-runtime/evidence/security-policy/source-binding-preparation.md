@@ -46,3 +46,19 @@ bound and opaque columns preserve the prior native contract. Full scanner qualif
 
 SEC006–015, native finding decisions, human-owned checklist markers, exact amendment ratification,
 actual protected hosting and all whole-project completion criteria remain open.
+
+## Preserved initial rejection and correction
+
+Initial commit14902995b7656e31f788ba821218f56f5fabeb0e passed1819 tests with3 skips and55 warnings
+(pytest295.44s; compatibility299.39s). The3 skips were two real-service tests and one Windows-only
+test, not service acceptance. All1719 prior checkpoint IDs were retained with103 additions.
+Independent review nevertheless REVISE for private-context leakage from missing nominal slots and
+primitive subclass path/membership spoofing. The original review is `source-initial-review.md`.
+
+The corrective implementation validates exact primitive semantics and initialized nominal fields,
+revalidates schema/fields before canonicalizing, and makes raw finding repr constant even for malformed
+manually created values. It also validates the fixed native location/argv/input/capacity/deadline
+boundary.36 regression cases were all observed failing on the unmodified initial code, then passing
+after correction; six adjacent controls extend malformed kind/version/native-path coverage. Final
+verification/re-review remain required before a completion marker. No original result is relabeled
+accepted, and no full security or native-finding acceptance is implied.

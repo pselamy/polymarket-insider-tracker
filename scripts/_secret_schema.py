@@ -147,9 +147,15 @@ def parse_finding(value: object, mode: ScanMode) -> NativeFinding:
 
 def native_path(value: object) -> str:
     """Validate a direct source-reader path using the same native report contract."""
-    text = _text(value)
+    text = _exact_text(value)
     _path(text)
     return text
+
+
+def _exact_text(value: object) -> str:
+    if type(value) is not str:
+        raise NativeReportError("native exact text schema") from None
+    return _text(value)
 
 
 def _finding_mode(value: object) -> None:
@@ -158,19 +164,16 @@ def _finding_mode(value: object) -> None:
 
 
 def _finding_tags(value: object) -> None:
-    if not isinstance(value, tuple):
+    if type(value) is not tuple:
         raise NativeReportError("native identity tags") from None
     for tag in cast(tuple[object, ...], value):
-        _text(tag)
+        _exact_text(tag)
 
 
-def validate_native_finding(value: object) -> NativeFinding:
-    """A nominal dataclass can be constructed directly; validate its exact metadata."""
-    if type(value) is not NativeFinding:
-        raise NativeReportError("native finding schema") from None
+def _finding_fields(value: NativeFinding) -> None:
     _finding_mode(value.mode)
     for text in (value.native_commit, value.path, value.rule_id, value.native_fingerprint):
-        _text(text)
+        _exact_text(text)
     if not value.rule_id:
         raise NativeReportError("empty native identity") from None
     for coordinate in (value.start_line, value.end_line, value.start_column, value.end_column):
@@ -179,4 +182,14 @@ def validate_native_finding(value: object) -> NativeFinding:
     _path(value.path)
     _coordinates(value)
     _identity(value)
+
+
+def validate_native_finding(value: object) -> NativeFinding:
+    """Check initialized slots and exact primitives, never trust the nominal class."""
+    if type(value) is not NativeFinding:
+        raise NativeReportError("native finding schema") from None
+    try:
+        _finding_fields(value)
+    except AttributeError:
+        raise NativeReportError("native finding schema") from None
     return value

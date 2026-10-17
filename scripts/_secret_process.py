@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import select
 import subprocess
@@ -9,7 +10,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, cast
 
 from scripts._secret_models import NativeReportError
 
@@ -19,7 +20,9 @@ COMMAND_SECONDS = 10.0
 
 
 def _absolute(value: object) -> Path:
-    if not isinstance(value, Path) or not value.is_absolute():
+    if not isinstance(value, Path) or type(value) is not type(Path()):
+        raise NativeReportError("native absolute location") from None
+    if not value.is_absolute():
         raise NativeReportError("native absolute location") from None
     return value
 
@@ -32,8 +35,53 @@ class GitLocation:
     store: Path = field(repr=False)
 
     def __post_init__(self) -> None:
-        _absolute(self.executable)
-        _absolute(self.store)
+        validate_location(self)
+
+
+def validate_location(value: object) -> GitLocation:
+    if type(value) is not GitLocation:
+        raise NativeReportError("native location schema") from None
+    try:
+        _absolute(value.executable)
+        _absolute(value.store)
+    except AttributeError:
+        raise NativeReportError("native location schema") from None
+    return value
+
+
+def _arguments(value: object) -> tuple[str, ...]:
+    if type(value) is not tuple:
+        raise NativeReportError("native argument schema") from None
+    for argument in cast(tuple[object, ...], value):
+        if type(argument) is not str:
+            raise NativeReportError("native argument schema") from None
+    return cast(tuple[str, ...], value)
+
+
+def _capacity(value: object) -> int:
+    if type(value) is not int or value < 1 or value > OBJECT_BYTES:
+        raise NativeReportError("native output capacity") from None
+    return value
+
+
+def _input_bytes(value: object) -> bytes:
+    if type(value) is not bytes:
+        raise NativeReportError("native input schema") from None
+    if len(value) > OBJECT_BYTES:
+        raise NativeReportError("native input limit") from None
+    return value
+
+
+def _finite_deadline(value: object) -> float:
+    if type(value) not in (int, float):
+        raise NativeReportError("native deadline schema") from None
+    try:
+        number = float(cast(int | float, value))
+    except OverflowError:
+        raise NativeReportError("native deadline schema") from None
+    if not math.isfinite(number):
+        raise NativeReportError("native deadline schema") from None
+    return number
 
 
 def _environment() -> dict[str, str]:
@@ -117,7 +165,7 @@ def _command_deadline(declared: float | None) -> float:
     end = time.monotonic() + COMMAND_SECONDS
     if declared is None:
         return end
-    return min(end, declared)
+    return min(end, _finite_deadline(declared))
 
 
 def run_git(
@@ -129,8 +177,10 @@ def run_git(
     deadline: float | None = None,
 ) -> bytes:
     """Return complete bounded stdout or a constant failure; never emit native stderr."""
-    if len(input_bytes) > OBJECT_BYTES:
-        raise NativeReportError("native input limit") from None
+    location = validate_location(location)
+    arguments = _arguments(arguments)
+    limit = _capacity(limit)
+    input_bytes = _input_bytes(input_bytes)
     end = _command_deadline(deadline)
     try:
         with tempfile.TemporaryFile() as source:

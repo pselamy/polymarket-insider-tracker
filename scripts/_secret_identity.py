@@ -13,7 +13,7 @@ from scripts._secret_schema import validate_native_finding
 
 
 def hexadecimal(value: object, length: int) -> str:
-    if not isinstance(value, str) or re.fullmatch(f"[0-9a-f]{{{length}}}", value) is None:
+    if type(value) is not str or re.fullmatch(f"[0-9a-f]{{{length}}}", value) is None:
         raise NativeReportError("native hexadecimal identity") from None
     return value
 
@@ -24,7 +24,7 @@ def _repository_id(value: object) -> None:
 
 
 def _retained(value: object, head: str) -> None:
-    if not isinstance(value, frozenset) or not value:
+    if type(value) is not frozenset or not value:
         raise NativeReportError("native retained scope") from None
     for commit in cast(frozenset[object], value):
         hexadecimal(commit, 40)
@@ -45,14 +45,26 @@ class SourceScope:
         validate_scope(self)
 
 
-def validate_scope(value: object) -> SourceScope:
-    if type(value) is not SourceScope:
-        raise NativeReportError("native source scope schema") from None
+def _scope_fields(value: SourceScope) -> None:
     _repository_id(value.repository_id)
     hexadecimal(value.scanner_policy_sha256, 64)
     hexadecimal(value.head, 40)
     _retained(value.retained_commits, value.head)
+
+
+def validate_scope(value: object) -> SourceScope:
+    if type(value) is not SourceScope:
+        raise NativeReportError("native source scope schema") from None
+    try:
+        _scope_fields(value)
+    except AttributeError:
+        raise NativeReportError("native source scope schema") from None
     return value
+
+
+def _schema_version(value: object) -> None:
+    if type(value) is not int or value != 1:
+        raise NativeReportError("native identity schema version") from None
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +80,13 @@ class FindingIdentityV1:
     schema_version: Literal[1] = field(default=1, init=False)
 
     def __post_init__(self) -> None:
+        try:
+            self._validate()
+        except AttributeError:
+            raise NativeReportError("native identity schema") from None
+
+    def _validate(self) -> None:
+        _schema_version(self.schema_version)
         _repository_id(self.repository_id)
         hexadecimal(self.scanner_policy_sha256, 64)
         validate_native_finding(self.finding)
@@ -82,6 +101,7 @@ class FindingIdentityV1:
 
     def canonical_bytes(self) -> bytes:
         """Restricted evidence serialization; do not log or use as an output renderer."""
+        self.__post_init__()
         row = self.finding
         data = {
             "schema_version": self.schema_version,
