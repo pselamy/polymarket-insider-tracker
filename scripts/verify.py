@@ -6,233 +6,63 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
-import shlex
+import re as re
+import shlex as shlex
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable as Callable
+from collections.abc import Mapping as Mapping
+from collections.abc import Sequence
+from importlib.machinery import ModuleSpec as _ModuleSpec
+from importlib.util import module_from_spec as _module_from_spec
 from pathlib import Path
-from typing import Literal, NamedTuple, NoReturn, cast
-from urllib.parse import unquote
+from typing import Literal, NoReturn, cast
+from typing import NamedTuple as NamedTuple
+from urllib.parse import unquote as unquote
+from uuid import uuid4 as _uuid4
+
+# Each entry-point load owns its sibling modules; cached packages cannot redirect policy.
+_helper_name = f"_polymarket_verifier_{_uuid4().hex}"
+_helper_package = _module_from_spec(_ModuleSpec(_helper_name, loader=None, is_package=True))
+_helper_package.__path__.append(str(Path(__file__).resolve().parent))
+sys.modules[_helper_name] = _helper_package
+_entry_package = __package__
+_entry_spec = __spec__
+try:
+    __package__ = _helper_name
+    __spec__ = _ModuleSpec(f"{_helper_name}.entry", loader=None)
+    from ._verify_models import CommandExecution as CommandExecution
+    from ._verify_models import Gate as Gate
+    from ._verify_models import GateResult as GateResult
+    from ._verify_models import GateStatus as GateStatus
+    from ._verify_models import InvocationErrorPayload as _InvocationErrorPayload
+    from ._verify_models import ProfileName as ProfileName
+    from ._verify_models import RedactionPolicy as RedactionPolicy
+    from ._verify_models import Runner as Runner
+    from ._verify_models import VerificationResult as VerificationResult
+    from ._verify_policy import APPLY_MIGRATIONS_COMMAND as APPLY_MIGRATIONS_COMMAND
+    from ._verify_policy import BASE_PROFILES as BASE_PROFILES
+    from ._verify_policy import DIRECT_GATE_COMMANDS as DIRECT_GATE_COMMANDS
+    from ._verify_policy import GATES as GATES
+    from ._verify_policy import PROFILE_NAMES as PROFILE_NAMES
+    from ._verify_policy import help_epilog as _help_epilog
+    from ._verify_redaction import SECRET_VALUE_KEYS as SECRET_VALUE_KEYS
+    from ._verify_redaction import SERVICE_URL_KEYS as SERVICE_URL_KEYS
+    from ._verify_redaction import redact_text as redact_text
+finally:
+    __package__ = _entry_package
+    __spec__ = _entry_spec
+
+# Keep public values serializable through the original entry-point module.
+for _export in (Gate, CommandExecution, GateResult, VerificationResult, redact_text):
+    _export.__module__ = __name__
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-ProfileName = Literal["static", "compatibility", "services", "all"]
-GateStatus = Literal["passed", "failed", "not-run"]
-RedactionPolicy = Literal["configured-secrets"]
 GATE_FAILURE_EXIT_CODE = 1
 PREREQUISITE_EXIT_CODE = 2
 
 
-class Gate(NamedTuple):
-    """One required command in a verification profile."""
-
-    id: str
-    command: tuple[str, ...]
-    needs_services: bool = False
-    redaction_policy: RedactionPolicy = "configured-secrets"
-    environment: tuple[tuple[str, str], ...] = ()
-
-    @property
-    def command_text(self) -> str:
-        """Render a copyable shell representation for diagnostics."""
-        return shlex.join(self.command)
-
-
-class CommandExecution(NamedTuple):
-    """Captured result returned by an injected gate runner."""
-
-    exit_code: int
-    stdout: str = ""
-    stderr: str = ""
-    duration_seconds: float = 0.0
-
-
-class GateResult(NamedTuple):
-    """Stable evidence for one selected gate."""
-
-    id: str
-    command: str
-    status: GateStatus
-    exit_code: int | None
-    duration_seconds: float
-    summary: str
-    stdout: str = ""
-    stderr: str = ""
-
-
-class VerificationResult(NamedTuple):
-    """Aggregate outcome for one profile."""
-
-    profile: ProfileName
-    status: Literal["passed", "failed"]
-    exit_code: int
-    duration_seconds: float
-    gates: tuple[GateResult, ...]
-    first_failed_gate: str | None
-
-
-Runner = Callable[[Gate], CommandExecution]
-
-GATES: Mapping[str, Gate] = {
-    "lock": Gate("lock", ("uv", "lock", "--check")),
-    "format": Gate("format", (sys.executable, "-m", "black", "--check", ".")),
-    "lint": Gate("lint", (sys.executable, "-m", "ruff", "check", "src", "tests", "scripts")),
-    "strict-types": Gate(
-        "strict-types",
-        (
-            "uv",
-            "run",
-            "--isolated",
-            "--locked",
-            "--all-extras",
-            "--python",
-            "3.11",
-            "mypy",
-        ),
-    ),
-    "pyright": Gate(
-        "pyright",
-        (
-            "uv",
-            "run",
-            "--isolated",
-            "--locked",
-            "--all-extras",
-            "--python",
-            "3.11",
-            "pyright",
-            "src/polymarket_insider_tracker",
-        ),
-    ),
-    "vulture": Gate(
-        "vulture",
-        (
-            "uv",
-            "run",
-            "--isolated",
-            "--locked",
-            "--all-extras",
-            "--python",
-            "3.11",
-            "vulture",
-            "src",
-            "tests",
-            "scripts",
-            "alembic",
-            "conftest.py",
-        ),
-    ),
-    "complexipy": Gate(
-        "complexipy",
-        (
-            "uv",
-            "run",
-            "--isolated",
-            "--locked",
-            "--all-extras",
-            "--python",
-            "3.11",
-            "python",
-            "scripts/complexipy_gate.py",
-            "src",
-            "tests",
-            "scripts",
-            "alembic",
-            "conftest.py",
-            "--max-complexity-allowed",
-            "5",
-            "--no-ignore",
-            "--ignore-complexity=false",
-            "--snapshot-ignore=true",
-            "--snapshot-create=false",
-            "--exclude=.",
-            "--check-script=true",
-        ),
-    ),
-    "cyclomatic": Gate(
-        "cyclomatic",
-        (
-            sys.executable,
-            "-m",
-            "ruff",
-            "check",
-            "--isolated",
-            "--select",
-            "C901,E902",
-            "--config",
-            "lint.mccabe.max-complexity=10",
-            "--ignore-noqa",
-            "--no-respect-gitignore",
-            "--exclude",
-            "",
-            "src",
-            "tests",
-            "scripts",
-            "alembic",
-            "conftest.py",
-        ),
-    ),
-    "imports": Gate(
-        "imports",
-        (
-            sys.executable,
-            "-c",
-            (
-                "import alembic, greenlet, psycopg, redis, sqlalchemy; "
-                "import polymarket_insider_tracker; "
-                "from sqlalchemy.ext.asyncio import create_async_engine"
-            ),
-        ),
-    ),
-    "tests": Gate("tests", (sys.executable, "-m", "pytest")),
-    "services": Gate(
-        "services",
-        (sys.executable, "scripts/runtime_services.py", "--phase", "probe"),
-        needs_services=True,
-    ),
-    "redis-contract": Gate(
-        "redis-contract",
-        (sys.executable, "-m", "pytest", "tests/integration/test_redis_contract.py"),
-        needs_services=True,
-        environment=(("RUN_SERVICE_TESTS", "1"),),
-    ),
-    "migrations": Gate(
-        "migrations",
-        (sys.executable, "scripts/runtime_services.py", "--phase", "migrations"),
-        needs_services=True,
-    ),
-}
-
-BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
-    "static": (
-        "lock",
-        "format",
-        "lint",
-        "strict-types",
-        "pyright",
-        "vulture",
-        "complexipy",
-        "cyclomatic",
-    ),
-    "compatibility": ("lock", "imports", "tests"),
-    "services": ("services", "redis-contract", "migrations"),
-}
-PROFILE_NAMES = ("static", "compatibility", "services", "all")
-
-# Service URLs are rendered with their credential hidden so diagnostics stay actionable; every
-# other configured secret is replaced completely because its value may live anywhere in the string.
-# The endpoint URLs are complete-value secrets too: their credential may ride in the path
-# (``https://host/v2/<key>``), which the partial URL rendering would keep readable.
-SERVICE_URL_KEYS = ("DATABASE_URL", "REDIS_URL")
-SECRET_VALUE_KEYS = (
-    "POLYMARKET_API_KEY",
-    "DISCORD_WEBHOOK_URL",
-    "TELEGRAM_BOT_TOKEN",
-    "POLYGON_RPC_URL",
-    "POLYGON_FALLBACK_RPC_URL",
-    "POLYMARKET_TRADES_URL",
-)
 TEST_CONFIGURATION_KEYS = frozenset(
     {"DATABASE_URL", "REDIS_URL", "LOG_LEVEL", "DRY_RUN", "HEALTH_PORT", "RUN_SERVICE_TESTS"}
 )
@@ -244,60 +74,6 @@ TEST_CONFIGURATION_PREFIXES = (
     "DISCORD_",
     "TELEGRAM_",
 )
-
-# scheme://authority[path][?query][#fragment]; the authority ends at the first "/", "?", or "#".
-_URL_PATTERN = re.compile(
-    r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*)://(?P<authority>[^/?#]*)(?P<path>[^?#]*)(?P<tail>[?#].*)?$",
-    re.DOTALL,
-)
-
-# Direct equivalents of every aggregate gate, kept literal so contributors can copy them verbatim.
-DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
-    (
-        "cyclomatic",
-        "uv run python -m ruff check --isolated --select C901,E902 "
-        "--config lint.mccabe.max-complexity=10 --ignore-noqa --no-respect-gitignore "
-        "--exclude '' src tests scripts alembic conftest.py",
-    ),
-    ("lock", "uv lock --check"),
-    ("format", "uv run black --check ."),
-    ("lint", "uv run ruff check src tests scripts"),
-    ("strict-types", "uv run --isolated --locked --all-extras --python 3.11 mypy"),
-    (
-        "pyright",
-        "uv run --isolated --locked --all-extras --python 3.11 "
-        "pyright src/polymarket_insider_tracker",
-    ),
-    (
-        "vulture",
-        "uv run --isolated --locked --all-extras --python 3.11 vulture "
-        "src tests scripts alembic conftest.py",
-    ),
-    (
-        "complexipy",
-        "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
-        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
-        "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
-        "--check-script=true",
-    ),
-    (
-        "imports",
-        'uv run python -c "import alembic, greenlet, psycopg, redis, sqlalchemy; '
-        "import polymarket_insider_tracker; "
-        'from sqlalchemy.ext.asyncio import create_async_engine"',
-    ),
-    ("tests", "uv run pytest"),
-    ("services", "uv run --env-file .env python scripts/runtime_services.py --phase probe"),
-    (
-        "redis-contract",
-        "RUN_SERVICE_TESTS=1 uv run --env-file .env pytest tests/integration/test_redis_contract.py",
-    ),
-    (
-        "migrations",
-        "uv run --env-file .env python scripts/runtime_services.py --phase migrations",
-    ),
-)
-APPLY_MIGRATIONS_COMMAND = "uv run --env-file .env alembic upgrade head"
 
 
 def _all_profile_gate_ids() -> tuple[str, ...]:
@@ -314,110 +90,6 @@ def gate_ids_for_profile(profile: str) -> tuple[str, ...]:
     if profile == "all":
         return _all_profile_gate_ids()
     raise ValueError(f"unknown profile {profile!r}")
-
-
-def _split_userinfo(authority: str) -> tuple[str | None, str | None, str]:
-    """Split an authority into (username, password, hostinfo) exactly like URL consumers do."""
-    userinfo, separator, hostinfo = authority.rpartition("@")
-    if not separator:
-        return None, None, hostinfo
-    username, separator, password = userinfo.partition(":")
-    return username, (password if separator else None), hostinfo
-
-
-def _extract_query_password(pair: str) -> str | None:
-    name, separator, raw_value = pair.partition("=")
-    if not separator or not raw_value:
-        return None
-    return raw_value if name.casefold() == "password" else None
-
-
-def _query_credentials(tail: str) -> list[str]:
-    if not tail.startswith("?"):
-        return []
-    query = tail[1:].partition("#")[0]
-    results: list[str] = []
-    for pair in query.split("&"):
-        pwd = _extract_query_password(pair)
-        if pwd:
-            results.append(pwd)
-    return results
-
-
-def _url_credentials(value: str) -> tuple[str, ...]:
-    """Return the raw credentials a consumer would read from ``value``.
-
-    Both the userinfo password and any ``password`` query parameter count, because redis-py and
-    libpq accept either spelling. Parsing never requires a well-formed URL.
-    """
-    match = _URL_PATTERN.match(value)
-    if match is None:
-        return ()
-    credentials: list[str] = []
-    password = _split_userinfo(match.group("authority"))[1]
-    if password:
-        credentials.append(password)
-    credentials.extend(_query_credentials(match.group("tail") or ""))
-    return tuple(credentials)
-
-
-def _credential_forms(value: str) -> tuple[str, ...]:
-    """Return every encoded or decoded credential spelling a tool might echo from ``value``."""
-    raw_forms: list[str] = []
-    for credential in _url_credentials(value):
-        raw_forms.extend((credential, unquote(credential)))
-    return tuple(dict.fromkeys(raw_forms))
-
-
-def _redacted_url(value: str) -> str:
-    """Render a service URL with its credential and query hidden, or ``***`` when unparseable.
-
-    The host, port, and path are copied verbatim, so an out-of-range or non-numeric port can
-    never break redaction. Query strings are hidden because Redis and libpq accept passwords there.
-    """
-    match = _URL_PATTERN.match(value)
-    if match is None:
-        return "***"
-    username, password, hostinfo = _split_userinfo(match.group("authority"))
-    if username is None:
-        credential = ""
-    elif password is None:
-        credential = f"{username}@"
-    else:
-        credential = f"{username}:***@"
-    query = "?***" if match.group("tail") else ""
-    return f"{match.group('scheme')}://{credential}{hostinfo}{match.group('path')}{query}"
-
-
-def _redact_service_url(text: str, value: str) -> str:
-    redacted = text.replace(value, _redacted_url(value))
-    for form in _credential_forms(value):
-        redacted = redacted.replace(form, "***")
-    return redacted
-
-
-def _redact_urls(text: str, values: Mapping[str, str]) -> str:
-    redacted = text
-    for key in SERVICE_URL_KEYS:
-        value = values.get(key)
-        if value:
-            redacted = _redact_service_url(redacted, value)
-    return redacted
-
-
-def _redact_secrets(text: str, values: Mapping[str, str]) -> str:
-    redacted = text
-    for key in SECRET_VALUE_KEYS:
-        value = values.get(key)
-        if value:
-            redacted = redacted.replace(value, "***")
-    return redacted
-
-
-def redact_text(text: str, environment: Mapping[str, str] | None = None) -> str:
-    """Redact configured credentials and complete sensitive values from diagnostics."""
-    values = environment if environment is not None else os.environ
-    return _redact_secrets(_redact_urls(text, values), values)
 
 
 def _scrubbed_test_environment() -> dict[str, str]:
@@ -651,31 +323,13 @@ def render_json(result: VerificationResult) -> str:
 
 def render_invocation_error(message: str) -> str:
     """Render the single JSON object emitted when ``--json`` accompanies an invalid invocation."""
-    payload = {
+    payload: _InvocationErrorPayload = {
         "status": "error",
         "exit_code": PREREQUISITE_EXIT_CODE,
         "gates": [],
         "error": message,
     }
     return json.dumps(payload, separators=(",", ":"))
-
-
-def _help_epilog() -> str:
-    width = max(len(gate_id) for gate_id, _ in DIRECT_GATE_COMMANDS)
-    lines = ["direct gate commands (every aggregate gate remains directly runnable):"]
-    lines.extend(f"  {gate_id:<{width}}  {command}" for gate_id, command in DIRECT_GATE_COMMANDS)
-    lines.append("")
-    lines.append("related commands:")
-    lines.append(f"  {'apply-migrations':<{width}}  {APPLY_MIGRATIONS_COMMAND}")
-    lines.append("")
-    lines.append(
-        "services and migrations read DATABASE_URL and REDIS_URL; load them with --env-file .env."
-    )
-    lines.append(
-        "exit status: 0 every selected gate passed; 1 a gate ran and failed; "
-        "2 invocation or prerequisite error."
-    )
-    return "\n".join(lines)
 
 
 class _ArgumentParser(argparse.ArgumentParser):
