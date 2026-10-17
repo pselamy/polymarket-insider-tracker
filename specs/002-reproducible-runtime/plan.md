@@ -276,7 +276,7 @@ This documentation-only follow-up is a separate PR from the mocks-to-fakes imple
 4. Run the existing static and compatibility profiles. No runtime change is intended; preserve the
    service and migration contracts unchanged. Record exact evidence and limitations separately.
 5. Reconcile with the completed fakes PR before publishing this subsequent PR. Keep human-owned
-   reviewer criteria unchecked and obtain Patrick's approval before merging.
+   reviewer criteria unchecked; merge only after independent review and required checks pass, then verify the resulting commit/tree and main CI.
 
 No new dependencies, scripts, application behavior, CI gates, or schema changes are needed.
 
