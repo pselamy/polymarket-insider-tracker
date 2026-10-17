@@ -189,6 +189,7 @@ def test_golden_blocking_jobs_are_bound_in_ci_and_verifier() -> None:
         "pyright",
         "vulture",
         "complexipy",
+        "cyclomatic",
     )
     jobs = _workflow()["jobs"]
     assert isinstance(jobs, dict)

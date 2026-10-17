@@ -44,6 +44,7 @@ def test_profile_membership_and_ordering_are_exact() -> None:
         "pyright",
         "vulture",
         "complexipy",
+        "cyclomatic",
     )
     assert module.gate_ids_for_profile("compatibility") == ("lock", "imports", "tests")
     assert module.gate_ids_for_profile("services") == (
@@ -64,6 +65,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
         "pyright",
         "vulture",
         "complexipy",
+        "cyclomatic",
         "imports",
         "tests",
         "services",
@@ -292,6 +294,7 @@ def test_tests_gate_scrubs_application_configuration_but_service_gate_keeps_it(
         "pyright",
         "vulture",
         "complexipy",
+        "cyclomatic",
         "imports",
         "tests",
         "services",

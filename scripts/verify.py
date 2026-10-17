@@ -150,6 +150,29 @@ GATES: Mapping[str, Gate] = {
             "--check-script=true",
         ),
     ),
+    "cyclomatic": Gate(
+        "cyclomatic",
+        (
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--isolated",
+            "--select",
+            "C901,E902",
+            "--config",
+            "lint.mccabe.max-complexity=10",
+            "--ignore-noqa",
+            "--no-respect-gitignore",
+            "--exclude",
+            "",
+            "src",
+            "tests",
+            "scripts",
+            "alembic",
+            "conftest.py",
+        ),
+    ),
     "imports": Gate(
         "imports",
         (
@@ -182,7 +205,16 @@ GATES: Mapping[str, Gate] = {
 }
 
 BASE_PROFILES: Mapping[str, tuple[str, ...]] = {
-    "static": ("lock", "format", "lint", "strict-types", "pyright", "vulture", "complexipy"),
+    "static": (
+        "lock",
+        "format",
+        "lint",
+        "strict-types",
+        "pyright",
+        "vulture",
+        "complexipy",
+        "cyclomatic",
+    ),
     "compatibility": ("lock", "imports", "tests"),
     "services": ("services", "redis-contract", "migrations"),
 }
@@ -221,6 +253,12 @@ _URL_PATTERN = re.compile(
 
 # Direct equivalents of every aggregate gate, kept literal so contributors can copy them verbatim.
 DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
+    (
+        "cyclomatic",
+        "uv run python -m ruff check --isolated --select C901,E902 "
+        "--config lint.mccabe.max-complexity=10 --ignore-noqa --no-respect-gitignore "
+        "--exclude '' src tests scripts alembic conftest.py",
+    ),
     ("lock", "uv lock --check"),
     ("format", "uv run black --check ."),
     ("lint", "uv run ruff check src tests scripts"),

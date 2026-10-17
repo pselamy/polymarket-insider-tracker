@@ -12,7 +12,7 @@ uv run python scripts/verify.py --profile PROFILE [--json]
 
 | Profile | Required gates | Intended caller |
 |---|---|---|
-| `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy, strict Pyright, Vulture dead code detection, Complexipy cognitive complexity verification | Contributor and Linux quality job |
+| `static` | lock freshness, Black formatting, Ruff lint/import rules, strict mypy, strict Pyright, Vulture dead code detection, Complexipy cognitive complexity verification, Ruff cyclomatic complexity verification | Contributor and Linux quality job |
 | `compatibility` | lock freshness, dependency/import smoke, full deterministic pytest suite | Linux version matrix and advisory Apple job |
 | `services` | `services` connectivity/async-query gate, then the `redis-contract` shared fake/real Redis behavioral suite against the loopback service, then the independent `migrations` disposable-cycle gate | Linux service job and local release evidence |
 | `all` | Every gate above, without duplicate execution | Contributor pre-review/release evidence |
@@ -64,6 +64,20 @@ module analysis. The launcher validates those exact visible arguments, resolves 
 absolutes, and invokes the pinned CLI from a fresh temporary working directory, so cwd `[diff]` settings
 cannot replace threshold enforcement with diff success. `--exclude=.` matches no repository path. The
 independent CI `complexipy` job runs this exact command and is bound to it by contract tests.
+
+The independent `cyclomatic` gate runs after `complexipy` using the locked Ruff package:
+
+```text
+uv run python -m ruff check --isolated --select C901,E902 --config lint.mccabe.max-complexity=10 --ignore-noqa --no-respect-gitignore --exclude '' src tests scripts alembic conftest.py
+```
+
+Native C901 measures per-function McCabe complexity and rejects values above 10. Native E902 makes
+missing source roots fail rather than merely warn. Explicit isolation, threshold, suppression and
+discovery options prevent cwd configuration, inline `noqa`, Git ignores and default excludes from
+weakening this command. Boundary tests execute this exact command over complete isolated trees,
+including an attempted relaxed local policy. This is a separate measurement from Complexipy's
+cognitive complexity maximum of 5; it does not claim module-level cyclomatic analysis. The existing
+required static job runs the shared profile and propagates this gate's failure to `Required checks`.
 
 The aggregate `tests` gate removes application and service configuration inherited from a loaded `.env`
 before starting pytest. The test harness also runs from an isolated temporary working directory so Pydantic

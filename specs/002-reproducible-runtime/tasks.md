@@ -455,3 +455,20 @@ checks, publication, approval or merge is asserted.
   ledgers remain unchanged. Fresh local static cognitive <=5, separate cyclomatic <=10,
   Python 3.11/3.12/3.13 compatibility, and private loopback PostgreSQL/Redis 7 service gates
   passed; publication and independent review remain pending.
+
+## Relentless CI: Independent Cyclomatic Control
+
+- [X] CX001 Measure current owned Python with native Ruff C901 at maximum 10; the existing tree
+  passes without remediation. Retain the independent cognitive maximum of 5.
+- [X] CX002 Add contract controls first and observe eight failures for the absent gate. Enroll the
+  locked native command in static/all, direct help, and fail-closed aggregate tests. The new eight
+  controls and aggregate verifier contracts pass (47 tests total).
+- [X] CX003 Prove the complexity-10/11 boundary in every owned root with inline and local configuration
+  bypass attempts. Independent review of the first candidate found its Git-ignore fixture ineffective;
+  the corrected control initializes real Git, proves a nested file is ignored, and checks that removing
+  only the ignore-protection flag passes while the actual command fails. Prove missing-root failure
+  through E902; C901 alone had warned with exit zero and did not satisfy this control.
+- [ ] CX004 Run complete static, supported compatibility and real disposable service profiles on
+  the candidate; retain actual source-bound receipts and any environment limitations.
+- [ ] CX005 Obtain independent exact-candidate review; publish only after required local checks.
+- [ ] CX006 Verify required hosted checks, legitimate merge approval and resulting-main success.
