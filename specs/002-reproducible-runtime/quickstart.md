@@ -128,3 +128,16 @@ Before calling the complete security extension usable, additionally execute and 
 
 Do not run App provisioning, access/credential changes, real notifications or external messages as a
 quickstart side effect. Prepare those concrete changes for their applicable separate authorization.
+
+
+## SEC005 source-binding controls
+
+Once implemented, run `uv run --isolated --locked --all-extras --python 3.11 python -m pytest
+ tests/tooling/test_secret_source.py tests/tooling/test_secret_tree.py tests/tooling/test_secret_identity.py
+ tests/tooling/test_secret_process.py tests/tooling/test_secret_git.py` (one shell line).
+Use an absolute capable Git and owned disposable repositories. Expected: exact declared tree/history
+source binds to complete blob digests; corrupted commit/root/nested tree/blob, missing/unsupported source,
+changed tree bytes, malformed raw trees, invalid/missing scope, process limits and inherited-config
+attacks fail with constant context-suppressed errors. No network transport is permitted.
+Repeat controls on3.12/3.13; run existing full native gates and exact-code independent review. These
+controls do not prove protected worker provenance, complete source enrollment or actual finding approval.

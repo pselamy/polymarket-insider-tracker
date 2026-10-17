@@ -143,3 +143,40 @@ def parse_finding(value: object, mode: ScanMode) -> NativeFinding:
     _coordinates(finding)
     _identity(finding)
     return finding
+
+
+def native_path(value: object) -> str:
+    """Validate a direct source-reader path using the same native report contract."""
+    text = _text(value)
+    _path(text)
+    return text
+
+
+def _finding_mode(value: object) -> None:
+    if not isinstance(value, ScanMode):
+        raise NativeReportError("invalid native mode") from None
+
+
+def _finding_tags(value: object) -> None:
+    if not isinstance(value, tuple):
+        raise NativeReportError("native identity tags") from None
+    for tag in cast(tuple[object, ...], value):
+        _text(tag)
+
+
+def validate_native_finding(value: object) -> NativeFinding:
+    """A nominal dataclass can be constructed directly; validate its exact metadata."""
+    if type(value) is not NativeFinding:
+        raise NativeReportError("native finding schema") from None
+    _finding_mode(value.mode)
+    for text in (value.native_commit, value.path, value.rule_id, value.native_fingerprint):
+        _text(text)
+    if not value.rule_id:
+        raise NativeReportError("empty native identity") from None
+    for coordinate in (value.start_line, value.end_line, value.start_column, value.end_column):
+        _integer(coordinate)
+    _finding_tags(value.tags)
+    _path(value.path)
+    _coordinates(value)
+    _identity(value)
+    return value

@@ -146,3 +146,19 @@ A typed decision constructor does not
 establish trust. The protected issuer owns authentication; no candidate-provided Boolean does so.
 Proposed → authenticated for one head → active after legitimate protected merge, with stale/revoked/
 superseded states invalidating acceptance. See [the contract](contracts/native-secret-policy.md).
+
+
+## SEC005 source-binding values
+
+- `GitLocation`: absolute executable/object-store paths, hidden from repr. A constructor is not trust.
+- `SourceScope`: immutable native repository ID, scanner-policy SHA256, scanned head and frozen
+  declared retained commits including head; every format/member is validated, completeness is not inferred.
+- `SourceBlob`: exact verified native source commit/path/mode/blob OID and complete bytes; all source
+  text/path is restricted and absent from repr. Read-only object measurement, no scan authenticity.
+- `FindingIdentityV1`: native metadata plus repository/policy/source/full-blob identities; canonical
+  restricted UTF-8 JSON and domain-separated SHA256. No accepted/approved property.
+- `ResolutionBudget`: fixed per-resolution time/byte/native-command accounting; exhaustion fails
+  without returning a partially bound identity. Worker-wide limits/provenance remain separate.
+
+History source is the exact native commit in declared scope; tree source is the exact scanned head
+and requires caller-measured full tree bytes equal to the committed blob. No cross-mode/cross-head carry.

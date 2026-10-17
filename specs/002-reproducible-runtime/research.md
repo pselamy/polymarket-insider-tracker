@@ -273,3 +273,25 @@ provenance, merged-record mapping and native revocation/merge-freshness proof re
 implementation/qualification tasks. They are not satisfied by these notes, a JSON flag or green fixture.
 The implementation must remain unable to accept nonempty reports until those tasks pass. New evidence
 that contradicts qualified coordinate/schema behavior requires a versioned contract correction.
+
+
+## SEC005 research decisions
+
+Decision: independently verify the complete raw commit→tree(s)→blob chain using native Git hashing,
+then parse verified raw tree bytes and SHA256 the full blob. A real nested-tree corruption probe showed
+recursive ls-tree can return a changed mapping successfully; blob-only validation is insufficient.
+Use a bounded isolated native process reader, not capture_output then truncation, and require the
+fail-visible no-lazy-fetch capability plus no allowed protocols. Use a fresh protected worker store;
+no candidate Git config/remotes/alternates becomes authority. See the preserved source-binding research.
+
+Alternatives rejected: recursive ls-tree alone (unverified nested mapping); rereading after verification
+(race); app-specific SHA1 (native Git already owns protocol/collision detection); env-only no-lazy flag
+(older Git silently ignores it); config-policing framework (fresh worker-owned store is simpler).
+The Git-only note's alternate physical-line count is not adopted: retain the prior qualified LF count+1
+position upper bound and opaque columns. The pinned8.30.1 location implementation counts LF byte
+positions and has a last-line fallback: https://github.com/gitleaks/gitleaks/blob/v8.30.1/detect/location.go.
+Existing19-row native source bounds were independently checked; this is not fresh scan/approval proof.
+
+Protected Git artifact provenance/full OS matrix, complete frozen enrollment and actual scan/export/
+execution authentication remain known later worker qualifications, with no success fallback. No policy
+latitude or individual finding is granted by these technical decisions.

@@ -514,3 +514,17 @@ The first-pass REVISE and failing13-control evidence remain preserved. External 
 verification receipts are in the task outputs; code/report hashes were independently checked.
 This documentation-only checkpoint changes no reviewed source or test bytes. SEC005–015 and every
 human-owned checklist marker remain unchecked; no finding, full security control or merge is approved.
+
+
+### SEC005 refinement and verification order
+
+1. Complete/read preserved Phase0 probes; managed plan/model/source-binding contract refinements,
+   then read-only managed analysis. Direction approval remains preparation only.
+2. Write failing real-Git source/integrity and strict tree/identity/process controls at the plan's
+   five test paths before source implementation. Keep every prior native test ID.
+3. Implement the five cohesive owned script modules with actual caps/deadlines, raw-chain verification,
+   exact tree-byte equality and full identity. No CLI, gate registration or finding acceptance.
+4. Run source controls across3.11–3.13, all full native static/type/complexity checks, retained-ID
+   comparison, committed-source compatibility and independent exact-artifact adversarial review.
+5. Record actual limits and known worker deployment dependencies before checking SEC005 complete.
+   SEC006–015, full OS matrix/service/hosting/individual-decision requirements remain open.

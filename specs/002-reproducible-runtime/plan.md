@@ -371,3 +371,31 @@ Each new file stays <=399 physical lines, cognitive <=5 and cyclomatic <=10. Bot
 Pyright explicitly inspect new scripts in locked Python3.11, even though current Pyright's normal
 repository gate covers src only. Preserve full native gates; focused checks are incremental evidence.
 No added runtime dependency, network/product side effect, schema or public product API change.
+
+
+## SEC005 detailed source-binding design — 2026-10-17
+
+The direct approved preparation covers this dependency-ordered increment. See
+`contracts/native-source-binding.md` for exact inputs, raw commit/tree/blob integrity, actual tree-byte
+comparison, canonical identity and bounded native process behavior. Phase0 research and safe probe
+summaries are preserved under `evidence/security-policy/research/source-binding/`. No public product
+contract, supported platform or live acceptance changes. Native source/data types confer no authority.
+
+Code remains in owned scripts: `_secret_process.py` isolates/caps native Git commands, `_secret_git.py`
+verifies raw native object bodies, `_secret_tree.py` parses verified tree entries, `_secret_identity.py`
+owns frozen declared scope/canonical identity, and `_secret_source.py` joins exact source with finding
+metadata. Tests use `tests/tooling/secret_source_fixtures.py` for real disposable Git construction plus
+`test_secret_source.py`, `test_secret_tree.py`, `test_secret_identity.py`, `test_secret_process.py` and
+`test_secret_git.py`. No inherited env, custom fallback detector or arbitrary candidate script runs.
+
+Git2.46+ no-lazy capability is a known additional worker dependency: unsupported executables fail
+visibly. Local Apple Git2.50.1 controls do not qualify a release artifact or Ubuntu. Whole approved
+OS/Python scope, protected worker and all full controls remain required; no platform is excluded.
+The prior native LF-position bound preserves a possible terminal empty position (LF count+1), not
+Git-only physical-line counting. Native columns remain opaque. Bounded actual stdout and per-resolution
+budgets fail without partial identity; worker sandbox/provenance/completeness is not inferred.
+
+Constitution check: research-only preparation, zero external effects; exact data/identity semantics,
+no approval/disposition path, root governance unchanged; all native gates/compatibility remain.
+Before code, run managed analysis against this refinement and add failing meaningful controls.
+Independent exact-code adversarial review and committed-source verification precede SEC005 completion.
