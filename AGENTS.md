@@ -149,7 +149,8 @@ the actual diff and independently rerun verification before accepting a worker's
 report; a launch, idle signal, test count, or green summary is not proof.
 
 Prepare a PR only after required checks and convergence pass. Verify remote required
-checks at the exact head; do not bypass branch protection. Patrick's approval is
-required to merge. After an approved merge, verify the resulting commit/tree and
+checks at the exact head; do not bypass branch protection. Once independent review
+and required checks pass, merge changes within the authorized task without requesting
+separate human merge approval. After merging, verify the resulting commit/tree and
 main CI before reporting completion. Distinguish implemented, locally verified,
-PR-green, approved, merged, and main-verified states in handoffs.
+PR-green, merged, and main-verified states in handoffs.
