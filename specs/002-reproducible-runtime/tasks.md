@@ -566,9 +566,9 @@ byte measurements are preparation evidence only and cannot close the native-work
 
 These author-owned substeps refineSEC006; checking one cannot close the entire native-worker task.
 
-- [ ] NC001 Preserve native upstream baselines; repair two production-engine generator imports without rule changes.
+- [x] NC001 Preserve native upstream baselines; repair two production-engine generator imports without rule changes. Verified a990152f2651c61664e5d3f5e28350c8397cfe58; all275 IDs retained in both full engines; native lifecycle vet warning remains open forNC003.
 - [ ] NC002 Add runtime old-parser error-loss counterexamples and strict native completion controls, then implement the opt-in parser endpoint.
-- [ ] NC003 Add failing native file/read/close/task/callback/cancellation controls, then propagate errors and collect actual source-group results.
+- [x] NC003 Add failing native file/read/close/task/callback/cancellation controls, then propagate errors and collect actual source-group results. Independent SHIP atbc836bb1cff5feca40cf3e57131b810c3f59682c; both full engines291 IDs retain275 baseline; both vet modes and four independent probes pass. See evidence/security-policy/native-files-review.md.
 - [ ] NC004 Add failing Git parser/child/early-abort/EOF-hang controls, then own/cancel/reap the strict native stream and join terminal results.
 - [ ] NC005 Run full native engine/dependency checks, preserve IDs/schema/detectors, record build/module/patch identities and qualify platform behavior honestly.
 - [ ] NC006 Independently review exact correction/artifacts, prepare revised import/qualification/worker contract; retain all reserved activation decisions.
