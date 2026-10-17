@@ -141,3 +141,18 @@ changed tree bytes, malformed raw trees, invalid/missing scope, process limits a
 attacks fail with constant context-suppressed errors. No network transport is permitted.
 Repeat controls on3.12/3.13; run existing full native gates and exact-code independent review. These
 controls do not prove protected worker provenance, complete source enrollment or actual finding approval.
+
+
+## Native completion correction preparation
+
+Keep the application unchanged while using owned disposable native-source checkouts pinned by
+`contracts/native-completion-correction.md`. Preserve the untouched full upstream test result for
+both regex modes and the parser dependency. Reproduce late native reader/parse/source/child errors
+before implementing strict completion. Use isolated pinned Go/module/build inputs, not candidate
+setup hooks or a globally replaced scanner. Capture raw native test/log output as restricted evidence;
+ordinary summaries expose safe test IDs, counts, exits and digests only.
+
+Before any artifact-import or real worker claim, complete the contract's full engine, process cleanup,
+ordered report/schema, Linux/Apple runtime and exact artifact review scenarios. An available archive,
+byte hash, version, successful cross-build or diagnostic matcher is not native completion/authenticity.
+The application profiles and existing supported Python matrix remain unchanged.

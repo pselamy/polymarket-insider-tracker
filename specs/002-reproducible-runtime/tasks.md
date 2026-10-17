@@ -560,3 +560,18 @@ Phase0 research and root artifact/config measurements are preserved; see native-
 contract. Resolve silent native read/process failures with independent design analysis before
 implementation. SEC006 remains unchecked, as do SEC007-015 and all human criteria. Tool/config
 byte measurements are preparation evidence only and cannot close the native-worker milestone.
+
+
+### SEC006 native completion correction substeps
+
+These author-owned substeps refineSEC006; checking one cannot close the entire native-worker task.
+
+- [ ] NC001 Preserve native upstream baselines; repair two production-engine generator imports without rule changes.
+- [ ] NC002 Add runtime old-parser error-loss counterexamples and strict native completion controls, then implement the opt-in parser endpoint.
+- [ ] NC003 Add failing native file/read/close/task/callback/cancellation controls, then propagate errors and collect actual source-group results.
+- [ ] NC004 Add failing Git parser/child/early-abort/EOF-hang controls, then own/cancel/reap the strict native stream and join terminal results.
+- [ ] NC005 Run full native engine/dependency checks, preserve IDs/schema/detectors, record build/module/patch identities and qualify platform behavior honestly.
+- [ ] NC006 Independently review exact correction/artifacts, prepare revised import/qualification/worker contract; retain all reserved activation decisions.
+
+OrderNC001→002→003→004→005→006. See `contracts/native-completion-correction.md`.
+No native correction code has been accepted; no partial passing security gate is registered.

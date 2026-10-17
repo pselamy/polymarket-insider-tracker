@@ -162,3 +162,19 @@ superseded states invalidating acceptance. See [the contract](contracts/native-s
 
 History source is the exact native commit in declared scope; tree source is the exact scanned head
 and requires caller-measured full tree bytes equal to the committed blob. No cross-mode/cross-head carry.
+
+
+## Native completion correction values (proposed preparation)
+
+- Strict parser terminal result: a native error after any reader/header/hunk/callback/context failure;
+  success only after full exhaustion and callback completion. Partial emitted files carry no completed-run authority.
+- Native source result: joined walk/open/read/close/parser/task/context/Git-child completion, with failure
+  dominant over produced findings. Restricted native details stay out of ordinary output.
+- Derived scanner build measurement: exact upstream and parser revisions, patch/module checksums,
+  toolchain/flags/regex engine/platform, artifact bytes/hashes and native qualification receipts.
+  It is a derived build, not an untouched release or a signed/authenticated source claim.
+- Protected import authority: independent reviewed registry/deployment evidence, separate from the
+  measurements above. No value constructor, candidate digest or private local build grants that authority.
+
+These describe the correction plan only. No new product schema, worker implementation, acceptance
+property or active import policy is introduced; SEC006 and later trust/activation requirements remain.

@@ -415,3 +415,13 @@ completion. Independent adversarial design analysis must resolve this before wor
 byte-only helper will be substituted for the SEC006 milestone. Retain all supported platforms and
 every original goal requirement. The proposed removal-only config and archive/executable measurements
 confer no active policy, protected origin or signer/build provenance.
+
+
+### Native completion correction preparation
+
+Independent analysis in `evidence/security-policy/worker-readiness-analysis.md` is SHIP for measurements/
+honestNOT_READY, REVISE for full unmodified-worker design. Follow the concrete isolated correction
+plan in `contracts/native-completion-correction.md`: preserve native source/detectors/legacy parser,
+add strict terminal error propagation, join source work and child status, test and build reviewable
+derived artifacts. Preparation is within existing authorization; actual substituted artifact import
+and protected acceptance remain reserved. Run managed analysis on this correction before code.
