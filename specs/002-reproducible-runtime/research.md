@@ -295,3 +295,20 @@ Existing19-row native source bounds were independently checked; this is not fres
 Protected Git artifact provenance/full OS matrix, complete frozen enrollment and actual scan/export/
 execution authentication remain known later worker qualifications, with no success fallback. No policy
 latitude or individual finding is granted by these technical decisions.
+
+
+## SEC006 worker Phase0 findings - 2026-10-17
+
+Decision: retain full native detectors/source/history; use stronger suppression-free protected
+configuration and explicit complete-history formatting. Root independently verified all222 remaining
+rule records and measured exact official Darwin/Linux archives/executables. Detailed primary sources,
+synthetic failures and alternatives are in `evidence/security-policy/research/worker/research.md`.
+Rationale: explicit empty ignore, default config, default history formatting and native0/[] alone
+all produced incomplete scans in bounded controls. Unsigned checksums establish byte/publication
+identity only. A protected reviewed import boundary remains distinct from signed upstream provenance.
+
+Unresolved design: complete native read/process evidence, including silent non-permission opens
+and swallowed worker errors. Independent analysis is pending; no full-worker design completion is
+claimed. Conservative refusal handles known unsupported source/ignore/archive cases without omitting
+bytes. A conclusive native completion mechanism or separately qualified minimal source correction
+must resolve the remaining blocker before worker implementation.

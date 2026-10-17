@@ -399,3 +399,19 @@ Constitution check: research-only preparation, zero external effects; exact data
 no approval/disposition path, root governance unchanged; all native gates/compatibility remain.
 Before code, run managed analysis against this refinement and add failing meaningful controls.
 Independent exact-code adversarial review and committed-source verification precede SEC005 completion.
+
+
+## SEC006 native-worker readiness research - 2026-10-17
+
+SEC005 is verified at96b0faf; its doc checkpoint75d1332 closes that layer only. The managed Phase0
+worker research and independent root measurements are preserved in `evidence/security-policy/research/worker/`.
+See `contracts/native-worker-readiness.md` for the pinned artifact/config, fixed complete-history
+format, immutable owned inputs and strict observation/authority boundaries. Extensions hooks are
+absent; explicit slice002 setup/prerequisites selected the existing plan without replacing it.
+
+A complete worker is not yet implementation-ready: unmodified scanner file opens can fail silently,
+so exit/report/diagnostic checks plus before/after manifests alone do not establish native read
+completion. Independent adversarial design analysis must resolve this before worker coding. No
+byte-only helper will be substituted for the SEC006 milestone. Retain all supported platforms and
+every original goal requirement. The proposed removal-only config and archive/executable measurements
+confer no active policy, protected origin or signer/build provenance.

@@ -552,3 +552,11 @@ the declared source-binding layer. Complete source/export enrollment, qualified 
 and native execution provenance, full worker isolation, human decisions, supported OS/services,
 hosting and SEC006–015 remain open. All11 human-owned checklist markers remain unchecked. Root
 governance and individual decisions are unchanged; no acceptance, activation or merge follows.
+
+
+### SEC006 readiness checkpoint
+
+Phase0 research and root artifact/config measurements are preserved; see native-worker-readiness
+contract. Resolve silent native read/process failures with independent design analysis before
+implementation. SEC006 remains unchecked, as do SEC007-015 and all human criteria. Tool/config
+byte measurements are preparation evidence only and cannot close the native-worker milestone.
