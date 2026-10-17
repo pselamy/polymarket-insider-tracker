@@ -1,0 +1,108 @@
+{
+  "status": "planning-only; independent preliminary replay SHIP; production unchanged; full slice004 validation pending",
+  "source_commit": "752a918315b273f7946212c2daa7e35502eda6f4",
+  "source_sha256": {
+    "detector/fresh_wallet.py": "edfa19840909832352cc84a7464963ea08a14750e23477bb70c5e79506271f10",
+    "detector/size_anomaly.py": "ae189bd03cc79dca0ad75739e718c2636235323ae7a3a21ae7d75f1e4ff82918",
+    "detector/scorer.py": "2fd151ee38dc7e44e55c2b309549cc14aea012e591d6451feb074b4571513904",
+    "detector/models.py": "854bbd30d20d31bdc754a51c6285c60bc8cc04f1268d97e4f526418038b463cd",
+    "ingestor/models.py": "28bdadd9700b75e0e2fe01c6c5ed6c48bdd01a32447ce800fa2e8edb9e6d1c11",
+    "profiler/models.py": "a4a4a0e45b6076763b68592ccc70a0c1ca9e2df1d6c4adf597d12ae9fa95b5be",
+    "pipeline.py": "2911f000fc42bcdc0f7a8e43af8d376a08981276b3ce9fe5fb788e923330b4c7"
+  },
+  "corpus_sha256": "8dfddeb95e1c36729f287872ca2239fb911499b9b5bef6c47678b9967531a86e",
+  "evaluator_sha256": "4068275636a0e60bf75032e180f8f88f5ede4abc8845a145664d437bc2adb084",
+  "results_sha256": "63ecab8b01162f5e205256c807a893afdb2fe6d19217af404549e0fbe8eac44d",
+  "case_count": 114,
+  "changed_cases": 63,
+  "old_distribution": {
+    "minimum": "0.000",
+    "maximum": "0.528",
+    "mean": "0.1976842105263157894736842105",
+    "median": "0.240",
+    "bins": {
+      "0": 34,
+      "(0,0.25]": 31,
+      "(0.25,0.50]": 47,
+      "(0.50,0.75]": 2,
+      "(0.75,1]": 0
+    }
+  },
+  "proposed_distribution": {
+    "minimum": "0.000",
+    "maximum": "0.924",
+    "mean": "0.3702807017543859649122807018",
+    "median": "0.320",
+    "bins": {
+      "0": 22,
+      "(0,0.25]": 31,
+      "(0.25,0.50]": 31,
+      "(0.50,0.75]": 4,
+      "(0.75,1]": 26
+    }
+  },
+  "qualification_counts_at_case_thresholds": {
+    "old": 2,
+    "proposed": 22
+  },
+  "default_threshold_cases": 108,
+  "qualification_counts_at_default080": {
+    "old": 0,
+    "proposed": 17
+  },
+  "default_runtime_configuration_cases": 99,
+  "qualification_counts_at_default_runtime_configuration": {
+    "old": 0,
+    "proposed": 15
+  },
+  "old_group_combinations": [
+    [
+      false,
+      false
+    ],
+    [
+      false,
+      true
+    ],
+    [
+      true,
+      false
+    ],
+    [
+      true,
+      true
+    ]
+  ],
+  "proposed_group_combinations": [
+    [
+      false,
+      false
+    ],
+    [
+      false,
+      true
+    ],
+    [
+      true,
+      false
+    ],
+    [
+      true,
+      true
+    ]
+  ],
+  "unattributed_score_changes": 0,
+  "corrections": [
+    "Initial evaluator incorrectly passed proposed constructor overrides to the old side. Corrected to pipeline defaults before final independent review; fixed114-case corpus unchanged."
+  ],
+  "proposal_assumptions": [
+    "Nine cases exercise proposed runtime detector override wiring; those controls are library-only on old main and require explicit planning/validation before production implementation.",
+    "Retain known-age confidence formula and weights; remove unreachable3+ bonus with no output delta.",
+    "Unknown-age low-activity confidence is exactly0.50 after minimum notional and strict nonce gates; no age/new-wallet bonus.",
+    "Only positive volume explicitly marked current enters ratio and numeric niche selection; unavailable/stale/nonpositive volume uses category-only context.",
+    "Daily-volume currentness is a fixture input; operational freshness interval/source-time design still needs the004 plan and human validation.",
+    "Book/funding/sniper inputs never enter core score. Full persistence/rendered-output and real pipeline verification remain future implementation work."
+  ],
+  "audited_results_sha256": "ea2ad207489ddf4c57823e64bab4c0afdb2f7e6a9645d45a53b8ddd567d10aa6",
+  "canonical_csv_normalization": "CRLF to LF only; all114 parsed rows identical to independently reviewed CSV; audited original remains unchanged"
+}
