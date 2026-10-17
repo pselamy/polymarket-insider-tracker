@@ -469,7 +469,7 @@ All new human checklist markers remain unchecked. SEC tasks cover FR-023–030 a
 - [X] SEC002 [US5] Prepare spec/plan/model/contract/quickstart, exact amendment proposal and reviewer-owned `checklists/security-policy.md`; run managed tasks/analyze before implementation (FR-023–030). This box records document preparation only; analysis verdict is separate.
 - [X] SEC003 [US5] Write RED parser/schema controls in `tests/tooling/test_secret_report.py` and `tests/tooling/test_secret_schema.py`, covering exit/report contradictions, full schema, duplicate JSON/rows, native coordinate/collision cases and safe output. Put a synthetic private-context sentinel in path/rule/fingerprint/tags and source fields; prove finding/report repr and formatted error/log output do not expose it (FR-024,026,027; SC-011,012).
 - [X] SEC004 [US5] Implement immutable safe metadata in `scripts/_secret_models.py`, bounded JSON/schema in `_secret_json.py`/`_secret_schema.py` and pure `_secret_report.py`; no approval, CLI or gate registration (FR-024,026,027).
-- [ ] SEC005 [US5] Verify exact source objects/line bounds in `scripts/_secret_source.py` and `tests/tooling/test_secret_source.py`; immutable tree/history membership and full-blob identities reject all mismatch/unsupported cases (FR-023,024,026; SC-012,013).
+- [X] SEC005 [US5] Verify exact source objects/line bounds in `scripts/_secret_source.py` and `tests/tooling/test_secret_source.py`; immutable tree/history membership and full-blob identities reject all mismatch/unsupported cases (FR-023,024,026; SC-012,013).
 
 ### Native worker and donor preservation
 
@@ -528,3 +528,27 @@ human-owned checklist marker remain unchecked; no finding, full security control
    comparison, committed-source compatibility and independent exact-artifact adversarial review.
 5. Record actual limits and known worker deployment dependencies before checking SEC005 complete.
    SEC006–015, full OS matrix/service/hosting/individual-decision requirements remain open.
+
+### SEC005 exact preparation completion - 2026-10-17
+
+Code96b0faf9d4eb7d4fa21e5b4c2a298c673c0291d4 received independent SHIP for this source-binding
+layer only. The three prior REVISE commits/reports remain preserved. The final exact-byte correction
+rejects unsupported decoder inputs before their methods run; four controls were observed RED first.
+A narrow real-child wait failure additionally proves safe private-error/log handling and child reap.
+Root compared25 reviewed source/document hashes against actual files and committed blobs,19 review
+evidence hashes and all18 owned source/test files. Source/test files are at most265 physical lines.
+
+Exact committed full locked3.11 compatibility passed1883/3skipped/55warnings (272.54s pytest,
+276.39s profile). Two skips require real services and one is Windows-only. All1719 previous IDs
+remain, with167 new; all1881 immediately prior IDs remain plus5. Independent exact-head focused
+controls pass288 each on3.11/3.12/3.13. Nine-module coverage is604statements/190branches,100% with
+zero excluded lines, not whole-repository coverage. Seven currently configured native static gates,
+both explicit strict checkers on18files, cognitive5 and full-scope C90110/E902 passed. The earlier
+inline guard's cognitive6 failure and timing-sensitive coverage miss are retained as historical
+failed results; neither threshold nor required gate changed.
+
+See `evidence/security-policy/source-final-review.md` and `source-verification.md`. This closes only
+the declared source-binding layer. Complete source/export enrollment, qualified scanner/Git release
+and native execution provenance, full worker isolation, human decisions, supported OS/services,
+hosting and SEC006–015 remain open. All11 human-owned checklist markers remain unchecked. Root
+governance and individual decisions are unchanged; no acceptance, activation or merge follows.
