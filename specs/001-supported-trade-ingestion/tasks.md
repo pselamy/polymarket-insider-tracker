@@ -262,7 +262,7 @@ owned gaps, and hand off for review.
   Evidence (2026-09-10): Fable first pass `eb8a21d`; corrective pass `876e4e3`; two independent
   adversarial reviewers returned `SHIP` after their findings were fixed and re-tested.
 - [x] T028 Prepare the pull request only after T024–T027 converge; verify required checks at the exact
-  head; do not merge without Patrick's approval [Constitution §Development Workflow 9]
+  head; merge only after independent review and required checks pass, then verify the resulting commit/tree and main CI [Constitution §Development Workflow 9]
   Evidence (2026-09-10): PR #121 opened only after local convergence; all required push and pull
   checks passed at the exact final head. The implementation PR remains unmerged pending Patrick's
   separate approval.

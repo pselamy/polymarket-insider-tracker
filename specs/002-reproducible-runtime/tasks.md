@@ -417,7 +417,7 @@ The AG prefix isolates this documentation ledger from the fakes ledger above.
 - [X] AG005 Reconcile against merged PR117 and independently review the guidance diff;
   reviewer returned SHIP and fresh all-profile / Python 3.11–3.12 compatibility passed.
 - [ ] AG006 Open the separate PR and verify required checks at its exact head.
-- [ ] AG007 Obtain Patrick's merge approval, merge, and verify resulting main CI.
+- [ ] AG007 Merge after independent review and required checks pass, and verify resulting main CI.
 
 ### T5 receipt-binding correction (2026-09-12)
 
@@ -471,4 +471,4 @@ checks, publication, approval or merge is asserted.
 - [ ] CX004 Run complete static, supported compatibility and real disposable service profiles on
   the candidate; retain actual source-bound receipts and any environment limitations.
 - [ ] CX005 Obtain independent exact-candidate review; publish only after required local checks.
-- [ ] CX006 Verify required hosted checks, legitimate merge approval and resulting-main success.
+- [ ] CX006 Verify required hosted checks, independently reviewed authorized merge and resulting-main success.

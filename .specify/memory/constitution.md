@@ -1,10 +1,18 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 -> 1.0.1
-- Modified principles: Development Workflow and Quality Gates clarified for Spec Kit artifact
-  ownership, explicit feature activation, and gap-register convergence
+- Version change: 1.0.1 -> 2.0.0
+- Modified principles: Development Workflow rule 9 aligned with merged autonomous-merge policy
+  (PR138): independently reviewed, required-checks-green authorized merges proceed without
+  separate human merge approval; branch protection preserved; resulting commit/tree plus
+  main CI verified before completion. Requested directly by the owner to align PR138.
 - Added sections: none
 - Removed sections: none
+- Affected normative docs: .specify/memory/constitution.md,
+  specs/001-supported-trade-ingestion/tasks.md,
+  specs/002-reproducible-runtime/contracts/agent-guidance.md,
+  specs/002-reproducible-runtime/plan.md, specs/002-reproducible-runtime/tasks.md
+- Application/API/storage behavior change: none; required checks, independent review,
+  and branch protection remain.
 - Follow-up TODOs: none
 -->
 # Polymarket Insider Tracker Constitution
@@ -89,8 +97,11 @@ slices and reviewable commits; unrelated refactors are out of scope.
    branch or fresh clone.
 8. Every slice MUST update its owned gap-register entries and record any approved deferral before
    convergence.
-9. A pull request may be prepared only after required checks and convergence pass. It MUST NOT be
-   merged without Patrick's approval.
+9. A pull request may be prepared only after required checks and convergence pass. Verify remote required
+   checks at the exact head; do not bypass branch protection. Once independent review
+   and required checks pass, merge changes within the authorized task without requesting
+   separate human merge approval. After merging, verify the resulting commit/tree and
+   main CI before reporting completion.
 
 ## Governance
 
@@ -102,4 +113,4 @@ principles, and PATCH for non-semantic clarification. Every specification, pull 
 convergence review MUST record compliance or an explicit approved exception. Unapproved exceptions
 are defects and block completion.
 
-**Version**: 1.0.1 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-09-06
+**Version**: 2.0.0 | **Ratified**: 2026-09-06 | **Last Amended**: 2026-10-17
