@@ -28,10 +28,13 @@ from fakeredis import FakeAsyncRedis, FakeServer
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError, WatchError
 
-# The services profile selects this file as its only pytest gate, so the
-# PostgreSQL journey is re-exported here to run in the "PostgreSQL and Redis
-# required checks" job. It skips when DATABASE_URL is scrubbed by the
+# The services profile selects this file as its only pytest gate, so both
+# PostgreSQL journey tests are re-exported here to run in the "PostgreSQL and
+# Redis required checks" job. They skip when DATABASE_URL is scrubbed by the
 # deterministic compatibility suite.
+from tests.integration.test_postgres_journey import (
+    test_disposable_database_cleanup_runs_when_journey_raises as test_disposable_database_cleanup_runs_when_journey_raises,
+)
 from tests.integration.test_postgres_journey import (
     test_dry_run_journey_persists_in_disposable_postgres as test_dry_run_journey_persists_in_disposable_postgres,
 )

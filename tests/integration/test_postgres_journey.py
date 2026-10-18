@@ -17,7 +17,7 @@ import asyncio
 import json
 import os
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -36,18 +36,22 @@ from tests.fakes import (
     FakeAlertChannel,
     FakeClock,
     FakeEth,
-    FakeTradesServer,
     make_test_settings,
-    trade_row,
     wire_pipeline,
 )
+from tests.integration.test_end_to_end import (
+    POLL_START,
+    _market,
+    _pipeline_row,
+    _run_until,
+    _seeded_server,
+)
 
-from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
+from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import RiskAssessmentModel
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-POLL_START = 1_788_983_720.0
 DATABASE_ENV = "DATABASE_URL"
 TX_NUMBER = 9
 
@@ -124,45 +128,6 @@ def _sample_trade() -> TradeEvent:
     )
 
 
-def _niche_market(trade: TradeEvent) -> MarketMetadata:
-    return MarketMetadata(
-        condition_id=trade.market_id,
-        question="Test market?",
-        description="",
-        tokens=(Token(token_id=trade.asset_id, outcome=trade.outcome, price=trade.price),),
-        category="science",
-    )
-
-
-def _seeded_server(clock: FakeClock) -> FakeTradesServer:
-    server = FakeTradesServer(clock=clock)
-    server.publish(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1))
-    server.publish(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2))
-    return server
-
-
-def _pipeline_row(trade: TradeEvent, clock: FakeClock) -> dict[str, object]:
-    row = trade_row(
-        timestamp=int(clock.now) + 1,
-        transaction=TX_NUMBER,
-        market=trade.market_id,
-        asset=trade.asset_id,
-        price=str(trade.price),
-        size=str(trade.size),
-    )
-    row["proxyWallet"] = trade.wallet_address
-    return row
-
-
-async def _run_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        if predicate():
-            return
-        await asyncio.sleep(0.002)
-    raise AssertionError("condition was not reached")
-
-
 async def _assessment_rows(database_url: str) -> list[RiskAssessmentModel]:
     """Read through a fresh engine and session, independent of the pipeline's."""
     engine = create_async_engine(database_url)
@@ -235,7 +200,7 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
             settings,
             redis=fake_redis,
             eth=FakeEth(transaction_count=0),
-            market=_niche_market(trade),
+            market=_market(trade, "science"),
             db_manager=manager,
             channels=[discord, telegram],
             trades=server,
@@ -245,7 +210,7 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
         try:
             await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
             await _run_until(lambda: len(server.requests) >= 1)
-            server.publish(_pipeline_row(trade, clock))
+            server.publish(_pipeline_row(trade, clock, TX_NUMBER))
             await _run_until(lambda: pipeline.stats.trades_processed >= 1)
             await _run_until(lambda: len(server.requests) >= 4)
         finally:
