@@ -83,3 +83,17 @@ implementation
 - Add comments or findings inline
 - Link to relevant resources or documentation
 - Items are numbered sequentially for easy reference
+
+## Data API v2 Amendment Review (2026-10-18)
+
+Reviewer-owned additions for the approved v2 amendment. All items are unchecked when added.
+
+- [ ] VM-002 Are failing v2 fixtures specified for field mapping, envelope/cursor integrity, and the
+  explicit v1-configuration error, so implementation cannot start from a green baseline it did not earn?
+  [Coverage, Spec §Amendment 1-2; Contract §Source Acquisition]
+- [ ] VM-003 Is v2 decoding and request behavior required to preserve secret/cookie/redirect isolation,
+  required-field validation, numeric rules, optional outcome repair, and retry behavior?
+  [Consistency, Spec §Amendment 4; Contract §What Acquisition Never Does]
+- [ ] VM-004 Is exact identity and official-source namespace compatibility required to be proven against
+  deterministic v1/v2 fixtures, including the custom-proxy non-continuity boundary?
+  [Measurability, Spec §Amendment 4; Data Model §Identity tuple]
