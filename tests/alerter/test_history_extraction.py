@@ -72,23 +72,25 @@ class TestImportIdentity:
             assert getattr(AlertHistory, method_name) is getattr(_channel_delivery, function_name)
 
     def test_record_type_keeps_historical_module_identity(self) -> None:
-        assert (
-            _history_records.AlertRecord.__module__ == "polymarket_insider_tracker.alerter.history"
-        )
-        assert (
-            _history_records.generate_dedup_key.__module__
-            == "polymarket_insider_tracker.alerter.history"
-        )
-        assert (
-            _history_records.get_signals_from_assessment.__module__
-            == "polymarket_insider_tracker.alerter.history"
-        )
+        expected_module = "polymarket_insider_tracker.alerter.history"
+        assert AlertRecord.__module__ == expected_module
+        assert AlertRecord.__qualname__ == "AlertRecord"
+        assert _generate_dedup_key.__module__ == expected_module
+        assert _generate_dedup_key.__qualname__ == "_generate_dedup_key"
+        assert _get_signals_from_assessment.__module__ == expected_module
+        assert _get_signals_from_assessment.__qualname__ == "_get_signals_from_assessment"
 
     def test_alert_record_pickle_round_trip(self) -> None:
         record = _sample_record()
         restored = pickle.loads(pickle.dumps(record))
         assert restored == record
         assert type(restored) is AlertRecord
+
+    def test_pure_helpers_pickle_round_trip_through_historical_name(self) -> None:
+        assert pickle.loads(pickle.dumps(_generate_dedup_key)) is _generate_dedup_key
+        assert (
+            pickle.loads(pickle.dumps(_get_signals_from_assessment)) is _get_signals_from_assessment
+        )
 
 
 class TestGenerateDedupKeyProperty:

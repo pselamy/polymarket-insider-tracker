@@ -23,11 +23,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Compatibility: the record type and pure helpers now live in
-# ``_history_records``; keep the historical ``history.<name>`` module identity
-# so existing import paths, qualnames and pickle references keep resolving.
+# ``_history_records``; keep the historical ``history.<name>`` module/qualname
+# identity so existing import paths and pickle references keep resolving.
 AlertRecord.__module__ = __name__
+AlertRecord.__qualname__ = "AlertRecord"
 _generate_dedup_key.__module__ = __name__
+_generate_dedup_key.__qualname__ = "_generate_dedup_key"
 _get_signals_from_assessment.__module__ = __name__
+_get_signals_from_assessment.__qualname__ = "_get_signals_from_assessment"
 
 
 class AlertHistory:
@@ -91,7 +94,9 @@ class AlertHistory:
 
     # Channel-scoped delivery deduplication lives in ``_channel_delivery`` and
     # is bound here so ``AlertHistory.<name>`` keeps its historical method
-    # identity for import, introspection and monkeypatch seams.
+    # identity for import and introspection. The claim lifecycle internally
+    # dispatches to the module-level ``compare_and_delete``/``compare_and_expire``
+    # (Pyright strict forbids cross-module access to the protected attributes).
     is_channel_suppressed = _channel_delivery.is_channel_suppressed
     is_channel_delivered = _channel_delivery.is_channel_delivered
     record_channel_delivery = _channel_delivery.record_channel_delivery
