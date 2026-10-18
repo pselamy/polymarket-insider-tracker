@@ -176,7 +176,7 @@ class TestV2OptionalAndUnknownFields:
         assert decoded.event.outcome == ""
         assert decoded.event.outcome_index == 0
 
-        repaired = repair_outcome(decoded, _market(("asset-no", "No"), ("token-yes", "Yes")))
+        repaired = repair_outcome(decoded, _market(("asset-no", "No"), ("asset-yes", "Yes")))
 
         assert repaired.outcome_resolution is OutcomeResolution.REPAIRED
         assert repaired.event.outcome == "Yes"
@@ -186,7 +186,7 @@ class TestV2OptionalAndUnknownFields:
         row = _as_v2(trade_row(timestamp=NOW, outcome=None, outcome_index=None, asset="token-yes"))
 
         repaired = repair_outcome(
-            _observation(row), _market(("token-no", "No"), ("token-yes", "Yes"))
+            _observation(row), _market(("asset-no", "No"), ("token-yes", "Yes"))
         )
 
         assert repaired.event.outcome == "Yes"
