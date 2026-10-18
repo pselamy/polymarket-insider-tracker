@@ -108,7 +108,7 @@ class TestAttemptBudgetAsync:
         await budget.acquire()
         assert clock.sleeps == [10.0]
         assert clock.now == 10.0
-        assert len(budget.recorded_starts()) == 31
+        assert budget.recorded_starts() == (10.0,)
 
     async def test_starts_are_counted_not_completions(self) -> None:
         clock = FakeClock(0.0)
