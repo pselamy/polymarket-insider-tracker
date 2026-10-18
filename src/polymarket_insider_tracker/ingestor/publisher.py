@@ -7,9 +7,7 @@ to Redis Streams, enabling downstream consumers to process events independently.
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from decimal import Decimal
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
@@ -17,9 +15,38 @@ from redis.typing import EncodableT, FieldT
 
 from polymarket_insider_tracker.redaction import redact_exception_message
 
+from ._publisher_codec import (
+    decode_entry_id as _decode_entry_id,
+)
+from ._publisher_codec import (
+    decode_stream_dict as _decode_stream_dict,
+)
+from ._publisher_codec import (
+    deserialize_trade_event as _deserialize_trade_event,
+)
+from ._publisher_codec import (
+    parse_event_timestamp as _parse_event_timestamp,
+)
+from ._publisher_codec import (
+    serialize_trade_event as _serialize_trade_event,
+)
 from .models import TradeEvent
 
 logger = logging.getLogger(__name__)
+
+
+# Compatibility: keep the historical ``publisher.<name>`` module identity so
+# existing import paths, qualnames and pickle references keep resolving.
+_serialize_trade_event.__module__ = __name__
+_serialize_trade_event.__qualname__ = "_serialize_trade_event"
+_decode_stream_dict.__module__ = __name__
+_decode_stream_dict.__qualname__ = "_decode_stream_dict"
+_parse_event_timestamp.__module__ = __name__
+_parse_event_timestamp.__qualname__ = "_parse_event_timestamp"
+_decode_entry_id.__module__ = __name__
+_decode_entry_id.__qualname__ = "_decode_entry_id"
+_deserialize_trade_event.__module__ = __name__
+_deserialize_trade_event.__qualname__ = "_deserialize_trade_event"
 
 
 # Default configuration
@@ -47,91 +74,6 @@ class StreamEntry:
 
     entry_id: str
     event: TradeEvent
-
-
-def _serialize_trade_event(event: TradeEvent) -> dict[str, str]:
-    """Serialize a TradeEvent to a dict suitable for Redis Streams.
-
-    Redis Streams require string key-value pairs, so we convert all
-    values to strings.
-
-    Args:
-        event: The TradeEvent to serialize.
-
-    Returns:
-        Dictionary with string keys and values.
-    """
-    return {
-        "market_id": event.market_id,
-        "trade_id": event.trade_id,
-        "wallet_address": event.wallet_address,
-        "side": event.side,
-        "outcome": event.outcome,
-        "outcome_index": str(event.outcome_index),
-        "price": str(event.price),
-        "size": str(event.size),
-        "timestamp": event.timestamp.isoformat(),
-        "asset_id": event.asset_id,
-        "market_slug": event.market_slug,
-        "event_slug": event.event_slug,
-        "event_title": event.event_title,
-        "trader_name": event.trader_name,
-        "trader_pseudonym": event.trader_pseudonym,
-    }
-
-
-def _decode_stream_dict(data: dict[bytes | str, bytes | str]) -> dict[str, str]:
-    decoded: dict[str, str] = {}
-    for k, v in data.items():
-        key = k.decode() if isinstance(k, bytes) else str(k)
-        value = v.decode() if isinstance(v, bytes) else str(v)
-        decoded[key] = value
-    return decoded
-
-
-def _parse_event_timestamp(timestamp_str: str) -> datetime:
-    try:
-        return datetime.fromisoformat(timestamp_str)
-    except (ValueError, TypeError):
-        return datetime.now(UTC)
-
-
-def _decode_entry_id(entry_id: bytes | str) -> str:
-    return entry_id.decode() if isinstance(entry_id, bytes) else str(entry_id)
-
-
-def _deserialize_trade_event(data: dict[bytes | str, bytes | str]) -> TradeEvent:
-    """Deserialize a TradeEvent from Redis Stream data.
-
-    Args:
-        data: The raw data from Redis Stream (may have bytes keys/values).
-
-    Returns:
-        TradeEvent instance.
-    """
-    decoded = _decode_stream_dict(data)
-    timestamp = _parse_event_timestamp(decoded.get("timestamp", ""))
-
-    side_raw = decoded.get("side", "BUY").upper()
-    side: Literal["BUY", "SELL"] = "BUY" if side_raw == "BUY" else "SELL"
-
-    return TradeEvent(
-        market_id=decoded.get("market_id", ""),
-        trade_id=decoded.get("trade_id", ""),
-        wallet_address=decoded.get("wallet_address", ""),
-        side=side,
-        outcome=decoded.get("outcome", ""),
-        outcome_index=int(decoded.get("outcome_index", "0")),
-        price=Decimal(decoded.get("price", "0")),
-        size=Decimal(decoded.get("size", "0")),
-        timestamp=timestamp,
-        asset_id=decoded.get("asset_id", ""),
-        market_slug=decoded.get("market_slug", ""),
-        event_slug=decoded.get("event_slug", ""),
-        event_title=decoded.get("event_title", ""),
-        trader_name=decoded.get("trader_name", ""),
-        trader_pseudonym=decoded.get("trader_pseudonym", ""),
-    )
 
 
 def _parse_stream_entry(
