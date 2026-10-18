@@ -163,3 +163,8 @@ only_mutate = ["*/redaction.py"]
 also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
 pytest_add_cli_args_test_selection = ["tests/test_redaction.py", "-q", "-p", "no:cacheprovider"]
 
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.1",
+]
+
