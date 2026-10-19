@@ -1,19 +1,38 @@
 # Clone inventory (jscpd 5.3.3, pinned reference policy)
 
-Measured 2026-10-19 (review round 1) on the reverted tree — the three
-out-of-scope file splits from the first measurement were removed, so this
-scan covers the full authored scope as it exists on main plus this card's
-alembic/mise/docs changes: **258 authored Python files** enumerated by
-`quality.source_scope.discover` + `validate_path` (the `verify_sources`
-file set without its 399-line size hook; see
-[relentless-ci-adoption.md](relentless-ci-adoption.md) for the coupling).
-Vendored `SCAN_POLICY` at the 50-token tier: `--mode mild --format python
---min-tokens 50 --min-lines 4 --threshold 0 --no-gitignore --workers 1`,
-empty config, no ignore lists, no exclusions.
+Re-measured 2026-10-19 for dedup cluster 5 (URL credential parsing and
+redaction). The authored scope is enumerated by
+`quality.source_scope.discover` + `validate_path` (the `verify_sources` file
+set without its 399-line size hook; see
+[relentless-ci-adoption.md](relentless-ci-adoption.md) for the coupling):
+**268 authored Python files** after this card adds `scripts/_url_redaction.py`
+and `tests/tooling/test_url_redaction.py`. Vendored `SCAN_POLICY` at the
+50-token tier: `--mode mild --format python --min-tokens 50 --min-lines 4
+--threshold 0 --no-gitignore --workers 1`, empty config, no ignore lists, no
+exclusions.
 
-Totals: **92 clone groups, 1230 duplicated lines, 2.16% duplication** (the
-scanner's own statistics report 225 sources: files it actually tokenized after
+Totals: **99 clone groups, 1271 duplicated lines, 2.18% duplication** (the
+scanner's own statistics report 235 sources: files it actually tokenized after
 skipping ones smaller than the clone minimums).
+
+The first measurement recorded here (92 groups, 1230 lines, 2.16% over 258
+files) predated the v1->v2 endpoint merges now on main, so a fresh baseline was
+taken on this card's parent commit `233c24f`: **101 groups, 1347 lines, 2.31%
+over 266 files**. Cluster 5 then removed exactly its two clones and introduced
+none, giving the 99 groups above.
+
+### Cluster 5 resolution (2026-10-19)
+
+The byte-identical URL parser duplicated in `scripts/_service_redaction.py` and
+`scripts/_verify_redaction.py` now has one home, `scripts/_url_redaction.py`
+(`_URL_PATTERN`, `_split_userinfo`, `_extract_query_password`,
+`_query_credentials`, `_url_credentials`, `credential_forms`, `redacted_url`,
+`redact_url_occurrences`). Both scripts import it and keep only their own
+sensitivity policy. `src/polymarket_insider_tracker/redaction.py` was checked
+and is a different, broader policy (path masking, query-key preservation,
+lone-userinfo masking), so it was not adopted. Before/after on the same tree:
+101 -> 99 clone groups, 1347 -> 1271 duplicated lines; the only differences are
+the two removed cluster-5 clones. Resolved by this card's PR.
 
 Reproduce: enumerate the authored scope, stage it, then call the vendored
 `quality.duplication.scan(root, config, staged, output, minimum=50, deadline)`
@@ -41,7 +60,7 @@ knowledge).
 | 2 | 12 | 147 | test_end_to_end.py, test_persist_assessment.py, test_pipeline.py, test_pipeline_persistence.py, test_postgres_journey.py | Repeated `wire_pipeline(...)` bootstrap blocks with the same fake-stack wiring | real |
 | 3 | 7 | 94 | test_redaction.py | Repeated harness setups asserting the same redaction policy across inputs | real |
 | 4 | 9 | 92 | test_dispatcher.py | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
-| 5 | 2 | 76 | _service_redaction.py, _verify_redaction.py | **Identical URL parsing + credential-extraction module** (pattern, `_split_userinfo`, `_extract_query_password`, `_query_credentials`, `_url_credentials`, `_credential_forms`, `_redacted_url`) | real |
+| 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (this card) |
 | 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
 | 7 | 3 | 60 | detector/models.py, storage/repos.py | Duplicated dataclass property/`to_dict` serialization knowledge across signal models | real |
 | 8 | 4 | 47 | test_health_server.py | Repeated `set_component_checker` wiring for up/degraded/down cases | real |
@@ -70,14 +89,13 @@ knowledge).
 | 31 | 1 | 6 | storage/models.py | SQLAlchemy `datetime.now(UTC)` timestamp column defaults | incidental |
 | 32 | 1 | 6 | test_gamma_client.py | Repeated paged-response fixture | real |
 
-Real knowledge dominates: 29 of 32 clusters (88 of
-92 clones) are duplicated maintenance surfaces — fixture blocks,
-wiring scaffolds, parallel Discord/Telegram knowledge, URL-credential
-parsing, and Redis CAS logic. The three incidental clusters are
-convention-mandated scaffolding (Alembic revisions, SQLAlchemy column
-defaults) and parallel API docstrings. The two clusters added since the
-first measurement come from the v1->v2 endpoint work merged to main
-(`test_endpoint_switch_resume` bootstrap, `_v2_walk_harness` construction).
+Real knowledge dominates: most clusters are duplicated maintenance surfaces —
+fixture blocks, wiring scaffolds, parallel Discord/Telegram knowledge, and
+Redis CAS logic. The three incidental clusters are convention-mandated
+scaffolding (Alembic revisions, SQLAlchemy column defaults) and parallel API
+docstrings. The cluster table above is the original knowledge grouping with
+cluster 5 now resolved; the per-clone list below is regenerated from the
+current pinned scan.
 
 ## Every clone (scanner output, ordered by tokens)
 
@@ -86,14 +104,16 @@ first measurement come from the v1->v2 endpoint work merged to main
 
 | tok | ln | A | B |
 | --- | --- | --- | --- |
-| 407 | 61 | scripts/_service_redaction.py:8-68 | scripts/_verify_redaction.py:25-85 |
 | 197 | 38 | src/.../detector/models.py:38-75 | src/.../detector/models.py:109-146 |
+| 150 | 24 | tests/fakes/trades.py:209-232 | tests/fakes/trades_v2.py:56-79 |
 | 131 | 34 | tests/alerter/test_history.py:24-57 | tests/detector/test_scorer.py:28-61 |
 | 120 | 20 | tests/test_redaction.py:1787-1806 | tests/test_redaction.py:1845-1864 |
 | 118 | 31 | tests/alerter/test_formatter.py:75-105 | tests/detector/test_scorer.py:74-104 |
 | 110 | 18 | src/.../alerter/channels/discord.py:76-93 | src/.../alerter/channels/telegram.py:96-113 |
+| 103 | 21 | tests/integration/test_end_to_end.py:59-79 | tests/integration/test_v2_journey.py:39-59 |
 | 102 | 20 | tests/ingestor/test_publisher.py:23-42 | tests/ingestor/test_publisher_codec.py:50-69 |
 | 96 | 20 | tests/detector/test_sniper.py:278-297 | tests/detector/test_sniper.py:314-333 |
+| 96 | 18 | tests/integration/test_end_to_end.py:90-107 | tests/integration/test_v2_journey.py:78-95 |
 | 88 | 17 | tests/test_terminal_error_durable.py:84-100 | tests/test_terminal_error_durable.py:153-169 |
 | 87 | 19 | tests/integration/test_end_to_end.py:175-193 | tests/integration/test_end_to_end.py:268-286 |
 | 84 | 24 | tests/alerter/test_formatter.py:20-43 | tests/alerter/test_history.py:16-39 |
@@ -112,10 +132,10 @@ first measurement come from the v1->v2 endpoint work merged to main
 | 74 | 12 | tests/test_main.py:304-315 | tests/test_main.py:362-373 |
 | 73 | 10 | src/.../alerter/_channel_delivery.py:100-109 | src/.../alerter/_channel_delivery.py:132-141 |
 | 73 | 14 | tests/alerter/test_dispatcher.py:421-434 | tests/alerter/test_dispatcher.py:545-559 |
+| 73 | 8 | tests/ingestor/test_endpoint_switch_resume.py:37-44 | tests/ingestor/test_v2_poller.py:40-47 |
 | 72 | 13 | tests/alerter/test_dispatcher.py:403-415 | tests/alerter/test_dispatcher.py:523-535 |
 | 71 | 21 | tests/alerter/test_formatter.py:23-43 | tests/detector/test_scorer.py:23-43 |
 | 70 | 11 | tests/integration/test_redis_contract.py:481-491 | tests/integration/test_redis_contract.py:526-536 |
-| 69 | 15 | scripts/_service_redaction.py:69-83 | scripts/_verify_redaction.py:90-104 |
 | 69 | 9 | scripts/runtime_services.py:46-54 | scripts/verify.py:27-35 |
 | 69 | 11 | tests/ingestor/test_health_server.py:104-114 | tests/ingestor/test_health_server.py:140-150 |
 | 69 | 15 | tests/integration/test_end_to_end.py:46-60 | tests/test_pipeline.py:82-96 |
@@ -123,29 +143,32 @@ first measurement come from the v1->v2 endpoint work merged to main
 | 68 | 12 | tests/alerter/test_formatter.py:502-513 | tests/alerter/test_formatter.py:680-691 |
 | 68 | 14 | tests/test_terminal_error_durable.py:36-49 | tests/test_terminal_error_durable.py:81-94 |
 | 67 | 14 | src/.../detector/models.py:57-70 | src/.../detector/models.py:182-195 |
-| 67 | 8 | tests/ingestor/test_endpoint_switch_resume.py:74-81 | tests/ingestor/test_endpoint_switch_resume.py:103-110 |
+| 67 | 8 | tests/ingestor/test_endpoint_switch_resume.py:89-96 | tests/ingestor/test_endpoint_switch_resume.py:120-127 |
 | 67 | 11 | tests/ingestor/test_health_server.py:65-75 | tests/ingestor/test_health_server.py:276-286 |
 | 67 | 10 | tests/test_main.py:305-314 | tests/test_main.py:572-581 |
 | 66 | 15 | tests/ingestor/test_trade_row_v2.py:50-64 | tests/ingestor/test_trade_rows.py:37-51 |
 | 65 | 8 | tests/tooling/test_service_entrypoint.py:148-155 | tests/tooling/test_service_entrypoint.py:176-183 |
 | 64 | 13 | tests/ingestor/test_trade_poller.py:521-533 | tests/ingestor/test_trade_poller.py:583-595 |
+| 64 | 16 | tests/integration/test_end_to_end.py:177-192 | tests/integration/test_v2_journey.py:128-142 |
 | 64 | 17 | tests/test_redaction.py:2024-2040 | tests/test_redaction.py:2077-2093 |
 | 62 | 12 | tests/ingestor/test_trade_poller.py:233-244 | tests/ingestor/test_trade_poller.py:261-272 |
 | 62 | 16 | tests/integration/test_end_to_end.py:63-78 | tests/test_pipeline_persistence.py:47-62 |
 | 62 | 12 | tests/test_terminal_error_durable.py:38-49 | tests/test_terminal_error_durable.py:152-163 |
 | 61 | 6 | src/.../storage/models.py:51-56 | src/.../storage/models.py:212-217 |
-| 61 | 7 | tests/integration/test_end_to_end.py:88-94 | tests/test_pipeline.py:536-542 |
 | 61 | 11 | tests/integration/test_end_to_end.py:345-355 | tests/test_pipeline.py:619-628 |
+| 61 | 7 | tests/integration/test_end_to_end.py:88-94 | tests/test_pipeline.py:536-542 |
 | 61 | 13 | tests/profiler/test_funding.py:60-72 | tests/profiler/test_funding_rpc.py:70-82 |
 | 61 | 13 | tests/profiler/test_models.py:204-216 | tests/profiler/test_models.py:229-241 |
 | 60 | 10 | tests/ingestor/test_models.py:218-227 | tests/ingestor/test_models.py:242-251 |
 | 60 | 15 | tests/test_redaction.py:2257-2271 | tests/test_redaction.py:2374-2388 |
 | 59 | 17 | tests/alerter/test_formatter.py:92-108 | tests/detector/test_scorer.py:91-107 |
 | 59 | 11 | tests/ingestor/test_health_server.py:54-64 | tests/ingestor/test_health_server.py:93-103 |
+| 59 | 10 | tests/integration/test_end_to_end.py:107-116 | tests/integration/test_v2_journey.py:95-104 |
 | 58 | 6 | tests/ingestor/test_gamma_client.py:167-172 | tests/ingestor/test_gamma_client.py:225-233 |
 | 57 | 12 | tests/detector/test_scorer.py:620-631 | tests/detector/test_size_anomaly.py:858-869 |
 | 57 | 6 | tests/ingestor/test_trade_poller.py:912-917 | tests/ingestor/test_trade_poller.py:977-981 |
 | 57 | 10 | tests/ingestor/test_trade_row_v2_properties.py:95-104 | tests/ingestor/test_trade_row_v2_properties.py:114-123 |
+| 57 | 6 | tests/integration/test_end_to_end.py:79-84 | tests/integration/test_v2_journey.py:101-106 |
 | 57 | 6 | tests/integration/test_end_to_end.py:79-84 | tests/test_pipeline.py:104-109 |
 | 57 | 13 | tests/test_redaction.py:1547-1559 | tests/test_redaction.py:1886-1897 |
 | 56 | 9 | tests/ingestor/test_publisher.py:247-255 | tests/ingestor/test_publisher.py:272-280 |
@@ -155,6 +178,8 @@ first measurement come from the v1->v2 endpoint work merged to main
 | 55 | 10 | tests/alerter/test_dispatcher.py:888-897 | tests/alerter/test_dispatcher.py:915-925 |
 | 55 | 17 | tests/alerter/test_formatter.py:88-104 | tests/alerter/test_history.py:83-99 |
 | 55 | 9 | tests/tooling/test_service_entrypoint.py:14-22 | tests/tooling/test_verifier_standalone.py:43-51 |
+| 53 | 7 | tests/ingestor/test_endpoint_switch_resume.py:100-106 | tests/ingestor/test_endpoint_switch_resume.py:127-133 |
+| 53 | 7 | tests/integration/test_end_to_end.py:236-242 | tests/integration/test_v2_journey.py:160-166 |
 | 53 | 10 | tests/profiler/test_models.py:205-214 | tests/profiler/test_models.py:215-224 |
 | 53 | 10 | tests/profiler/test_models.py:205-214 | tests/profiler/test_models.py:255-264 |
 | 53 | 16 | tests/test_persist_assessment.py:4-19 | tests/test_pipeline_persistence.py:5-20 |
@@ -180,5 +205,6 @@ first measurement come from the v1->v2 endpoint work merged to main
 | 50 | 6 | tests/test_persist_assessment.py:96-101 | tests/test_pipeline.py:107-112 |
 
 `src/...` abbreviates `src/polymarket_insider_tracker`. This document is
-inventory only: no product code was changed to produce it. Deduplication
-decisions belong to later, separately authorized cards.
+inventory only; the cluster-5 resolution above is the only product change
+reflected here. Deduplication decisions for the remaining clusters belong to
+later, separately authorized cards.
