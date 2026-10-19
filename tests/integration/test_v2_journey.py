@@ -11,10 +11,14 @@ configuration.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine
 from tests.fakes import FakeClock, make_test_settings
 from tests.integration._v2_journey_harness import (
     POLL_START,
     JourneyEnvironment,
+    _run_until,
+    persisted_assessments,
+    pipeline_row,
     run_dry_run_journey,
     seeded_v2_server,
 )
@@ -44,3 +48,32 @@ async def test_end_to_end_dry_run_pipeline_v2(
         sample_trade_event,
         niche_market,
     )
+
+
+async def test_journey_harness_characterization(
+    sample_trade_event: TradeEvent,
+    niche_market: MarketMetadata,
+    async_engine: AsyncEngine,
+) -> None:
+    """Pin the shared journey knowledge: fixtures, row shape, waiter, persistence read."""
+    from tests.integration.test_end_to_end import _market
+
+    other = _market(sample_trade_event, "science")
+    assert niche_market.condition_id == other.condition_id
+    assert niche_market.question == other.question
+    assert niche_market.description == other.description
+    assert niche_market.tokens == other.tokens
+    assert niche_market.category == other.category == "science"
+
+    clock = FakeClock(POLL_START)
+    row = pipeline_row(sample_trade_event, clock)
+    assert row["proxyWallet"] == sample_trade_event.wallet_address
+    assert row["timestamp"] == int(clock.now) + 1
+    assert row["conditionId"] == sample_trade_event.market_id
+    assert row["asset"] == sample_trade_event.asset_id
+
+    await _run_until(lambda: True)
+    with pytest.raises(AssertionError):
+        await _run_until(lambda: False, timeout=0.01)
+
+    assert await persisted_assessments(async_engine) == []
