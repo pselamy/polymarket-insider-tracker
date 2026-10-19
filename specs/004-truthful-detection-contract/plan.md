@@ -71,7 +71,7 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   wallet group. Before its receipt exists the wallet group is non-scoring (FR-007c): the scorer records
   `wallet.group_status = unqualified_pre_T027`, null wallet confidence, contribution 0, the group is not
   counted and the 1.2 bonus never applies, so the ceiling is 0.450. This is the contract's single default
-  posture (D1 option O5); implementation tasks that let the wallet group score do not merge before the
+  posture (D1b option G1, formerly O5); implementation tasks that let the wallet group score do not merge before the
   receipt. Opening the gate is a reviewed code change citing the receipt, not an environment knob.
 - **Operator surface**: keep `DETECTOR_ALERT_THRESHOLD` default 0.80 (inclusive `>=`,
   0.001 quantum); add `DETECTOR_FRESH_TRANSACTION_BOUNDARY` default 5, positive integer and
@@ -82,7 +82,7 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   notional 1000, age ceiling 48h, niche volume 50000 / niche-only minimum 500, confidence
   constants, and weight rules stay fixed.
 - **Wallet identity and age (revised 2026-10-19)**: the profiled address is the V2 `proxy_wallet`
-  (FR-007a, nonce meaning unverified); live age is unknown until DECISION D1 selects a qualified
+  (FR-007a, nonce meaning unverified); live age is unknown until DECISION D1a selects a qualified
   source (FR-007b, research R09; recommended default O1); unknown age is exactly 0.50 everywhere.
 - **Wallet/size semantics**: known-age requires notional ≥ 1000, `nonce < B` (effective
   boundary), age ≤ 48h; unknown-age low-activity requires notional ≥ 1000, `nonce < B`,

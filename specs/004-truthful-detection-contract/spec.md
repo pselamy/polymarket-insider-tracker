@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: Proposed for Patrick review; revised 2026-10-19 after the codex/agy second opinions (not approved; open decisions D1–D3 in [decision-packet.md](decision-packet.md)); implementation is not yet authorized
+**Status**: Proposed for Patrick review; revised 2026-10-19 after the codex/agy second opinions (not approved; open decisions D1a, D1b, D2, D3 in [decision-packet.md](decision-packet.md)); implementation is not yet authorized
 
 **Input**: User description: "Make live detector inputs, signal semantics, scoring, persisted evidence, and public capability claims match the monitoring behavior that is actually wired and supportable."
 
@@ -144,7 +144,7 @@ persisted assessment fields, sample output, README, example environment, and the
 - **FR-007b** *(age source)*: A known age MUST carry its basis: `polymarket_first_trade` (earliest public
   trade seen for the proxy address), `chain_first_transaction` (qualified indexer), or none. Current main has
   no operational age source (`get_first_transaction` returns `None` for every wallet). Which source, if any,
-  the live product uses is DECISION D1 in [decision-packet.md](decision-packet.md); until a source is selected
+  the live product uses is DECISION D1a in [decision-packet.md](decision-packet.md); until a source is selected
   and qualified, live age is **always unknown** and the known-age classification is exercised only by injected
   test profiles and is documented as non-operational. Failure to obtain an age is `unknown`, never `fresh`.
 - **FR-007c** *(qualification gate; the spec's single default posture)*: The wallet group MUST NOT
@@ -251,7 +251,7 @@ persisted assessment fields, sample output, README, example environment, and the
   useful but is labeled a lower-certainty “low-activity wallet, age unknown” candidate with confidence exactly
   0.50 and no age, brand-new, very-young or large-trade bonus.
   Because no age source is operational (FR-007b), this is the **only** wallet classification the live
-  runtime can produce until decision D1 selects and qualifies a source. In the default pre-T027 posture
+  runtime can produce until decision D1a selects and qualifies a source. In the default pre-T027 posture
   (FR-007c) it is recorded but does not score.
 - The default transaction-count rule is fewer than 5 prior transactions, following the README wording. This
   intentionally resolves the current mix of `< 5` and `<= 5` behavior.
@@ -282,7 +282,7 @@ persisted assessment fields, sample output, README, example environment, and the
   (no first-party code, test or checked-in evidence); see FR-007a.
 - Slice 003 owns the assessment schema, `scoring_config` column and dry-run safety (G-018).
 
-**Open decisions**: FR-005a (lookup failure), FR-007b/FR-008 (live age unknown, exactly 0.50), FR-007c (wallet group non-scoring before T027) and the 0.80 default are written for the recommended defaults of D1–D3 in [decision-packet.md](decision-packet.md); they are not settled until Patrick decides and change with the chosen option.
+**Open decisions**: FR-005a (lookup failure), FR-007b/FR-008 (live age unknown, exactly 0.50), FR-007c (wallet group non-scoring before T027) and the 0.80 default are written for the recommended defaults of D1a, D1b, D2 and D3 in [decision-packet.md](decision-packet.md); they are not settled until Patrick decides and change with the chosen option.
 
 **Non-goals**: trading or execution, financial advice, backtesting or calibration, book-depth scoring,
 funding or sniper scoring, changes to the V2 acquisition path or its cadence, a new database migration,

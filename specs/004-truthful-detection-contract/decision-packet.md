@@ -15,7 +15,8 @@ contract only, not a merge, deployment, real notification, trading or calibratio
 
 | ID | Question | Recommended default | If you pick otherwise |
 |---|---|---|---|
-| **D1** | Wallet-age source (current main has none), and whether wallet evidence may score before T027 | **Default posture: the wallet group is non-scoring until T027 (FR-007c; this is O5).** Age source after T027: O1 (none) for this slice, O2 next | Letting the wallet group score before T027 accepts an unvalidated heuristic; O2/O3 add a source task and a qualification receipt |
+| **D1a** | Wallet-age source (current main has none) | **O1** (none) for this slice; O2 or O6 as the first follow-up | O2/O3/O6 add a source task and a qualification receipt; O4 is an unverified lead |
+| **D1b** | May nonce or activity evidence score before qualification? | **G1** (former O5): wallet group non-scoring until T027 (FR-007c) | G2 scores an unvalidated proxy-nonce heuristic; G3 needs D1a = O6 |
 | **D2** | What 0.80 means while nothing live can reach it (pre-T027 ceiling 0.450; post-T027 unknown-age ceiling 0.780) | **R5 assessment-only release** (R0's configuration, described as assessment-only), with the runtime "default alert path unreachable" report (FR-022a, T029) | R1 to 0.78 still yields zero alerts pre-T027; R3 needs a new spec |
 | **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata | (a) keeps invented evidence; (b) silences the size group on any outage |
 
@@ -28,30 +29,54 @@ operator can still lower `DETECTOR_ALERT_THRESHOLD`; the value is recorded per a
 
 ## DECISIONS FOR PATRICK (open; none is settled by this revision)
 
-### D1 — Wallet-age source (DECISION FOR PATRICK)
+### D1a — Wallet-age source (DECISION FOR PATRICK)
 
 Current main cannot produce a known wallet age (`profiler/chain.py:485-532` returns no first
 transaction for any wallet), and the profiled address is the V2 `proxy_wallet`, whose nonce meaning is
-**unverified**. Full analysis: [research.md](research.md) R09.
+**unverified**. Full analysis: [research.md](research.md) R09. D1a only matters once the wallet group may
+score (D1b); it does not change the pre-T027 ceiling 0.450.
 
 | Option | Live behaviour | Main trade-off |
 |---|---|---|
-| **O1** age branch non-operational; score only on low-activity evidence | every wallet candidate is "low-activity wallet, age unknown", confidence exactly 0.50 | Truthful, no new dependency; maximum score is 0.78 (see D2) |
-| **O2** Polymarket-activity age from the earliest public trade for the proxy address | "first Polymarket trade seen < 48 h ago" when full history is reachable, else unknown | Measures newness to Polymarket without the nonce question; needs a qualified per-user query, offset-capped so often only a lower bound |
+| **O1** no age source; age branch non-operational | every wallet candidate is "low-activity wallet, age unknown", confidence exactly 0.50 | Truthful, no new dependency; maximum score 0.780 once the wallet group scores (see D2) |
+| **O2** Polymarket-activity age from the earliest public trade for the proxy address (per-user Data API query) | "first Polymarket trade seen < 48 h ago" when full history is reachable, else unknown | Measures newness to Polymarket without the nonce question; needs a qualified per-user query, newest-first with a 10,000-row offset cap, so often only a lower bound (then `unknown`) |
 | **O3** external indexer for chain first-transaction age | "first on-chain transaction < 48 h ago" | Vendor, credential/quota and cost; still subject to the proxy-address question |
 | **O4** Gamma public-profile style account-creation timestamp | "account created < 48 h ago" as Polymarket records it | **Unverified lead only** (research R09 O4): no endpoint or terms evidenced in the repo; not recommendable until qualified |
-| **O5** wallet group non-scoring until T027 qualifies the proxy-address nonce (**the spec's default posture**) | the size group alone scores; the wallet classification is recorded with `group_status = unqualified_pre_T027`, never as scoring evidence | Strongest truthfulness (no unvalidated heuristic scores); every ceiling drops to the size-group-only maximum 0.450 (`evidence/reachability.md`, pre-T027 table; replay columns `*_pre_T027`) |
+| **O6** O2's per-user query used for **both** age and a **Polymarket trade count** as the low-activity measure (added after the round-3 Claude review) | "first Polymarket trade seen < 48 h ago" and "fewer than `B` public Polymarket trades seen", each from the same response; nonce recorded as an observation only | Replaces the unqualified nonce on the activity side too, so the wallet group no longer depends on proxy-nonce semantics; low counts are exactly the case the 10,000-row cap does not truncate. Costs: the same query qualification as O2, plus whether `takerOnly` or maker visibility undercounts trades (an undercount would *create* false "low activity"); changes what FR-007/FR-009's activity count means and needs its own reviewed spec text. **UNVERIFIED**: no live call was made |
 
-**Codex round-2 position (reviewer input, not a decision)**: scoring a proxy-wallet nonce as "low activity" before T027 says what it measures is unvalidated; hence T027 is now an entry gate (FR-007c) and O5 exists.
+**Recommended default: O1 for slice 004** (the only option whose every claim is supported by code on
+main today), with **O2 or O6 as the first follow-up** once a bounded, authorized qualification
+establishes the per-user query semantics (T027's optional per-user scope). If you pick O2, O3 or O6 the
+spec already has the wording rules and the unknown-age fallback; the implementation then gains a source
+task, and O6 also gains an activity-measure task.
 
-**Default posture, stated plainly: O5 until T027.** The earlier wording "O1 gated by T027" was O5 in
-effect and is withdrawn: before the T027 receipt the wallet group is non-scoring
-(`wallet.group_status = unqualified_pre_T027`) and the spec, schema, reachability table and replay are
-written for that posture. **Recommended age source once T027 has qualified the wallet group: O1** (no
-age; low-activity evidence at exactly 0.50) for slice 004, O2 as the first follow-up. If you pick O2 or
-O3 the spec already has the wording rules and the unknown-age fallback; the implementation then gains
-a source task. If you want the wallet group to score before qualification, that is an explicit choice
-to accept an unvalidated heuristic.
+### D1b — May nonce or activity evidence score before qualification? (DECISION FOR PATRICK)
+
+This is a scoring-safety posture, not an age source; it composes with any D1a option. The earlier
+packet listed it as D1 option O5 beside the age sources; both round-3 reviewers objected that this
+blurred two independent choices.
+
+| Option | Pre-qualification behaviour | Main trade-off |
+|---|---|---|
+| **G1 (= former O5; the spec's default posture)** wallet group non-scoring until T027 qualifies what the activity measure counts (FR-007c) | size group alone scores; wallet classification recorded with `group_status = unqualified_pre_T027`, never as scoring evidence | Strongest truthfulness; every ceiling drops to the size-group-only maximum 0.450 (`evidence/reachability.md`, pre-T027 table; replay columns `*_pre_T027`) |
+| **G2** let the proxy-address nonce score now at exactly 0.50 (the earlier "O1 ungated") | wallet group scores as "low transaction count on the proxy address"; ceilings are the post-T027 rows (0.780 unknown age) | Accepts an unvalidated heuristic: if relayers submit transactions the nonce may stay low for active traders and every large trader looks "low activity" |
+| **G3** score only on an activity measure that does not need the nonce (requires D1a = O6) | wallet group non-scoring until the per-user query is qualified, then scores on the Polymarket trade count; the nonce is never scored | Removes the proxy-nonce question entirely; T027 becomes a query qualification instead of a nonce one; needs O6's spec text and source task before any wallet scoring |
+
+**Recommended default: G1 (O5 until T027).** The earlier wording "O1 gated by T027" was G1 in effect and
+is withdrawn: before the T027 receipt the wallet group is non-scoring and the spec, schema,
+reachability table and replay are written for that posture. Choosing G2 is an explicit choice to accept
+an unvalidated heuristic; choosing G3 moves the wallet group's activity measure to D1a O6.
+
+**Reviewer positions on D1a/D1b (input, not decisions)**:
+
+- *codex round 2*: scoring a proxy-wallet nonce as "low activity" before T027 says more than it
+  measures; hence T027 is an entry gate (FR-007c).
+- *codex round 3*: D1a **O2 after qualification**, with age `unknown` whenever history is truncated or
+  maker visibility is incomplete; D1b **G1 (O5) until then**. Says "O1 plus a gate" is not one
+  recommendation: before qualification it is O5, afterwards O1.
+- *Claude round 3*: D1b **G1 (O5) now**, then D1a **O6** (O2's query for age plus a Polymarket trade
+  count) once T027 qualifies the query; would not pick plain O1, because scoring an unqualified nonce at
+  0.50 is what the gate exists to prevent.
 
 ### D2 — What the 0.80 threshold means while nothing live can reach it (DECISION FOR PATRICK)
 
@@ -62,7 +87,7 @@ Recomputed by `scripts/spec004_evidence/reachability.py` ([research.md](research
 |---|---|---|
 | **Default, pre-T027** (wallet non-scoring, FR-007c) | **0.450** for every trade size (`0.75 × (0.35 + 0.25)`, no bonus) | niche market with usable volume, ratio ≥ 0.06; non-niche 0.175; no usable volume 0.120 (niche-prone category) or 0.000 |
 | Post-T027, unknown age | 0.780 for every trade size | same niche case with the 1.2 two-group bonus; non-niche 0.450 |
-| Post-T027, known age (needs a D1 age source; none on main) | 0.972 | best case, niche, > $10k; non-niche tops out at 0.642 |
+| Post-T027, known age (needs a D1a age source; none on main) | 0.972 | best case, niche, > $10k; non-niche tops out at 0.642 |
 | Main today (003.1 rules, volume never passed) | 0.528 | |
 
 The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases. Live-realistic
@@ -102,6 +127,15 @@ lookup failure the code even invents category `"other"`, which counts as niche-p
 | (a) keep as today | niche-prone category or failed lookup ⇒ size 0.2 ⇒ score 0.120 pre-T027 (0.384 post-T027) | preserves 003.1 behaviour; a lookup failure is scored as niche evidence |
 | (b) no category fallback; size signal needs measured volume | no size signal ⇒ score 0.000 pre-T027 (0.200 post-T027) | most conservative; every volume outage silences the size group |
 | **(c) fallback only for a category from real metadata (recommended)** | real `science/tech/finance/other` ⇒ 0.120 pre-T027 (0.384 post-T027); failed lookup or other categories ⇒ 0.000 (0.200) | removes the invented evidence, keeps the documented heuristic |
+| (d) (c) **and** only when no volume value was observed: P1 `unavailable` or P3 `missing` (added after the round-3 Claude review) | as (c) for P1/P3; for P2 `unqualified`, P4 `invalid`, P5 `nonpositive`, P6 `invalid_time`, P7 `stale` ⇒ no size signal ⇒ 0.000 pre-T027 (0.200 post-T027) | closes the path where Gamma did report a value (for example a $5M `science` market whose stamp is 601 s old) yet the market is treated as niche by category; an outage that still returns stale or unqualified values silences the size group for those markets |
+
+**Recommended default: (c).** (d) is the stricter variant; it is not the default only because it is a
+new rule no reviewer had evaluated before round 3, and choosing it changes FR-005a, data-model §1.2/§3
+(`category_source` use) and tasks T009/T012 test literals.
+
+**Reviewer positions (input, not decisions)**: codex round 3 chooses **(c)** and calls the option set
+complete; the round-3 Claude reviewer chooses **(d)**: (c) plus the no-observed-value rule. agy and codex
+round 1 flagged the fallback as a false-positive source.
 
 ## What changed since the 2026-10-17 packet
 
@@ -109,7 +143,7 @@ lookup failure the code even invents category `"other"`, which counts as niche-p
 |---|---|---|---|
 | Base | main `46e4192` | main `f2e2167`; hashes/lines refreshed, check script | F25 |
 | V2 ingestion | "separate pending request, untouched" | live contract; wallet subject is `proxy_wallet`; journey suites in scope (T021–T026) | F02, F24 |
-| Wallet age | assumed available | none on main; FR-007a/b, basis recorded, D1 | F01, F02 |
+| Wallet age | assumed available | none on main; FR-007a/b, basis recorded, D1a/D1b | F01, F02 |
 | Unknown-age confidence | "capped at" and "exactly" 0.50 | exactly 0.50 everywhere (single table) | F26 |
 | Threshold reachability | not examined | table + script + 45 live-realistic replay cases; ceiling 0.450 pre-T027 (default posture), 0.780 post-T027 unknown age; D2 | F03, F04, F05, R3 B1 |
 | Wallet gate | none | FR-007c default posture: wallet group non-scoring before T027, serialized as `wallet.group_status` | R2-4a, R3 B1 |
@@ -182,5 +216,5 @@ deprecated inclusive alias; no new migration.
 ## Exact scope to authorize
 
 Approve or reject the contract in spec/plan/research/data-model/contracts/tasks **after** deciding
-D1–D3. Do not decide whether a factual provider claim is true — evidence category and limits are
+D1a, D1b, D2 and D3. Do not decide whether a factual provider claim is true — evidence category and limits are
 stated above.

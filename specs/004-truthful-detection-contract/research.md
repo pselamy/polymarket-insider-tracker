@@ -235,7 +235,7 @@ is selected), FR-008 (unknown age is exactly 0.50), and a required qualification
 the wallet group may score or be described more strongly (FR-007c: before T027 the wallet group is
 non-scoring, `wallet.group_status = unqualified_pre_T027`).
 
-**Age-source options** (a product/data-semantics choice → DECISION D1 in
+**Age-source options** (a product/data-semantics choice → DECISION D1a in
 [decision-packet.md](decision-packet.md); nothing here is settled)
 
 | Option | What "age" means | Trade-offs | Evidence status |
@@ -245,14 +245,16 @@ non-scoring, `wallet.group_status = unqualified_pre_T027`).
 | **O3 – external indexer** (chain first-transaction time of the address) | `age_basis = chain_first_transaction` | Matches the original README meaning; adds a vendor dependency, a credential or quota, new failure/cost surface and a trust decision; still subject to the proxy-address semantics question (a contract's creation time is not the participant's first use) | No indexer in the repo (`get_first_transaction` note at `profiler/chain.py:524-527`); vendor behaviour unverified |
 | **O4 – Gamma public-profile style creation timestamp** | Account creation as Polymarket records it | Possibly the closest to "new account" | **UNVERIFIED lead only**: nothing in the repo or checked-in evidence shows such an endpoint or its terms; listed so a future qualification can evaluate it, not as a candidate this revision can recommend |
 
-**O5 (added after codex round 2)** – wallet group non-scoring until T027 qualifies the proxy-address nonce (FR-007c). Not an age source; a posture that composes with any of O1–O4. See decision-packet D1.
+| **O6 – O2's per-user query for age and a Polymarket trade count** (added after the round-3 Claude review) | O2's age, plus "fewer than `B` public Polymarket trades seen for the proxy address" as the low-activity measure in place of the nonce | Removes the proxy-nonce question from the activity side as well; small counts are exactly the case the 10,000-row cap leaves exact. Costs: O2's qualification, plus whether `takerOnly`/maker visibility undercounts (an undercount manufactures "low activity"); changes the FR-007/FR-009 activity measure and needs its own reviewed spec text | Same query as O2; **UNVERIFIED**, no live call |
+
+**O5 / G1 (added after codex round 2; renamed when the round-3 reviews split D1)** – wallet group non-scoring until T027 qualifies what the activity measure counts (FR-007c). Not an age source; it is decision-packet **D1b** (options G1 gate, G2 score the nonce now, G3 score only an O6 trade count) and composes with any of O1–O4/O6.
 
 **Default posture (one statement for the whole contract)**: O5 until T027. Before the T027 receipt the
 wallet group is recorded but non-scoring, so only the size group scores (ceiling 0.450, R10). This is
 not "O1 gated": the age-source choice only matters once the wallet group may score.
 
-**Recommended age source once T027 has qualified the wallet group**: O1 for this slice, with O2 as the
-first follow-up candidate once a bounded, authorized qualification (T027) establishes the per-user query
+**Recommended age source once T027 has qualified the wallet group**: O1 for this slice, with O2 or O6 as
+the first follow-up candidate once a bounded, authorized qualification (T027) establishes the per-user query
 semantics. Rationale: it is the only option whose every claim is supported by code on main today, and it
 keeps FR-007/FR-008 truthful without adding a network surface to the detection path.
 
@@ -299,7 +301,7 @@ This is the posture the contract ships with. No trade can reach 0.80, and loweri
 
 ### Post-T027 scenario: maximum attainable score by evidence class (proposed 004 rules, threshold 0.80)
 
-Valid only after T027 qualifies the wallet group; the known-age rows also need a D1 age source.
+Valid only after T027 qualifies the wallet group; the known-age rows also need a D1a age source.
 
 | Wallet evidence | Market evidence | Max score | Reaches 0.80 |
 |---|---|---|---|
@@ -321,7 +323,7 @@ Findings (each is a reproducible consequence of the weights, not a judgment):
    `(0.5·0.40 + 0.75·0.35 + 0.75·0.25)·1.2 = 0.780`. The smallest unknown-age confidence that would
    reach it is 0.541 (script output). agy's "trades > $10k can alert" came from a 0.60 unknown-age
    confidence that the contract does not grant (FR-008).
-2. **Without a qualified age source (D1 = O1) no live alert can fire at 0.80.** Current main cannot
+2. **Without a qualified age source (D1a = O1) no live alert can fire at 0.80.** Current main cannot
    produce a known age, so the checked-in replay's headline "0→15 qualifications" is entirely
    known-age cases that the live runtime cannot produce (all 16 `low-activity-age-unknown` replay cases
    peak at 0.780). That headline stays valid as a behavioural comparison and must not be read as live

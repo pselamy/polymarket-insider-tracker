@@ -32,7 +32,7 @@ Named files, entry points, dependency order:
 - [ ] T009b [US1] `detector/fresh_wallet.py` — `fresh_transaction_boundary` keyword +
   deprecated inclusive `max_nonce` alias per contract table; effective `B` captured per
   evaluation; classification uses `nonce < B` with notional ≥ 1000 and age ≤ 48h gates
-  (FR-007/009, D1)
+  (FR-007/009, D1a/D1b)
 - [ ] T009c [US1] Freshness-closure regression in `tests/detector/test_fresh_wallet.py` and
   `tests/detector/test_scorer.py` — two postures, asserted jointly:
   **pre-T027 (default, FR-007c)**: the unknown-age low-activity classification and nonce are recorded,
@@ -130,10 +130,10 @@ Named files, entry points, dependency order:
   receipt exists and records what the proxy-address nonce measures; until then the wallet group is
   non-scoring (spec FR-007c). Probe plan: bounded sample of proxy addresses, compare
   `eth_getTransactionCount` with public trade counts and record whether the nonce moves with trading;
-  if DECISION D1 selects O2, also qualify the per-user trades query (ordering, `takerOnly`,
+  if DECISION D1a selects O2 or O6 (or D1b selects G3), also qualify the per-user trades query (ordering, `takerOnly`,
   10,000-row offset cap, maker visibility). Until it exists the wallet group stays described as
   "low transaction count on the proxy address" (spec FR-007a/b). If the receipt shows the nonce does not
-  track trading, the wallet group stays non-scoring and D1 must be re-decided. (F01, F02)
+  track trading, the wallet group stays non-scoring and D1a/D1b must be re-decided. (F01, F02)
 - [ ] T029 [US3] Default-alert-path disclosure (FR-022a): when the effective configuration makes every
   evidence class unable to reach `DETECTOR_ALERT_THRESHOLD` (ceilings from the T028 table), startup and
   the operator status surface MUST report `default alert path unreachable` with the highest reachable
