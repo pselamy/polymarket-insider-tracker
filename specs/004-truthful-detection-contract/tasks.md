@@ -54,11 +54,26 @@ Named files, entry points, dependency order:
   immutable wallet/market evidence including known-nonqualifying inputs; evidence flows
   `SignalBundle` → `RiskAssessment` → `_persist_assessment` → `alerter/formatter.py`
   (FR-003–005)
-- [ ] T012 [US1] Per-page acquisition stamp + 600s rule in
-  `src/polymarket_insider_tracker/ingestor/` (`gamma_client.py` stamp at body acquisition,
-  `metadata_sync.py::_enrich_and_cache_market` carry-through, `models.py::MarketMetadata`
-  serialization); raw `volume24hr_raw` preserved verbatim, usable `daily_volume` separate
-  (FR-004/005, SC-002). Depends on T011 for the shared acquisition helper.
+- [ ] T012a [US1] `ingestor/gamma_client.py`: injectable clock; `_fetch_page_payload` returns items +
+  `acquired_at` at response-body receipt; page tuples survive `_fetch_all_pages`/`_aggregate_pages`;
+  `GammaMarketStats` gains `acquired_at`, `volume24hr_present`, `volume24hr_raw` (decoded JSON value, semantic
+  preservation), `daily_volume_source`; duplicate-id rule; new `crawl_active_markets()` with
+  `pages_ok/pages_failed/truncated/started/finished`; `get_active_market_stats()` unchanged for callers
+  (FR-004/004b/005, F09, F12). Tests: table over page-failure positions, duplicate ids across pages,
+  every raw JSON type.
+- [ ] T012b [US1] `ingestor/metadata_sync.py`: separate Gamma refresh loop writing a per-market volume record
+  (TTL 1,200 s) on its own cadence (default `S_g = 180 s`); `_fetch_gamma_stats` reports
+  `gamma_fetch_failed` instead of `{}`; `get_market` miss path writes the CLOB record set-if-absent and
+  no volume claim; the read path merges the volume record into `MarketMetadata` (FR-004a/004b, F07, F08, F10).
+- [ ] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
+  legacy records (value without provenance) read as `unqualified/no_provenance`; the generic
+  `last_updated` is never a stamp source (FR-004b, F11).
+- [ ] T012d [US1] Freshness evidence tests: (1) a fake-clock steady-state test that runs the real loops for
+  several cycles with a slow CLOB fake (D = 204 s) and asserts no `stale` volume while the Gamma loop is
+  healthy; (2) the bound `S_g + 2g + w_g <= 600` asserted from measured fake durations; (3) cache-miss
+  race: miss-path write after a sync write leaves the stamped record intact; (4) real-Redis TTL/expiry
+  parity covering `stale` then `unavailable/no_volume_record`; (5) legacy-record upgrade. Lands with
+  T012a–c. T012 has **no** dependency on T011 (the detector entry point consumes this, not the reverse).
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 
@@ -101,7 +116,7 @@ Named files, entry points, dependency order:
   `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md`
   (unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
   `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
-  SC-009). Also add the 37 `evidence/replay-live/cases.json` cases to the table-driven suite.
+  SC-009). Also add the 40 `evidence/replay-live/cases.json` cases to the table-driven suite.
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 
@@ -153,11 +168,11 @@ it (same rule as T009c/T009d/T015).
 
 ## Dependencies
 
-T009a → T009b/T009c/T009d; T011 → T010/T012/T017; T013 → T014; T015–T017 → T019; T021 → T022–T026; T022–T026 → T019;
+T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015–T017 → T019; T021 → T022–T026; T022–T026 → T019;
 foundational contract (T003–T008) precedes all implementation. Tests that pin a behavior
 (T009c/T009d/T015) land with or before the implementation change they cover — never after
 as a separate unblocking layer. Parallel-safe pairs after their prerequisites:
-T009d with T012 (detector vs ingestor tables), T013 with T015 (capability vs scoring).
+T009d with T012a–d (detector vs ingestor tables), T013 with T015 (capability vs scoring).
 
 ## Traceability (every FR/SC + 12 story acceptance scenarios)
 

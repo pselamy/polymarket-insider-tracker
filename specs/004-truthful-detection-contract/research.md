@@ -70,6 +70,10 @@ check; generic metadata `last_updated` is not acquisition time.
 
 ## R02 — Explicit local acquisition provenance
 
+> **Revised 2026-10-19 (R02a below).** The sentences that carry the stamp "unchanged through Redis" via
+> `_enrich_and_cache_market`, and any "byte-preserved" wording, are superseded: the coupled loop cannot
+> meet 0–600 s (arithmetic in R02a) and `response.json()` cannot preserve bytes. Historical text is kept.
+
 **Proposed decision**: stamp each successful Gamma HTTP page at body acquisition, carry
 `daily_volume_acquired_at` and source identifier through stats, enrichment and Redis unchanged.
 A finite positive volume is locally recent only when an aware UTC timestamp is valid and
@@ -314,7 +318,7 @@ Findings (each is a reproducible consequence of the weights, not a judgment):
 | Option | Effect (see `evidence/reachability.md`) | Trade-offs |
 |---|---|---|
 | **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings** (recommended default) | With O1: assessments are produced and persisted, none qualifies by default; alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: out of the box the live monitor delivers nothing |
-| **R1 lower the default to ≤ 0.78** | Unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 37 live replay cases at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
+| **R1 lower the default to ≤ 0.78** | Unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 40 live replay cases at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
 | **R2 raise the unknown-age base to ≥ 0.541** | Keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
 | **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
 | **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
@@ -326,6 +330,63 @@ deliverable alert at default settings.
 ### Live-realistic replay
 
 The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
-adds 37 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
+adds 40 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
 by `evidence/replay_live.py`) using unknown age and every volume state, with the 003.1-as-wired score
-next to the proposed one. 0 of 37 qualify at 0.80; 7 at 0.78.
+next to the proposed one. 0 of 40 qualify at 0.80; 7 at 0.78.
+
+## R02a — Volume freshness that matches the real sync (added 2026-10-19; resolves F07, F08, F09, F10, F12, F14)
+
+**What the code does today** (`ingestor/metadata_sync.py`): `_sync_loop_step` sleeps `S = 300 s` first
+(`:211-226`, `:41`), then `_sync_all_markets` runs `gather(clob.get_markets, _fetch_gamma_stats)`
+(`:334-338`) and only afterwards writes every market to Redis sequentially (`_cache_markets_batch`
+`:281-298`, `setex` TTL 600 s `:352`). The Gamma stamp (spec: HTTP body receipt) is therefore taken at
+`g` seconds into the sync but written at about `D + w`, where `D` = CLOB crawl duration, `w` = batch write
+duration. On a cache miss `get_market` writes a CLOB-only record with `daily_volume=None` (`:397-405`).
+
+**Arithmetic (coupled loop).** Write interval `I = D + w + S`. An entry's stamp age is `D − g` at its own
+write and `I + D − g` just before the next write, so
+
+```
+max age = 2D + w + S − g          (needs ≤ 600 for "available" to hold all the time)
+        ⇔ 2D + w − g ≤ 300
+```
+
+With the one reported value `D = 204 s` (issue #93, cited in `specs/audit/gap-register.md:57`; **not
+re-measured here**) and illustrative `g = 30 s`, `w = 10 s`: max age = 408 + 10 + 300 − 30 = **688 s**, so
+every healthy cycle spends about 88 s with every volume `stale` (agy's "~100 s", CONFIRMED in form; the
+duration depends on unmeasured `D`, `g`, `w`). The 0–600 s rule holds in steady state only if
+`D ≤ (300 − w + g) / 2` ≈ 160 s, a bound the largest observed crawl already breaks and that worsens as the
+market count grows.
+
+**Options**
+
+| Option | What changes | Trade-offs |
+|---|---|---|
+| **A. Decouple (specified default)** | Gamma runs its own loop and writes its own per-market volume record (TTL 1,200 s); the CLOB crawl no longer carries volume. | Max age `S_g + 2g + w_g` is independent of `D`: with `S_g = 180 s`, `g = 30 s`, `w_g = 10 s` it is ≤ 180 + 60 + 10 = **250 s** ≤ 600; the rule holds while `S_g + 2g + w_g ≤ 600`, i.e. `g ≤ 205 s` for `S_g = 180`. More code (second loop, key, merge on read) but no dependence on the CLOB size. A Gamma outage fails closed: values age to `stale`, never wrongly `available`. |
+| B. Keep the coupling, widen the window | Recency `R = ⌈2D_max + w + S − g⌉` (e.g. 900 s for `D = 204`), TTL ≥ R | Smallest code change, but the constant is derived from a measurement that varies with market count, and a 15-minute-old volume is labelled "current". Mixing requires a product decision to widen the local recency rule. |
+
+The spec adopts **A** (an engineering choice; B is retained only as the documented alternative, and
+widening the window would be a product-semantics change for Patrick). Required either way:
+
+1. **Stamps through aggregation.** `_fetch_page_payload` (`ingestor/gamma_client.py:134-146`) returns the
+   items plus `acquired_at` (injectable clock read when the response completes); `_fetch_single_page`
+   returns `(page_index, acquired_at, items)`; `_fetch_all_pages` (`:206-214`) keeps the tuples;
+   `_aggregate_pages` (`:93-102`) builds `GammaMarketStats` (`:41-50`) carrying `acquired_at`,
+   `volume24hr_present`, `volume24hr_raw` and `daily_volume_source`. A duplicate id keeps the later
+   `acquired_at` (ties → lower page index). `_parse_market` (`:62-73`) takes the page stamp as input.
+2. **Crawl summary.** `get_active_market_stats()` (`:216-236`) keeps returning the dict for
+   compatibility; a new `crawl_active_markets()` returns the dict plus `pages_ok`, `pages_failed`,
+   `truncated` and start/finish times, so `unavailable` reasons (`gamma_fetch_failed`,
+   `absent_from_complete_crawl`, `crawl_truncated`) are assigned instead of guessed.
+   `_fetch_gamma_stats` (`metadata_sync.py:249-262`), which currently turns every exception into `{}`,
+   must report `gamma_fetch_failed` rather than a silent empty result.
+3. **Partial pages.** Pages that succeeded keep their stamps and their markets stay `available`; markets
+   not seen are `unavailable/crawl_truncated`; a failed fetch never refreshes any older observation.
+4. **Cache-miss path.** `get_market` (`:369-408`) writes only the CLOB metadata record, set-if-absent, with
+   no volume claim, and never touches the volume record; the volume read is a second key lookup merged
+   into the returned `MarketMetadata`. This removes the poisoning in F08 and the clobber race (a miss-path
+   write landing after a sync write).
+5. **Legacy records.** Old cache entries carrying `daily_volume` without provenance classify as
+   `unqualified/no_provenance` (precedence P2), so no value is trusted across the upgrade; they expire
+   within the old 600 s TTL.
+6. **Semantic raw preservation** replaces "byte-preserved": see data-model §1.1.

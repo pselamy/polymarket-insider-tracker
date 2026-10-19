@@ -109,6 +109,15 @@ persisted assessment fields, sample output, README, example environment, and the
   detector factors, data-availability state, and enough source values to reproduce the calculation.
 - **FR-004**: A trade's actual notional value and available 24-hour market volume MUST flow into live size
   analysis. The resulting impact MUST be recorded when the volume is positive and current enough to use.
+- **FR-004a** *(acquisition freshness)*: The 0–600 s local recency rule MUST hold in steady state under the
+  real synchronization cadence, not only in tests. The volume observation is stamped at Gamma response-body
+  receipt, stored independently of the slow CLOB crawl, and never overwritten by a CLOB-only path
+  (data-model §1.4, research R02a). The spec's arithmetic bound is `S_g + 2·g + w_g <= 600` for the Gamma
+  loop; a loop that cannot meet it fails closed (values become `stale`, never wrongly `available`).
+- **FR-004b** *(partial acquisition and cache miss)*: A partial Gamma crawl, a failed fetch, a market outside
+  the crawl window, a CLOB cache-miss record and a legacy cache record MUST each map to a defined volume state
+  and reason (data-model §1.2), keep the stamps of pages that did succeed, and never refresh an older
+  observation's time.
 - **FR-005**: Unavailable or nonpositive volume and unavailable book depth MUST be represented explicitly;
   they MUST NOT be presented as observed zero impact.
 - **FR-006**: Book-depth impact MUST NOT contribute to the supported core score until a source and freshness

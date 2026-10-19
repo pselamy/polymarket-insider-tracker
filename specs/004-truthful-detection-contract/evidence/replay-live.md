@@ -22,24 +22,24 @@ Columns: `old_score_as_wired` = 003.1 rules with the live wiring (no volume pass
 
 ## Coverage
 
-37 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
+40 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
 `science` from real metadata unless stated.
 
 | Volume state | Cases |
 |---|---|
 | `available` | niche saturated, just above ratio, niche-only, not niche (2), JSON number, age 0 s, age 600 s, explicit caller argument, large trade, nonce 4 |
 | `stale` | age 601 s |
-| `invalid_time` | future stamp, naive stamp, absent stamp |
+| `invalid_time` | future, naive, absent, unparseable, epoch-0 stamps |
 | `nonpositive` | zero, negative, explicit caller 0 |
 | `missing` | JSON null, key absent |
 | `invalid` | non-numeric string, boolean, array, `NaN`, `Infinity`, empty string |
 | `unqualified` | unknown source id, legacy record without provenance |
-| `unavailable` | fetch failed, absent from complete crawl, crawl truncated, CLOB miss path, tech category, politics category, metadata lookup failed |
+| `unavailable` | fetch failed, absent from complete crawl, crawl truncated, CLOB miss path, no volume record, tech category, politics category, metadata lookup failed |
 | wallet gate | nonce 5 (= B), notional 999.99 |
 
 ## Result
 
-- 0 of 37 qualify at the default 0.80; 7 qualify at 0.78 (all `available`, niche, ratio ≥ 0.06).
+- 0 of 40 qualify at the default 0.80; 7 qualify at 0.78 (all `available`, niche, ratio ≥ 0.06).
 - The proposed unknown-age ceiling 0.780 is reached by exactly the saturated niche cases; every
   non-`available` volume state falls back to the category signal and scores 0.384 (niche-prone
   category) or 0.200 (otherwise).

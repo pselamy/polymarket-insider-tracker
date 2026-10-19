@@ -4,16 +4,73 @@
 Extends the [003 data model](../003-safe-observable-operation/data-model.md); no competing
 migration or harness. Implementation is not authorized.
 
-## 1. Market Volume Observation (new provenance)
+## 1. Market Volume Observation (new provenance; revised 2026-10-19)
+
+One **observation** is one market object received in one successful Gamma page response. It is the
+only thing that can make a volume usable, and it is stored on its own (see §1.4), never inside a
+record that a CLOB-only path can rewrite.
+
+### 1.1 Fields
 
 | Field | Type | Rule |
 |---|---|---|
-| `volume24hr_raw` | `str \| float \| int \| None` (exact provider value, byte-preserved) | Immutable raw Gamma market `volume24hr` observation as received: missing (`None`), zero, negative, non-numeric/malformed string, or numeric. Never coerced, never substituted, never dropped. Malformed/non-numeric input is retained verbatim as evidence of its `invalid` state. |
-| `daily_volume` | `Decimal \| None` (usable denominator) | Separate from raw: set only when raw parses to a finite positive value; otherwise `None` with `volume_state` explaining why. This is the only value that may enter `notional / daily_volume`. |
-| `daily_volume_acquired_at` | aware UTC datetime \| null | Stamped once at successful HTTP-page body acquisition; carried through `GammaMarketStats`, enrichment, and Redis unchanged. Null when no successful acquisition produced the raw value. |
-| `daily_volume_source` | string | Source identifier (endpoint + first-party revision note `49ec9991b7f3e95197a4d53910f6086bf3ff2294`). |
-| `volume_state` | enum | `available` \| `missing` \| `nonpositive` \| `invalid` \| `stale` \| `invalid_time` \| `unqualified`. Zero, missing, malformed, nonpositive, stale, invalid-time remain distinct; never substituted, never measured zero. |
-| Usability | rule | `available` only when finite positive volume has valid aware timestamp with `0 <= evaluated_at - acquired_at <= 600s`. Fixed 600s matches cache TTL; not a provider measurement guarantee. Never synthesize from cache reads, TTL, CLOB refresh, or generic `last_updated`. |
+| `volume24hr_present` | bool | True when the received market object had a `volume24hr` key. Distinguishes an absent key from JSON `null`. |
+| `volume24hr_raw` | JSON value (`null`, bool, number, string, array or object) | The **decoded** JSON value exactly as it arrived (type and value). It is *semantically* preserved: the original bytes (whitespace, number spelling such as `1e3` vs `1000`) are not recoverable because the client decodes with `response.json()` (`ingestor/gamma_client.py:141`), and no artifact may claim otherwise. Stored in Redis/JSON so that `5`, `5.0` and `"5"` stay distinct. Never coerced, substituted or dropped; malformed values are kept verbatim as evidence of `invalid`. `null` when absent or null. |
+| `daily_volume` | `Decimal \| null` | The usable denominator: set only in state `available`, equal to the finite positive parse of `volume24hr_raw`. This is the only value allowed in `notional / daily_volume`. |
+| `daily_volume_acquired_at` | aware UTC datetime \| null | The instant the page's response body was received by `GammaClient` (read from an injectable clock immediately after the HTTP response completes, before JSON decoding). Carried unchanged through the crawl result, the volume record and Redis; a cache read never restamps it. Null when no observation exists. |
+| `daily_volume_source` | string \| null | Source identifier, e.g. `gamma-markets-v1` (endpoint + first-party revision note `49ec9991b7f3e95197a4d53910f6086bf3ff2294`); `caller` for an explicit argument (§1.3). Null for legacy records. A source is **qualified** iff it is in the code-defined qualified set, initially `{gamma-markets-v1, caller}` (set membership is the T018 receipt). |
+| `volume_state` | enum (8 values) | Exactly one of `available`, `unavailable`, `unqualified`, `missing`, `invalid`, `nonpositive`, `invalid_time`, `stale`; assigned by the precedence table in §1.2. |
+| `volume_reason` | enum \| null | Sub-reason, recorded for diagnosis, never a separate state (§1.2 last column). |
+
+`evaluated_at` is the single evaluation instant injected into the evaluation (contracts/detector-api.md
+§Evaluation clock). Age is `evaluated_at - daily_volume_acquired_at`.
+
+### 1.2 Precedence table (mutually exclusive, exhaustive; first matching row wins)
+
+| # | State | Condition (evaluated top to bottom) | `volume_reason` values | Representation |
+|---|---|---|---|---|
+| P1 | `unavailable` | No observation exists for this market at evaluation time, or an explicit `daily_volume` argument was not given and no volume record can be read | `gamma_fetch_failed` (whole Gamma fetch failed), `absent_from_complete_crawl` (crawl completed, market not returned — outside the top-5,000 window or not active), `crawl_truncated` (a page failed, so absence cannot be told from truncation), `clob_miss_path` (metadata came from the CLOB cache-miss path, no Gamma data), `no_volume_record` (volume record expired or never written), `metadata_lookup_failed` (minimal metadata, no volume lookup possible) | `present=false`, raw null, `acquired_at` null, `source` null, `daily_volume` null |
+| P2 | `unqualified` | An observation exists but its `daily_volume_source` is not in the qualified set | `unknown_source` (id not qualified), `no_provenance` (legacy pre-004 record: value possibly present, no source/stamp) | fields as stored; value is **not interpreted** (not parsed, not called invalid) |
+| P3 | `missing` | Qualified observation; `volume24hr_present` is false or the raw value is JSON `null` | `null_or_absent` | `present` false/true, raw null |
+| P4 | `invalid` | Raw present and non-null but not a finite number: non-numeric string (including the empty string), boolean, array, object, `NaN`, `±Infinity` | `not_a_finite_number` | raw kept verbatim |
+| P5 | `nonpositive` | Raw parses to a finite value `<= 0`. **Zero is a nonpositive value, not a separate state and never `unavailable`**; the raw value distinguishes `0` from a negative | `zero`, `negative` | raw kept; no ratio |
+| P6 | `invalid_time` | Finite positive value but the stamp is unusable: absent, naive (no UTC offset), unparseable, epoch `<= 0`, or later than `evaluated_at` | `absent`, `naive`, `unparseable`, `nonpositive_epoch`, `future` | raw kept; no ratio |
+| P7 | `stale` | Finite positive value, valid stamp, `evaluated_at - acquired_at > 600 s` | `older_than_600s` | raw kept; no ratio |
+| P8 | `available` | Finite positive value, valid stamp, `0 <= evaluated_at - acquired_at <= 600 s` (both ends inclusive) | `gamma` or `caller` | `daily_volume` set; ratio computed |
+
+Properties: every input maps to exactly one row (P1–P8 partition the space); the state is a pure function
+of (observation, qualified set, `evaluated_at`); the fixed 600 s matches the cache TTL and is a local
+recency rule, not a provider measurement-time guarantee; the stamp is never synthesized from cache
+reads, TTL, CLOB refresh or generic `last_updated`
+(`ingestor/models.py::MarketMetadata.from_dict` falls back to *now*). Executable form and one
+replay case per state and per reason: `evidence/replay_live.py`, `evidence/replay-live/cases.json`
+(40 cases; every state and every reason).
+
+### 1.3 Explicit `daily_volume` argument
+
+`SizeAnomalyDetector.analyze(trade, daily_volume=...)` and `analyze_batch(volume_data=...)` keep their
+signatures (`detector/size_anomaly.py:87-93,363-383`). A caller-supplied value is a caller assertion
+without provenance: a positive `Decimal` is `available` with `daily_volume_source = "caller"`,
+`volume_reason = "caller"` and `acquired_at = evaluated_at`; zero or negative is `nonpositive`
+(reason `zero`/`negative`); `None` means "no argument" and falls through to the stored observation.
+An explicit value overrides the stored observation. Persisted evidence records `source = "caller"` so it
+can never be mistaken for Gamma data. The live pipeline never passes it.
+
+### 1.4 Storage and freshness (what makes the 0-600 s rule hold)
+
+- The volume observation is stored under its **own** Redis key per market (volume record), written
+  only by the Gamma refresh path, with a TTL of 1,200 s (2 x the recency rule) so an old value remains
+  readable as `stale` instead of vanishing. A CLOB-only path (`get_market` miss) never writes a volume
+  claim and never overwrites a volume record; it writes the CLOB metadata record with set-if-absent so it
+  cannot clobber a record a concurrent sync just wrote.
+- The Gamma refresh runs on its own cadence, decoupled from the CLOB crawl. See research R02a for the
+  arithmetic: the current coupled loop makes the worst-case entry age `2D + w + S - g`
+  (D = CLOB crawl duration, w = batch write, S = sleep 300 s, g = Gamma stamp offset), which exceeds 600 s
+  whenever `2D + w - g > 300`; the decoupled loop makes it `S_g + 2g + w_g`.
+- `GammaClient` page results carry `(page_index, acquired_at, items)` through aggregation; a duplicate
+  condition id keeps the observation with the later `acquired_at` (ties: lower page index). The crawl
+  result also reports `pages_ok`, `pages_failed`, `truncated` and start/finish times so P1 reasons can be
+  assigned. A failed or partial fetch never refreshes an older observation's time.
 
 ## 2. Wallet Evaluation Evidence (immutable snapshot)
 

@@ -29,7 +29,7 @@ Recomputed by `evidence/reachability.py` ([research.md](research.md) R10): with 
 highest attainable score is **0.780 for every trade size**; markets with ≥ $50k volume top out at
 0.45 (unknown age) or 0.642 (best-case known age); main today (003.1 rules, volume never passed) tops
 out at 0.528. The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases.
-Unknown-age live-realistic replay: 0 of 37 qualify at 0.80, 7 at 0.78.
+Unknown-age live-realistic replay: 0 of 40 qualify at 0.80, 7 at 0.78.
 
 | Option | Consequence | Main trade-off |
 |---|---|---|

@@ -125,3 +125,6 @@ migration); this packet is not reduced to a CI or planning-only goal.
 - New V2 journey obligations: tasks T021–T026. The earlier statement that every FR/SC maps to a
   task remains true; FR-016/FR-021/SC-006 now additionally map to T022 and T026.
 - This addendum is not approval, and the 23-item reviewer checklist is still entirely unchecked.
+- T012 was split into T012a–d (stamp/aggregation, decoupled loop and cache-miss path, serialization/legacy
+  records, freshness evidence) and no longer depends on T011; FR-004a/FR-004b → T012a–d; FR-022/SC-009 →
+  T028; wallet-subject qualification → T027.

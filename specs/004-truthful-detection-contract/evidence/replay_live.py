@@ -69,9 +69,9 @@ def parse_finite(raw: object) -> Decimal | None:
 def classify(obs: Observation, explicit: Decimal | None) -> tuple[str, str, Decimal | None]:
     """First-match precedence P1..P8; returns (state, reason, usable_volume)."""
     if explicit is not None:
-        return (
-            ("available", "caller", explicit) if explicit > 0 else ("nonpositive", "caller", None)
-        )
+        if explicit > 0:
+            return "available", "caller", explicit
+        return "nonpositive", "zero" if explicit == 0 else "negative", None
     if obs.kind == "unavailable":
         return "unavailable", obs.reason or "unknown", None
     if obs.source not in QUALIFIED_SOURCES:
