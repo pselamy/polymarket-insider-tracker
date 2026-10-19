@@ -129,20 +129,34 @@ the boundary-10 override case.
 | Field | Type | Rule |
 |---|---|---|
 | `notional` | Decimal | Trade's actual notional value; always wired into size analysis. |
-| `volume_ratio` | Decimal \| null | `notional / daily_volume` (±0.0001, SC-002) when usable; null with `volume_state` otherwise — never serialized as measured zero. |
-| `book_state` | enum | `unavailable` for this slice (book-depth scoring disabled until separately approved). |
-| `niche` | bool + basis | True when usable volume < 50000 (numeric basis) or via recorded category fallback (`science/tech/finance/other`) when volume unavailable; niche is a size modifier, not a third detector invocation. |
+| `volume_impact` (a.k.a. ratio) | Decimal \| null | `notional / daily_volume` quantised to 0.0001 (`ROUND_HALF_EVEN`, SC-002 ±0.0001) **only in `volume_state = available`**; null in every other state, never serialized as measured zero. Surfaces as `volume_impact_measured: Decimal \| None` (contracts/detector-api.md §4). |
+| `book_state` | enum | `unavailable` for this slice (book-depth scoring disabled until separately approved); `book_impact` always null. |
+| `niche`, `niche_basis` | bool + enum `numeric` \| `category` \| `none` | Niche is a size modifier, not a third detector invocation. **Numeric basis**: `volume_state = available` and `daily_volume < 50000`. **Category basis** (only when volume is not `available`): category in `science/tech/finance/other` **and** `category_source = metadata`. `none` otherwise. A volume that is `available` and `>= 50000` is not niche regardless of category. |
+| `category`, `category_source` | string \| null; enum `metadata` \| `minimal` | `minimal` means the market metadata lookup failed and `SizeAnomalyDetector._create_minimal_metadata` (`detector/size_anomaly.py:205-221`) supplied the placeholder category `"other"`. A placeholder is not evidence: with `minimal` there is no category basis (default of DECISION D3; current main treats it as niche-prone, which the replay shows as 0.480 vs 0.200). |
+| `signal_emitted` | bool | Existing rule: confidence `>= 0.1` and, for niche-only, notional `>= 500`. |
+
+Behavior under non-`available` volume: no ratio; the size signal can arise only from the category basis
+(confidence 0.2 niche-only); every state in data-model §1.2 other than `available` behaves identically
+here (replay: `live-nonpositive-*`, `live-stale-*`, `live-missing-*`, ... all 0.384 for a niche-prone
+category).
 
 ## 4. Assessment Envelope (versioned amendment of shared 003 contract)
 
-Preserve all 003 root keys/types/columns. Proposed algorithm/evidence identity `004.1`:
+The exact schema, example, decimal encoding, nullability, reader dispatch and the detector-failure row
+live in [contracts/scoring-config.md](contracts/scoring-config.md) and its JSON Schema; this section
+only records the rules the schema cannot express:
 
-- `detector_config`: static effective configuration snapshot (threshold, boundary, volume-ratio threshold).
-- `evaluation_evidence`: versioned per-assessment envelope — exact source values, acquisition/evaluation times, availability reasons, factors, contributions, threshold.
-- Evidence-schema identity recorded alongside `scoring_algorithm_version`.
-- `RiskScorer.scoring_config` stays pure effective configuration (threshold, bonuses, quantum, weights as decimal strings, sorted keys); the extended envelope is serialized per assessment.
-- Root `multi_signal_bonus_3` retained as documented-neutral structural compatibility key; unreachable operational branch removed. Two-group 1.2 bonus, weights 0.40/0.35/0.25, 0.001 ROUND_HALF_EVEN precision retained.
-- Old `003.1` and legacy-unversioned rows untouched with version-specific reader semantics.
+- Identity `004.1`: `scoring_algorithm_version` column = `evidence_schema` (root-level key of the
+  `scoring_config` document, a sibling of `evaluation_evidence`, not nested inside it).
+- `RiskScorer.scoring_config` stays the pure effective configuration; the per-assessment document adds
+  `detector_config` (no threshold: the threshold lives only in root `alert_threshold`),
+  `detector_failures` and `evaluation_evidence` at persist time.
+- `multi_signal_bonus_3` is retained as an inert key with value `"1"` in 004.1 documents; the
+  unreachable operational branch is removed. Two-group 1.2 bonus, weights 0.40/0.35/0.25 and 0.001
+  `ROUND_HALF_EVEN` precision are retained.
+- Old `003.1` and legacy-unversioned rows are untouched with version-specific reader semantics.
+- This is a semantic amendment of the 003 field (a version-dispatched union), stated as such in
+  scoring-config.md §1; it is not described as "preserving" the 003 definition.
 
 ## 5. Threshold & Score Rules
 

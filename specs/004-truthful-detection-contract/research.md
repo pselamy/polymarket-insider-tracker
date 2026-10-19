@@ -132,7 +132,8 @@ uses B everywhere instead of a hardcoded5.
 
 Usable daily volume enables notional/volume ratio. Unusable volume has no observed ratio. Usable
 volume<50000 gives numeric niche context; unavailable volume may use existing category fallback
-`science/tech/finance/other`, with the basis recorded. Retain existing strict volume threshold,3x
+`science/tech/finance/other`, with the basis recorded (revised 2026-10-19: only for a category from real
+metadata, never the placeholder `other` of a failed lookup — DECISION D3). Retain existing strict volume threshold,3x
 confidence saturation,1.5 niche multiplier and0.2 niche-only confidence subject to notional>=500.
 Book depth stays unavailable in the live core; metadata liquidity is not observed book depth.
 

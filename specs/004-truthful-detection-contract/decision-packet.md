@@ -42,6 +42,19 @@ Unknown-age live-realistic replay: 0 of 40 qualify at 0.80, 7 at 0.78.
 **Recommended default: R0.** It is the only option that adds no unvalidated claim, but you should
 decide knowingly that with D1 = O1 the default configuration produces no deliverable alert.
 
+### D3 — Category fallback when volume is not usable (DECISION FOR PATRICK)
+
+When the volume state is anything but `available`, today's code can still emit a niche-only size signal
+(confidence 0.2) from the market category alone (`detector/size_anomaly.py:282,293-300`). On a metadata
+lookup failure the code even invents category `"other"`, which counts as niche-prone
+(`:29,205-221`). Reviewers (codex, agy) both flagged this as a false-positive source.
+
+| Option | Effect on an unknown-age trade with no usable volume | Trade-off |
+|---|---|---|
+| (a) keep as today | niche-prone category or failed lookup ⇒ size 0.2 ⇒ score 0.384 | preserves 003.1 behaviour; a lookup failure is scored as niche evidence |
+| (b) no category fallback; size signal needs measured volume | no size signal ⇒ score 0.200 | most conservative; every volume outage silences the size group |
+| **(c) fallback only for a category from real metadata (recommended)** | real `science/tech/finance/other` ⇒ 0.384; failed lookup or other categories ⇒ 0.200 | removes the invented evidence, keeps the documented heuristic |
+
 ## Final behavior (if authorized)
 
 Two-group research core (fresh/low-activity wallet + size anomaly; niche as size modifier),

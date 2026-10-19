@@ -120,6 +120,12 @@ persisted assessment fields, sample output, README, example environment, and the
   observation's time.
 - **FR-005**: Unavailable or nonpositive volume and unavailable book depth MUST be represented explicitly;
   they MUST NOT be presented as observed zero impact.
+- **FR-005a** *(volume states)*: Every market's volume MUST be in exactly one of eight mutually exclusive states
+  (`available`, `unavailable`, `unqualified`, `missing`, `invalid`, `nonpositive`, `invalid_time`, `stale`)
+  assigned by the single precedence table in [data-model.md](data-model.md) §1.2. Zero is a `nonpositive`
+  value, never `unavailable` and never a ratio. Only `available` yields a ratio. When volume is not
+  `available`, niche context may come only from a category recorded from real market metadata (basis
+  recorded); a metadata-lookup failure supplies no category evidence (DECISION D3).
 - **FR-006**: Book-depth impact MUST NOT contribute to the supported core score until a source and freshness
   contract are separately approved and wired. Existing library support MAY remain non-operational.
 - **FR-007**: A newly-created-wallet claim MUST require known age at or below 48 hours, a recorded age basis

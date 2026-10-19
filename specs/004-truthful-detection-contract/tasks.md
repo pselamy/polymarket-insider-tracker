@@ -42,8 +42,9 @@ Named files, entry points, dependency order:
 - [ ] T009d [US1] Table-driven detector tests in `tests/detector/` (extend
   `test_fresh_wallet.py`, `test_size_anomaly.py`, `test_scorer.py`): default/override/equality
   boundary fixtures (nonce exactly `B`, age exactly 48h, score exactly 0.80, ratio exactly
-  0.02), transaction-override-3-3 / transaction-override-10-9 counterexamples, all volume
-  states, niche modifier, threshold equality (FR-001–011, FR-015, SC-001–003)
+  0.02), transaction-override-3-3 / transaction-override-10-9 counterexamples, **all eight volume
+  states and every reason** (FR-005a; the 40 cases of `evidence/replay-live/cases.json` are the table),
+  niche modifier incl. the D3 lookup-failure case, threshold equality (FR-001–011, FR-015, SC-001–003)
 - [ ] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
   flags in analysis, scoring, persistence, and formatted dry-run output; per-participant
@@ -53,7 +54,8 @@ Named files, entry points, dependency order:
   (new `evaluation.py`; shared helper with `analyze` — no second acquisition) returning
   immutable wallet/market evidence including known-nonqualifying inputs; evidence flows
   `SignalBundle` → `RiskAssessment` → `_persist_assessment` → `alerter/formatter.py`
-  (FR-003–005)
+  (FR-003–005). Signature and clock per contracts/detector-api.md §2 (`evaluate(..., evaluated_at)`,
+  injectable `clock`), explicit `daily_volume` rule §3, `Decimal | None` measured companions §4
 - [ ] T012a [US1] `ingestor/gamma_client.py`: injectable clock; `_fetch_page_payload` returns items +
   `acquired_at` at response-body receipt; page tuples survive `_fetch_all_pages`/`_aggregate_pages`;
   `GammaMarketStats` gains `acquired_at`, `volume24hr_present`, `volume24hr_raw` (decoded JSON value, semantic
@@ -94,11 +96,18 @@ Named files, entry points, dependency order:
   `config.py`) with additive nullable-impact serialization (`detector/models.py`,
   `scorer.py::_extract_size_diagnostics`, `alerter/formatter.py`,
   `alerter/channels/*`): `volume_impact_measured`/`book_impact_measured`, never measured
-  zero (FR-005/009)
+  zero; formatter gains the single `Size vs 24h volume` line; persistence writes the measured companion
+  (None ⇒ NULL) instead of `round(float,4)` (`pipeline.py:904-906`); alias table incl. negative `max_nonce`
+  `ValueError` (FR-005/009, F18–F21)
 - [ ] T017 [US3] Versioned `004.1` envelope persistence reusing 003 schema/harness
   (`storage/models.py`, `storage/repos.py`, `pipeline.py::_persist_assessment`); old `003.1`
   / legacy-unversioned rows read unchanged with version-specific semantics (FR-020, SC-006).
-  Depends on T011.
+  Depends on T011. Includes: the version-dispatched reader of `contracts/scoring-config.md` §3
+  (unknown version raises, column/`evidence_schema` mismatch is a corrupt row), the exact
+  `scoring-config-004.1.schema.json` as conformance fixture (a test validates real persisted rows against
+  it, as `evidence/check_envelope.py` does for the examples), detector-failure rows with
+  `evaluation_evidence: null` + `detector_failures`, and the matching edit of slice 003
+  `assessment-storage.md` §4 so the shared contract states the union.
 
 ## Phase 6: Cross-cutting evidence (future implementation)
 
