@@ -56,9 +56,9 @@ async def test_journey_harness_characterization(
     async_engine: AsyncEngine,
 ) -> None:
     """Pin the shared journey knowledge: fixtures, row shape, waiter, persistence read."""
-    from tests.integration.test_end_to_end import _market
+    from tests.integration._journey_harness import market_for_trade
 
-    other = _market(sample_trade_event, "science")
+    other = market_for_trade(sample_trade_event, "science")
     assert niche_market.condition_id == other.condition_id
     assert niche_market.question == other.question
     assert niche_market.description == other.description

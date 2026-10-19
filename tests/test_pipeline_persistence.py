@@ -25,6 +25,7 @@ from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import FundingTransferModel, WalletProfileModel
 from tests.fakes import FakeEth, TransferLogIndex, make_test_settings, transfer_log, wire_pipeline
+from tests.integration._journey_harness import make_sample_trade_event
 
 WALLET = "0x" + "b" * 40
 FUNDER = "0x" + "d" * 40
@@ -42,20 +43,7 @@ def test_settings() -> Settings:
 @pytest.fixture
 def sample_trade() -> TradeEvent:
     """Create a sample trade event."""
-    return TradeEvent(
-        trade_id="0x" + "a" * 64,
-        wallet_address=WALLET,
-        market_id="0x" + "c" * 64,
-        asset_id="asset_123",
-        side="BUY",
-        price=Decimal("0.65"),
-        size=Decimal("5000"),
-        timestamp=datetime.now(UTC),
-        outcome="Yes",
-        outcome_index=0,
-        event_title="Test Market",
-        market_slug="test-market",
-    )
+    return make_sample_trade_event()
 
 
 @pytest.fixture

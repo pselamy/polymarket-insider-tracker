@@ -12,19 +12,17 @@ from typing import Any
 
 import pytest
 from fakeredis import FakeAsyncRedis
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.detector.models import FreshWalletSignal, SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import SignalBundle
 from polymarket_insider_tracker.ingestor.metadata_sync import SyncState
-from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
-from polymarket_insider_tracker.storage.models import RiskAssessmentModel
 from tests.fakes import (
     BarrierDetector,
     FailingDetector,
@@ -36,6 +34,15 @@ from tests.fakes import (
     metadata_state,
     trade_row,
     wire_pipeline,
+)
+from tests.integration._journey_harness import (
+    make_sample_trade_event,
+    market_for_trade,
+    persisted_assessments,
+    pipeline_row,
+    running_pipeline,
+    seeded_server,
+    wire_journey_pipeline,
 )
 
 POLL_START = 1_788_983_720.0
@@ -50,20 +57,7 @@ def test_settings() -> Settings:
 @pytest.fixture
 def sample_trade_event() -> TradeEvent:
     """Create a sample trade event for testing."""
-    return TradeEvent(
-        trade_id="0x" + "a" * 64,
-        wallet_address="0x" + "b" * 40,
-        market_id="0x" + "c" * 64,
-        asset_id="asset_123",
-        side="BUY",
-        price=Decimal("0.65"),
-        size=Decimal("5000"),
-        timestamp=datetime.now(UTC),
-        outcome="Yes",
-        outcome_index=0,
-        event_title="Test Market",
-        market_slug="test-market",
-    )
+    return make_sample_trade_event()
 
 
 @pytest.fixture
@@ -82,31 +76,16 @@ def sample_wallet_profile() -> WalletProfile:
     )
 
 
-def _market(trade: TradeEvent, category: str) -> MarketMetadata:
-    return MarketMetadata(
-        condition_id=trade.market_id,
-        question="Test market?",
-        description="",
-        tokens=(Token(token_id=trade.asset_id, outcome=trade.outcome, price=trade.price),),
-        category=category,
-    )
-
-
 @pytest.fixture
 def niche_market(sample_trade_event: TradeEvent) -> MarketMetadata:
     """A science market with unknown volume, which the size detector treats as niche."""
-    return _market(sample_trade_event, "science")
+    return market_for_trade(sample_trade_event, "science")
 
 
 @pytest.fixture
 def mainstream_market(sample_trade_event: TradeEvent) -> MarketMetadata:
     """A politics market with unknown volume, which never produces a size signal."""
-    return _market(sample_trade_event, "politics")
-
-
-async def _persisted_assessments(engine: AsyncEngine) -> list[RiskAssessmentModel]:
-    async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
-        return list((await session.execute(select(RiskAssessmentModel))).scalars().all())
+    return market_for_trade(sample_trade_event, "politics")
 
 
 class TestPipelineState:
@@ -334,7 +313,7 @@ class TestOnTrade:
 
         assert pipeline.stats.errors == 2
         assert pipeline.stats.last_error is not None
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert len(rows) == 1
         assert rows[0].delivery_disposition == "detector_failure"
         assert rows[0].should_alert is False
@@ -362,7 +341,7 @@ class TestOnTrade:
         await pipeline._on_trade(sample_trade_event)
 
         assert pipeline.stats.errors == 2
-        assert await _persisted_assessments(async_engine) == []
+        assert await persisted_assessments(async_engine) == []
 
     async def test_on_trade_calls_score_and_alert_when_signals(
         self,
@@ -387,7 +366,7 @@ class TestOnTrade:
 
         assert pipeline.stats.signals_generated == 1
         assert pipeline.stats.alerts_sent == 1
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert [row.should_alert for row in rows] == [True]
         assert rows[0].signals_triggered == 2
         assert float(rows[0].weighted_score) >= 0.4
@@ -424,7 +403,7 @@ class TestScoreAndAlert:
             ),
             size_anomaly_signal=SizeAnomalySignal(
                 trade_event=sample_trade_event,
-                market_metadata=_market(sample_trade_event, "science"),
+                market_metadata=market_for_trade(sample_trade_event, "science"),
                 volume_impact=0.0,
                 book_impact=0.0,
                 is_niche_market=True,
@@ -470,7 +449,7 @@ class TestScoreAndAlert:
 
         await pipeline._score_and_alert(bundle)
 
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert [(row.should_alert, float(row.weighted_score)) for row in rows] == [(False, 0.2)]
         assert channel.deliveries == []
         assert pipeline.stats.alerts_sent == 0
@@ -531,28 +510,6 @@ async def _run_until(predicate: Callable[[], bool], *, cycles: int = 25000) -> N
     raise AssertionError("condition was not reached")
 
 
-def _seeded_server(clock: FakeClock) -> FakeTradesServer:
-    """A provider with two rows of history so the first cycle can anchor and later pages reach."""
-    server = FakeTradesServer(clock=clock)
-    server.publish(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1))
-    server.publish(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2))
-    return server
-
-
-def _pipeline_row(sample_trade_event: TradeEvent, clock: FakeClock) -> dict[str, object]:
-    """A wallet-bearing row for the sample market, timestamped just inside the next cutoff."""
-    row = trade_row(
-        timestamp=int(clock.now) + 1,
-        transaction=9,
-        market=sample_trade_event.market_id,
-        asset=sample_trade_event.asset_id,
-        price="0.65",
-        size="5000",
-    )
-    row["proxyWallet"] = sample_trade_event.wallet_address
-    return row
-
-
 class TestIngestionWiring:
     """The poller is a background service that starts before the metadata crawl finishes."""
 
@@ -564,7 +521,7 @@ class TestIngestionWiring:
         mainstream_market: MarketMetadata,
     ) -> None:
         clock = FakeClock(POLL_START)
-        server = _seeded_server(clock)
+        server = seeded_server(clock)
         gate = threading.Event()
         log: list[str] = []
         pipeline = await wire_pipeline(
@@ -581,7 +538,7 @@ class TestIngestionWiring:
         try:
             await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
             await _run_until(lambda: len(server.requests) >= 1)
-            server.publish(_pipeline_row(sample_trade_event, clock))
+            server.publish(pipeline_row(sample_trade_event, clock))
             await _run_until(lambda: pipeline.stats.trades_processed >= 1)
 
             assert metadata_state(pipeline) in {SyncState.STARTING, SyncState.SYNCING}
@@ -608,12 +565,11 @@ class TestIngestionWiring:
         niche_market: MarketMetadata,
     ) -> None:
         clock = FakeClock(POLL_START)
-        server = _seeded_server(clock)
+        server = seeded_server(clock)
         channel = FakeAlertChannel("discord")
-        pipeline = await wire_pipeline(
+        pipeline = await wire_journey_pipeline(
             make_test_settings(alert_threshold=0.4),
             redis=fake_redis,
-            eth=FakeEth(transaction_count=0),
             market=niche_market,
             db_manager=db_manager,
             channels=[channel],
@@ -621,16 +577,13 @@ class TestIngestionWiring:
             poll_clock=clock,
         )
 
-        try:
-            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+        async with running_pipeline(pipeline):
             await _run_until(lambda: len(server.requests) >= 1)
-            server.publish(_pipeline_row(sample_trade_event, clock))
+            server.publish(pipeline_row(sample_trade_event, clock))
             await _run_until(lambda: len(channel.deliveries) >= 1)
             await _run_until(lambda: len(server.requests) >= 4)
-        finally:
-            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
 
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert [row.should_alert for row in rows] == [True]
         assert rows[0].wallet_address == sample_trade_event.wallet_address.lower()
         assert rows[0].trade_id == trade_row(timestamp=0, transaction=9)["transactionHash"]
@@ -676,7 +629,7 @@ class TestIngestionRestart:
         niche_market: MarketMetadata,
     ) -> None:
         clock = FakeClock(POLL_START)
-        server = _seeded_server(clock)
+        server = seeded_server(clock)
         first_channel = FakeAlertChannel("discord")
         first = await wire_pipeline(
             make_test_settings(alert_threshold=0.4),
@@ -691,7 +644,7 @@ class TestIngestionRestart:
         try:
             await asyncio.wait_for(first._start_background_services(), timeout=2.0)
             await _run_until(lambda: len(server.requests) >= 1)
-            server.publish(_pipeline_row(sample_trade_event, clock))
+            server.publish(pipeline_row(sample_trade_event, clock))
             await _run_until(lambda: len(first_channel.deliveries) >= 1)
         finally:
             await asyncio.wait_for(first._stop_background_services(), timeout=2.0)
@@ -700,7 +653,7 @@ class TestIngestionRestart:
 
         clock.advance(120)
         missed = [
-            dict(_pipeline_row(sample_trade_event, clock), timestamp=int(clock.now) - 30 + n)
+            dict(pipeline_row(sample_trade_event, clock), timestamp=int(clock.now) - 30 + n)
             for n in range(3)
         ]
         for index, row in enumerate(missed):
@@ -733,7 +686,7 @@ class TestIngestionRestart:
         assert status.loss_events == ()
         assert second.stats.trades_processed == 3
         assert first.stats.trades_processed == 1
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert sorted(row.trade_id for row in rows) == sorted(
             [trade_row(timestamp=0, transaction=9)["transactionHash"]]
             + [row["transactionHash"] for row in missed]
@@ -997,7 +950,7 @@ class _RowCountingChannel:
 
     async def send(self, alert: Any) -> bool:
         _ = alert
-        self.rows_at_send.append(len(await _persisted_assessments(self._engine)))
+        self.rows_at_send.append(len(await persisted_assessments(self._engine)))
         return True
 
 
@@ -1050,7 +1003,7 @@ class TestAssessmentDurabilityOrdering:
         # The pending row was already durable when the channel was contacted...
         assert channel.rows_at_send == [1]
         # ...and the same single row now carries the final delivery outcome.
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert [row.delivery_disposition for row in rows] == ["delivered"]
         assert pipeline.stats.errors == 0
 
@@ -1076,7 +1029,7 @@ class TestAssessmentDurabilityOrdering:
 
         await pipeline._on_trade(sample_trade_event)
 
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert len(rows) == 1
         assert rows[0].should_alert is True
         # No delivery outcome exists yet, so the row truthfully stays unrecorded.
@@ -1114,7 +1067,7 @@ class TestAssessmentDurabilityOrdering:
         assert len(channel.deliveries) == 1
         assert pipeline.stats.errors == 1
         assert "Failed to persist risk assessment" in (pipeline.stats.last_error or "")
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert [row.delivery_disposition for row in rows] == ["delivered"]
 
 

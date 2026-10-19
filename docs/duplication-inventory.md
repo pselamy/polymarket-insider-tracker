@@ -158,7 +158,7 @@ knowledge).
 | # | Clones | Dup lines | Files | Knowledge | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | 1 | 11 | 196 | test_formatter.py, test_history.py, test_scorer.py, test_size_anomaly.py | Repeated `sample_trade`/`sample_wallet_profile` fixtures and formatter/history case scaffolds (two fixture families share one component) | real |
-| 2 | 12 | 147 | test_end_to_end.py, test_persist_assessment.py, test_pipeline.py, test_pipeline_persistence.py, test_postgres_journey.py | Repeated `wire_pipeline(...)` bootstrap blocks with the same fake-stack wiring | real |
+| 2 | 0 | 0 | _journey_harness.py | **Resolved**: the sample trade, single-token market, seeded provider history, journey settings, and wire/start/stop scaffolding now have one home (`tests/integration/_journey_harness.py`); the five suites use it | resolved (PR #163) |
 | 3 | 7 | 94 | test_redaction.py | Repeated harness setups asserting the same redaction policy across inputs | real |
 | 4 | 9 | 92 | test_dispatcher.py | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
 | 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
@@ -645,3 +645,41 @@ branch **86 groups, 1071 lines, 1.76%** over 287 files (the two additions are
 No other clone group appeared or disappeared. Resolved by draft PR
 [#159](https://github.com/pselamy/polymarket-insider-tracker/pull/159) from branch
 `ralph/dedup-models`.
+
+### 2026-10-19 resolution update: cluster 2 (integration-test pipeline wiring bootstrap)
+
+Cluster 2 is resolved by the dedup card for cluster 2 on branch `ralph/dedup-wiring`
+(draft PR [#163](https://github.com/pselamy/polymarket-insider-tracker/pull/163)). The pipeline-wiring test data and scaffolding that
+`test_end_to_end.py`, `test_pipeline.py`, `test_pipeline_persistence.py` and
+`test_postgres_journey.py` each copied now has exactly one home, the existing
+`tests/integration/_journey_harness.py`: `make_sample_trade_event`, `market_for_trade`,
+`seeded_server`, `journey_settings`, plus the already-present `wire_journey_pipeline`,
+`running_pipeline`, `pipeline_row`, `persisted_assessments` and `run_until`, which the
+suites now import instead of re-defining. Every parameter that varies (settings, market,
+database manager, channels, trades server, clock) stays an explicit argument at the call
+site; the test-local names other modules imported (`_market`, `_seeded_server`, ...) were
+repointed to the harness. One difference was kept on purpose:
+`test_persist_assessment.sample_trade` is a different trade (asset `asset_xyz`, $0.42 x
+1000) and is not merged. `tests/test_pipeline.py::_run_until` (25000 x 0.5 ms) also differs
+from the harness `run_until` (5 s x 2 ms) and stays local.
+
+Re-measured with the identical pinned method (jscpd 5.3.3, `SCAN_POLICY` at the 50-token
+tier, empty config, no ignore lists or exclusions; authored scope via
+`quality.source_scope.discover` + `validate_path`, `.pyi` skipped, size hook not applied,
+staged with `quality.duplication_inputs.stage_inputs`):
+
+- Before (`origin/main` at `1bdccbc`, after #159 and #162, 288 authored files): **84 clone
+  groups, 1031 duplicated lines, 1.69%**.
+- After (this change rebased onto `1bdccbc`, 289 authored files; the addition is
+  `tests/integration/test_pipeline_wiring_characterization.py`): **74 clone groups, 909
+  duplicated lines, 1.49%**.
+
+(The pre-rebase measurement against `69c4807` was 87 -> 77 groups and 1107 -> 985 lines; the
+rebased figures above supersede it.)
+
+Set-difference of the raw pair multisets (file pair, count): ten pairs disappeared
+(`test_end_to_end` <-> `test_pipeline` x5, `test_end_to_end` <-> `test_postgres_journey` x2,
+`test_end_to_end` <-> `test_pipeline_persistence`, `test_persist_assessment` <->
+`test_pipeline_persistence`, `test_persist_assessment` <-> `test_pipeline`) and **no pair
+was added or increased**. The `test_terminal_error_durable.py` (cluster 10) and `test_main.py`
+(cluster 17) clones are other cards' scope and are untouched.
