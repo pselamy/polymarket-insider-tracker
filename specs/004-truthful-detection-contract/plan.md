@@ -67,6 +67,9 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   reported D = 204 s; research R02a); usable only when the single precedence table of data-model §1.2
   yields `available` (`0 <= evaluated_at - acquired_at <= 600s`). Eight mutually exclusive states; never
   synthesize the stamp from cache reads, TTL, CLOB refresh, or generic `last_updated`.
+- **Entry gate (revised 2026-10-19, codex round 2)**: task T027 (proxy-wallet nonce qualification) gates the
+  wallet group. Before its receipt exists the wallet group is non-scoring (FR-007c); implementation tasks
+  that score on it do not start. Decision D1 option O5 makes this the explicit default posture.
 - **Operator surface**: keep `DETECTOR_ALERT_THRESHOLD` default 0.80 (inclusive `>=`,
   0.001 quantum); add `DETECTOR_FRESH_TRANSACTION_BOUNDARY` default 5, positive integer and
   exclusive nonce bound — every classification rule uses the captured effective boundary

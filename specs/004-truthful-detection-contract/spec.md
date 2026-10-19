@@ -143,6 +143,10 @@ persisted assessment fields, sample output, README, example environment, and the
   the live product uses is DECISION D1 in [decision-packet.md](decision-packet.md); until a source is selected
   and qualified, live age is **always unknown** and the known-age classification is exercised only by injected
   test profiles and is documented as non-operational. Failure to obtain an age is `unknown`, never `fresh`.
+- **FR-007c** *(qualification gate)*: The wallet group MUST NOT contribute to a score until the qualification
+  receipt T027 records what the proxy-address transaction count measures. Before that receipt the wallet
+  group is non-scoring (assessments record `wallet_group = unqualified`). Recommended-default status:
+  a recommendation under DECISION D1, not settled.
 - **FR-008**: When age is unknown and transaction count is below the boundary, the detector MAY emit a
   lower-certainty low-activity-wallet candidate, but all outputs MUST label age as unknown and MUST NOT state
   or imply a less-than-48-hour age. Its confidence MUST be **exactly 0.50** (neither lower nor higher,
@@ -182,6 +186,10 @@ persisted assessment fields, sample output, README, example environment, and the
   [research.md](research.md) R10 / `evidence/reachability.md`, and a regression test MUST recompute those
   ceilings from the real scorer so that a weight, cap, bonus or threshold change cannot silently change
   what is reachable. With unknown age the ceiling is 0.780 for every trade size.
+- **FR-022a** *(runtime visibility)*: Whenever the effective configuration makes the alert threshold
+  unreachable by every evidence class, startup logging and the operator status surface MUST report
+  `default alert path unreachable` with the configured threshold and the highest reachable ceiling, so a
+  silent-by-construction monitor is never mistaken for a quiet market. (T029)
 
 ### Key Entities
 

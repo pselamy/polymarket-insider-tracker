@@ -244,6 +244,8 @@ the wallet group may be described more strongly.
 | **O3 – external indexer** (chain first-transaction time of the address) | `age_basis = chain_first_transaction` | Matches the original README meaning; adds a vendor dependency, a credential or quota, new failure/cost surface and a trust decision; still subject to the proxy-address semantics question (a contract's creation time is not the participant's first use) | No indexer in the repo (`get_first_transaction` note at `profiler/chain.py:524-527`); vendor behaviour unverified |
 | **O4 – Gamma public-profile style creation timestamp** | Account creation as Polymarket records it | Possibly the closest to "new account" | **UNVERIFIED lead only**: nothing in the repo or checked-in evidence shows such an endpoint or its terms; listed so a future qualification can evaluate it, not as a candidate this revision can recommend |
 
+**O5 (added after codex round 2)** – wallet group non-scoring until T027 qualifies the proxy-address nonce (FR-007c). Not an age source; a posture that composes with any of O1–O4. See decision-packet D1.
+
 **Recommended default**: O1 for this slice, with O2 as the first follow-up candidate once a bounded,
 authorized qualification (T027) establishes the per-user query semantics. Rationale: it is the only option
 whose every claim is supported by code on main today, and it keeps FR-007/FR-008 truthful without

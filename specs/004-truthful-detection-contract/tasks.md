@@ -118,12 +118,21 @@ Named files, entry points, dependency order:
 - [ ] T019 Full pipeline/storage/output/failure/restart/integration evidence per
   `quickstart.md` journey scenarios 1–10 (SC-001–008). Depends on T010, T015–T017.
 - [ ] T020 Real PostgreSQL/Redis parity + migration downgrade exercise (disposable DB only)
-- [ ] T027 Wallet-subject qualification receipt (needs explicit authorization for read-only anonymous
-  probes; none were run in this revision): bounded sample of proxy addresses, compare
+- [ ] T027 **ENTRY GATE for the wallet group** — wallet-subject qualification receipt (needs explicit
+  authorization for read-only anonymous probes; none were run in this revision). No implementation task
+  that lets the wallet group contribute to a score (T009d wallet rules, T015, T019) may merge until this
+  receipt exists and records what the proxy-address nonce measures; until then the wallet group is
+  non-scoring (spec FR-007c). Probe plan: bounded sample of proxy addresses, compare
   `eth_getTransactionCount` with public trade counts and record whether the nonce moves with trading;
   if DECISION D1 selects O2, also qualify the per-user trades query (ordering, `takerOnly`,
   10,000-row offset cap, maker visibility). Until it exists the wallet group stays described as
-  "low transaction count on the proxy address" (spec FR-007a/b). (F01, F02)
+  "low transaction count on the proxy address" (spec FR-007a/b). If the receipt shows the nonce does not
+  track trading, the wallet group stays non-scoring and D1 must be re-decided. (F01, F02)
+- [ ] T029 [US3] Default-alert-path disclosure (FR-022a): when the effective configuration makes every
+  evidence class unable to reach `DETECTOR_ALERT_THRESHOLD` (ceilings from the T028 table), startup and
+  the operator status surface MUST report `default alert path unreachable` with the highest reachable
+  ceiling and the configured threshold; test asserts the report for the 0.80/unknown-age default and
+  its absence when the threshold is lowered to a reachable value. Lands with T028.
 - [ ] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
   `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md`
   (unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
@@ -180,7 +189,7 @@ it (same rule as T009c/T009d/T015).
 
 ## Dependencies
 
-T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015–T017 → T019; T021 → T022–T026; T022–T026 → T019;
+T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015–T017 → T019; T021 → T022–T026; T027 gates T009d(wallet rules)/T015/T019; T022–T026 → T019;
 foundational contract (T003–T008) precedes all implementation. Tests that pin a behavior
 (T009c/T009d/T015) land with or before the implementation change they cover — never after
 as a separate unblocking layer. Parallel-safe pairs after their prerequisites:
@@ -192,7 +201,7 @@ Full per-requirement table with implementation task(s), named test/scenario obli
 future evidence receipt lives in `evidence/implementation-validation.md` §Traceability.
 Summary: FR-001–011 → T009a–d/T011/T012a–d/T013/T015/T016; FR-012–014 → T013/T014;
 FR-015/016 → T009d/T010; FR-017/018 → T014; FR-019 → T002/T019; FR-020 → T006/T017/T020;
-FR-021 → T010; FR-022/SC-009 → T028; SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
+FR-021 → T010; FR-007c → T027; FR-022/FR-022a/SC-009 → T028/T029; SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
 (US1-1..4, US2-1..4, US3-1..4) → T009d/T010/T013/T014/T015/T017/T019 with journey
 scenarios 1–10 in `quickstart.md`. No FR/SC/scenario is covered by nominal reference —
 each names its task, test file, and evidence receipt.

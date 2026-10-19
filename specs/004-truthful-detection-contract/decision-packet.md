@@ -15,8 +15,8 @@ contract only, not a merge, deployment, real notification, trading or calibratio
 
 | ID | Question | Recommended default | If you pick otherwise |
 |---|---|---|---|
-| **D1** | Wallet-age source (current main has none) | **O1**: age branch non-operational, score only on low-activity evidence; O2 next after a qualification receipt | O2/O3 add a source task and a qualification receipt; wording rules already in spec |
-| **D2** | What 0.80 means when age is unknown (ceiling 0.780) | **R0**: keep 0.80 and exact 0.50, publish ceilings | R1 changes every threshold surface and the journeys; R3 needs a new spec |
+| **D1** | Wallet-age source (current main has none) | **O1** (recommendation): age branch non-operational, score only on low-activity evidence, with the wallet group gated on T027 (FR-007c); O2 next. Codex prefers **O5** (wallet group non-scoring until qualified) | O2/O3 add a source task and a qualification receipt; wording rules already in spec |
+| **D2** | What 0.80 means when age is unknown (ceiling 0.780) | **R0** (recommendation), only together with the runtime "default alert path unreachable" report (FR-022a, T029). Codex prefers R3 or deferring alert-capable release until O2 is qualified | R1 changes every threshold surface and the journeys; R3 needs a new spec |
 | **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata | (a) keeps invented evidence; (b) silences the size group on any outage |
 
 **Consequence to accept knowingly**: with D1 = O1 and D2 = R0 the default configuration records
@@ -36,8 +36,12 @@ transaction for any wallet), and the profiled address is the V2 `proxy_wallet`, 
 | **O1** age branch non-operational; score only on low-activity evidence | every wallet candidate is "low-activity wallet, age unknown", confidence exactly 0.50 | Truthful, no new dependency; maximum score is 0.78 (see D2) |
 | **O2** Polymarket-activity age from the earliest public trade for the proxy address | "first Polymarket trade seen < 48 h ago" when full history is reachable, else unknown | Measures newness to Polymarket without the nonce question; needs a qualified per-user query, offset-capped so often only a lower bound |
 | **O3** external indexer for chain first-transaction age | "first on-chain transaction < 48 h ago" | Vendor, credential/quota and cost; still subject to the proxy-address question |
+| **O4** Gamma public-profile style account-creation timestamp | "account created < 48 h ago" as Polymarket records it | **Unverified lead only** (research R09 O4): no endpoint or terms evidenced in the repo; not recommendable until qualified |
+| **O5** wallet group non-scoring until T027 qualifies the proxy-address nonce | the size group alone scores; wallet classification is recorded as `unqualified`, never as evidence | Strongest truthfulness (no unvalidated heuristic scores); lowers every ceiling to the size-group-only maximum (recompute with `reachability.py` if chosen) and changes the replay; codex's preferred position |
 
-**Recommended default: O1 for slice 004**, O2 as the first follow-up after the T027 qualification
+**Codex round-2 position (reviewer input, not a decision)**: scoring a proxy-wallet nonce as "low activity" before T027 says what it measures is unvalidated; hence T027 is now an entry gate (FR-007c) and O5 exists. The recommendation below keeps O1 only *with* that gate: the wallet group may not score until the receipt exists, which in effect makes O5 the posture until T027 runs. If you want the wallet group to score before qualification, that is an explicit choice to accept an unvalidated heuristic.
+
+**Recommended default: O1 for slice 004 (gated by T027)**, O2 as the first follow-up after the T027 qualification
 receipt. If you pick O2 or O3 the spec already has the wording rules and the unknown-age fallback; the
 implementation then gains a source task. Until you choose, the contract is written for O1 and says so.
 
@@ -57,8 +61,10 @@ Unknown-age live-realistic replay: 0 of 45 qualify at 0.80, 7 at 0.78.
 | **R3** two tiers (alert 0.80 + lower "research watch") | surfaces the 0.78 class without calling it an alert | new product surface; needs its own spec |
 | **R4** re-weight / remove niche double counting | changes every ceiling | model change needing calibration data |
 
-**Recommended default: R0.** It is the only option that adds no unvalidated claim, but you should
+**Recommended default: R0, conditional on FR-022a/T029** (startup and operator surface report `default alert path unreachable` with threshold and highest ceiling whenever the configuration makes it so). It is the only option that adds no unvalidated claim, but you should
 decide knowingly that with D1 = O1 the default configuration produces no deliverable alert.
+
+**Codex round-2 objection (reviewer input)**: R0 leaves the default alert path inert and is misleading unless that is visible at runtime. Codex's preferred alternatives are **R3** (two tiers: alert 0.80 plus a lower research-watch tier) and **defer any alert-capable release until O2 is qualified**. Both are open options for you; this revision addressed the objection only by adding the visibility requirement, not by changing the recommendation.
 
 ### D3 — Category fallback when volume is not usable (DECISION FOR PATRICK)
 
