@@ -216,4 +216,4 @@ class FreshWalletDetector:
             List of FreshWalletSignal for trades from fresh wallets.
         """
         tasks = [self.analyze(trade) for trade in trades]
-        return await gather_signals(trades, tasks)
+        return await gather_signals(trades, tasks, logger)

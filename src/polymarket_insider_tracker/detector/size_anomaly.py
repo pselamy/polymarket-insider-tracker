@@ -380,4 +380,4 @@ class SizeAnomalyDetector:
             List of SizeAnomalySignal for trades with anomalies.
         """
         tasks = self._create_batch_tasks(trades, volume_data, book_data)
-        return await gather_signals(trades, tasks)
+        return await gather_signals(trades, tasks, logger)

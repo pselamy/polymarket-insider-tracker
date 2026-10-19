@@ -131,6 +131,11 @@ class TestFreshWalletBatchContract:
         assert [signal.trade_event.trade_id for signal in signals] == ["good"]
         assert "Failed to analyze trade bad" in caplog.text
         assert "abc123" not in caplog.text
+        assert any(
+            record.name == FreshWalletDetector.__module__
+            and "Failed to analyze trade bad" in record.getMessage()
+            for record in caplog.records
+        )
 
     async def test_empty_batch_is_empty(self) -> None:
         signals = await FreshWalletDetector(FakeWalletAnalyzer()).analyze_batch([])
@@ -169,6 +174,11 @@ class TestSizeAnomalyBatchContract:
 
         assert [signal.trade_event.trade_id for signal in signals] == ["good"]
         assert "Failed to analyze trade bad" in caplog.text
+        assert any(
+            record.name == SizeAnomalyDetector.__module__
+            and "Failed to analyze trade bad" in record.getMessage()
+            for record in caplog.records
+        )
 
     async def test_empty_batch_is_empty(self) -> None:
         sync = FakeMetadataSync()

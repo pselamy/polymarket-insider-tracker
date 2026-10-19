@@ -14,20 +14,20 @@ from typing import TypeVar
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.redaction import redact_exception_message
 
-logger = logging.getLogger(__name__)
-
 SignalT = TypeVar("SignalT")
 
 
 async def gather_signals(
     trades: Sequence[TradeEvent],
     tasks: Sequence[Awaitable[SignalT | None]],
+    logger: logging.Logger,
 ) -> list[SignalT]:
     """Await one analysis per trade and collect the non-``None`` signals.
 
     Results are matched to ``trades`` positionally. A per-trade failure is
     logged with its message redacted and dropped, so a single bad trade neither
-    aborts the batch nor disappears without a trace.
+    aborts the batch nor disappears without a trace. ``logger`` is the caller's
+    module logger so log provenance stays with the detector that ran the batch.
     """
     results = await asyncio.gather(*tasks, return_exceptions=True)
 

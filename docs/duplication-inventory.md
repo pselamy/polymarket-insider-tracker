@@ -7,7 +7,10 @@ The authored scope is enumerated by `quality.source_scope.discover` +
 see [relentless-ci-adoption.md](relentless-ci-adoption.md) for the coupling):
 **279 authored Python files**. Vendored `SCAN_POLICY` at the 50-token tier:
 `--mode mild --format python --min-tokens 50 --min-lines 4 --threshold 0
---no-gitignore --workers 1`, empty config, no ignore lists, no exclusions.
+--no-gitignore --workers 1`, empty config, no ignore lists, no exclusions. (The
+authored scope later grew to 280 files at this card's parent `bfc1a10`, when #156
+added one integration test; that file introduced no clone, so the 86/1092 totals
+below are unchanged between 279 and 280 files.)
 
 Totals after the cluster-22 resolution: **85 clone groups, 1080 duplicated lines,
 1.80% duplication** over **282 authored Python files** (the scanner's own
@@ -315,16 +318,20 @@ Cluster 22's single clone pair had `FreshWalletDetector.analyze_batch` and
 `asyncio.gather(..., return_exceptions=True)`, `zip(trades, results,
 strict=True)`, dropping `None`, and a `@staticmethod _handle_batch_result` that
 warns on a `BaseException` (message run through `redact_exception_message`) and
-returns `None`. The two copies were byte-identical apart from the signal type in
-their annotations, so there was no behavioural difference to adjudicate.
+returns `None`. The two copies were textually identical apart from the signal type
+in their annotations and the module logger each one resolved, so there was no
+behavioural difference to adjudicate.
 
 That knowledge now has one home,
 `src/polymarket_insider_tracker/detector/_batch.py` (`gather_signals`). Both
 `analyze_batch` methods still build their own per-trade tasks (the size detector
 keeps `_create_batch_tasks` to attach `daily_volume`/`book_depth`) and delegate
-the gather/zip/failure handling to `gather_signals`. Public import paths
-(`FreshWalletDetector`, `SizeAnomalyDetector`, their `analyze`/`analyze_batch`
-methods) are unchanged and every existing test passes unchanged.
+the gather/zip/failure handling to `gather_signals`, passing their own module
+logger so a failed-trade warning keeps the same `%(name)s` provenance as before.
+Public import paths (`FreshWalletDetector`, `SizeAnomalyDetector`, their
+`analyze`/`analyze_batch` methods) are unchanged and every existing test passes
+unchanged; the characterization tests added here also pin the warning's logger
+name.
 
 Re-measured with the identical pinned method (jscpd 5.3.3, `SCAN_POLICY` at the
 50-token tier, empty config, no ignore lists or exclusions), enumerating the
