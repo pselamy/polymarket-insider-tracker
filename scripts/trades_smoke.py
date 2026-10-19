@@ -29,6 +29,7 @@ from typing import Literal, NoReturn
 
 import httpx
 
+from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL
 from polymarket_insider_tracker.ingestor.trade_rows import InvalidRow, parse_trade_row
 from polymarket_insider_tracker.ingestor.trades_source import (
     PAGE_LIMIT,
@@ -40,7 +41,7 @@ from polymarket_insider_tracker.ingestor.trades_source import (
     redacted_url,
 )
 
-DEFAULT_TRADES_URL = "https://data-api.polymarket.com/trades"
+DEFAULT_TRADES_URL = OFFICIAL_V1_TRADES_URL
 COVERAGE_MODES = ("all", "taker-only")
 SMOKE_MAX_RETRIES = 2
 MAX_INVALID_SHARE = 0.05

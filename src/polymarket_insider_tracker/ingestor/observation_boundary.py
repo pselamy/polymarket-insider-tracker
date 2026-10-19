@@ -19,6 +19,8 @@ from typing import Any, Protocol, cast
 
 from redis.asyncio import Redis
 
+from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL, OFFICIAL_V2_TRADES_URL
+
 SCHEMA_VERSION = 2
 LOSS_EVENT_RETENTION = 50
 KEY_PREFIX = "polymarket:ingest:"
@@ -190,10 +192,6 @@ class ProofResult:
         return self.reach and self.continuity
 
 
-_OFFICIAL_V1_TRADES_URL = "https://data-api.polymarket.com/trades"
-_OFFICIAL_V2_TRADES_URL = "https://data-api.polymarket.com/v2/trades"
-
-
 def source_id(trades_url: str, coverage: str) -> str:
     """First 12 hex characters of ``sha256("<logical source url>|<coverage>")``.
 
@@ -201,7 +199,7 @@ def source_id(trades_url: str, coverage: str) -> str:
     existing v1 namespace so a saved checkpoint and identity window survive the upgrade;
     every other URL keeps its own identity. See contract item 4.
     """
-    logical = _OFFICIAL_V1_TRADES_URL if trades_url == _OFFICIAL_V2_TRADES_URL else trades_url
+    logical = OFFICIAL_V1_TRADES_URL if trades_url == OFFICIAL_V2_TRADES_URL else trades_url
     return hashlib.sha256(f"{logical}|{coverage}".encode()).hexdigest()[:12]
 
 
