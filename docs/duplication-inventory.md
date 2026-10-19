@@ -668,11 +668,14 @@ tier, empty config, no ignore lists or exclusions; authored scope via
 `quality.source_scope.discover` + `validate_path`, `.pyi` skipped, size hook not applied,
 staged with `quality.duplication_inputs.stage_inputs`):
 
-- Before (`69c4807`, 285 authored files): **87 clone groups, 1107 duplicated lines,
-  1.83%**.
-- After (this change, 286 authored files; the addition is
-  `tests/integration/test_pipeline_wiring_characterization.py`): **77 clone groups, 985
-  duplicated lines, 1.63%**.
+- Before (`origin/main` at `1bdccbc`, after #159 and #162, 288 authored files): **84 clone
+  groups, 1031 duplicated lines, 1.69%**.
+- After (this change rebased onto `1bdccbc`, 289 authored files; the addition is
+  `tests/integration/test_pipeline_wiring_characterization.py`): **74 clone groups, 909
+  duplicated lines, 1.49%**.
+
+(The pre-rebase measurement against `69c4807` was 87 -> 77 groups and 1107 -> 985 lines; the
+rebased figures above supersede it.)
 
 Set-difference of the raw pair multisets (file pair, count): ten pairs disappeared
 (`test_end_to_end` <-> `test_pipeline` x5, `test_end_to_end` <-> `test_postgres_journey` x2,
