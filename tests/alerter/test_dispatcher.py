@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Literal
 
 import httpx
 import pytest
@@ -17,9 +18,13 @@ from polymarket_insider_tracker.alerter.dispatcher import (
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.config import DiscordSettings
 from tests.fakes import FakeAlertChannel
-from tests.fakes.alerts import discord_webhook, telegram_bot_api
+from tests.fakes.alerts import FakeWebhookServer, discord_webhook, telegram_bot_api
 
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/123/abc"
+TELEGRAM_BOT_TOKEN = "123456:ABC-DEF"
+
+ChannelKind = Literal["discord", "telegram"]
+CHANNEL_KINDS: tuple[ChannelKind, ...] = ("discord", "telegram")
 
 # ============================================================================
 # Fixtures
@@ -55,6 +60,69 @@ def fake_telegram_channel() -> FakeAlertChannel:
     return FakeAlertChannel("telegram")
 
 
+def wired_channel(
+    kind: ChannelKind,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    max_retries: int = 3,
+    retry_delay: float = 0.0,
+    credential: str | None = None,
+    chat_id: str = "chat-1",
+    rate_limited_requests: int = 0,
+    failure: httpx.Response | None = None,
+    network_error: Exception | None = None,
+) -> tuple[DiscordChannel | TelegramChannel, FakeWebhookServer]:
+    """A channel of ``kind`` whose HTTP client talks to its matching fake server.
+
+    The one home for pairing each channel with the server shaped like its provider.
+    """
+    if kind == "discord":
+        server = discord_webhook(
+            rate_limited_requests=rate_limited_requests,
+            failure=failure,
+            network_error=network_error,
+        )
+        channel: DiscordChannel | TelegramChannel = DiscordChannel(
+            webhook_url=DISCORD_WEBHOOK_URL if credential is None else credential,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+        )
+    else:
+        server = telegram_bot_api(
+            rate_limited_requests=rate_limited_requests,
+            failure=failure,
+            network_error=network_error,
+        )
+        channel = TelegramChannel(
+            TELEGRAM_BOT_TOKEN if credential is None else credential,
+            chat_id,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+        )
+    monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+    return channel, server
+
+
+async def assert_failure_logged_without(
+    channel: DiscordChannel | TelegramChannel,
+    server: FakeWebhookServer,
+    alert: FormattedAlert,
+    caplog: pytest.LogCaptureFixture,
+    *,
+    logged: tuple[str, ...],
+    secrets: tuple[str, ...],
+) -> None:
+    """One send fails after a single request; the log names the failure but leaks no secret."""
+    result = await channel.send(alert)
+
+    assert result is False
+    assert len(server.requests) == 1
+    for text in logged:
+        assert text in caplog.text
+    for secret in secrets:
+        assert secret not in caplog.text
+
+
 # ============================================================================
 # DiscordChannel Tests
 # ============================================================================
@@ -70,11 +138,12 @@ class TestChannelErrorRedaction:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=1, retry_delay=0.0)
-        server = discord_webhook(
-            network_error=httpx.ConnectError(f"connection failed for {DISCORD_WEBHOOK_URL}")
+        channel, server = wired_channel(
+            "discord",
+            monkeypatch,
+            max_retries=1,
+            network_error=httpx.ConnectError(f"connection failed for {DISCORD_WEBHOOK_URL}"),
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
@@ -90,13 +159,15 @@ class TestChannelErrorRedaction:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         token = "12345:SECRET-BOT-TOKEN"
-        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
-        server = telegram_bot_api(
+        channel, server = wired_channel(
+            "telegram",
+            monkeypatch,
+            max_retries=1,
+            credential=token,
             network_error=httpx.ConnectError(
                 f"connection failed for https://api.telegram.org/bot{token}/sendMessage"
-            )
+            ),
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
@@ -113,26 +184,23 @@ class TestChannelErrorRedaction:
     ) -> None:
         """Round-18: a non-204 response body is server text and may echo the webhook URL."""
         secret = "WEBHOOK_ECHO_SECRET_R18"
-        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=1, retry_delay=0.0)
-        server = discord_webhook(
-            failure=httpx.Response(
-                400,
-                text=(
-                    f"invalid webhook {DISCORD_WEBHOOK_URL} "
-                    f"(proxied via https://edge.example/hook/{secret})"
-                ),
-            )
+        failure = httpx.Response(
+            400,
+            text=(
+                f"invalid webhook {DISCORD_WEBHOOK_URL} "
+                f"(proxied via https://edge.example/hook/{secret})"
+            ),
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = wired_channel("discord", monkeypatch, max_retries=1, failure=failure)
 
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 1
-        assert "Discord webhook failed" in caplog.text
-        assert "400" in caplog.text
-        assert DISCORD_WEBHOOK_URL not in caplog.text
-        assert secret not in caplog.text
+        await assert_failure_logged_without(
+            channel,
+            server,
+            sample_alert,
+            caplog,
+            logged=("Discord webhook failed", "400"),
+            secrets=(DISCORD_WEBHOOK_URL, secret),
+        )
 
     @pytest.mark.asyncio
     async def test_telegram_error_description_is_redacted(
@@ -144,30 +212,29 @@ class TestChannelErrorRedaction:
         """Round-18: the API ``description`` is server text and may echo the token URL."""
         secret = "TELEGRAM_ECHO_SECRET_R18"
         token = "12345:SECRET-BOT-TOKEN"
-        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
-        server = telegram_bot_api(
-            failure=httpx.Response(
-                200,
-                json={
-                    "ok": False,
-                    "error_code": 401,
-                    "description": (
-                        f"unauthorized for https://api.telegram.org/bot{token}/sendMessage"
-                        f" via https://edge.example/relay?key={secret}"
-                    ),
-                },
-            )
+        failure = httpx.Response(
+            200,
+            json={
+                "ok": False,
+                "error_code": 401,
+                "description": (
+                    f"unauthorized for https://api.telegram.org/bot{token}/sendMessage"
+                    f" via https://edge.example/relay?key={secret}"
+                ),
+            },
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = wired_channel(
+            "telegram", monkeypatch, max_retries=1, credential=token, failure=failure
+        )
 
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 1
-        assert "Telegram API error" in caplog.text
-        assert "401" in caplog.text
-        assert token not in caplog.text
-        assert secret not in caplog.text
+        await assert_failure_logged_without(
+            channel,
+            server,
+            sample_alert,
+            caplog,
+            logged=("Telegram API error", "401"),
+            secrets=(token, secret),
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("style", ["escaped-slashes", "bare-token", "quoted-path"])
@@ -190,16 +257,19 @@ class TestChannelErrorRedaction:
             "bare-token": f"unknown token {secret}",
             "quoted-path": f"https://rpc.invalid/v2/prefix'{secret}",
         }[style]
-        channel = DiscordChannel(webhook_url=webhook, max_retries=1, retry_delay=0.0)
-        server = discord_webhook(failure=httpx.Response(400, json={"message": message}))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        failure = httpx.Response(400, json={"message": message})
+        channel, server = wired_channel(
+            "discord", monkeypatch, max_retries=1, credential=webhook, failure=failure
+        )
 
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 1
-        assert "Discord webhook failed" in caplog.text
-        assert secret not in caplog.text
+        await assert_failure_logged_without(
+            channel,
+            server,
+            sample_alert,
+            caplog,
+            logged=("Discord webhook failed",),
+            secrets=(secret,),
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("style", ["escaped-slashes", "bare-token", "quoted-path"])
@@ -221,20 +291,14 @@ class TestChannelErrorRedaction:
             "bare-token": f"unauthorized token {token}",
             "quoted-path": f"https://rpc.invalid/v2/prefix'{token}",
         }[style]
-        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
-        server = telegram_bot_api(
-            failure=httpx.Response(
-                200, json={"ok": False, "error_code": 400, "description": message}
-            )
+        failure = httpx.Response(200, json={"ok": False, "error_code": 400, "description": message})
+        channel, server = wired_channel(
+            "telegram", monkeypatch, max_retries=1, credential=token, failure=failure
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 1
-        assert "Telegram API error" in caplog.text
-        assert secret not in caplog.text
+        await assert_failure_logged_without(
+            channel, server, sample_alert, caplog, logged=("Telegram API error",), secrets=(secret,)
+        )
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -266,21 +330,23 @@ class TestChannelErrorRedaction:
         config = DiscordSettings(_env_file=None, DISCORD_WEBHOOK_URL=webhook)
         assert config.enabled
         assert config.webhook_url is not None
-        channel = DiscordChannel(
-            config.webhook_url.get_secret_value(), max_retries=1, retry_delay=0.0
-        )
         body = ('{"message":"' + echo + '"}').encode()
-        server = discord_webhook(failure=httpx.Response(400, content=body))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = wired_channel(
+            "discord",
+            monkeypatch,
+            max_retries=1,
+            credential=config.webhook_url.get_secret_value(),
+            failure=httpx.Response(400, content=body),
+        )
 
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 1
-        assert "Discord webhook failed" in caplog.text
-        assert "400" in caplog.text
-        assert secret not in caplog.text
-        assert "\\u0052" + secret[1:] not in caplog.text
+        await assert_failure_logged_without(
+            channel,
+            server,
+            sample_alert,
+            caplog,
+            logged=("Discord webhook failed", "400"),
+            secrets=(secret, "\\u0052" + secret[1:]),
+        )
 
     @pytest.mark.asyncio
     async def test_telegram_unicode_escaped_error_code_echo_never_reaches_the_log(
@@ -297,36 +363,36 @@ class TestChannelErrorRedaction:
         secret = "R23-TELEGRAM-TOKEN-SECRET"
         token = f"987654:{secret}"
         escaped_token = "987654:" + "\\u0052" + secret[1:]
-        channel = TelegramChannel(token, "chat-1", max_retries=1, retry_delay=0.0)
-        server = telegram_bot_api(
-            failure=httpx.Response(
-                200,
-                json={
-                    "ok": False,
-                    "error_code": f"unauthorized {escaped_token}",
-                    "description": f"bad bot {escaped_token}",
-                },
-            )
+        failure = httpx.Response(
+            200,
+            json={
+                "ok": False,
+                "error_code": f"unauthorized {escaped_token}",
+                "description": f"bad bot {escaped_token}",
+            },
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = wired_channel(
+            "telegram", monkeypatch, max_retries=1, credential=token, failure=failure
+        )
 
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 1
-        assert "Telegram API error" in caplog.text
-        assert secret not in caplog.text
-        assert "\\u0052" + secret[1:] not in caplog.text
+        await assert_failure_logged_without(
+            channel,
+            server,
+            sample_alert,
+            caplog,
+            logged=("Telegram API error",),
+            secrets=(secret, "\\u0052" + secret[1:]),
+        )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("channel_kind", ["discord", "telegram"])
+    @pytest.mark.parametrize("channel_kind", CHANNEL_KINDS)
     @pytest.mark.parametrize("shape", ["bytes", "dict", "list"])
     async def test_channel_transport_error_nonstring_arguments_never_reach_the_log(
         self,
         sample_alert: FormattedAlert,
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
-        channel_kind: str,
+        channel_kind: ChannelKind,
         shape: str,
     ) -> None:
         """Round-23 N-R23-2: HTTPX annotates error messages as ``str``, but a
@@ -344,17 +410,16 @@ class TestChannelErrorRedaction:
         }[shape]
         error = httpx.ConnectError("")
         error.args = (payload,)
-        if channel_kind == "discord":
-            server = discord_webhook(network_error=error)
-            channel: DiscordChannel | TelegramChannel = DiscordChannel(
-                "https://discord.invalid/api/webhooks/1/different-config-token",
-                max_retries=1,
-                retry_delay=0.0,
-            )
-        else:
-            server = telegram_bot_api(network_error=error)
-            channel = TelegramChannel("different-config-token", "chat-1", max_retries=1)
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = wired_channel(
+            channel_kind,
+            monkeypatch,
+            max_retries=1,
+            credential={
+                "discord": "https://discord.invalid/api/webhooks/1/different-config-token",
+                "telegram": "different-config-token",
+            }[channel_kind],
+            network_error=error,
+        )
 
         result = await channel.send(sample_alert)
 
@@ -377,86 +442,17 @@ class TestDiscordChannel:
         assert channel.name == "discord"
 
     @pytest.mark.asyncio
-    async def test_send_success(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A 204 from the webhook is a delivery of the Discord embed."""
-        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL)
-        server = discord_webhook()
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
-
-        result = await channel.send(sample_alert)
-
-        assert result is True
-        assert [str(request.url) for request in server.requests] == [DISCORD_WEBHOOK_URL]
-        assert server.payloads() == [{"embeds": [sample_alert.discord_embed]}]
-
-    @pytest.mark.asyncio
-    async def test_send_rate_limited(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test Discord rate limit handling."""
-        channel = DiscordChannel(
-            webhook_url="https://discord.com/api/webhooks/123/abc",
-            max_retries=2,
-            retry_delay=0.01,
-        )
-        server = discord_webhook(rate_limited_requests=1)
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
-
-        result = await channel.send(sample_alert)
-
-        assert result is True
-        assert len(server.requests) == 2
-
-    @pytest.mark.asyncio
-    async def test_send_failure(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test Discord send failure after retries."""
-        channel = DiscordChannel(
-            webhook_url="https://discord.com/api/webhooks/123/abc",
-            max_retries=2,
-            retry_delay=0.01,
-        )
-        server = discord_webhook(failure=httpx.Response(500, text="Internal Server Error"))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
-
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 2
-
-    @pytest.mark.asyncio
-    async def test_read_timeout_is_ambiguous_and_not_retried(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A read timeout after the payload was sent is ambiguous: no internal retry, raise."""
-        channel = DiscordChannel(
-            webhook_url=DISCORD_WEBHOOK_URL,
-            max_retries=3,
-            retry_delay=0.01,
-        )
-        server = discord_webhook(network_error=httpx.ReadTimeout("read timed out"))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
-
-        with pytest.raises(TimeoutError):
-            await channel.send(sample_alert)
-
-        assert len(server.requests) == 1
-
-    @pytest.mark.asyncio
     async def test_connect_timeout_is_confirmed_failure(
         self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A connect timeout means nothing reached the server: confirmed failure, retried."""
-        channel = DiscordChannel(
-            webhook_url=DISCORD_WEBHOOK_URL,
+        channel, server = wired_channel(
+            "discord",
+            monkeypatch,
             max_retries=2,
             retry_delay=0.01,
+            network_error=httpx.ConnectTimeout("connect timed out"),
         )
-        server = discord_webhook(network_error=httpx.ConnectTimeout("connect timed out"))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
@@ -483,46 +479,51 @@ class TestTelegramChannel:
         assert channel.chat_id == "-1001234567890"
         assert channel.name == "telegram"
 
+
+class TestChannelContract:
+    """Delivery, retry and ambiguity behavior both channels share."""
+
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel_kind", CHANNEL_KINDS)
     async def test_send_success(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        channel_kind: ChannelKind,
     ) -> None:
-        """Test successful Telegram message send."""
-        channel = TelegramChannel(
-            bot_token="123456:ABC-DEF",
-            chat_id="-1001234567890",
-        )
-        server = telegram_bot_api()
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        """A success reply is one delivery of the provider-shaped payload."""
+        expected_url, expected_payload = {
+            "discord": (DISCORD_WEBHOOK_URL, {"embeds": [sample_alert.discord_embed]}),
+            "telegram": (
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                {
+                    "chat_id": "-1001234567890",
+                    "text": sample_alert.telegram_markdown,
+                    "parse_mode": "MarkdownV2",
+                    "disable_web_page_preview": False,
+                },
+            ),
+        }[channel_kind]
+        channel, server = wired_channel(channel_kind, monkeypatch, chat_id="-1001234567890")
 
         result = await channel.send(sample_alert)
 
         assert result is True
-        assert [str(request.url) for request in server.requests] == [
-            "https://api.telegram.org/bot123456:ABC-DEF/sendMessage"
-        ]
-        assert server.payloads() == [
-            {
-                "chat_id": "-1001234567890",
-                "text": sample_alert.telegram_markdown,
-                "parse_mode": "MarkdownV2",
-                "disable_web_page_preview": False,
-            }
-        ]
+        assert [str(request.url) for request in server.requests] == [expected_url]
+        assert server.payloads() == [expected_payload]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel_kind", CHANNEL_KINDS)
     async def test_send_rate_limited(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        channel_kind: ChannelKind,
     ) -> None:
-        """Test Telegram rate limit handling."""
-        channel = TelegramChannel(
-            bot_token="123456:ABC-DEF",
-            chat_id="-1001234567890",
-            max_retries=2,
-            retry_delay=0.01,
+        """A 429 is retried and the second attempt delivers."""
+        channel, server = wired_channel(
+            channel_kind, monkeypatch, max_retries=2, retry_delay=0.01, rate_limited_requests=1
         )
-        server = telegram_bot_api(rate_limited_requests=1)
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
@@ -530,22 +531,23 @@ class TestTelegramChannel:
         assert len(server.requests) == 2
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel_kind", CHANNEL_KINDS)
     async def test_send_failure(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        channel_kind: ChannelKind,
     ) -> None:
-        """Test Telegram send failure."""
-        channel = TelegramChannel(
-            bot_token="123456:ABC-DEF",
-            chat_id="-1001234567890",
-            max_retries=2,
-            retry_delay=0.01,
-        )
-        server = telegram_bot_api(
-            failure=httpx.Response(
+        """A provider failure exhausts the retries and reports failure."""
+        failure = {
+            "discord": httpx.Response(500, text="Internal Server Error"),
+            "telegram": httpx.Response(
                 400, json={"ok": False, "error_code": 400, "description": "Bad Request"}
-            )
+            ),
+        }[channel_kind]
+        channel, server = wired_channel(
+            channel_kind, monkeypatch, max_retries=2, retry_delay=0.01, failure=failure
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
@@ -553,18 +555,21 @@ class TestTelegramChannel:
         assert len(server.requests) == 2
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel_kind", CHANNEL_KINDS)
     async def test_read_timeout_is_ambiguous_and_not_retried(
-        self, sample_alert: FormattedAlert, monkeypatch: pytest.MonkeyPatch
+        self,
+        sample_alert: FormattedAlert,
+        monkeypatch: pytest.MonkeyPatch,
+        channel_kind: ChannelKind,
     ) -> None:
         """A read timeout after the payload was sent is ambiguous: no internal retry, raise."""
-        channel = TelegramChannel(
-            bot_token="123456:ABC-DEF",
-            chat_id="-1001234567890",
+        channel, server = wired_channel(
+            channel_kind,
+            monkeypatch,
             max_retries=3,
             retry_delay=0.01,
+            network_error=httpx.ReadTimeout("read timed out"),
         )
-        server = telegram_bot_api(network_error=httpx.ReadTimeout("read timed out"))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         with pytest.raises(TimeoutError):
             await channel.send(sample_alert)
@@ -877,17 +882,24 @@ class TestRetryDelayResponseBoundary:
         assert validated_retry_delay(value) == expected
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("channel_kind", CHANNEL_KINDS)
     @pytest.mark.parametrize("sign", [1, -1])
-    async def test_discord_unrepresentable_retry_after_takes_the_fixed_fallback(
+    async def test_unrepresentable_retry_after_takes_the_fixed_fallback(
         self,
         sample_alert: FormattedAlert,
         monkeypatch: pytest.MonkeyPatch,
         recorded_sleeps: list[float],
+        channel_kind: ChannelKind,
         sign: int,
     ) -> None:
-        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=1, retry_delay=0.0)
-        server = discord_webhook(failure=httpx.Response(429, json={"retry_after": sign * 10**400}))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        huge = sign * 10**400
+        failure = {
+            "discord": httpx.Response(429, json={"retry_after": huge}),
+            "telegram": httpx.Response(
+                429, json={"ok": False, "error_code": 429, "parameters": {"retry_after": huge}}
+            ),
+        }[channel_kind]
+        channel, server = wired_channel(channel_kind, monkeypatch, max_retries=1, failure=failure)
 
         result = await channel.send(sample_alert)
 
@@ -896,64 +908,19 @@ class TestRetryDelayResponseBoundary:
         assert recorded_sleeps == [1.0]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("sign", [1, -1])
-    async def test_telegram_unrepresentable_retry_after_takes_the_fixed_fallback(
+    @pytest.mark.parametrize("channel_kind", CHANNEL_KINDS)
+    async def test_ordinary_rate_limit_still_delays_then_delivers(
         self,
         sample_alert: FormattedAlert,
         monkeypatch: pytest.MonkeyPatch,
         recorded_sleeps: list[float],
-        sign: int,
+        channel_kind: ChannelKind,
     ) -> None:
-        channel = TelegramChannel("12345:token", "chat-1", max_retries=1, retry_delay=0.0)
-        server = telegram_bot_api(
-            failure=httpx.Response(
-                429,
-                json={
-                    "ok": False,
-                    "error_code": 429,
-                    "parameters": {"retry_after": sign * 10**400},
-                },
-            )
+        """Control: a finite server delay is honored as requested and the
+        retried attempt still delivers."""
+        channel, server = wired_channel(
+            channel_kind, monkeypatch, max_retries=2, rate_limited_requests=1
         )
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
-
-        result = await channel.send(sample_alert)
-
-        assert result is False
-        assert len(server.requests) == 1
-        assert recorded_sleeps == [1.0]
-
-    @pytest.mark.asyncio
-    async def test_discord_ordinary_rate_limit_still_delays_then_delivers(
-        self,
-        sample_alert: FormattedAlert,
-        monkeypatch: pytest.MonkeyPatch,
-        recorded_sleeps: list[float],
-    ) -> None:
-        """Control: a finite server delay is honored as requested and the
-        retried attempt still delivers."""
-        channel = DiscordChannel(webhook_url=DISCORD_WEBHOOK_URL, max_retries=2, retry_delay=0.0)
-        server = discord_webhook(rate_limited_requests=1)
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
-
-        result = await channel.send(sample_alert)
-
-        assert result is True
-        assert len(server.requests) == 2
-        assert recorded_sleeps == [0.01]
-
-    @pytest.mark.asyncio
-    async def test_telegram_ordinary_rate_limit_still_delays_then_delivers(
-        self,
-        sample_alert: FormattedAlert,
-        monkeypatch: pytest.MonkeyPatch,
-        recorded_sleeps: list[float],
-    ) -> None:
-        """Control: a finite server delay is honored as requested and the
-        retried attempt still delivers."""
-        channel = TelegramChannel("12345:token", "chat-1", max_retries=2, retry_delay=0.0)
-        server = telegram_bot_api(rate_limited_requests=1)
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
 
         result = await channel.send(sample_alert)
 
