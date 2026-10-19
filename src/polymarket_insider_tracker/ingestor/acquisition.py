@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import random
 import time
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from typing import Final
 from urllib.parse import urlsplit
 
@@ -96,6 +96,14 @@ class V2UnparseableBodyError(V2TransientError):
     """
 
 
+@dataclass(frozen=True)
+class _ReceivedPage:
+    """One successful page's raw response bytes and provider-cache headers."""
+
+    content: bytes
+    headers: ResponseHeaders
+
+
 class V2PageHttpTransport:
     """One physical v2 page request over an injected ``httpx.AsyncClient``.
 
@@ -104,6 +112,10 @@ class V2PageHttpTransport:
     classifies it. Every attempt is recorded for the poller's metrics and request budget through the
     same :class:`~polymarket_insider_tracker.ingestor._http_attempt.HttpAttempts` executor the v1
     page client uses.
+
+    It also keeps the raw response bytes and provider-cache headers of every successful page, in
+    order, so the caller can carry real response evidence onto the combined page (the last page's
+    cache headers and a digest over the concatenated raw bodies).
     """
 
     def __init__(
@@ -118,10 +130,19 @@ class V2PageHttpTransport:
         self._url = url
         self._key: tuple[str | None, int, int] | None = None
         self._index = 0
+        self._received: list[_ReceivedPage] = []
 
     @property
     def attempt_count(self) -> int:
         return self._http.count
+
+    @property
+    def page_count(self) -> int:
+        return len(self._received)
+
+    def received_since(self, index: int) -> tuple[_ReceivedPage, ...]:
+        """The successful pages received since ``page_count`` was ``index``, in order."""
+        return tuple(self._received[index:])
 
     def requests_in_window(self, now: float | None = None) -> int:
         return self._http.requests_in_window(now)
@@ -134,11 +155,14 @@ class V2PageHttpTransport:
                 self._url, result.response, started=result.started, index=result.index
             )
             self._http.record(result.started, result.index, "success", 200)
-            return body
         except AttemptTransientError as exc:
             raise self._transient_error(exc) from None
         except AttemptTerminalError as exc:
             raise V2TerminalError(str(exc)) from None
+        self._received.append(
+            _ReceivedPage(content=result.response.content, headers=_cache_headers(result.response))
+        )
+        return body
 
     def _transient_error(self, exc: AttemptTransientError) -> V2TransientError:
         if exc.kind == "unparseable":
@@ -152,6 +176,15 @@ class V2PageHttpTransport:
         else:
             self._key, self._index = key, 0
         return self._index
+
+
+def _cache_headers(response: httpx.Response) -> ResponseHeaders:
+    """The provider-cache headers the smoke record reports, read off one response."""
+    return ResponseHeaders(
+        cache_control=response.headers.get("cache-control"),
+        cf_cache_status=response.headers.get("cf-cache-status"),
+        age=response.headers.get("age"),
+    )
 
 
 class V2TradesSource:
@@ -202,12 +235,25 @@ class V2TradesSource:
         start = start_for(boundary_time, horizon_seconds)
         end = await self._cutoff.next()
         before = self._transport.attempt_count
+        before_pages = self._transport.page_count
         walked = await self._walk(taker_only=self._taker_only, start=start, end=end, proof=proof)
-        return self._combined_page(walked, start=start, end=end, attempts=before)
+        return self._combined_page(
+            walked,
+            start=start,
+            end=end,
+            attempts=before,
+            received=self._transport.received_since(before_pages),
+        )
 
     async def fetch_recovery(self, primary: TradesRequest) -> TradesPage:
         """A no-op recovery: the walk was already bounded, so the poller's gap path runs instead."""
-        return self._page(request=self._request(primary.start, primary.end), rows=(), attempts=0)
+        return self._page(
+            request=self._request(primary.start, primary.end),
+            rows=(),
+            attempts=0,
+            digest=hashlib.sha256(b"").hexdigest(),
+            headers=ResponseHeaders(cache_control=None, cf_cache_status=None, age=None),
+        )
 
     async def _walk(
         self, *, taker_only: bool, start: int, end: int, proof: ProofFactory | None
@@ -247,14 +293,32 @@ class V2TradesSource:
             raise TradesTransientError(str(exc), status=None, kind="transport") from exc
 
     def _combined_page(
-        self, pages: tuple[V2Page, ...], *, start: int, end: int, attempts: int
+        self,
+        pages: tuple[V2Page, ...],
+        *,
+        start: int,
+        end: int,
+        attempts: int,
+        received: tuple[_ReceivedPage, ...],
     ) -> TradesPage:
+        """Combine walked pages, carrying real response evidence onto the single v1-shaped page.
+
+        The digest is taken over the raw response bytes of every page in walk order (not a
+        re-serialization of the parsed rows), and the cache headers are those of the last page, so
+        the combined page preserves the provider-cache evidence the v1 page records.
+        """
         rows = tuple(translate_v2_row(row) for page in pages for row in page.rows)
         received_at = pages[-1].received_at if pages else self._clock()
         return self._page(
             request=self._request(start, end),
             rows=rows,
             attempts=self._transport.attempt_count - attempts,
+            digest=hashlib.sha256(b"".join(entry.content for entry in received)).hexdigest(),
+            headers=(
+                received[-1].headers
+                if received
+                else ResponseHeaders(cache_control=None, cf_cache_status=None, age=None)
+            ),
             received_at=received_at,
         )
 
@@ -264,9 +328,10 @@ class V2TradesSource:
         request: TradesRequest,
         rows: tuple[object, ...],
         attempts: int,
+        digest: str,
+        headers: ResponseHeaders,
         received_at: float | None = None,
     ) -> TradesPage:
-        digest = hashlib.sha256(json.dumps(rows, sort_keys=True, default=str).encode()).hexdigest()
         return TradesPage(
             request=request,
             rows=rows,
@@ -274,7 +339,7 @@ class V2TradesSource:
             attempts=attempts,
             http_status=200,
             body_sha256=digest,
-            headers=ResponseHeaders(cache_control=None, cf_cache_status=None, age=None),
+            headers=headers,
         )
 
     def _request(self, start: int, end: int) -> TradesRequest:

@@ -11,6 +11,7 @@ every request is recorded.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -20,6 +21,8 @@ import httpx
 from tests.fakes.trades import FakeClock, RecordedRequest
 
 V2_PAGE_LIMIT = 1000
+CACHE_CONTROL = "public, max-age=300"
+_CF_CACHE_STATUS = "MISS"
 _CURSOR_PREFIX = "cursor-"
 
 
@@ -38,6 +41,7 @@ class FakeV2TradesServer:
     _ledger: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
     _injected: list[object] = field(default_factory=list[object])
     _raw_injected: list[bytes] = field(default_factory=list[bytes])
+    served_bodies: list[bytes] = field(default_factory=list[bytes])
 
     def publish(self, row: Mapping[str, Any]) -> None:
         """Append one already-v2-shaped row (build with ``v2_row(trade_row(...))``)."""
@@ -76,7 +80,23 @@ class FakeV2TradesServer:
             return httpx.Response(200, json=self._injected.pop(0), request=request)
         if self._raw_injected:
             return httpx.Response(200, content=self._raw_injected.pop(0), request=request)
-        return httpx.Response(200, json=self._page_envelope(params), request=request)
+        return self._serve_page(params, request)
+
+    def _serve_page(self, params: Mapping[str, str], request: httpx.Request) -> httpx.Response:
+        """Serve one page and record the exact bytes plus the provider-cache headers.
+
+        ``age`` is stamped with the page's 1-based position so a caller can prove the combined page
+        carried the *last* page's headers.
+        """
+        body = json.dumps(self._page_envelope(params)).encode()
+        self.served_bodies.append(body)
+        headers = {
+            "content-type": "application/json",
+            "cache-control": CACHE_CONTROL,
+            "cf-cache-status": _CF_CACHE_STATUS,
+            "age": str(len(self.served_bodies)),
+        }
+        return httpx.Response(200, content=body, headers=headers, request=request)
 
     def _page_envelope(self, params: Mapping[str, str]) -> dict[str, object]:
         offset = self._offset(params.get("cursor"))
