@@ -5,9 +5,10 @@ with unusually large position sizes relative to market liquidity.
 """
 
 import logging
+from collections.abc import Awaitable, Sequence
 from decimal import Decimal
-from typing import Any
 
+from polymarket_insider_tracker.detector._batch import gather_signals
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
@@ -347,7 +348,7 @@ class SizeAnomalyDetector:
         trades: list[TradeEvent],
         volume_data: dict[str, Decimal] | None,
         book_data: dict[str, Decimal] | None,
-    ) -> list[Any]:
+    ) -> Sequence[Awaitable[SizeAnomalySignal | None]]:
         v_data = volume_data or {}
         b_data = book_data or {}
         return [
@@ -378,29 +379,5 @@ class SizeAnomalyDetector:
         Returns:
             List of SizeAnomalySignal for trades with anomalies.
         """
-        import asyncio
-
         tasks = self._create_batch_tasks(trades, volume_data, book_data)
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        signals: list[SizeAnomalySignal] = []
-        for trade, result in zip(trades, results, strict=True):
-            signal = self._handle_batch_result(trade, result)
-            if signal is not None:
-                signals.append(signal)
-
-        return signals
-
-    @staticmethod
-    def _handle_batch_result(
-        trade: TradeEvent,
-        result: SizeAnomalySignal | BaseException | None,
-    ) -> SizeAnomalySignal | None:
-        if isinstance(result, BaseException):
-            logger.warning(
-                "Failed to analyze trade %s: %s",
-                trade.trade_id,
-                redact_exception_message(result),
-            )
-            return None
-        return result
+        return await gather_signals(trades, tasks, logger)

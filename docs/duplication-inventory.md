@@ -7,14 +7,18 @@ The authored scope is enumerated by `quality.source_scope.discover` +
 see [relentless-ci-adoption.md](relentless-ci-adoption.md) for the coupling):
 **279 authored Python files**. Vendored `SCAN_POLICY` at the 50-token tier:
 `--mode mild --format python --min-tokens 50 --min-lines 4 --threshold 0
---no-gitignore --workers 1`, empty config, no ignore lists, no exclusions.
+--no-gitignore --workers 1`, empty config, no ignore lists, no exclusions. (The
+authored scope later grew to 280 files at this card's parent `bfc1a10`, when #156
+added one integration test; that file introduced no clone, so the 86/1092 totals
+below are unchanged between 279 and 280 files.)
 
-Totals on the rebased tree: **86 clone groups, 1092 duplicated lines, 1.83%
-duplication** over **279 authored Python files** (the scanner's own statistics
-report 246 sources: files it actually tokenized after skipping ones smaller than
-the clone minimums). For comparison, `origin/main` at `cdaf230` (after #152 and
-#154) measures **95 groups, 1224 duplicated lines, 2.06%** over 276 files with
-the identical enumeration.
+Totals after the cluster-22 resolution: **85 clone groups, 1080 duplicated lines,
+1.80% duplication** over **282 authored Python files** (the scanner's own
+statistics report 249 sources: files it actually tokenized after skipping ones
+smaller than the clone minimums). The pre-resolution tree at this card's parent
+`bfc1a10` measured **86 groups, 1092 duplicated lines, 1.83%** over 280 files with
+the identical enumeration. For comparison, `origin/main` at `cdaf230` (after #152
+and #154) measures **95 groups, 1224 duplicated lines, 2.06%** over 276 files.
 
 The first measurement recorded here (92 groups, 1230 lines, 2.16% over 258
 files) predated the v1->v2 endpoint merges now on main, so a fresh baseline was
@@ -135,7 +139,7 @@ knowledge).
 | 19 | 2 | 18 | test_complexipy.py, test_gate_negatives.py, test_policy_snapshot.py | Duplicated `spec_from_file_location` verifier loader helper | real |
 | 20 | 1 | 17 | test_analyzer.py | Repeated analyzer input construction | real |
 | 21 | 1 | 13 | _funding_rpc.py, funding.py | Parallel docstrings for the wrapped vs wrapper transfer-log API | incidental |
-| 22 | 1 | 12 | fresh_wallet.py, size_anomaly.py | Duplicated batch-result `_handle_batch_result` gather/zip knowledge | real |
+| 22 | 1 | 12 | fresh_wallet.py, size_anomaly.py | Duplicated batch-result `_handle_batch_result` gather/zip knowledge | real; resolved, see the 2026-10-19 cluster 22 resolution update below |
 | 23 | 1 | 12 | test_clob_client.py | Repeated paged-market fixture | real |
 | 24 | 1 | 11 | test_redis_contract.py | Repeated competing-owner CAS contract scenario | real |
 | 25 | 1 | 10 | _channel_delivery.py | `compare_and_delete` vs `compare_and_expire`: near-identical Redis watch/CAS logic | real |
@@ -152,8 +156,9 @@ fixture blocks, wiring scaffolds, parallel Discord/Telegram knowledge, and
 Redis CAS logic. The three incidental clusters are convention-mandated
 scaffolding (Alembic revisions, SQLAlchemy column defaults) and parallel API
 docstrings. The cluster table above is the original knowledge grouping; with
-cluster 5 and the "introduced by #151" cluster now resolved, the current total is
-the 86 groups regenerated in the per-clone list below from the pinned scan.
+cluster 5, the "introduced by #151" cluster, and cluster 22 now resolved, the
+current total is the 85 groups regenerated in the per-clone list below from the
+pinned scan.
 
 ## Every clone (scanner output, ordered by tokens)
 
@@ -219,7 +224,6 @@ the 86 groups regenerated in the per-clone list below from the pinned scan.
 | 57 | 6 | tests/ingestor/test_trade_poller.py:912-917 | tests/ingestor/test_trade_poller.py:977-981 |
 | 56 | 9 | tests/ingestor/test_publisher.py:247-255 | tests/ingestor/test_publisher.py:272-280 |
 | 55 | 17 | tests/alerter/test_formatter.py:88-104 | tests/alerter/test_history.py:83-99 |
-| 55 | 12 | src/.../detector/fresh_wallet.py:223-234 | src/.../detector/size_anomaly.py:386-397 |
 | 55 | 11 | tests/alerter/test_dispatcher.py:124-134 | tests/alerter/test_dispatcher.py:273-282 |
 | 55 | 10 | tests/alerter/test_dispatcher.py:228-237 | tests/alerter/test_dispatcher.py:309-318 |
 | 55 | 10 | tests/alerter/test_dispatcher.py:888-897 | tests/alerter/test_dispatcher.py:915-925 |
@@ -249,9 +253,9 @@ the 86 groups regenerated in the per-clone list below from the pinned scan.
 | 50 | 7 | tests/alerter/test_history.py:549-555 | tests/alerter/test_history.py:567-573 |
 | 50 | 6 | tests/test_persist_assessment.py:96-101 | tests/test_pipeline.py:107-112 |
 
-inventory only; the cluster-5 resolution above is the only product change
-reflected here so far. Deduplication decisions for the remaining clusters belong
-to later, separately authorized cards.
+inventory only; the cluster-5, cluster-9, "introduced by #151", and cluster-22
+resolutions above are the product changes reflected here. Deduplication decisions
+for the remaining clusters belong to later, separately authorized cards.
 
 ## 2026-10-19 resolution update: cluster 9 (Discord/Telegram channel pacing)
 
@@ -306,4 +310,44 @@ clones disappeared and **no new clone group appeared anywhere**.
 inventory only; the cluster-5, cluster-9, and "introduced by #151" resolutions
 above are the only product changes reflected here. Deduplication decisions for
 the remaining clusters belong to later, separately authorized cards.
+
+## 2026-10-19 resolution update: cluster 22 (detector batch-result gather/zip)
+
+Cluster 22's single clone pair had `FreshWalletDetector.analyze_batch` and
+`SizeAnomalyDetector.analyze_batch` each re-implementing the same knowledge:
+`asyncio.gather(..., return_exceptions=True)`, `zip(trades, results,
+strict=True)`, dropping `None`, and a `@staticmethod _handle_batch_result` that
+warns on a `BaseException` (message run through `redact_exception_message`) and
+returns `None`. The two copies were textually identical apart from the signal type
+in their annotations and the module logger each one resolved, so there was no
+behavioural difference to adjudicate.
+
+That knowledge now has one home,
+`src/polymarket_insider_tracker/detector/_batch.py` (`gather_signals`). Both
+`analyze_batch` methods still build their own per-trade tasks (the size detector
+keeps `_create_batch_tasks` to attach `daily_volume`/`book_depth`) and delegate
+the gather/zip/failure handling to `gather_signals`, passing their own module
+logger so a failed-trade warning keeps the same `%(name)s` provenance as before.
+Public import paths (`FreshWalletDetector`, `SizeAnomalyDetector`, their
+`analyze`/`analyze_batch` methods) are unchanged and every existing test passes
+unchanged; the characterization tests added here also pin the warning's logger
+name.
+
+Re-measured with the identical pinned method (jscpd 5.3.3, `SCAN_POLICY` at the
+50-token tier, empty config, no ignore lists or exclusions), enumerating the
+authored scope as `quality.source_scope.discover` + `validate_path` (`.py` only)
+and staging with `quality.duplication_inputs.stage_inputs`:
+
+- Before (this card's parent `bfc1a10`, 280 authored Python files): **86 clone
+  groups, 1092 duplicated lines, 1.83%**.
+- After (this change, 282 authored Python files; the two additions are `_batch.py`
+  and `tests/detector/test_batch_characterization.py`): **85 clone groups, 1080
+  duplicated lines, 1.80%**.
+
+Set-difference of the raw clone lists: exactly the cluster-22 clone
+(`src/.../detector/fresh_wallet.py:223-234 <-> src/.../detector/size_anomaly.py:386-397`,
+55 tokens / 12 lines) disappeared and **no new clone group appeared anywhere**.
+Resolved by draft PR
+[#158](https://github.com/pselamy/polymarket-insider-tracker/pull/158) from branch
+`ralph/dedup-batch`.
 
