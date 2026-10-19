@@ -68,6 +68,15 @@ def _polymarket(trades_url: str) -> PolymarketSettings:
     return make_test_settings(trades_url=trades_url).polymarket
 
 
+def _legacy_v1_polymarket() -> PolymarketSettings:
+    """The pre-upgrade configuration: the official v1 URL was the default when it was written.
+
+    Validation now rejects an explicitly configured v1 URL, so this historical state is built
+    with ``model_construct`` — the boundary and poller machinery under test is unchanged.
+    """
+    return PolymarketSettings.model_construct(trades_url=OFFICIAL_V1)
+
+
 def _seed_history(server: FakeTradesServer, *, count: int, newest: int = T0 - 1) -> None:
     for offset in range(count):
         server.publish(trade_row(timestamp=newest - offset * 60, transaction=offset, wallet=offset))
@@ -92,7 +101,7 @@ class TestEndpointSwitchResume:
         v1_server = FakeTradesServer(clock=FakeClock(NOW))
         _seed_history(v1_server, count=2)
 
-        first = _poller(v1_server, clock, redis, _polymarket(OFFICIAL_V1), RecordingTradeCallback())
+        first = _poller(v1_server, clock, redis, _legacy_v1_polymarket(), RecordingTradeCallback())
         await first.run_cycle()
         assert first.status.boundary_origin is BoundaryOrigin.FIRST_START
         checkpoint_key = first.boundary.checkpoint_key
@@ -123,7 +132,7 @@ class TestEndpointSwitchResume:
         v1_server = FakeTradesServer(clock=FakeClock(NOW))
         _seed_history(v1_server, count=2)
 
-        first = _poller(v1_server, clock, redis, _polymarket(OFFICIAL_V1), RecordingTradeCallback())
+        first = _poller(v1_server, clock, redis, _legacy_v1_polymarket(), RecordingTradeCallback())
         await first.run_cycle()
         await first.stop()
 

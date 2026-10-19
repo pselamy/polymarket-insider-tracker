@@ -117,14 +117,24 @@ def make_smoke_source(
     list-body client unchanged. Returns ``(source, row_parser, page_limit)`` so the smoke's
     classification machinery works for either path without branching again.
     """
-    shared = {
-        "url": url,
-        "coverage": coverage,
-        "clock": clock,
-        "sleeper": sleeper,
-        "random_source": random_source,
-        "max_retries": max_retries,
-    }
     if url == OFFICIAL_V2_TRADES_URL:
-        return V2SmokeSource(client, **shared), parse_v2_trade_row, V2_PAGE_LIMIT
-    return TradesSourceClient(client, **shared), parse_trade_row, PAGE_LIMIT
+        source: TradesSourceClient = V2SmokeSource(
+            client,
+            url=url,
+            coverage=coverage,
+            clock=clock,
+            sleeper=sleeper,
+            random_source=random_source,
+            max_retries=max_retries,
+        )
+        return source, parse_v2_trade_row, V2_PAGE_LIMIT
+    source = TradesSourceClient(
+        client,
+        url=url,
+        coverage=coverage,
+        clock=clock,
+        sleeper=sleeper,
+        random_source=random_source,
+        max_retries=max_retries,
+    )
+    return source, parse_trade_row, PAGE_LIMIT
