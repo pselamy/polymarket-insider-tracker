@@ -67,6 +67,7 @@ __all__ = [
     "V2_TRADES_PATH",
     "V2PageHttpTransport",
     "V2TradesSource",
+    "V2UnparseableBodyError",
     "make_trades_source",
     "uses_v2_envelope",
 ]
@@ -84,6 +85,15 @@ AttemptsCallback = Callable[[RequestAttempt], None]
 def uses_v2_envelope(url: str) -> bool:
     """Whether ``url`` is explicitly the documented v2 route (path ``/v2/trades``)."""
     return urlsplit(url).path.rstrip("/") == V2_TRADES_PATH
+
+
+class V2UnparseableBodyError(V2TransientError):
+    """A 200 body that is not JSON.
+
+    It is retried by the bounded walk exactly like v1 retries an unparseable body; when the walk
+    exhausts its retries the source maps it to a terminal ``incompatible-schema`` failure, so the
+    poller reports the same ``failed`` health as the v1 path.
+    """
 
 
 class V2PageHttpTransport:
@@ -126,9 +136,14 @@ class V2PageHttpTransport:
             self._http.record(result.started, result.index, "success", 200)
             return body
         except AttemptTransientError as exc:
-            raise V2TransientError(str(exc), retry_after_seconds=exc.retry_after_seconds) from None
+            raise self._transient_error(exc) from None
         except AttemptTerminalError as exc:
             raise V2TerminalError(str(exc)) from None
+
+    def _transient_error(self, exc: AttemptTransientError) -> V2TransientError:
+        if exc.kind == "unparseable":
+            return V2UnparseableBodyError(str(exc), retry_after_seconds=exc.retry_after_seconds)
+        return V2TransientError(str(exc), retry_after_seconds=exc.retry_after_seconds)
 
     def _next_index(self, request: V2PageRequest) -> int:
         key = (request.cursor, request.start, request.end)
@@ -215,6 +230,10 @@ class V2TradesSource:
             )
             return result.pages
         except V2SourceError as exc:
+            raise TradesTerminalError(
+                f"incompatible-schema: {exc}", status=None, reason="incompatible-schema"
+            ) from exc
+        except V2UnparseableBodyError as exc:
             raise TradesTerminalError(
                 f"incompatible-schema: {exc}", status=None, reason="incompatible-schema"
             ) from exc

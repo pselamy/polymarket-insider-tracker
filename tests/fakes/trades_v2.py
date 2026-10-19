@@ -37,6 +37,7 @@ class FakeV2TradesServer:
     requests: list[RecordedRequest] = field(default_factory=list[RecordedRequest])
     _ledger: list[dict[str, Any]] = field(default_factory=list[dict[str, Any]])
     _injected: list[object] = field(default_factory=list[object])
+    _raw_injected: list[bytes] = field(default_factory=list[bytes])
 
     def publish(self, row: Mapping[str, Any]) -> None:
         """Append one already-v2-shaped row (build with ``v2_row(trade_row(...))``)."""
@@ -45,6 +46,10 @@ class FakeV2TradesServer:
     def fail_next(self, body: object) -> None:
         """Serve ``body`` (any JSON value) for the next physical request instead of a page."""
         self._injected.append(body)
+
+    def fail_next_raw(self, content: bytes) -> None:
+        """Serve ``content`` (a non-JSON body) for the next physical request instead of a page."""
+        self._raw_injected.append(content)
 
     @property
     def row_count(self) -> int:
@@ -69,6 +74,8 @@ class FakeV2TradesServer:
         )
         if self._injected:
             return httpx.Response(200, json=self._injected.pop(0), request=request)
+        if self._raw_injected:
+            return httpx.Response(200, content=self._raw_injected.pop(0), request=request)
         return httpx.Response(200, json=self._page_envelope(params), request=request)
 
     def _page_envelope(self, params: Mapping[str, str]) -> dict[str, object]:

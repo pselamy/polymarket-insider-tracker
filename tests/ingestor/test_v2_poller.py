@@ -20,9 +20,12 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     ObservationBoundary,
 )
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
+from polymarket_insider_tracker.ingestor.trades_source import MAX_RETRIES
 from tests.fakes import (
     FakeClock,
+    FakeTradesServer,
     FakeV2TradesServer,
+    invalid_json,
     make_test_settings,
     trade_row,
     v2_row,
@@ -181,3 +184,38 @@ class TestV2BoundaryOutcomes:
         assert status.boundary_origin is BoundaryOrigin.PROVEN
         assert status.boundary_time == T0
         assert callback.timestamps() == [T0]
+
+
+class TestExhaustedUnparseableParity:
+    async def test_exhausted_unparseable_body_fails_identically_on_both_paths(
+        self,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        """An unparseable 200 body retried to exhaustion is a terminal failure on both paths."""
+        v1_server = FakeTradesServer(clock=clock)
+        v1_server.fail_next(invalid_json(), times=MAX_RETRIES + 1)
+        v1_poller = TradePoller(
+            callback,
+            redis=fake_redis,
+            settings=make_test_settings(trades_url="https://trades.invalid/trades").polymarket,
+            http_client=v1_server.client(),
+            clock=clock,
+            sleeper=clock.sleep,
+            random_source=lambda: 0.0,
+        )
+        await v1_poller.run_cycle()
+
+        v2_server = FakeV2TradesServer(clock=clock, page_size=1)
+        for _ in range(MAX_RETRIES + 1):
+            v2_server.fail_next_raw(b"<html>not json</html>")
+        v2_poller = _poller(v2_server, clock, fake_redis, settings, callback)
+        await v2_poller.run_cycle()
+
+        for poller in (v1_poller, v2_poller):
+            assert poller.status.state is IngestionState.FAILED
+            assert "incompatible-schema" in (poller.status.last_error or "")
+            assert poller.status.boundary_time is None
+        assert callback.trades == []
