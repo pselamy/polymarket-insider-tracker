@@ -58,13 +58,26 @@ def make_test_settings(
     discord_webhook_url: str | None = None,
     telegram_bot_token: str | None = None,
     telegram_chat_id: str | None = None,
-    trades_url: str = "https://data-api.polymarket.com/trades",
+    trades_url: str | None = "https://trades.invalid/trades",
     trades_coverage: str = "all",
     trades_poll_interval_seconds: int = 5,
     trades_recovery_horizon_seconds: int = 600,
     health_port: int = 8080,
 ) -> Settings:
-    """Create a fully validated ``Settings`` value without reading the environment."""
+    """Create a fully validated ``Settings`` value without reading the environment.
+
+    ``trades_url=None`` omits ``POLYMARKET_TRADES_URL`` entirely so the configuration default
+    applies; the polymarket environment is still scrubbed by the caller.
+    """
+    polymarket_fields: dict[str, object] = {
+        "POLYMARKET_TRADES_COVERAGE": trades_coverage,
+        "POLYMARKET_TRADES_POLL_INTERVAL_SECONDS": trades_poll_interval_seconds,
+        "POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS": trades_recovery_horizon_seconds,
+        "POLYMARKET_WS_URL": None,
+        "POLYMARKET_API_KEY": None,
+    }
+    if trades_url is not None:
+        polymarket_fields["POLYMARKET_TRADES_URL"] = trades_url
     return Settings(
         _env_file=None,
         redis=RedisSettings(_env_file=None, REDIS_URL="redis://localhost:6379/0"),
@@ -76,15 +89,7 @@ def make_test_settings(
             POLYGON_RPC_URL="https://polygon-rpc.com",
             POLYGON_FALLBACK_RPC_URL=None,
         ),
-        polymarket=PolymarketSettings(
-            _env_file=None,
-            POLYMARKET_TRADES_URL=trades_url,
-            POLYMARKET_TRADES_COVERAGE=trades_coverage,
-            POLYMARKET_TRADES_POLL_INTERVAL_SECONDS=trades_poll_interval_seconds,
-            POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS=trades_recovery_horizon_seconds,
-            POLYMARKET_WS_URL=None,
-            POLYMARKET_API_KEY=None,
-        ),
+        polymarket=PolymarketSettings(_env_file=None, **polymarket_fields),
         discord=DiscordSettings(
             _env_file=None,
             DISCORD_WEBHOOK_URL=discord_webhook_url if discord_enabled else None,

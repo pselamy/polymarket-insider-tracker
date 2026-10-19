@@ -2,15 +2,13 @@
 """Live-safe smoke check for the documented public trades query (FR-013, SC-005).
 
 The deterministic core, ``run_smoke``, takes an injected ``httpx.AsyncClient`` and classifies each
-response into exactly one of seven named cases. ``--live`` performs one bounded anonymous request per
-selected coverage mode against the real endpoint. Records are aggregate-only: no wallet, name,
-pseudonym, profile value, or raw row is ever retained; the body is hashed and discarded. The command
-never opens Redis or PostgreSQL, never constructs an alert channel, never sends a credential, and is
-not part of any verifier profile or CI job. See ``contracts/live-smoke.md``.
-
-Exit status: ``0`` when every record passed and was reachable (an HTTP 200 list); ``1`` when a record
-failed (incompatible schema, a terminal status, a share of invalid rows above 5%) or every attempt was
-transient (throttled or timed out); ``2`` for an invocation error.
+response into exactly one of seven named cases; ``--live`` performs one bounded anonymous request
+per selected coverage mode (the v2 ``{data, pagination}`` envelope for the official v2 endpoint,
+the default, the v1 list body otherwise). Records are aggregate-only — no wallet, name, pseudonym,
+profile value, or raw row is retained and the body is hashed and discarded — and the command never
+opens Redis or PostgreSQL, never sends a credential, and is in no verifier profile or CI job; see
+``contracts/live-smoke.md``. Exit status: ``0`` all passed and reachable; ``1`` any failed record
+or all attempts transient; ``2`` invocation error, including a configured official v1 URL.
 """
 
 from __future__ import annotations
@@ -29,19 +27,18 @@ from typing import Literal, NoReturn
 
 import httpx
 
-from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL
+from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL, reject_v1_trades_url
 from polymarket_insider_tracker.ingestor.trade_rows import InvalidRow, parse_trade_row
 from polymarket_insider_tracker.ingestor.trades_source import (
-    PAGE_LIMIT,
     RETRY_AFTER_CAP_SECONDS,
     TradesPage,
-    TradesSourceClient,
     TradesTerminalError,
     TradesTransientError,
     redacted_url,
 )
+from polymarket_insider_tracker.ingestor.v2_smoke import make_smoke_source
 
-DEFAULT_TRADES_URL = OFFICIAL_V1_TRADES_URL
+DEFAULT_TRADES_URL = OFFICIAL_V2_TRADES_URL
 COVERAGE_MODES = ("all", "taker-only")
 SMOKE_MAX_RETRIES = 2
 MAX_INVALID_SHARE = 0.05
@@ -137,11 +134,13 @@ def _aggregate(page: TradesPage, *, window_start: int) -> _Aggregate:
     return aggregate
 
 
-def _classify_page(aggregate: _Aggregate, row_count: int, window_start: int) -> SmokeCase:
+def _classify_page(
+    aggregate: _Aggregate, row_count: int, window_start: int, page_limit: int
+) -> SmokeCase:
     if row_count == 0:
         return "valid-empty"
     saturated_beyond_window = aggregate.oldest is not None and aggregate.oldest > window_start
-    if row_count >= PAGE_LIMIT and saturated_beyond_window:
+    if row_count >= page_limit and saturated_beyond_window:
         return "possible-page-saturation"
     if aggregate.invalid_rows > 0:
         return "malformed-row"
@@ -167,10 +166,10 @@ class _Probe:
     captured_at: str
 
 
-def _page_record(probe: _Probe, page: TradesPage) -> SmokeRecord:
+def _page_record(probe: _Probe, page: TradesPage, *, page_limit: int) -> SmokeRecord:
     aggregate = _aggregate(page, window_start=probe.window_start)
     row_count = len(page.rows)
-    case = _classify_page(aggregate, row_count, probe.window_start)
+    case = _classify_page(aggregate, row_count, probe.window_start, page_limit)
     lag = None if aggregate.newest is None else page.received_at - aggregate.newest
     return SmokeRecord(
         endpoint=probe.endpoint,
@@ -185,7 +184,7 @@ def _page_record(probe: _Probe, page: TradesPage) -> SmokeRecord:
         newest_timestamp=aggregate.newest,
         oldest_timestamp=aggregate.oldest,
         provider_lag_seconds=lag,
-        page_saturated=row_count >= PAGE_LIMIT,
+        page_saturated=row_count >= page_limit,
         cache_control=page.headers.cache_control,
         cf_cache_status=page.headers.cf_cache_status,
         age=page.headers.age,
@@ -289,7 +288,7 @@ async def _probe(
         delays.append(seconds)
         await sleeper(seconds)
 
-    source = TradesSourceClient(
+    source, page_limit = make_smoke_source(
         client,
         url=url,
         coverage=probe.coverage,
@@ -306,7 +305,7 @@ async def _probe(
         return _transient_record(probe, exc, delays)
     except TradesTerminalError as exc:
         return _terminal_record(probe, exc)
-    return _page_record(probe, page)
+    return _page_record(probe, page, page_limit=page_limit)
 
 
 async def run_smoke(
@@ -346,14 +345,15 @@ async def run_smoke(
 
 def exit_code_for(records: Sequence[SmokeRecord]) -> int:
     """``0`` only when every record passed its verdict and the endpoint was reachable."""
-    if all(record.passed and record.reachable for record in records):
-        return EXIT_PASSED
-    return EXIT_FAILED
+    return EXIT_PASSED if all(r.passed and r.reachable for r in records) else EXIT_FAILED
 
 
 def resolve_trades_url() -> str:
-    """The configured trades URL, or the documented default; never the legacy setting."""
-    return os.environ.get("POLYMARKET_TRADES_URL", DEFAULT_TRADES_URL)
+    """The configured URL (an official v1 route or non-HTTP(S) scheme rejected) or the default."""
+    url = os.environ.get("POLYMARKET_TRADES_URL", DEFAULT_TRADES_URL)
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("POLYMARKET_TRADES_URL must be HTTP(S)")
+    return reject_v1_trades_url(url)
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -416,11 +416,10 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
     args = _parse(argv)
     if args is None:
         return EXIT_USAGE
-    url = resolve_trades_url()
-    if not url.startswith(("http://", "https://")):
-        print(
-            "trades_smoke.py: error: POLYMARKET_TRADES_URL must be an HTTP(S) URL", file=sys.stderr
-        )
+    try:
+        url = resolve_trades_url()
+    except ValueError as exc:
+        print(f"trades_smoke.py: error: {exc}", file=sys.stderr)
         return EXIT_USAGE
     modes = list(COVERAGE_MODES) if args.coverage == "both" else [args.coverage]
     build = client_factory or httpx.AsyncClient

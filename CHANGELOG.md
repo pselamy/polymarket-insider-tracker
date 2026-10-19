@@ -8,12 +8,23 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 ### Changed
 - **Supported trade ingestion (slice 001)**: trades are now acquired by
   near-real-time polling of the documented anonymous public trades query
-  (`https://data-api.polymarket.com/trades`) through the new `TradePoller`,
+  (now the official v2 endpoint, `https://data-api.polymarket.com/v2/trades`)
+  through the new `TradePoller`,
   replacing the withdrawn WebSocket activity feed. Every cycle requests one
   full page with a strictly increasing `end` cutoff, parses rows strictly,
   de-duplicates by a composite observation identity, proves that the page
   reached the durable complete-through boundary (or uses the single documented
   recovery page), and delivers new observations oldest-first exactly once.
+  - The default `POLYMARKET_TRADES_URL` is now the official Data API **v2**
+    endpoint (`https://data-api.polymarket.com/v2/trades`); the environment
+    variable name is unchanged. An explicitly configured official v1 URL
+    (`https://data-api.polymarket.com/trades`) fails configuration validation
+    with a migration message naming the v2 replacement — Polymarket retires
+    the v1 endpoint on 2026-10-24. For the official v1/v2 pair with the same
+    coverage mode, the saved checkpoint and identity window carry over
+    automatically, so changing the URL is the whole migration. Custom HTTP(S)
+    proxy URLs remain accepted and must serve the documented v2 envelope. No
+    fallback or credentials are added.
   - Coverage defaults to all public participant observations
     (`takerOnly=false`); `POLYMARKET_TRADES_COVERAGE=taker-only` is an explicit
     operator choice.

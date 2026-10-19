@@ -389,7 +389,7 @@ class TestCommandLine:
     ) -> None:
         monkeypatch.delenv("POLYMARKET_TRADES_URL", raising=False)
 
-        assert smoke.resolve_trades_url() == "https://data-api.polymarket.com/trades"
+        assert smoke.resolve_trades_url() == "https://data-api.polymarket.com/v2/trades"
 
 
 class TestIsolation:
@@ -415,4 +415,4 @@ class TestIsolation:
         assert not any("trades_smoke" in gate.command_text for gate in verify.GATES.values())
 
     def test_default_endpoint_is_the_documented_query(self, smoke: ModuleType) -> None:
-        assert smoke.DEFAULT_TRADES_URL == "https://data-api.polymarket.com/trades"
+        assert smoke.DEFAULT_TRADES_URL == "https://data-api.polymarket.com/v2/trades"

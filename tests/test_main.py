@@ -150,7 +150,7 @@ class TestValidateConfig:
 
         secret = "CONFIGNFKCSECRET_R16"
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
-        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://data-api.polymarket.com/trades")
+        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://trades.invalid/trades")
         monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         if env_name == "REDIS_URL":
@@ -194,7 +194,7 @@ class TestValidateConfig:
         a URL that does start with ``redis://`` and hiding the actual defect.
         """
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
-        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://data-api.polymarket.com/trades")
+        monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://trades.invalid/trades")
         monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon-rpc.com")
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379")
         monkeypatch.setenv(env_name, poisoned)
