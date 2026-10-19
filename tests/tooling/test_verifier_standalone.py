@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.tooling.module_loading import LOAD_PROGRAM, scripts_program
+
 VERIFIER = Path(__file__).resolve().parents[2] / "scripts/verify.py"
 
 
@@ -38,20 +40,6 @@ def _copy_verifier(tmp_path: Path, name: str) -> Path:
     for source in VERIFIER.parent.glob("*.py"):
         shutil.copyfile(source, scripts / source.name)
     return scripts / "verify.py"
-
-
-_LOAD_VERIFIER = """
-import importlib.util
-from pathlib import Path
-import sys
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-"""
 
 
 def test_help_works_without_site_packages_or_project_on_python_path(tmp_path: Path) -> None:
@@ -100,7 +88,7 @@ def test_foreign_cached_scripts_package_cannot_redirect_helpers(tmp_path: Path) 
     foreign_scripts = tmp_path / "foreign" / "scripts"
     foreign_scripts.mkdir(parents=True)
     (foreign_scripts / "__init__.py").write_text('origin = "foreign"\n', encoding="utf-8")
-    program = _LOAD_VERIFIER + """
+    program = LOAD_PROGRAM + """
 sys.path.insert(0, sys.argv[2])
 import scripts
 original_path = list(sys.path)
@@ -123,7 +111,7 @@ def test_distinct_source_copies_execute_their_own_gate_policy(tmp_path: Path) ->
     after = 'Gate("lock", ("second-policy",))'
     assert original.count(before) == 1
     policy.write_text(original.replace(before, after), encoding="utf-8")
-    program = _LOAD_VERIFIER + """
+    program = LOAD_PROGRAM + """
 first = load("first_verifier", sys.argv[1])
 second = load("other.verifier", sys.argv[2])
 assert first.REPOSITORY_ROOT != second.REPOSITORY_ROOT
@@ -164,16 +152,13 @@ def test_public_result_values_pickle_across_fresh_interpreters(tmp_path: Path) -
     program += "\n_write_public_result_payload(Path(sys.argv[1]), Path(sys.argv[2]))"
     completed = _run_program(tmp_path, program, str(VERIFIER.parents[1]), str(payload))
     assert completed.returncode == 0, completed.stderr
-    program = """
-import pickle
-from pathlib import Path
-import sys
-sys.path.insert(0, sys.argv[1])
-from scripts import verify
-values = pickle.loads(Path(sys.argv[2]).read_bytes())
+    program = scripts_program(
+        "verify",
+        """values = pickle.loads(Path(sys.argv[2]).read_bytes())
 expected = (verify.Gate, verify.CommandExecution, verify.GateResult, verify.VerificationResult)
 assert tuple(type(value) for value in values) == expected
 assert values[-1].status == "passed"
-"""
+""",
+    )
     completed = _run_program(tmp_path, program, str(VERIFIER.parents[1]), str(payload))
     assert completed.returncode == 0, completed.stderr

@@ -9,21 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.tooling.module_loading import LOAD_PROGRAM, scripts_program
+
 SERVICE = Path(__file__).resolve().parents[2] / "scripts/runtime_services.py"
-
-_LOAD = """
-import importlib.util
-from pathlib import Path
-import sys
-
-def load(name, path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-"""
 
 
 def _run(tmp_path: Path, program: str, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -63,7 +51,7 @@ def test_foreign_cached_scripts_cannot_redirect_service_helper(tmp_path: Path) -
     foreign = tmp_path / "foreign/scripts"
     foreign.mkdir(parents=True)
     (foreign / "__init__.py").write_text('origin = "foreign"\n', encoding="utf-8")
-    program = _LOAD + """
+    program = LOAD_PROGRAM + """
 sys.path.insert(0, sys.argv[2])
 import scripts
 before = list(sys.path)
@@ -90,7 +78,7 @@ def test_service_copies_use_their_own_safety_policy(tmp_path: Path) -> None:
     policy.write_text(
         policy.read_text().replace('REDIS_SCHEME = "redis"', 'REDIS_SCHEME = "redis2"')
     )
-    program = _LOAD + """
+    program = LOAD_PROGRAM + """
 first = load("first_service", sys.argv[1])
 second = load("second.service", sys.argv[2])
 assert first.REPOSITORY_ROOT != second.REPOSITORY_ROOT
@@ -108,7 +96,7 @@ else:
 
 
 def test_missing_environment_remains_json_prerequisite_error(tmp_path: Path) -> None:
-    program = _LOAD + """
+    program = LOAD_PROGRAM + """
 import os
 os.environ.pop("DATABASE_URL", None)
 os.environ.pop("REDIS_URL", None)
@@ -147,44 +135,34 @@ def test_service_errors_pickle_across_fresh_interpreters(tmp_path: Path) -> None
     program += "\n_write_exception_payload(Path(sys.argv[1]), Path(sys.argv[2]))"
     completed = _run(tmp_path, program, str(SERVICE.parents[1]), str(payload))
     assert completed.returncode == 0, completed.stderr
-    program = """
-import pickle
-from pathlib import Path
-import sys
-sys.path.insert(0, sys.argv[1])
-from scripts import runtime_services
-errors = pickle.loads(Path(sys.argv[2]).read_bytes())
+    program = scripts_program(
+        "runtime_services",
+        """errors = pickle.loads(Path(sys.argv[2]).read_bytes())
 assert tuple(type(error) for error in errors) == (
     runtime_services.ServicePrerequisiteError, runtime_services.ServiceVerificationError
 )
 assert tuple(str(error) for error in errors) == ("prerequisite", "verification")
-"""
+""",
+    )
     completed = _run(tmp_path, program, str(SERVICE.parents[1]), str(payload))
     assert completed.returncode == 0, completed.stderr
 
 
 def test_private_redaction_callable_pickles_across_fresh_interpreters(tmp_path: Path) -> None:
     payload = tmp_path / "redactor.pickle"
-    program = """
-import pickle
-from pathlib import Path
-import sys
-sys.path.insert(0, sys.argv[1])
-from scripts import runtime_services
-Path(sys.argv[2]).write_bytes(pickle.dumps(runtime_services._redact_text))
-"""
+    program = scripts_program(
+        "runtime_services",
+        "Path(sys.argv[2]).write_bytes(pickle.dumps(runtime_services._redact_text))\n",
+    )
     completed = _run(tmp_path, program, str(SERVICE.parents[1]), str(payload))
     assert completed.returncode == 0, completed.stderr
-    program = """
-import pickle
-from pathlib import Path
-import sys
-sys.path.insert(0, sys.argv[1])
-from scripts import runtime_services
-redact = pickle.loads(Path(sys.argv[2]).read_bytes())
+    program = scripts_program(
+        "runtime_services",
+        """redact = pickle.loads(Path(sys.argv[2]).read_bytes())
 assert redact is runtime_services._redact_text
 assert redact.__qualname__ == "_redact_text"
 assert redact("unchanged diagnostic") == "unchanged diagnostic"
-"""
+""",
+    )
     completed = _run(tmp_path, program, str(SERVICE.parents[1]), str(payload))
     assert completed.returncode == 0, completed.stderr
