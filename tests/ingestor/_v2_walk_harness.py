@@ -47,6 +47,7 @@ def build_walk(
     *,
     max_pages: int = MAX_WALK_PAGES,
     max_retries: int = MAX_RETRIES,
+    random_source: Callable[[], float] = lambda: 1.0,
     is_cancelled: Callable[[], bool] | None = None,
 ) -> Harness:
     budget_clock = FakeClock(0.0)
@@ -56,7 +57,7 @@ def build_walk(
         budget=budget,
         clock=FakeClock(float(NOW)),
         sleeper=budget_clock.sleep,
-        random_source=lambda: 1.0,
+        random_source=random_source,
         max_pages=max_pages,
         max_retries=max_retries,
         is_cancelled=is_cancelled,
