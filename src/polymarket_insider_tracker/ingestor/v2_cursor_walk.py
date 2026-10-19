@@ -4,7 +4,8 @@ The approved slice-001 v2 amendment (items 2-3) requires one consistent cursor w
 request ``limit=1000`` with explicit ``taker_only`` and the cycle's fixed ``start``/``end``, then
 follow only the returned cursor, repeating the same filters. Start with one page; if the durable
 proof fails, follow up to 19 further pages, checking proof after each, so a cycle never exceeds 20
-pages or 20,000 raw observations.
+pages or 20,000 raw observations. A page larger than the documented 1,000-row limit is a provider
+contract violation: it raises a source failure instead of silently dropping the fetched rows.
 
 This component is standalone: nothing in the poller or HTTP client imports it, so it changes no
 existing behavior. Every physical request, each page and each retry, acquires one slot from the
@@ -29,6 +30,8 @@ from polymarket_insider_tracker.ingestor._retry import MAX_RETRIES, RandomSource
 from polymarket_insider_tracker.ingestor.trade_row_v2 import parse_v2_trade_row
 from polymarket_insider_tracker.ingestor.trade_rows import InvalidRow, TradeObservation
 from polymarket_insider_tracker.ingestor.v2_page import (
+    V2_PAGE_LIMIT,
+    V2EnvelopeError,
     V2Page,
     V2PageRequest,
     V2PageTransport,
@@ -198,10 +201,15 @@ class _WalkState:
         return V2PageRequest(taker_only=taker_only, start=start, end=end, cursor=self.cursor)
 
     def record(self, page: V2Page, *, now: int) -> StopReason | None:
-        """Record one trusted page; return a stop reason, or ``None`` to keep walking."""
-        if self.raw_rows + len(page.rows) > MAX_WALK_ROWS:
-            return StopReason.PAGE_LIMIT
+        """Record one trusted page; return a stop reason, or ``None`` to keep walking.
+
+        A page larger than the documented ``limit`` is a provider contract violation, so it raises
+        rather than being silently dropped; ``MAX_WALK_ROWS`` then holds as an invariant over the
+        20-page, 1,000-row-per-page maximum.
+        """
+        _require_documented_page_size(page)
         page_observations = self._append(page, now=now)
+        assert self.raw_rows <= MAX_WALK_ROWS
         if self.proof is not None and self.proof(page_observations):
             self.proven = True
             return StopReason.PROOF
@@ -232,6 +240,12 @@ class _WalkState:
             stop_reason=stop_reason,
             completeness_proven=self.proven,
         )
+
+
+def _require_documented_page_size(page: V2Page) -> None:
+    """A page larger than the documented limit is a source failure, never a silent drop."""
+    if len(page.rows) > V2_PAGE_LIMIT:
+        raise V2EnvelopeError("page exceeds the documented limit of 1000 rows")
 
 
 def _parse_rows(

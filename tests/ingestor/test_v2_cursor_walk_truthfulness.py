@@ -8,12 +8,15 @@ pages or 20,000 raw rows.
 
 from __future__ import annotations
 
+import pytest
+
 from polymarket_insider_tracker.ingestor.v2_cursor_walk import (
     MAX_WALK_PAGES,
     MAX_WALK_ROWS,
     StopReason,
     WalkResult,
 )
+from polymarket_insider_tracker.ingestor.v2_page import V2EnvelopeError
 from tests.fakes import FakeCursorFeed, v2_envelope
 from tests.ingestor._v2_walk_harness import run_walk, v2_rows
 
@@ -103,17 +106,19 @@ class TestBounds:
         assert result.stop_reason is StopReason.PAGE_LIMIT
         assert result.possible_data_loss is True
 
-    async def test_a_page_that_would_exceed_the_row_ceiling_is_not_recorded(self) -> None:
-        pages: dict[str | None, object] = {None: v2_envelope(v2_rows(1001), next_cursor="c0")}
-        for index in range(MAX_WALK_PAGES - 1):
-            pages[f"c{index}"] = v2_envelope(
-                v2_rows(1001, offset=1001), next_cursor=f"c{index + 1}"
-            )
-        feed = FakeCursorFeed(pages)
+    async def test_a_page_larger_than_the_documented_limit_is_a_source_failure(self) -> None:
+        feed = FakeCursorFeed({None: v2_envelope(v2_rows(1001), next_cursor="c0")})
+
+        with pytest.raises(V2EnvelopeError):
+            await run_walk(feed)
+
+        assert feed.cursors() == [None]
+
+    async def test_a_page_at_the_documented_limit_is_recorded(self) -> None:
+        feed = FakeCursorFeed({None: v2_envelope(v2_rows(1000), next_cursor=None)})
 
         result, _ = await run_walk(feed)
 
-        assert result.raw_rows == 19 * 1001
-        assert result.raw_rows <= MAX_WALK_ROWS
-        assert result.pages_fetched == 19
-        assert result.stop_reason is StopReason.PAGE_LIMIT
+        assert result.pages_fetched == 1
+        assert result.raw_rows == 1000
+        assert result.stop_reason is StopReason.EXHAUSTED
