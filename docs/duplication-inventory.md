@@ -166,7 +166,7 @@ knowledge).
 | 7 | 2 | 24 | detector/models.py, storage/repos.py | **Resolved**: confidence thresholds/classification, trade-identity property accessors and the trade-head serialization now have one home (`serialized_trade_head`, `is_high_confidence_score`, shared property objects, `UNRECORDED_DELIVERY_DISPOSITION`). Two residual groups remain visible on purpose: the `FreshWalletSignal`/`SizeAnomalySignal` declaration block (96 tokens) and the `RiskAssessment`/`RiskAssessmentDTO` field-default mirror (52 tokens, intentional persistence/domain layer boundary) | resolved; residual incidental (see the round-3 review correction below) |
 | 8 | 0 | 0 | test_health_server.py | **Resolved**: component checker wiring (`wire_components`) and the serve/GET/stop probe (`probe`) have one home each in `tests/ingestor/test_health_server.py` | resolved (PR #169) |
 | 9 | 3 | 44 | discord.py, telegram.py | Duplicated rate-limit wait, `_backoff`, and failure-redaction channel logic | real; resolved, see the 2026-10-19 resolution update below |
-| 10 | 3 | 43 | test_terminal_error_durable.py | Repeated pipeline wiring + terminal-failure sequencing | real |
+| 10 | 0 | 0 | test_terminal_error_durable.py | **Resolved**: pipeline wiring (`_wire_poller_pipeline`), the terminal-401 failure sequence (`_pipeline_with_terminal_401`, `_fail_poller_cycle`, `_report_poller_failure`) and the durable-row assertion (`_assert_poller_401_row`) now have one home each in `tests/test_terminal_error_durable.py` | resolved (PR #PRNUM) |
 | 11 | 3 | 33 | profiler/test_models.py | Repeated `Transaction` construction blocks | real |
 | 12 | 2 | 32 | test_funding.py, test_funding_rpc.py | Parallel method docstrings/signatures describing the same RPC API | real |
 | 13 | 2 | 30 | rev_20260522_1130_risk_assessments.py, rev_20260910_0000_safe_observable_operation.py, rev_20260920_0000_terminal_errors.py | Alembic revision scaffolding (`__all__`, `upgrade()` head) | incidental |
@@ -761,3 +761,17 @@ tier, empty config, no ignores) over the 292 authored Python files enumerated by
 `test_trade_poller.py` self-pairs (12, 18, 9, 6, 13 and 6 lines) are absent and the
 file-pair set difference is empty, so no new clone group was introduced. Other
 clusters' rows above are historical receipts from their own trees.
+
+## 2026-10-19 resolution update: cluster 10 (terminal-error durable test wiring)
+
+`_wire_poller_pipeline`, `_pipeline_with_terminal_401`, `_fail_poller_cycle`,
+`_report_poller_failure` and `_assert_poller_401_row` in
+`tests/test_terminal_error_durable.py` now own the fake-boundary pipeline wiring, the
+terminal HTTP 401 poller failure, the hand-off to `_handle_worker_failure`, and the
+persisted-row assertion that three tests restated (a fourth restated the wiring); the three cluster-10 clone pairs (68, 62 and 88 tokens) are gone.
+Re-measured with the pinned jscpd 5.3.3 and the same flags over the same 292 files
+as the cluster-8 update: 52 clone groups (625 duplicated lines, 1.02%) before, 49
+(582 lines, 0.95%) after, none in `test_terminal_error_durable.py` and none added.
+`test_fresh_pipeline_reads_terminal_reason_from_durable_row` keeps its own state
+setup because it seeds a prior row rather than failing the poller. No assertion
+changed and the six collected test IDs are unchanged.
