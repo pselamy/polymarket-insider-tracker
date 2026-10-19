@@ -106,14 +106,7 @@ files = [
     "quality",
     "alembic",
     "conftest.py",
-    "tests/alerter",
-    "tests/detector",
-    "tests/fakes",
-    "tests/ingestor",
-    "tests/integration",
-    "tests/profiler",
-    "tests/quality",
-    "tests/storage",
+    "tests",
 ]
 strict = true
 warn_return_any = true

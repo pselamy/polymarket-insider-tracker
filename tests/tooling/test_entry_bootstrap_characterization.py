@@ -117,7 +117,9 @@ def test_loader_mode_owns_siblings_through_a_helper_package(
     assert payload["spec"] == "independent.service"
     assert payload["paths"] == [[str(SCRIPTS)]]
     assert payload["specs"] == [name]
-    assert f"{name}.{sibling}" in payload["siblings"]
+    siblings = payload["siblings"]
+    assert isinstance(siblings, list)
+    assert f"{name}.{sibling}" in siblings
 
 
 @pytest.mark.parametrize(("_key", "filename", "prefix", "_sibling"), ENTRY_POINTS)

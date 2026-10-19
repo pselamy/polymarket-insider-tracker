@@ -72,11 +72,14 @@ def _traceability_validator() -> ModuleType:
 
 
 def _run_steps(job: Mapping[str, Any]) -> list[str]:
-    return [step["run"].strip() for step in job["steps"] if "run" in step]
+    runs: list[str] = [step["run"].strip() for step in job["steps"] if "run" in step]
+    return runs
 
 
 def _checkout_step(job: Mapping[str, Any]) -> Mapping[str, Any]:
-    steps = [step for step in job["steps"] if "actions/checkout@" in step.get("uses", "")]
+    steps: list[Mapping[str, Any]] = [
+        step for step in job["steps"] if "actions/checkout@" in step.get("uses", "")
+    ]
     assert len(steps) == 1
     return steps[0]
 

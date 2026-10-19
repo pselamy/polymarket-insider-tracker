@@ -24,7 +24,9 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 import pytest
+from eth_typing import ChecksumAddress
 from fakeredis import FakeAsyncRedis
+from websockets.asyncio.client import ClientConnection
 
 from polymarket_insider_tracker.detector.scorer import RiskScorer
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
@@ -145,14 +147,15 @@ async def _run_pipeline_with_failing_redis(
     """
     import logging as stdlib_logging
 
-    import polymarket_insider_tracker.pipeline as pipeline_module
+    from redis.asyncio import Redis
+
     from polymarket_insider_tracker.__main__ import run_pipeline
     from tests.fakes import make_test_settings
 
     def exploding_from_url(_url: str) -> object:
         raise failure
 
-    monkeypatch.setattr(pipeline_module.Redis, "from_url", exploding_from_url)
+    monkeypatch.setattr(Redis, "from_url", exploding_from_url)
     rendered: list[str] = []
 
     class CapturingHandler(stdlib_logging.Handler):
@@ -173,7 +176,7 @@ async def _run_pipeline_with_failing_redis(
 
 
 async def _failed_metadata_start(
-    caplog: pytest.LogCaptureFixture, failure: BaseException
+    caplog: pytest.LogCaptureFixture, failure: Exception
 ) -> MarketMetadataSync:
     """Start a metadata sync whose CLOB client raises ``failure``; return the failed sync."""
     from polymarket_insider_tracker.ingestor.metadata_sync import (
@@ -642,12 +645,13 @@ class TestUpstreamSinkRedaction:
         from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
         from polymarket_insider_tracker.profiler.chain import PolygonClient
         from tests.fakes import FakeAsyncWeb3, FakeEth
+        from tests.fakes.web3 import FakeContract
 
         secret = "upstream-token-balance-secret-r10"
 
         class LeakyTokenEth(FakeEth):
-            def contract(self, address: str, abi: object) -> object:
-                _ = (address, abi)
+            def contract(self, address: ChecksumAddress, **kwargs: object) -> FakeContract:
+                _ = (address, kwargs)
                 raise Web3Exception(f"balanceOf failed for https://rpc.internal?k={secret}")
 
         client = PolygonClient("https://polygon-rpc.com", retry_delay_seconds=0.0)
@@ -824,13 +828,14 @@ class TestUpstreamSinkRedaction:
         from polymarket_insider_tracker.profiler.chain import PolygonClient
         from tests.fakes import FakeAsyncWeb3, FakeEth
         from tests.fakes.metadata import FakeMetadataSync
+        from tests.fakes.web3 import FakeContract
 
         fresh_secret = "upstream-fresh-batch-secret-r10"
         size_secret = "upstream-size-batch-secret-r10"
 
         class LeakyTokenEth(FakeEth):
-            def contract(self, address: str, abi: object) -> object:
-                _ = (address, abi)
+            def contract(self, address: ChecksumAddress, **kwargs: object) -> FakeContract:
+                _ = (address, kwargs)
                 raise Web3Exception(f"balanceOf failed for https://rpc.internal?k={fresh_secret}")
 
         client = PolygonClient("https://polygon-rpc.com", retry_delay_seconds=0.0)
@@ -851,8 +856,8 @@ class TestUpstreamSinkRedaction:
         )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            signals = await SizeAnomalyDetector(failing_sync).analyze_batch([trade])
-        assert len(signals) == 1
+            size_signals = await SizeAnomalyDetector(failing_sync).analyze_batch([trade])
+        assert len(size_signals) == 1
         assert size_secret not in caplog.text
         assert "***" in caplog.text
 
@@ -1793,7 +1798,7 @@ class TestAdjacentSinkRedaction:
 
         async def exploding_connect(
             host: str, ping_interval: int, ping_timeout: int
-        ) -> websocket_module.ClientConnection:
+        ) -> ClientConnection:
             _ = (host, ping_interval, ping_timeout)
             raise RuntimeError(f"dial blew up for https://meta.internal?k={WEBSOCKET_SECRET}")
 
@@ -1988,6 +1993,7 @@ class TestPollerFailureSinkRedaction:
 
         pipeline, redis = await _idle_pipeline()
         poller = pipeline._trade_poller
+        assert poller is not None
 
         async def failing_hgetall(_key: object) -> dict[bytes, bytes]:
             raise BoundarySchemaError(payload) if terminal else RuntimeError(payload)
@@ -2040,8 +2046,10 @@ class TestPollerFailureSinkRedaction:
         capture = io.StringIO()
         previous = console.setStream(capture)
         monitor = pipeline.health_monitor
+        poller = pipeline._trade_poller
+        assert poller is not None
         try:
-            await pipeline._trade_poller.run_cycle()
+            await poller.run_cycle()
             await monitor.start_http_server(port=0)
             port = monitor.http_addresses[0][1]
             async with (
@@ -2059,7 +2067,7 @@ class TestPollerFailureSinkRedaction:
         assert status_code == 503
         assert R21_POLLER_SECRET not in body
         assert R21_POLLER_SECRET not in capture.getvalue()
-        last_error = pipeline._trade_poller.status.last_error
+        last_error = poller.status.last_error
         assert last_error
         assert R21_POLLER_SECRET not in last_error
 
@@ -2111,7 +2119,8 @@ class TestQuotedEndpointTextRedaction:
         import io
         import logging as stdlib_logging
 
-        import polymarket_insider_tracker.pipeline as pipeline_module
+        from redis.asyncio import Redis
+
         from polymarket_insider_tracker.__main__ import configure_logging, run_pipeline
         from tests.fakes import make_test_settings
 
@@ -2121,7 +2130,7 @@ class TestQuotedEndpointTextRedaction:
         def failing_from_url(_url: str) -> object:
             raise RuntimeError(f"dial failed for {endpoint}")
 
-        monkeypatch.setattr(pipeline_module.Redis, "from_url", failing_from_url)
+        monkeypatch.setattr(Redis, "from_url", failing_from_url)
 
         configure_logging("INFO")
         console = next(
@@ -2164,9 +2173,10 @@ def _natural_reraise_graph() -> RuntimeError:
 class _HostileArgsError(RuntimeError):
     """An exception whose ``args`` access itself raises; sanitization must not crash."""
 
-    @property
-    def args(self) -> tuple[object, ...]:
-        raise ValueError("args access exploded")
+    def __getattribute__(self, name: str) -> object:
+        if name == "args":
+            raise ValueError("args access exploded")
+        return super().__getattribute__(name)
 
 
 class TestExceptionGraphSanitization:
@@ -2619,7 +2629,8 @@ class TestStandardMappingArgumentRedaction:
 
         record = observed[-1]
         assert record.getMessage() == "delivery state invalid: ***"
-        assert dict(record.args or {}) == {}
+        assert isinstance(record.args, Mapping)
+        assert dict(record.args) == {}
         assert self.MAPPING_SECRET not in repr(record.args) + str(record.args)
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import signal
 import sys
+from collections.abc import Callable
+from types import FrameType
 
 import pytest
 
@@ -15,6 +17,8 @@ from polymarket_insider_tracker.shutdown import (
     run_with_graceful_shutdown,
 )
 from tests.fakes import resist_cancellation_for
+
+_SignalHandler = Callable[[int, FrameType | None], object] | int | signal.Handlers | None
 
 
 class TestGracefulShutdownInit:
@@ -143,7 +147,7 @@ class TestSignalHandlers:
         installed: list[signal.Signals] = []
         original_signal = signal.signal
 
-        def record(sig: signal.Signals, handler: object) -> object:
+        def record(sig: signal.Signals, handler: _SignalHandler) -> _SignalHandler:
             installed.append(sig)
             return original_signal(sig, handler)
 

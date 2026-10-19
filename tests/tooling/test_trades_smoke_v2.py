@@ -16,15 +16,9 @@ from types import ModuleType
 
 import httpx
 import pytest
-from tests.fakes import FakeClock, v2_row
-from tests.tooling.test_trades_smoke import (
-    NOW,
-    SMOKE_PATH,
-    T0,
-    _load,
-    synthetic_wallet,
-    trade_row,
-)
+from scripts.trades_smoke import SmokeRecord
+from tests.fakes import FakeClock, synthetic_wallet, trade_row, v2_row
+from tests.tooling.test_trades_smoke import NOW, SMOKE_PATH, T0, _load
 
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
 from polymarket_insider_tracker.ingestor.v2_page import V2_PAGE_LIMIT
@@ -77,7 +71,7 @@ def server(clock: FakeClock) -> FakeV2Server:
 
 async def _run(
     smoke: ModuleType, server: FakeV2Server, clock: FakeClock, *, url: str = OFFICIAL_V2_TRADES_URL
-) -> object:
+) -> SmokeRecord:
     records = await smoke.run_smoke(
         server.client(),
         url=url,
@@ -88,7 +82,8 @@ async def _run(
         random_source=lambda: 0.0,
     )
     assert len(records) == 1
-    return records[0]
+    record: SmokeRecord = records[0]
+    return record
 
 
 def test_smoke_default_url_is_the_official_v2_endpoint(smoke: ModuleType) -> None:
