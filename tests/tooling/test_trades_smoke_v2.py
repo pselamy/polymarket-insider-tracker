@@ -75,10 +75,12 @@ def server(clock: FakeClock) -> FakeV2Server:
     return FakeV2Server(clock)
 
 
-async def _run(smoke: ModuleType, server: FakeV2Server, clock: FakeClock) -> object:
+async def _run(
+    smoke: ModuleType, server: FakeV2Server, clock: FakeClock, *, url: str = OFFICIAL_V2_TRADES_URL
+) -> object:
     records = await smoke.run_smoke(
         server.client(),
-        url=OFFICIAL_V2_TRADES_URL,
+        url=url,
         coverage_modes=["all"],
         window_seconds=5,
         clock=clock,
@@ -91,6 +93,27 @@ async def _run(smoke: ModuleType, server: FakeV2Server, clock: FakeClock) -> obj
 
 def test_smoke_default_url_is_the_official_v2_endpoint(smoke: ModuleType) -> None:
     assert smoke.DEFAULT_TRADES_URL == OFFICIAL_V2_TRADES_URL
+
+
+async def test_v2_route_variants_and_proxies_speak_the_v2_envelope(
+    smoke: ModuleType, server: FakeV2Server, clock: FakeClock
+) -> None:
+    """A trailing slash or a proxy mounted at the v2 route still selects the v2 path.
+
+    Under the v1 path an envelope body would be a non-list terminal failure, so a passing
+    wallet-bearing record proves the v2 selection fired.
+    """
+    for url, count in (
+        (OFFICIAL_V2_TRADES_URL + "/", 1),
+        ("https://proxy.example.com/v2/trades", 2),
+    ):
+        server.publish(v2_row(trade_row(timestamp=T0 - 1, transaction=1)))
+
+        record = await _run(smoke, server, clock, url=url)
+
+        assert record.case == "valid-wallet-bearing"
+        assert record.row_count == count
+        assert record.passed is True
 
 
 async def test_v2_wallet_bearing_page_passes(

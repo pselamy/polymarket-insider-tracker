@@ -92,8 +92,9 @@ def test_v1_route_variants_are_rejected_without_echoing_the_value(
         "https://proxy.example.com/trades",
         f"https://user:{SECRET}@proxy.example.com/trades?apikey={SECRET}",
         "http://localhost:8080/trades",
+        "https://data-api.polymarket.com:8443/trades",
     ],
-    ids=["v2-path-proxy", "v1-path-proxy", "credentials-and-query", "loopback"],
+    ids=["v2-path-proxy", "v1-path-proxy", "credentials-and-query", "loopback", "distinct-port"],
 )
 def test_custom_proxy_urls_remain_accepted_unchanged(
     monkeypatch: pytest.MonkeyPatch, custom: str

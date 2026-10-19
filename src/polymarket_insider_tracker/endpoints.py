@@ -17,6 +17,7 @@ OFFICIAL_V2_TRADES_URL = "https://data-api.polymarket.com/v2/trades"
 V1_RETIREMENT_DATE = "2026-10-24"
 
 _V1_PARTS = urlsplit(OFFICIAL_V1_TRADES_URL)
+_V2_PARTS = urlsplit(OFFICIAL_V2_TRADES_URL)
 
 
 def is_official_v1_trades_url(url: str) -> bool:
@@ -24,12 +25,25 @@ def is_official_v1_trades_url(url: str) -> bool:
 
     The comparison is route-level, not string-exact: a trailing slash, a query string, a plain
     ``http`` scheme, or userinfo credentials all still name the retiring endpoint and must not
-    slip past validation into a post-retirement outage.
+    slip past validation into a post-retirement outage. The host is compared dot-normalized and
+    the port must be the default one, so a distinct origin on the same hostname stays accepted.
     """
     parts = urlsplit(url)
-    return parts.hostname == _V1_PARTS.hostname and parts.path.rstrip("/") == _V1_PARTS.path.rstrip(
-        "/"
+    return (
+        parts.port in (None, _V1_PARTS.port)
+        and (parts.hostname or "").rstrip(".") == (_V1_PARTS.hostname or "").rstrip(".")
+        and parts.path.rstrip("/") == _V1_PARTS.path.rstrip("/")
     )
+
+
+def is_v2_trades_url(url: str) -> bool:
+    """Whether a configured URL mounts the documented v2 trades route (official or a proxy).
+
+    This mirrors the acquisition seam's source selection: the official v2 endpoint and a proxy
+    mounted at its path speak the v2 envelope; every other URL keeps the v1 list body.
+    """
+    parts = urlsplit(url)
+    return parts.path.rstrip("/").endswith(_V2_PARTS.path)
 
 
 def official_v1_retirement_message() -> str:
@@ -59,6 +73,7 @@ __all__ = [
     "OFFICIAL_V2_TRADES_URL",
     "V1_RETIREMENT_DATE",
     "is_official_v1_trades_url",
+    "is_v2_trades_url",
     "official_v1_retirement_message",
     "reject_v1_trades_url",
 ]

@@ -21,7 +21,7 @@ from collections.abc import Callable
 
 import httpx
 
-from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
+from polymarket_insider_tracker.endpoints import is_v2_trades_url
 from polymarket_insider_tracker.ingestor._retry import MAX_RETRIES, RandomSource
 from polymarket_insider_tracker.ingestor.trade_row_v2 import parse_v2_trade_row
 from polymarket_insider_tracker.ingestor.trade_rows import parse_trade_row
@@ -117,7 +117,7 @@ def make_smoke_source(
     list-body client unchanged. Returns ``(source, row_parser, page_limit)`` so the smoke's
     classification machinery works for either path without branching again.
     """
-    if url == OFFICIAL_V2_TRADES_URL:
+    if is_v2_trades_url(url):
         source: TradesSourceClient = V2SmokeSource(
             client,
             url=url,
