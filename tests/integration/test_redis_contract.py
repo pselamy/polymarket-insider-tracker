@@ -41,6 +41,9 @@ from tests.integration.test_postgres_journey import (
 from tests.integration.test_v2_default_journey_services import (
     test_v2_default_journey_through_real_postgres_and_redis as test_v2_default_journey_through_real_postgres_and_redis,
 )
+from tests.integration.test_v2_default_journey_services import (
+    test_v2_default_restart_resumes_the_boundary_and_deduplicates_replay as test_v2_default_restart_resumes_the_boundary_and_deduplicates_replay,
+)
 
 from polymarket_insider_tracker.ingestor.observation_boundary import (
     BoundaryOrigin,
