@@ -54,6 +54,7 @@ def test_in_process_load_leaves_sys_modules_untouched(entry: str) -> None:
     name = "loader_characterization_" + entry.removesuffix(".py")
     module = _load_in_process(name, REPOSITORY_ROOT / "scripts" / entry)
     assert name not in sys.modules
+    assert module.__spec__ is not None
     assert module.__spec__.name == name
     assert module.REPOSITORY_ROOT == REPOSITORY_ROOT
 
