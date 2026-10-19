@@ -288,3 +288,58 @@ verify the documented result, warning, or actionable failure.
 - No authenticated user-trade feed, trading action, private data, or real notification delivery is in scope.
 - Slice 003 owns the reusable end-to-end harness. This slice owns source/replay fixtures and ingestion
   assertions contributed to that harness, avoiding a second competing full-pipeline test framework.
+
+## Amendment: Data API v2 Supported-Source Contract (2026-10-18)
+
+**Approved by Patrick 2026-10-18.** Append-only amendment recording items 1-5 of the recommended
+contract amendment in the 2026-10-16 review packet. It supersedes the earlier endpoint, page-size, and
+published-rate figures only where stated; all other requirements, scoring, research-only scope,
+normalized `TradeEvent`, first-start suppression, durable deduplication, loss visibility, supported
+platforms, and Python versions remain binding. Historical v1 receipts above are retained as dated
+history and are not rewritten.
+
+1. **Supported endpoint and configuration.** Change the default `POLYMARKET_TRADES_URL` to
+   `https://data-api.polymarket.com/v2/trades`; retain the environment variable name. An explicitly
+   configured official v1 URL fails configuration validation with the v2 replacement and a migration
+   instruction, rather than silently changing the operator's configured route. Custom HTTP(S) proxies
+   remain configurable and must serve the documented v2 envelope. No fallback or credentials are added.
+
+2. **One consistent cursor walk per cycle.** Request `limit=1000`, explicit `taker_only`, and fixed
+   `start`/`end` for that cycle. Keep the existing strictly increasing, clock-safe `end` rule. Follow only
+   the returned cursor, repeating the same filters. Never synthesize a cursor or use response `offset`
+   as a request. Empty or short pages do not end a walk if a continuation exists. Missing, malformed,
+   contradictory or repeated pagination becomes an actionable source failure; it never proves continuity.
+
+3. **Preserve bounded reach and truthful loss.** Start with one page. If the existing durable proof
+   fails, follow up to 19 further pages, checking proof after each. Stop on proof, documented exhaustion,
+   cancellation, failure or 20 total pages. This retains the former maximum of 20,000 raw observations
+   per cycle; actual reachable time remains rate-dependent. Exhaustion or depth limits without proof
+   preserve `possible-data-loss` and freeze the complete-through boundary. Existing provisional
+   continuation, retained identities, aged loss events and first-start suppression remain unchanged.
+   A whole walk is bounded; it does not fetch unlimited history.
+
+   Preserve the successful-empty-cycle exception explicitly:
+
+   | Observation | Required result |
+   | --- | --- |
+   | Empty initial page with terminal pagination | Successful quiet cycle; boundary unchanged; no new gap. |
+   | Empty page with a continuation | Continue the bounded walk; emptiness is not exhaustion. |
+   | Empty terminal tail after nonempty observations that still fail proof | Existing possible-data-loss path; boundary stays frozen. |
+   | Empty cycle while a gap is already open | Update source reachability while preserving the open gap and frozen boundary. |
+
+4. **Keep existing research identities and checkpoints.** Translate only documented v2 field names
+   into the existing parser's input contract, preserving required-field validation, numeric rules,
+   optional outcome repair and composite identity. Do not manufacture missing values. For the exact
+   official v1/v2 default endpoint pair and the same coverage mode, use the existing v1 logical source
+   namespace so the saved checkpoint and identity window survive the endpoint upgrade. Do not merge
+   unrelated custom URLs or coverage modes. An incompatible or corrupt checkpoint fails visibly;
+   it is never cleared or silently replaced. Custom-proxy transitions require an explicit operator
+   migration procedure and cannot claim automatic continuity.
+
+5. **Make the enlarged request path bounded independently of retries.** Keep the five-second default
+   cadence, at most 1,000 rows in the normal primary request, existing retry classifications/caps and
+   cancellation behavior. Count every physical attempt, including cursor pages and retries. Enforce a
+   local ceiling of 30 attempt starts in every rolling 10 seconds per acquisition client, with a
+   cancellable wait before the next attempt. This is below the published 300; healthy normal cadence
+   uses 2/300 (0.67%). The supported one-second minimum normally uses 10/300 (3.33%). Catch-up may be
+   slower and remains visible; no fixed first-publication or ten-minute recovery guarantee is added.
