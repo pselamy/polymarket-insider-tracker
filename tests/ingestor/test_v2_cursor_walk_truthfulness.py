@@ -16,7 +16,7 @@ from polymarket_insider_tracker.ingestor.v2_cursor_walk import (
     StopReason,
     WalkResult,
 )
-from polymarket_insider_tracker.ingestor.v2_page import V2EnvelopeError
+from polymarket_insider_tracker.ingestor.v2_page import V2_PAGE_LIMIT, V2EnvelopeError
 from tests.fakes import FakeCursorFeed, v2_envelope
 from tests.ingestor._v2_walk_harness import run_walk, v2_rows
 
@@ -113,6 +113,21 @@ class TestBounds:
             await run_walk(feed)
 
         assert feed.cursors() == [None]
+
+    async def test_a_second_page_larger_than_the_documented_limit_is_a_source_failure(self) -> None:
+        feed = FakeCursorFeed(
+            {
+                None: v2_envelope(v2_rows(2), next_cursor="c0"),
+                "c0": v2_envelope(v2_rows(V2_PAGE_LIMIT + 1), next_cursor=None),
+            }
+        )
+
+        result: WalkResult | None = None
+        with pytest.raises(V2EnvelopeError):
+            result, _ = await run_walk(feed)
+
+        assert result is None
+        assert feed.cursors() == [None, "c0"]
 
     async def test_a_page_at_the_documented_limit_is_recorded(self) -> None:
         feed = FakeCursorFeed({None: v2_envelope(v2_rows(1000), next_cursor=None)})

@@ -24,7 +24,12 @@ from polymarket_insider_tracker.ingestor.v2_cursor_walk import (
     MAX_WALK_ROWS,
     StopReason,
 )
-from polymarket_insider_tracker.ingestor.v2_page import V2PaginationError, V2TransientError
+from polymarket_insider_tracker.ingestor.v2_page import (
+    V2_PAGE_LIMIT,
+    V2EnvelopeError,
+    V2PaginationError,
+    V2TransientError,
+)
 from tests.fakes import FakeCursorFeed, v2_envelope
 from tests.ingestor._v2_walk_harness import END, START, build_walk, v2_rows
 
@@ -97,6 +102,8 @@ class _Reference:
         if self.pages_done >= self.max_pages:
             return StopReason.PAGE_LIMIT
         page = self._fetch()
+        if len(page.rows) > V2_PAGE_LIMIT:
+            raise V2EnvelopeError("page exceeds the documented limit")
         if self.raw_rows + len(page.rows) > self.max_rows:
             return StopReason.PAGE_LIMIT
         self.pages_done += 1
@@ -146,8 +153,27 @@ def _page_scripts(
     row_counts = draw(
         st.lists(st.integers(min_value=0, max_value=3), min_size=page_count, max_size=page_count)
     )
+    if draw(st.integers(min_value=0, max_value=9)) == 0:
+        oversized_at = draw(
+            st.integers(min_value=0, max_value=_last_reachable_index(terminal_at, page_count))
+        )
+        oversized_rows = V2_PAGE_LIMIT + draw(st.integers(min_value=1, max_value=3))
+        row_counts = _with_oversized_row(row_counts, oversized_at, oversized_rows)
     flags = draw(st.lists(st.booleans(), min_size=_SCRIPT_LENGTH, max_size=_SCRIPT_LENGTH))
     return _scripted_pages(page_count, terminal_at, row_counts), flags
+
+
+def _last_reachable_index(terminal_at: int | None, page_count: int) -> int:
+    """The largest page index the bounded walk can actually fetch for this script."""
+    if terminal_at is not None:
+        return terminal_at
+    return min(page_count, MAX_WALK_PAGES) - 1
+
+
+def _with_oversized_row(row_counts: Sequence[int], index: int, oversized_rows: int) -> list[int]:
+    counts = list(row_counts)
+    counts[index] = oversized_rows
+    return counts
 
 
 def _scripted_pages(
@@ -187,6 +213,10 @@ class TestReferenceEquivalence:
             expected = reference_walk(pages, flags)
         except V2TransientError:
             with pytest.raises(V2TransientError):
+                asyncio.run(harness.walk.run(taker_only=False, start=START, end=END))
+            return
+        except V2EnvelopeError:
+            with pytest.raises(V2EnvelopeError):
                 asyncio.run(harness.walk.run(taker_only=False, start=START, end=END))
             return
 
