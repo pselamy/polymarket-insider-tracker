@@ -83,6 +83,15 @@ def _assert_observations_equal(v1_row: dict[str, object]) -> None:
     assert actual.outcome_resolution is expected.outcome_resolution
 
 
+def _assert_rejected_alike(v1_row: dict[str, object]) -> None:
+    expected = parse_trade_row(v1_row, now=NOW)
+    actual = parse_v2_trade_row(_as_v2(v1_row), now=NOW)
+    assert isinstance(expected, InvalidRow)
+    assert isinstance(actual, InvalidRow)
+    assert actual.disposition is expected.disposition
+    assert actual.field == expected.field
+
+
 @given(_valid_rows())
 def test_valid_v2_rows_match_the_v1_parser_oracle(row: dict[str, object]) -> None:
     _assert_observations_equal(row)
@@ -92,13 +101,7 @@ def test_valid_v2_rows_match_the_v1_parser_oracle(row: dict[str, object]) -> Non
 def test_missing_field_rejects_with_the_same_class(row: dict[str, object], field: str) -> None:
     del row[field]
 
-    expected = parse_trade_row(row, now=NOW)
-    actual = parse_v2_trade_row(_as_v2(row), now=NOW)
-
-    assert isinstance(expected, InvalidRow)
-    assert isinstance(actual, InvalidRow)
-    assert actual.disposition is expected.disposition
-    assert actual.field == expected.field
+    _assert_rejected_alike(row)
 
 
 @given(
@@ -111,13 +114,7 @@ def test_malformed_numeric_rejects_with_the_same_class(
 ) -> None:
     row[field] = value
 
-    expected = parse_trade_row(row, now=NOW)
-    actual = parse_v2_trade_row(_as_v2(row), now=NOW)
-
-    assert isinstance(expected, InvalidRow)
-    assert isinstance(actual, InvalidRow)
-    assert actual.disposition is expected.disposition
-    assert actual.field == expected.field
+    _assert_rejected_alike(row)
 
 
 @given(st.lists(st.integers(min_value=0, max_value=10**12), min_size=2, max_size=25, unique=True))
