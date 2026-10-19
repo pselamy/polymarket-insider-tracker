@@ -10,8 +10,8 @@ planning contract only, not a shippable increment.
 
 - [ ] T001 Record base/allocations and hydrate prior Phase0 artifacts byte-identically in packet scope
 - [ ] T002 Verify scoring runtime unchanged (no `src/` diff) before reusing replay conclusions.
-  Re-run 2026-10-19 against `1bdccbc`: `scorer.py`/`pipeline.py` byte-identical; three detector files
-  changed by refactors only (`evidence/source-refresh-1bdccbc.md`, `scripts/spec004_evidence/`check_source_hashes`.py`)
+  Re-run 2026-10-19 against `f2e2167`: `scorer.py`/`pipeline.py` byte-identical; three detector files
+  changed by refactors only (`evidence/source-refresh-f2e2167.md`, `scripts/spec004_evidence/`check_source_hashes`.py`)
 
 ## Phase 2: Foundational (contract pins — proposed in this packet)
 

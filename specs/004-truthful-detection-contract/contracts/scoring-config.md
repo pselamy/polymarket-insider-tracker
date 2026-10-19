@@ -11,7 +11,7 @@ Machine-readable form (checked by `uv run python -m scripts.spec004_evidence.che
 
 ## 1. What this amends (stated plainly)
 
-Existing behavior on main `1bdccbc` (refreshed 2026-10-19; originally `46e4192`): `scoring_config` is
+Existing behavior on main `f2e2167` (refreshed 2026-10-19; originally `46e4192`): `scoring_config` is
 the canonical pure-configuration JSON recorded on every new assessment (`detector/scorer.py:217-220`);
 rows carry scalar columns plus a nullable `scoring_config` TEXT (`storage/models.py:168`,
 `storage/repos.py:574,618`). Slice 003 §4 defines the field as "the canonical deterministic JSON of the

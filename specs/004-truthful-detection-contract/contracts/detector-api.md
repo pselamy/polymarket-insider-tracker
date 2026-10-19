@@ -1,7 +1,7 @@
 # Contract: Detector Evaluation API Compatibility
 
 **Feature**: `specs/004-truthful-detection-contract` | **Date**: 2026-10-17, rewritten 2026-10-19 | **Status**: proposed.
-Pins exact current interfaces (refreshed to main `1bdccbc`; originally `46e4192`); implementation is not authorized.
+Pins exact current interfaces (refreshed to main `f2e2167`; originally `46e4192`); implementation is not authorized.
 
 ## Current pins
 

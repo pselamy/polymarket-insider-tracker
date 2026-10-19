@@ -1,0 +1,13 @@
+{
+  "base_commit": "f2e2167",
+  "note": "Current-base hashes. replay/summary.json stays the immutable receipt of the replay execution checkout.",
+  "source_sha256": {
+    "detector/fresh_wallet.py": "030df0ec628b9dcc23ae72e3e9aa2e8b89d903a904ad45c71c655703697c2018",
+    "detector/models.py": "94901405d4f3322b7633a9029d6c483ec08d41a7ed34546e21d96f25bacd7eb0",
+    "detector/scorer.py": "2fd151ee38dc7e44e55c2b309549cc14aea012e591d6451feb074b4571513904",
+    "detector/size_anomaly.py": "c28253da5ea4475dfa286858828d9d61f1fd6157d58928e59319a17f93f20714",
+    "ingestor/models.py": "28bdadd9700b75e0e2fe01c6c5ed6c48bdd01a32447ce800fa2e8edb9e6d1c11",
+    "pipeline.py": "2911f000fc42bcdc0f7a8e43af8d376a08981276b3ce9fe5fb788e923330b4c7",
+    "profiler/models.py": "a4a4a0e45b6076763b68592ccc70a0c1ca9e2df1d6c4adf597d12ae9fa95b5be"
+  }
+}

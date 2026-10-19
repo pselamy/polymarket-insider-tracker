@@ -246,7 +246,7 @@ persisted assessment fields, sample output, README, example environment, and the
 
 ## Dependencies and Non-Goals
 
-**Dependencies (all landed on main `1bdccbc`; revised 2026-10-19)**
+**Dependencies (all landed on main `f2e2167`; revised 2026-10-19)**
 
 - **Slice 001 Data API V2 ingestion is the live trade contract**, not a pending separate concern: the
   default trades URL is the official V2 endpoint (`d647adf`) and V2 rows decode into `TradeEvent`

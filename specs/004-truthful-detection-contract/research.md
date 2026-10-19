@@ -3,13 +3,13 @@
 **Date**: 2026-10-16, R01 disposition appended 2026-10-17. **Status**: Phase0 complete;
 Phase1 design proposed. Implementation is not authorized.
 Current source was main `46e41921ca06b701fece7a17953a666f6873b7e1` when written; **refreshed
-2026-10-19 to main `1bdccbca1db93dea7045d6d9c0068b9d04d30455`** (see
+2026-10-19 to main `f2e21672c9707c927befea8d82b1069171ae38f9`** (see
 [evidence/revision-2026-10-19.md](evidence/revision-2026-10-19.md) and
-[evidence/source-refresh-1bdccbc.md](evidence/source-refresh-1bdccbc.md)). No product code changed.
+[evidence/source-refresh-f2e2167.md](evidence/source-refresh-f2e2167.md)). No product code changed.
 Prior Phase0 artifacts (corpus, replay, clarification) hydrated byte-identically from
 `polymarket-004-preparation-c64a73b`; scoring runtime verified unchanged between the replay
-base (`523b0a3`) and this base (no `src/` diff). Re-verified 2026-10-19 against `1bdccbc`: `scorer.py` and `pipeline.py` byte-identical,
-three detector files refactor-only (`evidence/source-refresh-1bdccbc.md`).
+base (`523b0a3`) and this base (no `src/` diff). Re-verified 2026-10-19 against `f2e2167`: `scorer.py` and `pipeline.py` byte-identical,
+three detector files refactor-only (`evidence/source-refresh-f2e2167.md`).
 
 ## R01 — Gamma volume units and freshness qualification
 

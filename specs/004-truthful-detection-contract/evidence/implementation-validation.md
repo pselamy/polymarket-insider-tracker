@@ -117,7 +117,7 @@ migration); this packet is not reduced to a CI or planning-only goal.
 
 ## Addendum 2026-10-19 (appended; the text above is historical and was not rewritten)
 
-- Source pins refreshed to main `1bdccbc`: see `evidence/source-refresh-1bdccbc.md`; the check is
+- Source pins refreshed to main `f2e2167`: see `evidence/source-refresh-f2e2167.md`; the check is
   `uv run python -m scripts.spec004_evidence.check_source_hashes` (reports 3 of 7
   recorded hashes drifting, all refactor-only).
 - The "scoring runtime unchanged" statement above still holds for `scorer.py` and `pipeline.py`

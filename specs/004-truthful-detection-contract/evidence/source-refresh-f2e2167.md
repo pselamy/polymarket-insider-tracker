@@ -1,9 +1,18 @@
-# Source refresh: 46e4192 → 1bdccbc (2026-10-19)
+# Source refresh: 46e4192 → 1bdccbc → f2e2167 (2026-10-19)
 
 **Purpose**: the 2026-10-17 packet pinned source hashes and line numbers to main `46e4192`
 (replay execution checkout `752a918`). Main moved to `1bdccbc`. This file is an appended
 correction: it does not rewrite `replay/summary.json` or the historical receipts, it records
 what changed since and whether any conclusion depends on it.
+
+## Second refresh: 1bdccbc → f2e2167
+
+Main moved again (#163, #164, #166: test-scaffold deduplication only). `git diff 1bdccbc f2e2167 -- src`
+is empty, so no hash, line pin or scoring conclusion changed. The check tool now reads
+`evidence/source-hashes.json` (current-base hashes, regenerated on `f2e2167`); the original
+`replay/summary.json` stays the immutable receipt of the replay checkout and is not edited. The
+"On 1bdccbc" column below is equally the `f2e2167` value. Tool outputs (`reachability`, `replay_live`,
+`check_envelope`) re-ran unchanged.
 
 ## Hash comparison
 

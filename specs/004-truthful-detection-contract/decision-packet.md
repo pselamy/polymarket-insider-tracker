@@ -77,7 +77,7 @@ lookup failure the code even invents category `"other"`, which counts as niche-p
 
 | Area | 2026-10-17 | 2026-10-19 revision | Finding(s) |
 |---|---|---|---|
-| Base | main `46e4192` | main `1bdccbc`; hashes/lines refreshed, check script | F25 |
+| Base | main `46e4192` | main `f2e2167`; hashes/lines refreshed, check script | F25 |
 | V2 ingestion | "separate pending request, untouched" | live contract; wallet subject is `proxy_wallet`; journey suites in scope (T021–T026) | F02, F24 |
 | Wallet age | assumed available | none on main; FR-007a/b, basis recorded, D1 | F01, F02 |
 | Unknown-age confidence | "capped at" and "exactly" 0.50 | exactly 0.50 everywhere (single table) | F26 |
@@ -118,7 +118,7 @@ deprecated inclusive alias; no new migration.
   runtime cannot produce. The 40-case live-realistic addendum shows 0 qualifying at 0.80 and 7 at 0.78.
   Neither is calibration.
 - Source hashes: 4 of 7 recorded hashes unchanged, 3 changed by refactors only
-  (`evidence/source-refresh-1bdccbc.md`).
+  (`evidence/source-refresh-f2e2167.md`).
 - R01 monetary-volume interpretation rests on a reviewed first-party integration (archived
   2025-12-22 example, not a current warranty; no USDC-settlement/freshness/aggregation claims; no
   total-volume fallback; bounded current schema check still required at implementation entry).
