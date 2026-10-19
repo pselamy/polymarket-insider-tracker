@@ -11,7 +11,7 @@ planning contract only, not a shippable increment.
 - [ ] T001 Record base/allocations and hydrate prior Phase0 artifacts byte-identically in packet scope
 - [ ] T002 Verify scoring runtime unchanged (no `src/` diff) before reusing replay conclusions.
   Re-run 2026-10-19 against `1bdccbc`: `scorer.py`/`pipeline.py` byte-identical; three detector files
-  changed by refactors only (`evidence/source-refresh-1bdccbc.md`, `evidence/check_source_hashes.py`)
+  changed by refactors only (`evidence/source-refresh-1bdccbc.md`, `evidence/evidence-tools.md` (`check_source_hashes`))
 
 ## Phase 2: Foundational (contract pins — proposed in this packet)
 
@@ -105,7 +105,7 @@ Named files, entry points, dependency order:
   Depends on T011. Includes: the version-dispatched reader of `contracts/scoring-config.md` §3
   (unknown version raises, column/`evidence_schema` mismatch is a corrupt row), the exact
   `scoring-config-004.1.schema.json` as conformance fixture (a test validates real persisted rows against
-  it, as `evidence/check_envelope.py` does for the examples), detector-failure rows with
+  it, as `evidence/evidence-tools.md` (`check_envelope`) does for the examples), detector-failure rows with
   `evaluation_evidence: null` + `detector_failures`, and the matching edit of slice 003
   `assessment-storage.md` §4 so the shared contract states the union.
 

@@ -43,7 +43,7 @@ implementation then gains a source task. Until you choose, the contract is writt
 
 ### D2 — What the 0.80 threshold means when age is unknown (DECISION FOR PATRICK)
 
-Recomputed by `evidence/reachability.py` ([research.md](research.md) R10): with age unknown the
+Recomputed by `evidence/evidence-tools.md` (`reachability`) ([research.md](research.md) R10): with age unknown the
 highest attainable score is **0.780 for every trade size**; markets with ≥ $50k volume top out at
 0.45 (unknown age) or 0.642 (best-case known age); main today (003.1 rules, volume never passed) tops
 out at 0.528. The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases.
@@ -122,9 +122,9 @@ deprecated inclusive alias; no new migration.
 - R01 monetary-volume interpretation rests on a reviewed first-party integration (archived
   2025-12-22 example, not a current warranty; no USDC-settlement/freshness/aggregation claims; no
   total-volume fallback; bounded current schema check still required at implementation entry).
-- Reproduce: `python3 evidence/reachability.py --check evidence/reachability.md`,
-  `python3 evidence/replay_live.py --check evidence/replay-live/results.csv`,
-  `python3 evidence/check_envelope.py`, `python3 evidence/check_source_hashes.py`.
+- Reproduce: `sh evidence/run-evidence.sh reachability --check evidence/reachability.md`,
+  `sh evidence/run-evidence.sh replay_live --check evidence/replay-live/results.csv`,
+  `sh evidence/run-evidence.sh check_envelope`, `sh evidence/run-evidence.sh check_source_hashes`.
 
 ## Remaining known limits
 
@@ -137,6 +137,12 @@ deprecated inclusive alias; no new migration.
   markets mechanically inflate the ratio; unchanged by this slice (D2/R4).
 - The reviewer-owned checklist text still says "seven" states (CHK003) and "cap 0.50" (CHK005); it is
   left untouched and is read against the eight-state table and the exactly-0.50 rule.
+- **Evidence tooling is outside the Python quality gates.** `tests/tooling/test_verify.py` requires
+  every tracked `*.py` to lie inside the vulture/complexipy scope, and this spec-only revision may not
+  change those scopes, `scripts/` or CI. The four stdlib tools therefore live as reviewable source in
+  `evidence/evidence-tools.md` and run through `evidence/run-evidence.sh`; they are not type-checked,
+  complexity-limited (max 5) or dead-code-scanned. Clean follow-up: move them under `scripts/` with
+  full gates (a separate change). Their outputs are committed and `--check` proves they are current.
 - A 003 consumer that rejects unknown keys in `scoring_config` breaks on 004.1 rows (named risk).
 
 ## Exact scope to authorize

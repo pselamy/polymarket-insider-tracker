@@ -43,7 +43,7 @@ of (observation, qualified set, `evaluated_at`); the fixed 600 s matches the cac
 recency rule, not a provider measurement-time guarantee; the stamp is never synthesized from cache
 reads, TTL, CLOB refresh or generic `last_updated`
 (`ingestor/models.py::MarketMetadata.from_dict` falls back to *now*). Executable form and one
-replay case per state and per reason: `evidence/replay_live.py`, `evidence/replay-live/cases.json`
+replay case per state and per reason: `evidence/evidence-tools.md` (`replay_live`), `evidence/replay-live/cases.json`
 (40 cases; every state and every reason).
 
 ### 1.3 Explicit `daily_volume` argument

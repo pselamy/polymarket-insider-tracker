@@ -10,13 +10,13 @@ main has no age source (research R09/R10), so the live runtime produces only unk
 
 ```bash
 cd specs/004-truthful-detection-contract/evidence
-python3 replay_live.py --check replay-live/results.csv      # exit 0 = committed CSV is current
-python3 reachability.py --check reachability.md             # exit 0 = committed table is current
+sh run-evidence.sh replay_live --check replay-live/results.csv      # exit 0 = committed CSV is current
+sh run-evidence.sh reachability --check reachability.md             # exit 0 = committed table is current
 ```
 
-Stdlib only; no `src/` import. `replay_live.py` classifies each case's volume observation with the
+Stdlib only; no `src/` import. `replay_live` (evidence-tools.md) classifies each case's volume observation with the
 precedence table of [data-model.md](../data-model.md) §1 (first match wins) and then scores it with the
-arithmetic of `reachability.py`, whose constants are textually verified against the product source.
+arithmetic of `reachability` (evidence-tools.md), whose constants are textually verified against the product source.
 Columns: `old_score_as_wired` = 003.1 rules with the live wiring (no volume passed);
 `proposed_score` = 004 rules; `alerts_at_0.80` / `alerts_at_0.78`.
 

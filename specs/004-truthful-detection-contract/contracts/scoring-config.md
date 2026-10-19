@@ -4,7 +4,7 @@
 Amends the shared [003 assessment-storage contract](../../003-safe-observable-operation/contracts/assessment-storage.md)
 (§4) without a competing migration. Implementation is not authorized.
 
-Machine-readable form (checked by `python3 evidence/check_envelope.py`, exit 0):
+Machine-readable form (checked by `sh evidence/run-evidence.sh check_envelope`, exit 0):
 [`scoring-config-004.1.schema.json`](scoring-config-004.1.schema.json),
 [`scoring-config-004.1.example.json`](scoring-config-004.1.example.json),
 [`scoring-config-004.1.failure-row.json`](scoring-config-004.1.failure-row.json).
@@ -80,7 +80,7 @@ readable summary.
 | `result.weighted_score`, `result.signals_triggered`, `result.should_alert` | 3-decimal string; int 0–2; bool | no | `weighted_score = quantize(capped_score)`; `should_alert = weighted_score >= alert_threshold`. |
 
 Reconstruction (CHK014): every `result` field is recomputable from the rest of the document with
-decimal arithmetic alone; `check_envelope.py` performs exactly that and also verifies the volume
+decimal arithmetic alone; `check_envelope` (evidence-tools.md) performs exactly that and also verifies the volume
 cross-field rules (`daily_volume`/`volume_impact` non-null exactly when `available`; age within
 0–600 s when `available`; unknown age ⇒ confidence exactly `0.500`). SC-005 (±0.01) is therefore met
 with zero tolerance for stored 004.1 rows.

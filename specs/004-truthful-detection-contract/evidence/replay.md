@@ -31,7 +31,7 @@ repairs that formatting without changing the reviewed numerical comparison.
 
 **Addendum 2026-10-19**: "current main" above means main `523b0a3` at capture time. Main is now
 `1bdccbc`; three of the seven recorded source hashes drifted through refactors that change no
-scoring behaviour (`evidence/source-refresh-1bdccbc.md`, `evidence/check_source_hashes.py`). The
+scoring behaviour (`evidence/source-refresh-1bdccbc.md`, `evidence/evidence-tools.md` (`check_source_hashes`)). The
 corpus, CSV and summary are unchanged and remain valid as the old-versus-proposed behavioural
 comparison. They are **not** live-realistic: every default-runtime qualification (0→15) is a
 known-age case that the live runtime cannot currently produce; see research R10 and
