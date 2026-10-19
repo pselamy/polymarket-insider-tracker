@@ -10,7 +10,6 @@ from decimal import Decimal
 
 import pytest
 
-from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token
 from polymarket_insider_tracker.ingestor.trade_rows import (
     CLOCK_SKEW_ALLOWANCE_SECONDS,
     IDENTITY_FIELDS,
@@ -24,7 +23,7 @@ from polymarket_insider_tracker.ingestor.trade_rows import (
     repair_outcome,
     zero_disposition_counts,
 )
-from tests.fakes import synthetic_wallet, trade_row
+from tests.fakes.trades import MALFORMED_NUMERIC_CASES, market_metadata, synthetic_wallet, trade_row
 
 NOW = 1_788_983_720
 
@@ -37,15 +36,6 @@ def _observation(row: dict[str, object]) -> TradeObservation:
     parsed = _parse(row)
     assert isinstance(parsed, TradeObservation)
     return parsed
-
-
-def _market(*tokens: tuple[str, str]) -> MarketMetadata:
-    return MarketMetadata(
-        condition_id="0xmarket",
-        question="Synthetic market?",
-        description="",
-        tokens=tuple(Token(token_id=token_id, outcome=outcome) for token_id, outcome in tokens),
-    )
 
 
 class TestStrictParsing:
@@ -114,15 +104,8 @@ class TestStrictParsing:
             ("conditionId", None),
             ("asset", ""),
             ("side", "HOLD"),
-            ("price", "not-a-number"),
-            ("price", "NaN"),
-            ("price", "Infinity"),
-            ("size", True),
-            ("size", None),
-            ("timestamp", "soon"),
-            ("timestamp", 12.5),
-            ("timestamp", False),
-        ],
+        ]
+        + MALFORMED_NUMERIC_CASES,
     )
     def test_malformed_identity_field_is_invalid(self, field: str, value: object) -> None:
         row = trade_row(timestamp=NOW)
@@ -241,7 +224,9 @@ class TestOutcomeRepair:
         observation = _observation(trade_row(timestamp=NOW, outcome=None, outcome_index=None))
         assert observation.outcome_resolution is OutcomeResolution.UNKNOWN
 
-        repaired = repair_outcome(observation, _market(("asset-no", "No"), ("asset-yes", "Yes")))
+        repaired = repair_outcome(
+            observation, market_metadata(("asset-no", "No"), ("asset-yes", "Yes"))
+        )
 
         assert repaired.event.outcome == "Yes"
         assert repaired.event.outcome_index == 1
@@ -265,7 +250,7 @@ class TestOutcomeRepair:
     def test_metadata_without_a_matching_token_never_invents_an_outcome(self) -> None:
         observation = _observation(trade_row(timestamp=NOW, outcome=None, outcome_index=None))
 
-        unrepaired = repair_outcome(observation, _market(("other-token", "Maybe")))
+        unrepaired = repair_outcome(observation, market_metadata(("other-token", "Maybe")))
 
         assert unrepaired.outcome_resolution is OutcomeResolution.UNKNOWN
         assert unrepaired.event.outcome == ""
@@ -273,7 +258,7 @@ class TestOutcomeRepair:
     def test_provided_outcome_is_never_overwritten(self) -> None:
         observation = _observation(trade_row(timestamp=NOW, outcome="Yes", outcome_index=0))
 
-        repaired = repair_outcome(observation, _market(("asset-yes", "Different")))
+        repaired = repair_outcome(observation, market_metadata(("asset-yes", "Different")))
 
         assert repaired is observation
         assert repaired.outcome_resolution is OutcomeResolution.PROVIDED
@@ -288,7 +273,9 @@ class TestOutcomeRepair:
     def test_outcome_text_without_index_is_repaired_as_a_complete_pair(self) -> None:
         observation = _observation(trade_row(timestamp=NOW, outcome="No", outcome_index=None))
 
-        repaired = repair_outcome(observation, _market(("asset-no", "No"), ("asset-yes", "Yes")))
+        repaired = repair_outcome(
+            observation, market_metadata(("asset-no", "No"), ("asset-yes", "Yes"))
+        )
 
         assert observation.outcome_resolution is OutcomeResolution.UNKNOWN
         assert (repaired.event.outcome, repaired.event.outcome_index) == ("Yes", 1)
@@ -300,7 +287,9 @@ class TestOutcomeRepair:
         assert observation.outcome_resolution is OutcomeResolution.UNKNOWN
         assert observation.event.outcome_index == 0
 
-        repaired = repair_outcome(observation, _market(("asset-no", "No"), ("asset-yes", "Yes")))
+        repaired = repair_outcome(
+            observation, market_metadata(("asset-no", "No"), ("asset-yes", "Yes"))
+        )
 
         assert repaired.outcome_resolution is OutcomeResolution.REPAIRED
         assert repaired.event.outcome == "Yes"

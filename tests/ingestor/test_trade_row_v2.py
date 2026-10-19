@@ -15,7 +15,6 @@ from decimal import Decimal
 
 import pytest
 
-from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token
 from polymarket_insider_tracker.ingestor.trade_row_v2 import parse_v2_trade_row
 from polymarket_insider_tracker.ingestor.trade_rows import (
     InvalidRow,
@@ -25,7 +24,12 @@ from polymarket_insider_tracker.ingestor.trade_rows import (
     parse_trade_row,
     repair_outcome,
 )
-from tests.fakes import synthetic_wallet, trade_row
+from tests.fakes.trades import (
+    MALFORMED_NUMERIC_CASES,
+    market_metadata,
+    synthetic_wallet,
+    trade_row,
+)
 
 NOW = 1_788_983_720
 
@@ -50,15 +54,6 @@ def _observation(raw: object) -> TradeObservation:
     parsed = parse_v2_trade_row(raw, now=NOW)
     assert isinstance(parsed, TradeObservation)
     return parsed
-
-
-def _market(*tokens: tuple[str, str]) -> MarketMetadata:
-    return MarketMetadata(
-        condition_id="0xmarket",
-        question="Synthetic market?",
-        description="",
-        tokens=tuple(Token(token_id=token_id, outcome=outcome) for token_id, outcome in tokens),
-    )
 
 
 class TestV2Decoding:
@@ -130,16 +125,7 @@ class TestV2RequiredFields:
 
     @pytest.mark.parametrize(
         ("v2_field", "value"),
-        [
-            ("price", "not-a-number"),
-            ("price", "NaN"),
-            ("price", "Infinity"),
-            ("size", True),
-            ("size", None),
-            ("timestamp", "soon"),
-            ("timestamp", 12.5),
-            ("timestamp", False),
-        ],
+        MALFORMED_NUMERIC_CASES,
     )
     def test_malformed_numeric_field_is_rejected_per_field(
         self, v2_field: str, value: object
@@ -176,7 +162,9 @@ class TestV2OptionalAndUnknownFields:
         assert decoded.event.outcome == ""
         assert decoded.event.outcome_index == 0
 
-        repaired = repair_outcome(decoded, _market(("asset-no", "No"), ("asset-yes", "Yes")))
+        repaired = repair_outcome(
+            decoded, market_metadata(("asset-no", "No"), ("asset-yes", "Yes"))
+        )
 
         assert repaired.outcome_resolution is OutcomeResolution.REPAIRED
         assert repaired.event.outcome == "Yes"
@@ -186,7 +174,7 @@ class TestV2OptionalAndUnknownFields:
         row = _as_v2(trade_row(timestamp=NOW, outcome=None, outcome_index=None, asset="token-yes"))
 
         repaired = repair_outcome(
-            _observation(row), _market(("asset-no", "No"), ("token-yes", "Yes"))
+            _observation(row), market_metadata(("asset-no", "No"), ("token-yes", "Yes"))
         )
 
         assert repaired.event.outcome == "Yes"

@@ -21,6 +21,8 @@ from typing import Any, Literal
 
 import httpx
 
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token
+
 PAGE_LIMIT = 10_000
 MAX_OFFSET = 10_000
 DEFAULT_LIMIT = 100
@@ -37,6 +39,30 @@ def synthetic_wallet(index: int) -> str:
 def synthetic_transaction(index: int) -> str:
     """Return a deterministic synthetic 64-hex transaction hash."""
     return "0x" + f"{index:064x}"
+
+
+# Malformed numeric fields shared by the v1 and v2 row-decoding tests; the three field names
+# are spelled identically in both wire formats.
+MALFORMED_NUMERIC_CASES: list[tuple[str, object]] = [
+    ("price", "not-a-number"),
+    ("price", "NaN"),
+    ("price", "Infinity"),
+    ("size", True),
+    ("size", None),
+    ("timestamp", "soon"),
+    ("timestamp", 12.5),
+    ("timestamp", False),
+]
+
+
+def market_metadata(*tokens: tuple[str, str]) -> MarketMetadata:
+    """Return a synthetic market whose tokens are the given ``(token_id, outcome)`` pairs."""
+    return MarketMetadata(
+        condition_id="0xmarket",
+        question="Synthetic market?",
+        description="",
+        tokens=tuple(Token(token_id=token_id, outcome=outcome) for token_id, outcome in tokens),
+    )
 
 
 def trade_row(
