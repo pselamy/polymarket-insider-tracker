@@ -159,7 +159,7 @@ knowledge).
 | --- | --- | --- | --- | --- | --- |
 | 1 | 11 | 196 | test_formatter.py, test_history.py, test_scorer.py, test_size_anomaly.py | Repeated `sample_trade`/`sample_wallet_profile` fixtures and formatter/history case scaffolds (two fixture families share one component) | real |
 | 2 | 0 | 0 | _journey_harness.py | **Resolved**: the sample trade, single-token market, seeded provider history, journey settings, and wire/start/stop scaffolding now have one home (`tests/integration/_journey_harness.py`); the five suites use it | resolved (PR #163) |
-| 3 | 0 | 0 | test_redaction.py | **Resolved**: the primed-poller, idle-pipeline, failing-Redis `run_pipeline`, failed metadata-start and production-console-capture harnesses now each have one helper in `tests/test_redaction.py` | resolved (PR #PRNUM) |
+| 3 | 0 | 0 | test_redaction.py | **Resolved**: the primed-poller, idle-pipeline, failing-Redis `run_pipeline`, failed metadata-start and production-console-capture harnesses now each have one helper in `tests/test_redaction.py` | resolved (PR #168) |
 | 4 | 0 | 0 | test_dispatcher.py | **Resolved**: channel-to-fake-server wiring (`wired_channel`) and the failed-send redaction assertion (`assert_failure_logged_without`) have one home; the paired success, failure, rate-limit, read-timeout and retry-after cases are parametrized over the channel | resolved (PR #166) |
 | 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
 | 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
