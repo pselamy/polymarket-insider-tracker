@@ -769,9 +769,11 @@ clusters' rows above are historical receipts from their own trees.
 `tests/test_terminal_error_durable.py` now own the fake-boundary pipeline wiring, the
 terminal HTTP 401 poller failure, the hand-off to `_handle_worker_failure`, and the
 persisted-row assertion that three tests restated (a fourth restated the wiring); the three cluster-10 clone pairs (68, 62 and 88 tokens) are gone.
-Re-measured with the pinned jscpd 5.3.3 and the same flags over the same 292 files
-as the cluster-8 update: 52 clone groups (625 duplicated lines, 1.02%) before, 49
-(582 lines, 0.95%) after, none in `test_terminal_error_durable.py` and none added.
+Re-measured over the whole tree with the pinned jscpd 5.3.3 and the same flags and 292
+files as the cluster-6 update: `origin/main` at `986a7c6` (after #171) reports 46 clone
+groups (561 duplicated lines, 0.92%); this branch rebased onto it reports 43 (518 lines,
+0.85%). Matched by file pair and line count the only difference is the three removed
+`test_terminal_error_durable.py` self-pairs (12, 14 and 17 lines); no group was added or grew.
 `test_fresh_pipeline_reads_terminal_reason_from_durable_row` keeps its own state
 setup because it seeds a prior row rather than failing the poller. No assertion
 changed and the six collected test IDs are unchanged.
