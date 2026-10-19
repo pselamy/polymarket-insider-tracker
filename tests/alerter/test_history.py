@@ -27,39 +27,6 @@ from polymarket_insider_tracker.profiler.models import WalletProfile
 
 
 @pytest.fixture
-def sample_trade() -> TradeEvent:
-    """Create a sample trade event."""
-    return TradeEvent(
-        market_id="market_abc123",
-        trade_id="tx_001",
-        wallet_address="0x1234567890abcdef1234567890abcdef12345678",
-        side="BUY",
-        outcome="Yes",
-        outcome_index=0,
-        price=Decimal("0.65"),
-        size=Decimal("10000"),
-        timestamp=datetime.now(UTC),
-        asset_id="token_123",
-        event_title="Test Market",
-    )
-
-
-@pytest.fixture
-def sample_wallet_profile() -> WalletProfile:
-    """Create a sample wallet profile."""
-    return WalletProfile(
-        address="0x1234567890abcdef1234567890abcdef12345678",
-        nonce=2,
-        first_seen=datetime.now(UTC),
-        age_hours=1.0,
-        is_fresh=True,
-        total_tx_count=2,
-        matic_balance=Decimal("1000000000000000000"),
-        usdc_balance=Decimal("1000000"),
-    )
-
-
-@pytest.fixture
 def sample_metadata() -> MarketMetadata:
     """Create sample market metadata."""
     return MarketMetadata(

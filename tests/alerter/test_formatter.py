@@ -1,5 +1,6 @@
 """Tests for alert message formatter."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -498,20 +499,7 @@ class TestEdgeCases:
 
     def test_no_market_slug(self, sample_trade: TradeEvent) -> None:
         """Test formatting when market slug is empty."""
-        trade = TradeEvent(
-            market_id=sample_trade.market_id,
-            trade_id=sample_trade.trade_id,
-            wallet_address=sample_trade.wallet_address,
-            side=sample_trade.side,
-            outcome=sample_trade.outcome,
-            outcome_index=sample_trade.outcome_index,
-            price=sample_trade.price,
-            size=sample_trade.size,
-            timestamp=sample_trade.timestamp,
-            asset_id=sample_trade.asset_id,
-            market_slug="",  # Empty slug
-            event_title="",  # Empty title
-        )
+        trade = replace(sample_trade, market_slug="", event_title="")
         assessment = RiskAssessment(
             trade_event=trade,
             wallet_address=trade.wallet_address,
@@ -676,20 +664,7 @@ class TestLinkSection:
         )
 
     def test_market_link_is_omitted_without_a_slug(self, sample_trade: TradeEvent) -> None:
-        trade = TradeEvent(
-            market_id=sample_trade.market_id,
-            trade_id=sample_trade.trade_id,
-            wallet_address=sample_trade.wallet_address,
-            side=sample_trade.side,
-            outcome=sample_trade.outcome,
-            outcome_index=sample_trade.outcome_index,
-            price=sample_trade.price,
-            size=sample_trade.size,
-            timestamp=sample_trade.timestamp,
-            asset_id=sample_trade.asset_id,
-            market_slug="",
-            event_title="Title only",
-        )
+        trade = replace(sample_trade, market_slug="", event_title="Title only")
         assessment = RiskAssessment(
             trade_event=trade,
             wallet_address=trade.wallet_address,
