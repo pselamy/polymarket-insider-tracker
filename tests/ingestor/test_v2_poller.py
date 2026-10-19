@@ -157,9 +157,9 @@ class TestV2BoundaryOutcomes:
         settings: PolymarketSettings,
         callback: RecordingTradeCallback,
     ) -> None:
-        # PR #150 (automatic v1->v2 source_id continuity) is unmerged, so the checkpoint is written
-        # here under the poller's own namespace -- the shared namespace once #150 lands -- and the
-        # first v2 cycle must resume it rather than re-anchoring.
+        # PR #150 (v1->v2 source_id continuity) is merged: the official v1 and v2 endpoints share
+        # one namespace, so a checkpoint written here resumes the first v2 cycle rather than
+        # re-anchoring.
         server = FakeV2TradesServer(clock=clock, page_size=1)
         server.publish(v2_row(trade_row(timestamp=T0, transaction=2)))
         server.publish(v2_row(trade_row(timestamp=T0 - 61, transaction=1)))

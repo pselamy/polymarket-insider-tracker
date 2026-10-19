@@ -32,6 +32,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
 from polymarket_insider_tracker.ingestor._attempt_budget import AttemptBudget
 from polymarket_insider_tracker.ingestor._cycle_cutoff import CycleCutoff
 from polymarket_insider_tracker.ingestor._http_attempt import (
@@ -72,7 +73,6 @@ __all__ = [
     "uses_v2_envelope",
 ]
 
-OFFICIAL_V2_TRADES_URL: Final[str] = "https://data-api.polymarket.com/v2/trades"
 V2_TRADES_PATH: Final[str] = "/v2/trades"
 
 Clock = Callable[[], float]
