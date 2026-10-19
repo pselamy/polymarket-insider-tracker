@@ -350,10 +350,10 @@ def exit_code_for(records: Sequence[SmokeRecord]) -> int:
 
 def resolve_trades_url() -> str:
     """The configured URL (an official v1 route or non-HTTP(S) scheme rejected) or the default."""
-    url = reject_v1_trades_url(os.environ.get("POLYMARKET_TRADES_URL", DEFAULT_TRADES_URL))
+    url = os.environ.get("POLYMARKET_TRADES_URL", DEFAULT_TRADES_URL)
     if not url.startswith(("http://", "https://")):
         raise ValueError("POLYMARKET_TRADES_URL must be HTTP(S)")
-    return url
+    return reject_v1_trades_url(url)
 
 
 class _ArgumentParser(argparse.ArgumentParser):

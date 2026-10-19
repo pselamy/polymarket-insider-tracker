@@ -26,12 +26,18 @@ def is_official_v1_trades_url(url: str) -> bool:
     ``http`` scheme, or userinfo credentials all still name the retiring endpoint and must not
     slip past validation into a post-retirement outage. The host is compared dot-normalized and
     the port must be the scheme's default, so only a distinct origin on the same hostname — an
-    explicit non-default port — stays accepted.
+    explicit non-default port — stays accepted. Callers validate the scheme first. A URL whose
+    port or host cannot even be parsed is not this failure class: it returns ``False`` without
+    raising, so no parser message can echo a credential-shaped token into a diagnostic.
     """
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return False
     default_port = {"http": 80, "https": 443}.get(parts.scheme)
     return (
-        parts.port in (None, default_port)
+        port in (None, default_port)
         and (parts.hostname or "").rstrip(".") == (_V1_PARTS.hostname or "").rstrip(".")
         and parts.path.rstrip("/") == _V1_PARTS.path.rstrip("/")
     )

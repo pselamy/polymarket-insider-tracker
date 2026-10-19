@@ -116,3 +116,28 @@ def test_custom_proxy_urls_remain_accepted_unchanged(
     settings = PolymarketSettings()
 
     assert settings.trades_url == custom
+
+
+@pytest.mark.parametrize(
+    "unparseable",
+    [
+        f"https://data-api.polymarket.com:{SECRET}/trades",
+        f"https://data-api.polymarket.com[{SECRET}/trades",
+    ],
+    ids=["port-shaped-credential", "bracket-malformed"],
+)
+def test_unparseable_official_host_shapes_are_not_the_v1_failure_class(
+    unparseable: str,
+) -> None:
+    """A URL whose port/host cannot be parsed raises nothing and echoes nothing.
+
+    These are a different failure class (raised elsewhere, value-free); the v1 predicate returns
+    False instead of letting a parser message carry the raw token into a diagnostic.
+    """
+    from polymarket_insider_tracker.endpoints import (
+        is_official_v1_trades_url,
+        reject_v1_trades_url,
+    )
+
+    assert is_official_v1_trades_url(unparseable) is False
+    assert reject_v1_trades_url(unparseable) == unparseable
