@@ -69,9 +69,9 @@ decide knowingly that with D1 = O1 the default configuration produces no deliver
 ### D3 — Category fallback when volume is not usable (DECISION FOR PATRICK)
 
 When the volume state is anything but `available`, today's code can still emit a niche-only size signal
-(confidence 0.2) from the market category alone (`detector/size_anomaly.py:282,293-300`). On a metadata
+(confidence 0.2) from the market category alone (`detector/size_anomaly.py:288,299-306`). On a metadata
 lookup failure the code even invents category `"other"`, which counts as niche-prone
-(`:29,205-221`). Reviewers (codex, agy) both flagged this as a false-positive source.
+(`:29,211-227`). Reviewers (codex, agy) both flagged this as a false-positive source.
 
 | Option | Effect on an unknown-age trade with no usable volume | Trade-off |
 |---|---|---|
@@ -143,6 +143,8 @@ deprecated inclusive alias; no new migration.
   markets mechanically inflate the ratio; unchanged by this slice (D2/R4).
 - The reviewer-owned checklist text still says "seven" states (CHK003) and "cap 0.50" (CHK005); it is
   left untouched and is read against the eight-state table and the exactly-0.50 rule.
+  CHK003's wording is stale (seven versus eight states, P1-P8); whether it is met is for the
+  reviewer to judge, and nothing in this revision ticks it (see revision log §5).
 - **Evidence tooling lives under `scripts/spec004_evidence/`** (stdlib only, no `src/` import) so it is
   inside every Python gate (ruff, black, strict mypy, vulture, complexipy max 5, cyclomatic 10) with no
   suppression; this revision therefore also adds that package outside `specs/`. Outputs are committed and

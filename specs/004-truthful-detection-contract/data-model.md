@@ -73,7 +73,7 @@ replay case per state and per reason: `scripts/spec004_evidence/replay_live.py`,
 ### 1.3 Explicit `daily_volume` argument
 
 `SizeAnomalyDetector.analyze(trade, daily_volume=...)` and `analyze_batch(volume_data=...)` keep their
-signatures (`detector/size_anomaly.py:87-93,363-383`). A caller-supplied value is a caller assertion
+signatures (`detector/size_anomaly.py:93-99,369-389`). A caller-supplied value is a caller assertion
 without provenance: a positive `Decimal` is `available` with `daily_volume_source = "caller"`,
 `volume_reason = "caller"` and `acquired_at = evaluated_at`; zero or negative is `nonpositive`
 (reason `zero`/`negative`); `None` means "no argument" and falls through to the stored observation.
@@ -127,7 +127,7 @@ this table.
 
 The proposed classification in §2 is the single authoritative meaning of “fresh” for
 signal JSON (`FreshWalletSignal.to_dict()['wallet_is_fresh']` at `detector/models.py:124`),
-assessment evidence, persisted wallet rows (`pipeline.py:671`
+assessment evidence, persisted wallet rows (`pipeline.py:680`
 `WalletProfileDTO.is_fresh`), cached profiles, and rendered output. Effective configuration
 provenance: the captured `DETECTOR_FRESH_TRANSACTION_BOUNDARY` value stored per assessment in
 the root `detector_config` member of the serialized per-assessment scoring_config envelope
@@ -136,7 +136,7 @@ captured `B`, never against a reread mutable setting.
 
 Legacy interpretation (explicit compatibility exception, not current measurement): the
 existing library surfaces `profiler/analyzer.py:210–229` (`_is_wallet_fresh`, unknown age →
-`True`), `WalletProfile.is_fresh`, and `pipeline.py:671` retain their earlier meaning on old
+`True`), `WalletProfile.is_fresh`, and `pipeline.py:680` retain their earlier meaning on old
 rows and unamended code paths. They MUST NOT be presented as the new known-age
 classification. Old rows keep version-specific reader semantics (§4); unknown-age
 `is_fresh=True` flags on those rows are legacy facts, not measured known-age claims.
@@ -156,7 +156,7 @@ the boundary-10 override case.
 | `volume_impact` (a.k.a. ratio) | Decimal \| null | `notional / daily_volume` quantised to 0.0001 (`ROUND_HALF_EVEN`, SC-002 ±0.0001) **only in `volume_state = available`**; null in every other state, never serialized as measured zero. Surfaces as `volume_impact_measured: Decimal \| None` (contracts/detector-api.md §4). |
 | `book_state` | enum | `unavailable` for this slice (book-depth scoring disabled until separately approved); `book_impact` always null. |
 | `niche`, `niche_basis` | bool + enum `numeric` \| `category` \| `none` | Niche is a size modifier, not a third detector invocation. **Numeric basis**: `volume_state = available` and `daily_volume < 50000`. **Category basis** (only when volume is not `available`): category in `science/tech/finance/other` **and** `category_source = metadata`. `none` otherwise. A volume that is `available` and `>= 50000` is not niche regardless of category. |
-| `category`, `category_source` | string \| null; enum `metadata` \| `minimal` | `minimal` means the market metadata lookup failed and `SizeAnomalyDetector._create_minimal_metadata` (`detector/size_anomaly.py:205-221`) supplied the placeholder category `"other"`. A placeholder is not evidence: with `minimal` there is no category basis (default of DECISION D3; current main treats it as niche-prone, which the replay shows as 0.480 vs 0.200). |
+| `category`, `category_source` | string \| null; enum `metadata` \| `minimal` | `minimal` means the market metadata lookup failed and `SizeAnomalyDetector._create_minimal_metadata` (`detector/size_anomaly.py:211-227`) supplied the placeholder category `"other"`. A placeholder is not evidence: with `minimal` there is no category basis (default of DECISION D3; current main treats it as niche-prone, which the replay shows as 0.480 vs 0.200). |
 | `signal_emitted` | bool | Existing rule: confidence `>= 0.1` and, for niche-only, notional `>= 500`. |
 
 Behavior under non-`available` volume: no ratio; the size signal can arise only from the category basis

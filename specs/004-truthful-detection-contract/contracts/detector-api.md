@@ -6,14 +6,14 @@ Pins exact current interfaces (refreshed to main `f2e2167`; originally `46e4192`
 ## Current pins
 
 - `FreshWalletDetector.__init__(wallet_analyzer, *, min_trade_size=1000, max_nonce=5, max_age_hours=48)`
-  (`detector/fresh_wallet.py:56`); `analyze(trade) -> FreshWalletSignal | None`. The bound is stored
+  (`detector/fresh_wallet.py:62`); `analyze(trade) -> FreshWalletSignal | None`. The bound is stored
   privately as `_max_nonce` (`:74`) and compared with `profile.nonce > self._max_nonce` (`:153`); there
   is **no public `max_nonce` attribute** to preserve.
 - `SizeAnomalyDetector.__init__(metadata_sync, *, volume_threshold=0.02, book_threshold=0.05,
-  niche_volume_threshold=50000, niche_min_trade_size=500)` (`detector/size_anomaly.py:61`);
+  niche_volume_threshold=50000, niche_min_trade_size=500)` (`detector/size_anomaly.py:67`);
   `analyze(trade, *, daily_volume=None, book_depth=None)` (`:87-93`); `analyze_batch(trades, *,
   volume_data=None, book_data=None)` (`:363`). The live pipeline calls `analyze(trade)` with no volume
-  (`pipeline.py:735`; gap G-022).
+  (`pipeline.py:744`; gap G-022).
 - `DetectorSettings` (`config.py:335`); `RiskScorer.scoring_config` canonical JSON
   (threshold, both bonuses, quantum, weights); `RiskScorer.assess(bundle)`;
   `MarketMetadataSync` sync 300 s / cache TTL 600 s; `MarketMetadata.from_dict` (generic
@@ -79,7 +79,7 @@ SizeAnomalyDetector.evaluate(trade, *, evaluated_at: datetime,
 
 ## 3. Explicit `daily_volume` / `volume_data`
 
-An explicit `daily_volume` (or an entry of `volume_data`, `detector/size_anomaly.py:310-322`) is a
+An explicit `daily_volume` (or an entry of `volume_data`, `detector/size_anomaly.py:316-328`) is a
 caller assertion without provenance. Per data-model §1.3: positive `Decimal` ⇒ state `available`,
 `daily_volume_source = "caller"`, reason `caller`, `acquired_at = evaluated_at`, age 0; zero or negative
 ⇒ `nonpositive` (reason `zero`/`negative`); `None` ⇒ no argument, fall through to the stored
@@ -101,7 +101,7 @@ Current `SizeAnomalySignal.volume_impact`/`book_impact` are required `float`s
   `Decimal("0")`); `book_impact_measured` is always `None` in this slice. The type is `Decimal`, not
   `float`, to match SC-002, the storage DTO (`storage/repos.py:566`, already `Decimal | None`) and the
   stored evidence (4-decimal string). (An earlier draft of this contract said `float | None`; superseded.)
-- Persistence: `pipeline.py:904-906` currently writes `round(float, 4)` whenever a signal exists
+- Persistence: `pipeline.py:913-915` currently writes `round(float, 4)` whenever a signal exists
   (so an unmeasured volume would persist as `0.0`). It must write `volume_impact_measured` /
   `book_impact_measured` (None ⇒ SQL NULL). Rows written before 004 keep their numbers with legacy
   semantics (a `0.0` is a non-measurement there).

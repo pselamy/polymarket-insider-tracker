@@ -3,7 +3,7 @@
 **Branch**: `dispatch/polymarket-004-full-plan-20261017-3ae1b398` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
 **Status**: Phase0 complete; Phase1 design proposed. Implementation is not authorized.
-**Baseline**: upstream main `f2e21672c9707c927befea8d82b1069171ae38f9` (refreshed 2026-10-19; the
+**Baseline**: upstream main `f2e21672c9707c927befea8d82b1069171ae38f9`, re-checked against `112a733` (Protocol typing only; see source-refresh) (refreshed 2026-10-19; the
 original 2026-10-17 baseline was `46e41921ca06b701fece7a17953a666f6873b7e1`; scoring semantics are
 unchanged between them, see [evidence/source-refresh-f2e2167.md](evidence/source-refresh-f2e2167.md)).
 The existing A4 direction was approved; no new human answer or implementation approval is claimed.

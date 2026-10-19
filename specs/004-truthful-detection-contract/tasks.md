@@ -36,7 +36,7 @@ Named files, entry points, dependency order:
 - [ ] T009c [US1] Freshness-closure regression in `tests/detector/test_fresh_wallet.py` —
   unknown-age candidate asserts confidence exactly 0.50 (never lower or higher), no age/new-wallet/large-trade bonus,
   low-activity factor, JSON `wallet_is_fresh` (`detector/models.py:124`), persisted
-  `WalletProfileDTO.is_fresh` (`pipeline.py:671`), rendered label, PLUS the boundary-10 /
+  `WalletProfileDTO.is_fresh` (`pipeline.py:680`), rendered label, PLUS the boundary-10 /
   nonce-9 override mismatch (FR-008/010, SC-003/006, D2). Joint assertion, not separate
   label checks.
 - [ ] T009d [US1] Table-driven detector tests in `tests/detector/` (extend
@@ -99,7 +99,7 @@ Named files, entry points, dependency order:
   `scorer.py::_extract_size_diagnostics`, `alerter/formatter.py`,
   `alerter/channels/*`): `volume_impact_measured`/`book_impact_measured`, never measured
   zero; formatter gains the single `Size vs 24h volume` line; persistence writes the measured companion
-  (None ⇒ NULL) instead of `round(float,4)` (`pipeline.py:904-906`); alias table incl. negative `max_nonce`
+  (None ⇒ NULL) instead of `round(float,4)` (`pipeline.py:913-915`); alias table incl. negative `max_nonce`
   `ValueError` (FR-005/009, F18–F21)
 - [ ] T017 [US3] Versioned `004.1` envelope persistence reusing 003 schema/harness
   (`storage/models.py`, `storage/repos.py`, `pipeline.py::_persist_assessment`); old `003.1`

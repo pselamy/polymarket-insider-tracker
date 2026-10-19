@@ -14,6 +14,23 @@ is empty, so no hash, line pin or scoring conclusion changed. The check tool now
 "On 1bdccbc" column below is equally the `f2e2167` value. Tool outputs (`reachability`, `replay_live`,
 `check_envelope`) re-ran unchanged.
 
+## Third refresh: f2e2167 → 112a733 (2026-10-19, review round 2)
+
+`git diff f2e2167 112a733 -- src` touches `detector/fresh_wallet.py`, `detector/size_anomaly.py`
+and `pipeline.py` only: structural `Protocol` types (`WalletProfiler`, `MarketMetadataSource`,
+`SignalDetector`) replace concrete collaborator annotations. No weight, constant, threshold,
+comparison, serialized key or runtime behavior changed. Consequences:
+
+- `evidence/source-hashes.json` regenerated for the three drifted files (`base_commit` 112a733);
+  `check_source_hashes` exits 0 again. `replay/summary.json` stays the immutable receipt.
+- Line pins in `contracts/`, `data-model.md`, `tasks.md`, `decision-packet.md` and the revision
+  log moved by the exact diff offsets: `fresh_wallet.py` and `size_anomaly.py` +6 from the class
+  definitions down; `pipeline.py` +9 below the `SignalDetector` insertion (e.g. `is_fresh` 671→680,
+  persistence `volume_impact` 904-906→913-915, `detector_failure` row 628-647→637-656).
+  Constants (`fresh_wallet.py:24-28`, `size_anomaly.py:29`) did not move.
+- The immutable "Line pins refreshed" table above describes `f2e2167` and is not rewritten.
+- `reachability`, `replay_live`, `check_envelope` re-run unchanged.
+
 ## Hash comparison
 
 Command (stdlib only, no `src/` import; exit 1 when any recorded hash drifts):

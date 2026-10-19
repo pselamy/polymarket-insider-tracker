@@ -51,7 +51,7 @@ readable summary.
 | `weights` | object name → decimal string, sorted keys; must contain `fresh_wallet`, `niche_market`, `size_anomaly` | no | `str(Decimal(str(float)))` encoding as in 003.1 (`"0.4"`, `"0.25"`, `"0.35"`). |
 | `evidence_schema` | const `"004.1"` | no | **Root-level sibling** of `evaluation_evidence` (not inside it). Must equal the row's `scoring_algorithm_version`. |
 | `detector_config` | object | no | Static effective values: `fresh_transaction_boundary` (int ≥ 1, the captured `B`), `size_volume_threshold` (decimal), `fresh_min_notional`, `known_age_ceiling_hours`, `niche_volume_threshold`, `niche_min_notional` (decimals), `volume_recency_seconds` (const 600). |
-| `detector_failures` | array of `{detector, error_class, message}` | empty array when none | `detector` ∈ `fresh_wallet`/`size_anomaly`; `error_class` ≤ 128 chars; `message` = the already-redacted failure text (`pipeline.py:723-728`) truncated to 200 chars. Never a traceback or URL. |
+| `detector_failures` | array of `{detector, error_class, message}` | empty array when none | `detector` ∈ `fresh_wallet`/`size_anomaly`; `error_class` ≤ 128 chars; `message` = the already-redacted failure text (`pipeline.py:732-737`) truncated to 200 chars. Never a traceback or URL. |
 | `evaluation_evidence` | object or `null` | **null** for rows where no evaluation ran (detector-failure skip rows) | Per-assessment observations; below. |
 
 `evaluation_evidence` (all keys required when the object is present):
@@ -104,7 +104,7 @@ keys; any change to a scoring rule, weight, bonus or classification bumps `scori
 
 ## 4. Detector-failure rows
 
-`pipeline.py:628-647` writes `RiskAssessment(delivery_disposition="detector_failure", ...)` with only
+`pipeline.py:637-656` writes `RiskAssessment(delivery_disposition="detector_failure", ...)` with only
 `scoring_config`. Under 004.1 that row carries the full document with `evaluation_evidence: null`,
 the populated `detector_failures` array (example: `scoring-config-004.1.failure-row.json`) and the same
 captured `detector_config`, so a failure row is self-describing without inventing observations.

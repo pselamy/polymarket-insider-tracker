@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from scripts.spec004_evidence.reachability import (
     Market,
@@ -133,11 +133,12 @@ def decoded_raw(raw: dict[str, object]) -> object:
     spec = raw.get("raw_spec")
     if not isinstance(spec, dict):
         return raw.get("raw")
+    spec = cast(dict[str, object], spec)
     if "float" in spec:
         return float(str(spec["float"]))
     if "nested_float" in spec:
         return [float(str(spec["nested_float"]))]
-    return "x" * int(spec["repeat_string"])
+    return "x" * int(str(spec["repeat_string"]))
 
 
 def build_observation(raw: dict[str, object]) -> Observation:

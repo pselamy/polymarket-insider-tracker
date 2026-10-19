@@ -44,14 +44,22 @@ def canonical(value: object) -> bytes:
 def json_type(value: object) -> str:
     if value is None:
         return "null"
-    names = {bool: "boolean", int: "number", float: "number", str: "string", list: "array"}
+    names: dict[type, str] = {
+        bool: "boolean",
+        int: "number",
+        float: "number",
+        str: "string",
+        list: "array",
+    }
     return names.get(type(value), "object")
 
 
 def children(value: object) -> list[object]:
     if isinstance(value, list):
-        return value
-    return list(value.values()) if isinstance(value, dict) else []
+        return list(cast(list[object], value))
+    if isinstance(value, dict):
+        return list(cast(dict[str, object], value).values())
+    return []
 
 
 def has_nonfinite(value: object) -> bool:

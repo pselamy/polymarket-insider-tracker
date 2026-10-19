@@ -14,10 +14,11 @@ import copy
 import json
 import re
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 from scripts.spec004_evidence.replay_envelopes import (
     RAW_BOUND_BYTES,
@@ -56,6 +57,14 @@ def matches_type(value: Any, name: str) -> bool:
     return isinstance(value, TYPES[name])
 
 
+def is_object(value: object) -> TypeGuard[dict[str, Any]]:
+    return isinstance(value, dict)
+
+
+def is_array(value: object) -> TypeGuard[list[Any]]:
+    return isinstance(value, list)
+
+
 def resolve(ref: str, root: dict[str, Any]) -> dict[str, Any]:
     node: Any = root
     for part in ref.removeprefix("#/").split("/"):
@@ -65,7 +74,7 @@ def resolve(ref: str, root: dict[str, Any]) -> dict[str, Any]:
 
 def type_names(schema: dict[str, Any]) -> list[str]:
     declared = schema["type"]
-    return declared if isinstance(declared, list) else [declared]
+    return cast(list[str], declared) if isinstance(declared, list) else [str(declared)]
 
 
 def const_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
@@ -99,7 +108,7 @@ def one_of_errors(value: Any, schema: dict[str, Any], root: dict[str, Any], path
 
 
 def item_errors(value: Any, schema: dict[str, Any], root: dict[str, Any], path: str) -> list[str]:
-    if not isinstance(value, list) or "items" not in schema:
+    if not is_array(value) or "items" not in schema:
         return []
     errors: list[str] = []
     for index, item in enumerate(value):
@@ -119,7 +128,7 @@ def validate(
     errors += one_of_errors(value, schema, root, path)
     errors += scalar_errors(value, schema, path)
     if isinstance(value, dict):
-        errors += object_errors(value, schema, root, path)
+        errors += object_errors(cast(dict[str, Any], value), schema, root, path)
     return errors + item_errors(value, schema, root, path)
 
 
@@ -159,7 +168,7 @@ def property_errors(
     if extra is False:
         return [f"{path}: unexpected key {key!r}"]
     if isinstance(extra, dict):
-        return validate(item, extra, root, f"{path}.{key}")
+        return validate(item, cast(dict[str, Any], extra), root, f"{path}.{key}")
     return []
 
 
@@ -259,7 +268,7 @@ def verbatim_raw_errors(raw: Any) -> list[str]:
     errors: list[str] = []
     if has_nonfinite(raw):
         errors.append("raw: non-finite number stored verbatim (must be a $nonfinite tag)")
-    if isinstance(raw, dict) and RESERVED_KEYS & raw.keys():
+    if is_object(raw) and RESERVED_KEYS & raw.keys():
         errors.append("raw: reserved key stored verbatim")
     if len(canonical(raw)) > RAW_BOUND_BYTES:
         errors.append(f"raw: verbatim value over {RAW_BOUND_BYTES} bytes (must be a marker)")
@@ -269,7 +278,7 @@ def verbatim_raw_errors(raw: Any) -> list[str]:
 def stored_raw_errors(raw: Any) -> list[str]:
     """The raw-value rule: markers match their defs; anything else is verbatim, bounded and finite."""
     schema = load("scoring-config-004.1.schema.json")
-    tags = [tag for tag in RAW_TAGS if isinstance(raw, dict) and tag in raw]
+    tags = [tag for tag in RAW_TAGS if is_object(raw) and tag in raw]
     if not tags:
         return verbatim_raw_errors(raw)
     return validate(raw, schema["$defs"][RAW_TAGS[tags[0]]], schema, "raw")
@@ -278,7 +287,7 @@ def stored_raw_errors(raw: Any) -> list[str]:
 def tag_state_errors(size: dict[str, Any]) -> list[str]:
     """A non-finite tag is a malformed observation: the state is always `invalid`."""
     raw = size["volume24hr_raw"]
-    if isinstance(raw, dict) and "$nonfinite" in raw and size["volume_state"] != "invalid":
+    if is_object(raw) and "$nonfinite" in raw and size["volume_state"] != "invalid":
         return ["raw: a $nonfinite tag requires volume_state invalid"]
     return []
 
@@ -312,7 +321,7 @@ def state_errors(evidence: dict[str, Any]) -> list[str]:
 def mutations(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     cases: list[tuple[str, dict[str, Any]]] = []
 
-    def variant(name: str, edit: Any) -> None:
+    def variant(name: str, edit: Callable[[dict[str, Any]], object]) -> None:
         clone = copy.deepcopy(doc)
         edit(clone)
         cases.append((name, clone))
