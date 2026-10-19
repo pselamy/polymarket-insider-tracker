@@ -30,7 +30,7 @@ NICHE_PRONE_CATEGORIES = frozenset({"science", "tech", "finance", "other"})
 
 
 class MarketMetadataSource(Protocol):
-    """Market metadata lookup the detector needs (satisfied structurally by ``MarketMetadataSync``)."""
+    """Market lookup the detector needs (satisfied structurally by ``MarketMetadataSync``)."""
 
     async def get_market(self, condition_id: str, /) -> MarketMetadata | None: ...
 
