@@ -69,6 +69,11 @@ Expected result:
 
 - the configuration check prints the trades URL, coverage mode, poll interval, and recovery horizon, and
   reports `POLYMARKET_WS_URL` as `(not set)`; if it is set, an actionable deprecation warning is shown;
+- the trades URL defaults to the official Data API v2 endpoint
+  (`https://data-api.polymarket.com/v2/trades`) with `POLYMARKET_TRADES_URL` unset; an explicitly
+  configured official v1 URL fails `--config-check` with a migration message (Polymarket retires
+  v1 on 2026-10-24, and for the official v1/v2 pair the saved checkpoint and identity window carry
+  over automatically); the live smoke speaks the documented v2 envelope by default;
 - the tracker logs `ingestion state: starting -> running` before the market metadata crawl finishes;
 - within one poll interval after the first proven page, new observations reach the detection pipeline;
 - status logging shows the boundary time advancing, duplicate and padding counts, and zero loss events

@@ -27,9 +27,9 @@ def is_official_v1_trades_url(url: str) -> bool:
     slip past validation into a post-retirement outage.
     """
     parts = urlsplit(url)
-    return parts.hostname == _V1_PARTS.hostname and parts.path.rstrip(
+    return parts.hostname == _V1_PARTS.hostname and parts.path.rstrip("/") == _V1_PARTS.path.rstrip(
         "/"
-    ) == _V1_PARTS.path.rstrip("/")
+    )
 
 
 def official_v1_retirement_message() -> str:

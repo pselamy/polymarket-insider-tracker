@@ -123,7 +123,7 @@ When running, the tracker serves HTTP health and metrics endpoints on `--health-
 | `REDIS_URL` | No | `redis://localhost:6379` | Redis connection string |
 | `POLYGON_RPC_URL` | No | `https://polygon-rpc.com` | Polygon RPC (public default works) |
 | `POLYGON_FALLBACK_RPC_URL` | No | — | Fallback RPC endpoint |
-| `POLYMARKET_TRADES_URL` | No | `https://data-api.polymarket.com/trades` | Documented anonymous public trades query |
+| `POLYMARKET_TRADES_URL` | No | `https://data-api.polymarket.com/v2/trades` | Documented anonymous public trades query (official Data API v2). The official v1 URL is retired on 2026-10-24 and is rejected at validation with a migration message; custom HTTP(S) proxies must serve the documented v2 envelope |
 | `POLYMARKET_TRADES_COVERAGE` | No | `all` | `all` public participant observations, or the provider's `taker-only` subset |
 | `POLYMARKET_TRADES_POLL_INTERVAL_SECONDS` | No | `5` | Seconds between acquisition cycles (1–60) |
 | `POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS` | No | `600` | Identity retention and loss-detection horizon (60–3600) |
