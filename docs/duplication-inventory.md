@@ -212,9 +212,9 @@ to later, separately authorized cards.
 
 ## 2026-10-19 resolution update: cluster 9 (Discord/Telegram channel pacing)
 
-Cluster 9 is resolved by the dedup card for cluster 9 (branch
-`ralph/dedup-channels`; the PR reference is appended here once the draft PR is
-opened). The rate-limit wait, the retry backoff, and the failure-redaction
+Cluster 9 is resolved by the dedup card for cluster 9: draft PR
+[#154](https://github.com/pselamy/polymarket-insider-tracker/pull/154) from
+branch `ralph/dedup-channels`. The rate-limit wait, the retry backoff, and the failure-redaction
 wrapper moved to exactly one home,
 `src/polymarket_insider_tracker/alerter/channels/pacing.py`
 (`RateLimitWindow`, `sleep_backoff`); both former copies use it, and the
