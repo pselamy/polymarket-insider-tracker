@@ -9,6 +9,7 @@ them exactly.
 
 from __future__ import annotations
 
+import inspect
 from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -53,15 +54,15 @@ def test_sample_trade_event_values_are_pinned() -> None:
         "trader_name": "",
         "trader_pseudonym": "",
     }
-    assert _sample_fields(end_to_end.sample_trade_event.__wrapped__()) == expected
-    assert _sample_fields(unit_pipeline.sample_trade_event.__wrapped__()) == expected
+    assert _sample_fields(inspect.unwrap(end_to_end.sample_trade_event)()) == expected
+    assert _sample_fields(inspect.unwrap(unit_pipeline.sample_trade_event)()) == expected
     assert _sample_fields(make_sample_trade_event()) == expected
-    assert _sample_fields(pipeline_persistence.sample_trade.__wrapped__()) == expected
+    assert _sample_fields(inspect.unwrap(pipeline_persistence.sample_trade)()) == expected
 
 
 def test_persist_assessment_trade_is_a_different_trade() -> None:
     """Its asset, price, size and title differ on purpose; the other fields match."""
-    fields = _sample_fields(persist_assessment.sample_trade.__wrapped__())
+    fields = _sample_fields(inspect.unwrap(persist_assessment.sample_trade)())
     assert (fields["asset_id"], fields["price"], fields["size"], fields["event_title"]) == (
         "asset_xyz",
         Decimal("0.42"),
@@ -71,7 +72,7 @@ def test_persist_assessment_trade_is_a_different_trade() -> None:
 
 
 def test_market_for_trade_values_are_pinned() -> None:
-    trade = end_to_end.sample_trade_event.__wrapped__()
+    trade = inspect.unwrap(end_to_end.sample_trade_event)()
     for build in (market_for_trade,):
         market = build(trade, "science")
         assert market.condition_id == trade.market_id
@@ -93,7 +94,7 @@ def test_seeded_server_history_is_pinned() -> None:
 
 
 def test_provider_row_for_the_sample_trade_is_pinned() -> None:
-    trade = end_to_end.sample_trade_event.__wrapped__()
+    trade = inspect.unwrap(end_to_end.sample_trade_event)()
     clock = FakeClock(POLL_START)
     expected = trade_row(
         timestamp=int(POLL_START) + 1,
