@@ -1,14 +1,10 @@
-"""Repository pattern implementations for data access.
-
-This module provides clean data access abstractions for wallet profiles,
-funding transfers, and wallet relationships.
-"""
+"""Repository pattern implementations for data access."""
 
 from __future__ import annotations
 
 import logging
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, cast
@@ -29,6 +25,15 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+# The honest disposition for an assessment whose delivery outcome has not been
+# recorded yet. This is the literal's single home: the published serialization
+# payload and the persisted-row default contract both consume it, and the
+# domain record in detector.models imports it. It lives beside the persistence
+# DTO because importing the detector package from storage would drag the whole
+# detector dependency tree into warning-strict entrypoint processes that only
+# need storage.
+UNRECORDED_DELIVERY_DISPOSITION = "unrecorded"
 
 
 class RowCountResult(Protocol):
@@ -571,14 +576,16 @@ class RiskAssessmentDTO:
     # backfill may produce 'legacy-unversioned'.
     scoring_algorithm_version: str
     scoring_config: str | None
-    delivery_disposition: str = "unrecorded"
-    delivery_channels: str | None = None
-    dry_run: bool = False
-    volume_available: bool | None = None
-    market_daily_volume: Decimal | None = None
-    book_depth_available: bool | None = None
-    wallet_tx_count: int | None = None
-    wallet_age_known: bool | None = None
+    # Delivery/observation defaults mirror the domain record's Slice 003 fields;
+    # the unrecorded-disposition literal has its single home in detector.models.
+    delivery_disposition: str = field(default=UNRECORDED_DELIVERY_DISPOSITION)
+    delivery_channels: str | None = field(default=None)
+    dry_run: bool = field(default=False)
+    volume_available: bool | None = field(default=None)
+    market_daily_volume: Decimal | None = field(default=None)
+    book_depth_available: bool | None = field(default=None)
+    wallet_tx_count: int | None = field(default=None)
+    wallet_age_known: bool | None = field(default=None)
     created_at: datetime | None = None
 
 
