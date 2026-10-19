@@ -12,15 +12,18 @@ authored scope later grew to 280 files at this card's parent `bfc1a10`, when #15
 added one integration test; that file introduced no clone, so the 86/1092 totals
 below are unchanged between 279 and 280 files.)
 
-Totals on this rebased tree (main after #158 plus this card's cluster-25
-resolution): **88 clone groups, 1116 duplicated lines, 1.85% duplication** over
-**283 authored Python files** (the scanner's own statistics report 250 sources:
-files it actually tokenized after skipping ones smaller than the clone
-minimums). `origin/main` at `6be456a` (after #158, before this card) measures
-**85 groups, 1080 duplicated lines, 1.80%** over 282 files with the identical
-enumeration; the delta is exactly this card's −1 cluster-25 product clone and
-+4 characterization-module self-pairs (see the cluster-25 resolution and its
-rebase re-measurement below). The pre-resolution tree at this card's parent
+Totals on main after #158 plus the cluster-25 resolution (#157): **88 clone
+groups, 1116 duplicated lines, 1.85% duplication** over **283 authored Python
+files** (the scanner's own statistics report 250 sources: files it actually
+tokenized after skipping ones smaller than the clone minimums). The
+cluster-28 resolution recorded at the end of this document was measured on a
+tree that did not yet contain cluster 25 (85 -> **84 groups, 1080 -> 1071
+duplicated lines, 1.80% -> 1.78%**, 282 -> 284 authored files, the two additions
+being `scripts/_entry_bootstrap.py` and its characterization test); on
+top of cluster 25 the rebased tree measures **87 groups, 1107 duplicated lines,
+1.83%** over 285 authored files (252 sources tokenized), recorded in that
+section. The
+pre-resolution tree at cluster 22's parent
 `bfc1a10` measured **86 groups, 1092 duplicated lines, 1.83%** over 280 files with
 the identical enumeration. For comparison, `origin/main` at `cdaf230` (after #152
 and #154) measures **95 groups, 1224 duplicated lines, 2.06%** over 276 files.
@@ -150,7 +153,7 @@ knowledge).
 | 25 | 0 | 0 | compare_owned_then_execute (new) | **Resolved**: the watch/compare-owner/MULTI/EXEC CAS skeleton now has one home (`_channel_delivery.compare_owned_then_execute`, terminal operation supplied as an explicit callable); `compare_and_delete` and `compare_and_expire` delegate to it | resolved (PR #157) |
 | 26 | 1 | 10 | ingestor/test_models.py | Repeated model-construction blocks | real |
 | 27 | 1 | 10 | test_trade_row_v2_properties.py | Repeated property-based row assertions | real |
-| 28 | 1 | 9 | runtime_services.py, verify.py | Duplicated script entry-point bootstrap (`_helper_package`/`__spec__` block) | real |
+| 28 | 0 | 0 | _entry_bootstrap.py (new) | **Resolved**: the script entry-point sibling-import bootstrap now has one home (`scripts/_entry_bootstrap.py`); both entry points load it | resolved (PR #160) |
 | 29 | 1 | 8 | _v2_walk_harness.py, test_v2_cursor_walk.py | `CursorWalk` harness construction recipe duplicated between `build_walk` and an inline jitter-injection test setup | real |
 | 30 | 1 | 8 | test_endpoint_switch_resume.py | Repeated v1->v2 endpoint-switch test bootstrap (server/redis/seed/poller wiring block) | real |
 | 31 | 1 | 6 | storage/models.py | SQLAlchemy `datetime.now(UTC)` timestamp column defaults | incidental |
@@ -161,12 +164,10 @@ fixture blocks, wiring scaffolds, parallel Discord/Telegram knowledge, and
 Redis CAS logic. The three incidental clusters are convention-mandated
 scaffolding (Alembic revisions, SQLAlchemy column defaults) and parallel API
 docstrings. The cluster table above is the original knowledge grouping; the
-per-clone list below is main's post-#158 regenerated record (85 groups, which
-still contains the cluster-25 pair) and is superseded by the later resolution
+per-clone list below is a regenerated record that predates the later resolution
 sections: with cluster 5, cluster 9, the "introduced by #151" cluster, cluster
-22, and cluster 25 resolved, the current measured total on this rebased tree is
-**88 groups / 1116 duplicated lines / 1.85%** (see the totals statement above
-and the cluster-25 rebase re-measurement below).
+22, cluster 25, and cluster 28 resolved, see the totals statement above and the
+resolution sections at the end for the current measured total.
 
 ## Every clone (scanner output, ordered by tokens)
 
@@ -202,7 +203,6 @@ and the cluster-25 rebase re-measurement below).
 | 70 | 11 | tests/integration/test_redis_contract.py:481-491 | tests/integration/test_redis_contract.py:526-536 |
 | 69 | 15 | tests/integration/test_end_to_end.py:57-71 | tests/test_pipeline.py:82-96 |
 | 69 | 11 | tests/ingestor/test_health_server.py:104-114 | tests/ingestor/test_health_server.py:140-150 |
-| 69 | 9 | scripts/runtime_services.py:46-54 | scripts/verify.py:27-35 |
 | 68 | 14 | tests/test_terminal_error_durable.py:36-49 | tests/test_terminal_error_durable.py:81-94 |
 | 68 | 12 | tests/alerter/test_formatter.py:502-513 | tests/alerter/test_formatter.py:680-691 |
 | 67 | 14 | src/.../detector/models.py:57-70 | src/.../detector/models.py:182-195 |
@@ -261,9 +261,9 @@ and the cluster-25 rebase re-measurement below).
 | 50 | 7 | tests/alerter/test_history.py:549-555 | tests/alerter/test_history.py:567-573 |
 | 50 | 6 | tests/test_persist_assessment.py:96-101 | tests/test_pipeline.py:107-112 |
 
-inventory only; the cluster-5, cluster-9, "introduced by #151", and cluster-22
-resolutions above are the product changes reflected here. Deduplication decisions
-for the remaining clusters belong to later, separately authorized cards.
+inventory only; the cluster-5, cluster-9, "introduced by #151", cluster-22, and
+cluster-28 resolutions above are the product changes reflected here. Deduplication
+decisions for the remaining clusters belong to later, separately authorized cards.
 
 ## 2026-10-19 resolution update: cluster 9 (Discord/Telegram channel pacing)
 
@@ -431,3 +431,56 @@ Resolved by draft PR
 [#158](https://github.com/pselamy/polymarket-insider-tracker/pull/158) from branch
 `ralph/dedup-batch`.
 
+
+## 2026-10-19 resolution update: cluster 28 (script entry-point bootstrap)
+
+Cluster 28's single clone pair had `scripts/runtime_services.py` and
+`scripts/verify.py` each rebuilding the same entry-point bootstrap: create a
+unique synthetic package (`module_from_spec(ModuleSpec(name, loader=None,
+is_package=True))`), append the script's own directory to its `__path__`,
+register it in `sys.modules`, save `__package__`/`__spec__`, repoint them at the
+new package (spec name `f"{helper}.entry"`) so the private sibling modules import
+under it, and restore both in a `finally`. The copies differed only in the helper
+prefix (`_polymarket_services_` vs `_polymarket_verifier_`) and the random source
+(`uuid.uuid4()` plus the module's reusable `uuid` import vs a local `uuid4`
+alias), so no behaviour needed adjudicating.
+
+That knowledge now has one home, `scripts/_entry_bootstrap.py`
+(`sibling_imports`, a `@contextmanager`). Both entry points load it by file path
+with `runpy.run_path(Path(__file__).with_name("_entry_bootstrap.py"))` — the
+module cannot be imported, because the package machinery it provides does not
+exist until it has run, and `runpy` carries no `sys.path` mutation, so the
+isolated (`-I -S`) standalone-verifier contract still holds. Each call site keeps
+its own prefix in `with _sibling_imports(globals(), "<prefix>"):` and loses only
+the now-unused `importlib`/`uuid4` imports. All three invocation modes stay
+correct: direct `python scripts/x.py`, `python -m scripts.x`, and
+`spec_from_file_location` loading under an arbitrary name (including a copied
+standalone `scripts/` tree). Every existing test passes unchanged; the added
+characterization tests pin all of it for both entry points.
+
+Re-measured with the identical pinned method (jscpd 5.3.3, `SCAN_POLICY` at the
+50-token tier, empty config, no ignore lists or exclusions), enumerating the
+authored scope as `quality.source_scope.discover` + `validate_path` (`.py` only,
+size hook not applied) and staging with `quality.duplication_inputs.stage_inputs`:
+
+- Before (branch base `6be456a`, the cluster-22 resolution; 282 authored Python
+  files): **85 clone groups, 1080 duplicated lines, 1.80%**.
+- After (this change, 284 authored files; the two additions are
+  `scripts/_entry_bootstrap.py` and
+  `tests/tooling/test_entry_bootstrap_characterization.py`): **84 clone groups,
+  1071 duplicated lines, 1.78%**.
+
+Rebased onto main after #157 (cluster 25, 283 files: 88 groups, 1116 lines,
+1.85%), the identical method measures **87 clone groups, 1107 duplicated lines,
+1.83%** over 285 authored files (252 sources tokenized, 0 clone groups touching
+`scripts/_entry_bootstrap.py`, `scripts/runtime_services.py` or
+`scripts/verify.py`): −1 group and −9 lines, exactly the cluster-28 clone.
+
+Set-difference of the raw clone lists: exactly the cluster-28 clone
+(`scripts/runtime_services.py:46-54 <-> scripts/verify.py:27-35`, 69 tokens / 9
+lines) disappeared and **no new clone group appeared anywhere**. The
+characterization test was written with a single consolidated loader program so
+that it neither self-duplicated nor copied the `_LOAD`/`_LOAD_VERIFIER` loader
+text that cluster 16 still owns. Resolved by draft PR
+[#160](https://github.com/pselamy/polymarket-insider-tracker/pull/160) from branch
+`ralph/dedup-bootstrap`.
