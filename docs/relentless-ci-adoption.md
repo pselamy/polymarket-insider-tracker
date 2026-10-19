@@ -1,0 +1,95 @@
+# Relentless CI framework adoption ledger
+
+Reference: [`selamy-labs/relentless-ci-python`](https://github.com/selamy-labs/relentless-ci-python)
+pinned at `b8b191341e3061d7600bb1666f39da5374a492d9`. The reference `quality/`
+package is vendored into this repository and its `quality.verify` entry point runs
+the same checked-in gate definitions locally and in the hosted "Relentless CI gate"
+job.
+
+## Staged enrollment rule
+
+Enrollment is **staged**. `quality/checks.json` and the `quality.verify` hook
+sequence contain only controls that pass on the current `main` tree with **zero
+suppressions** — no `noqa`, `type: ignore`, `pragma: no cover`, ignore lists,
+baselines, exclusions, lowered thresholds, or allowlists. Every control that does
+not pass is listed below with its measured violation count and stays visibly
+unenrolled.
+
+`quality/checks.json` **may only ever grow** in later pull requests: enrolled
+controls keep their reference order and new controls are added, never removed or
+reordered to hide a failure. A control moves from *unenrolled* to *enrolled* only
+when it passes with no suppression mechanism.
+
+## How the measurements were taken
+
+The reference `quality/` package was copied into a scratch worktree of the current
+`main` commit and adapted only for identity (package name, project paths, and
+`SOURCE_ROOTS` covering `src`, `tests`, `quality`, `scripts`, `alembic`, and
+`conftest.py`). Each of the 27 `checks.json` commands and the 6 hooks was then run
+individually against that tree with the reference tool set installed. Results below
+are the observed exit code, the number of reported violations, and the first
+diagnostics.
+
+Environment: Python 3.11, `uv 0.11.21`, repo `main` at
+`e39132f` plus the copied `quality/` package. Violation counts for name/size
+controls are measured with an independent scan because the control fails closed on
+its first violation.
+
+## Control inventory (33 controls)
+
+State legend: **enrolled** = runs in `quality/checks.json` or the `quality.verify`
+hooks; **unenrolled** = measured, documented, not yet enforced.
+
+| ID | Control | Exit | Violations | First diagnostics | State |
+| --- | --- | --- | --- | --- | --- |
+| REF-CMD-01 | `uv lock --check` | 0 | 0 | `Resolved 104 packages in 1ms` | enrolled |
+| REF-CMD-02 | `python -m quality.dependency_policy_main` | 1 | 2 | `ValueError: dependency lock entry must be a table` (binary-only `psycopg-binary`, `pywin32` ship no sdist) | unenrolled |
+| REF-CMD-03 | `python -m quality.component_inventory_main` | 1 | 104 | `ValueError: dependency lock entry must be a table`; no reviewed SPDX provenance policy for the 103 registry components | unenrolled |
+| REF-CMD-04 | `python -m quality.runtime_support_main` | 1 | 1 | `ValueError: Python package metadata differs from reviewed runtime inventory` (no reviewed `runtime-support.json`; `ci.yml` matrix shape differs) | unenrolled |
+| REF-CMD-05 | `python -m quality.workflows_main` | 1 | n/a | `mise ERROR "shellcheck" couldn't exec process` (native ShellCheck/actionlint/zizmor not provisioned) | unenrolled |
+| REF-CMD-06 | `python -m quality.support_files_main` | 1 | 2 | `ValueError: runtime YAML mapping keys must be strings` (`.github/workflows/ci.yml`, `mutation.yml` use the YAML 1.1 boolean key `on:`) | unenrolled |
+| REF-CMD-07 | `python -m quality.readme_example_main` | 1 | 1 | `ValueError: README example heading is missing or duplicated` | unenrolled |
+| REF-CMD-08 | `python -m quality.document_links_main` | 1 | 2 | `ValueError: local documentation target is missing: probes/`; also `contracts/` | unenrolled |
+| REF-CMD-09 | `python -m quality.document_spelling_main` | 1 | n/a | `mise ERROR "typos" couldn't exec process` (native typos-cli not provisioned) | unenrolled |
+| REF-CMD-10 | `python -m quality.document_style_main` | 1 | 64 | `ValueError: authored Markdown style differs` (64 of 84 authored Markdown files are not pinned GFM formatted) | unenrolled |
+| REF-CMD-11 | `python -m quality.incomplete_main` | 1 | 1 | `ValueError: Python module is not snake_case: alembic/versions/20260104_0000_initial_schema.py` (fails in `verify_sources` before scanning) | unenrolled |
+| REF-CMD-12 | `python -m quality.repository_hygiene_main` | 1 | 4 | `ValueError: unsupported authored text type: .dockerignore`; also `.pyi`, `.ini`, `.example` | unenrolled |
+| REF-CMD-13 | `uv export --locked --only-group build …` | 2 | 1 | `error: Group `build` is not defined in the project's `dependency-groups` table` | unenrolled |
+| REF-CMD-14 | `python -m quality.build_constraints_main` | 1 | 1 | `FileNotFoundError: .quality-results/build-constraints.txt` (depends on REF-CMD-13) | unenrolled |
+| REF-CMD-15 | `python -m quality.package_main` | 1 | 1 | `CalledProcessError`: `uv build … --require-hashes` cannot resolve `setuptools>=61.0` (reference build-constraint policy) | unenrolled |
+| REF-CMD-16 | `python -m quality.duplication_main` | 1 | 1 | `ValueError: Python module is not snake_case: alembic/versions/20260104_0000_initial_schema.py` (native jscpd not provisioned) | unenrolled |
+| REF-CMD-17 | `black --check src tests quality` | 1 | 32 | `would reformat quality/build_constraints.py`, `package_build.py`, `commands.py`, `package_process.py`, `mutation_pool.py` | enrolled after formatting `quality/` at line length 100 |
+| REF-CMD-18 | `ruff check src tests quality` | 1 | 5 | `SIM105` (`commands.py`, `owned_process.py`), `SIM102` (`incomplete.py`), `ARG001` (`document_links.py`, `trusted_policy/github_read.py`) | enrolled after fixing the 5 vendored violations |
+| REF-CMD-19 | `mypy src tests quality` | 1 | 403 | `tests/tooling/test_traceability.py:86: error: Function is missing a return type annotation`; 403 `error:` lines across the full authored scope | unenrolled |
+| REF-CMD-20 | `pyright` | 0 | 0 | `0 errors, 0 warnings, 0 informations` | enrolled |
+| REF-CMD-21 | `vulture src tests quality` | 3 | 7 | `quality/mutation_trial.py:8: unused function 'run_trial'`; 7 findings | unenrolled |
+| REF-CMD-22 | `complexipy src tests quality --max-complexity-allowed 5` | 0 | 0 | all functions and module control flow at cognitive complexity ≤ 5 | enrolled |
+| REF-CMD-23 | `deptry src` | 1 | 16 | `DEP002 'psycopg' defined as a dependency but not used`; 16 findings | unenrolled |
+| REF-CMD-24 | `deptry src tests quality --non-dev-dependency-groups dev --ignore DEP002` | 1 | 154 | `DEP003 'grimp' imported but it is a transitive dependency`; 154 findings | unenrolled |
+| REF-CMD-25 | `python -m quality.architecture_main` | 1 | 1 | `ValueError: Python module is not snake_case: alembic/versions/20260104_0000_initial_schema.py` (fails in `verify_sources`) | unenrolled |
+| REF-CMD-26 | `python -m quality.stability_main` | 1 | 1 | two seeded full-suite runs; `tests/tooling/test_gate_negatives.py::test_static_profile_passes_as_control` fails while `quality/` is unformatted | unenrolled |
+| REF-CMD-27 | `python -m pytest --cov … --json-report …` | 1 | 1 | `1 failed, 3 skipped, 55 warnings` (1633 collected; warning and failure inventory not yet clean) | unenrolled |
+| REF-HOOK-01 | `verify_sources` — owned scope and physical-size control | 1 | 50 | `ValueError: Python module is not snake_case: alembic/versions/20260104_0000_initial_schema.py`; 232 discovered `py`/`pyi` files, 50 exceed 399 physical lines, 5 `.pyi` stubs are outside the `.py`-only scope | unenrolled |
+| REF-HOOK-02 | `verify_tracked` — NUL-delimited tracked inventory and portability | 0 | 0 | passes on the complete tracked path inventory | enrolled |
+| REF-HOOK-03 | `prepare_tests` + `verify_tests` — fresh report and coverage completeness | 1 | 1 | `ValueError: Python module is not snake_case: …` (gated by `verify_sources`; report also carries 55 warnings) | unenrolled |
+| REF-HOOK-04 | `verify_security` — pinned Gitleaks/OSV/Opengrep | 1 | n/a | `mise` native scanners not provisioned; fails closed before scanning | unenrolled |
+| REF-HOOK-05 | `mutate` — full Cosmic Ray inventory, baseline and outcomes | 1 | 1 | `FileNotFoundError: 'cosmic-ray.toml'` (native mutation service not provisioned) | unenrolled |
+| REF-HOOK-06 | trusted policy + branch protection | n/a | n/a | not locally runnable; requires app-owned policy check and authenticated review | unenrolled |
+
+## Enrolled controls
+
+Six controls pass with zero suppressions and are enrolled in reference order:
+
+1. `REF-CMD-01` `uv lock --check`
+2. `REF-CMD-17` `black --check src tests quality`
+3. `REF-CMD-18` `ruff check src tests quality`
+4. `REF-CMD-20` `pyright`
+5. `REF-CMD-22` `complexipy src tests quality --max-complexity-allowed 5`
+6. `REF-HOOK-02` `verify_tracked`
+
+`quality.checks.json` contains exactly the five command controls in reference order
+(1, 17, 18, 20, 22). The `quality.verify` hook sequence runs `verify_tracked` and
+then the enrolled commands; every other hook stays unenrolled as documented above.
+
+Defect-fails / clean-passes evidence for each enrolled control is recorded in
+[`docs/relentless-ci-defect-evidence.md`](relentless-ci-defect-evidence.md).
