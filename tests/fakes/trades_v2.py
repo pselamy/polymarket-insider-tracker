@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from tests.fakes.trades import FakeClock, ProviderHttp, RecordedRequest
+from tests.fakes.trades import FakeClock, ProviderFake, RecordedRequest
 
 V2_PAGE_LIMIT = 1000
 CACHE_CONTROL = "public, max-age=300"
@@ -32,7 +32,7 @@ def _sort_timestamp(row: object) -> int:
 
 
 @dataclass
-class FakeV2TradesServer:
+class FakeV2TradesServer(ProviderFake):
     """A cursor-paged v2 provider; ``page_size`` lets a small test span several pages."""
 
     clock: Callable[[], float] = field(default_factory=lambda: FakeClock(0.0))
@@ -44,7 +44,7 @@ class FakeV2TradesServer:
     served_bodies: list[bytes] = field(default_factory=list[bytes])
 
     def __post_init__(self) -> None:
-        self._http = ProviderHttp.attach(self)
+        self._bind_http()
 
     def publish(self, row: Mapping[str, Any]) -> None:
         """Append one already-v2-shaped row (build with ``v2_row(trade_row(...))``)."""

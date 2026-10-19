@@ -93,7 +93,7 @@ count.
 | `REF-CMD-01` | `uv lock --check` | whole-project lock (no path scope) |
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
-| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py` | **non-test authored roots**: `src`, `scripts`, `quality`, `alembic`, `conftest.py` |
+| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests/alerter tests/fakes tests/quality tests/storage` | **non-test authored roots** plus `tests/alerter`, `tests/fakes`, `tests/quality`, `tests/storage` |
 | `REF-CMD-20` | `pyright` | **narrow**: existing `src/polymarket_insider_tracker` only |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
@@ -281,3 +281,33 @@ On the current tree `verify_size` raises
 `duplication_main` (and therefore any REF-CMD-16 enrollment evidence produced
 through it) stays blocked twice over: by the 92 measured clones and by the size
 hook its own input-freezing step depends on.
+
+## REF-CMD-19 step 2: strict mypy over the first `tests/` directories (2026-10-19)
+
+Per-directory strict mypy (`uv run --isolated --locked --all-extras --python 3.11 mypy <dir>`),
+smallest first. Counts include errors reported in imported modules.
+
+| root | errors | files |
+|---|---|---|
+| `tests/storage` | 3 | 1 |
+| `tests/quality` | 4 | 1 |
+| `tests/fakes` | 17 | 2 |
+| `tests/alerter` | 30 | 6 |
+| `tests/profiler` | 65 | 6 |
+| `tests/integration` | 57 | 6 |
+| `tests/detector` | 99 | 6 |
+| `tests/ingestor` | 120 | 17 |
+| `tests/tooling` | 139 | 7 |
+| root `tests/test_*.py` (8 clean-of-others files with errors) | 18-84 each | - |
+
+Cleaned and enrolled this step: `tests/alerter`, `tests/fakes`, `tests/quality`, `tests/storage`
+(37 errors, no suppressions, casts, ignores or relaxed flags). Two typed boundary injections are
+disclosed rather than hidden: `install_fake_w3` (`object.__setattr__` on the private `_w3` handle) and
+`error.args = (payload,)` for the non-string `httpx.ConnectError` fault-injection test. The one `src/` touch is an explicit
+`__all__` in `alerter/history.py` so the documented compatibility re-exports of
+`_generate_dedup_key`/`_get_signals_from_assessment` are visible to strict mypy; runtime behaviour
+is unchanged. Remaining unenrolled: `tests/detector`, `tests/ingestor`, `tests/integration`,
+`tests/profiler`, `tests/tooling` and 8 root-level `tests/test_*.py` files.
+
+Defect-fails: appending `x: int = "a"` to `tests/storage/test_repos.py` makes the enrolled mypy
+command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.

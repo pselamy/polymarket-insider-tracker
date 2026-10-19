@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -182,14 +183,6 @@ class ProviderHttp:
     clock: Callable[[], float]
     requests: list[RecordedRequest]
 
-    @classmethod
-    def attach(cls, owner: object) -> ProviderHttp:
-        """Give ``owner`` the shared transport/client surface and store the recorder on it."""
-        http = cls(owner, owner.clock, owner.requests)
-        owner.transport = http.transport
-        owner.client = http.client
-        return http
-
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.server)
 
@@ -200,6 +193,30 @@ class ProviderHttp:
         """Append the recorded request and return its query params."""
         self.requests.append(recorded_request(request, self.clock))
         return dict(request.url.params.items())
+
+
+class ProviderFake(ABC):
+    """A trade-provider fake exposed as an ``httpx`` transport/client over a shared recorder.
+
+    Subclasses are dataclasses with ``clock``/``requests`` fields; ``__post_init__`` calls
+    ``_bind_http`` so the transport/client surface is defined once, here.
+    """
+
+    clock: Callable[[], float]
+    requests: list[RecordedRequest]
+    _http: ProviderHttp
+
+    @abstractmethod
+    def __call__(self, request: httpx.Request) -> httpx.Response: ...
+
+    def _bind_http(self) -> None:
+        self._http = ProviderHttp(self, self.clock, self.requests)
+
+    def transport(self) -> httpx.MockTransport:
+        return self._http.transport()
+
+    def client(self) -> httpx.AsyncClient:
+        return self._http.client()
 
 
 def _sort_timestamp(row: object) -> int:
@@ -227,7 +244,7 @@ class _CachedBody:
 
 
 @dataclass
-class FakeTradesServer:
+class FakeTradesServer(ProviderFake):
     """The provider behind ``httpx.MockTransport``; see the module docstring."""
 
     clock: Callable[[], float] = field(default_factory=lambda: FakeClock(0.0))
@@ -239,7 +256,7 @@ class FakeTradesServer:
     _version: int = 0
 
     def __post_init__(self) -> None:
-        self._http = ProviderHttp.attach(self)
+        self._bind_http()
 
     def publish(self, row: object, *, taker: bool = True) -> None:
         """Append one raw row (any JSON value) to the ledger; a repeat is served as a repeat."""

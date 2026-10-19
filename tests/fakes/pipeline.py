@@ -21,10 +21,12 @@ from polymarket_insider_tracker.config import (
     RedisSettings,
     Settings,
     TelegramSettings,
+    TradesCoverage,
 )
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.scorer import RiskScorer
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
+from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
 from polymarket_insider_tracker.ingestor.metadata_sync import (
     DEFAULT_CACHE_TTL_SECONDS,
@@ -43,7 +45,7 @@ from tests.fakes.clob import FakeBaseClobClient
 from tests.fakes.gamma import FakeGammaClient
 from tests.fakes.trades import FakeClock, FakeTradesServer
 from tests.fakes.trades_v2 import FakeV2TradesServer
-from tests.fakes.web3 import FakeAsyncWeb3, FakeEth
+from tests.fakes.web3 import FakeAsyncWeb3, FakeEth, install_fake_w3
 
 TradesServer = FakeTradesServer | FakeV2TradesServer
 
@@ -66,18 +68,9 @@ def make_test_settings(
 ) -> Settings:
     """Create a fully validated ``Settings`` value without reading the environment.
 
-    ``trades_url=None`` omits ``POLYMARKET_TRADES_URL`` entirely so the configuration default
-    applies; the polymarket environment is still scrubbed by the caller.
+    ``trades_url=None`` selects the configuration default (``OFFICIAL_V2_TRADES_URL``) explicitly,
+    so neither the environment nor a ``.env`` file can supply it.
     """
-    polymarket_fields: dict[str, object] = {
-        "POLYMARKET_TRADES_COVERAGE": trades_coverage,
-        "POLYMARKET_TRADES_POLL_INTERVAL_SECONDS": trades_poll_interval_seconds,
-        "POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS": trades_recovery_horizon_seconds,
-        "POLYMARKET_WS_URL": None,
-        "POLYMARKET_API_KEY": None,
-    }
-    if trades_url is not None:
-        polymarket_fields["POLYMARKET_TRADES_URL"] = trades_url
     return Settings(
         _env_file=None,
         redis=RedisSettings(_env_file=None, REDIS_URL="redis://localhost:6379/0"),
@@ -89,7 +82,15 @@ def make_test_settings(
             POLYGON_RPC_URL="https://polygon-rpc.com",
             POLYGON_FALLBACK_RPC_URL=None,
         ),
-        polymarket=PolymarketSettings(_env_file=None, **polymarket_fields),
+        polymarket=PolymarketSettings(
+            _env_file=None,
+            POLYMARKET_TRADES_URL=trades_url or OFFICIAL_V2_TRADES_URL,
+            POLYMARKET_TRADES_COVERAGE=TradesCoverage(trades_coverage),
+            POLYMARKET_TRADES_POLL_INTERVAL_SECONDS=trades_poll_interval_seconds,
+            POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS=trades_recovery_horizon_seconds,
+            POLYMARKET_WS_URL=None,
+            POLYMARKET_API_KEY=None,
+        ),
         discord=DiscordSettings(
             _env_file=None,
             DISCORD_WEBHOOK_URL=discord_webhook_url if discord_enabled else None,
@@ -148,7 +149,7 @@ async def wire_pipeline(
         max_requests_per_second=10_000.0,
         retry_delay_seconds=0.0,
     )
-    polygon_client._w3 = FakeAsyncWeb3(eth)
+    install_fake_w3(polygon_client, FakeAsyncWeb3(eth))
     wallet_analyzer = WalletAnalyzer(polygon_client, redis=redis)
     pipeline._funding_tracer = FundingTracer(polygon_client)
 

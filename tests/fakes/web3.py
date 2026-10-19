@@ -8,6 +8,7 @@ from typing import Any
 from web3 import AsyncWeb3
 from web3.exceptions import Web3Exception
 
+from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import TRANSFER_EVENT_SIGNATURE
 
 
@@ -190,3 +191,8 @@ class FakeAsyncWeb3:
     @staticmethod
     def to_checksum_address(value: str) -> str:
         return AsyncWeb3.to_checksum_address(value)
+
+
+def install_fake_w3(client: PolygonClient, w3: FakeAsyncWeb3) -> None:
+    """Swap ``client``'s primary RPC handle for ``w3`` (the one boundary the client owns)."""
+    object.__setattr__(client, "_w3", w3)

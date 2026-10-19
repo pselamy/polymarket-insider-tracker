@@ -342,7 +342,8 @@ class TestChannelErrorRedaction:
             "dict": {"secret": secret},
             "list": [secret],
         }[shape]
-        error = httpx.ConnectError(payload)
+        error = httpx.ConnectError("")
+        error.args = (payload,)
         if channel_kind == "discord":
             server = discord_webhook(network_error=error)
             channel: DiscordChannel | TelegramChannel = DiscordChannel(

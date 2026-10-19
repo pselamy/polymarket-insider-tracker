@@ -1,5 +1,6 @@
 """Tests for storage repositories."""
 
+from collections.abc import AsyncGenerator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -7,7 +8,12 @@ from typing import cast
 
 import pytest
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from polymarket_insider_tracker.storage.models import Base
 from polymarket_insider_tracker.storage.repos import (
@@ -25,7 +31,7 @@ from polymarket_insider_tracker.storage.repos import (
 
 
 @pytest.fixture
-async def async_engine():
+async def async_engine() -> AsyncGenerator[AsyncEngine, None]:
     """Create an async SQLite engine for testing."""
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
@@ -38,7 +44,7 @@ async def async_engine():
 
 
 @pytest.fixture
-async def async_session(async_engine) -> AsyncSession:
+async def async_session(async_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
     """Create an async session for testing."""
     session_factory = async_sessionmaker(bind=async_engine, expire_on_commit=False)
     async with session_factory() as session:
