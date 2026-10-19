@@ -8,7 +8,6 @@ substituted.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -17,11 +16,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from polymarket_insider_tracker.config import Settings
-from polymarket_insider_tracker.detector.models import FreshWalletSignal
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
-from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.profiler.funding import USDC_BRIDGED
-from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import FundingTransferModel, WalletProfileModel
 from tests.fakes import FakeEth, TransferLogIndex, make_test_settings, transfer_log, wire_pipeline
@@ -54,22 +50,6 @@ def mainstream_market(sample_trade: TradeEvent) -> MarketMetadata:
         description="",
         tokens=(Token(token_id=sample_trade.asset_id, outcome="Yes", price=Decimal("0.65")),),
         category="politics",
-    )
-
-
-@pytest.fixture
-def sample_profile() -> WalletProfile:
-    """Create a sample fresh wallet profile."""
-    return WalletProfile(
-        address=WALLET,
-        nonce=2,
-        first_seen=datetime(2026, 3, 31, 12, 0, 0, tzinfo=UTC),
-        age_hours=1.5,
-        is_fresh=True,
-        total_tx_count=2,
-        matic_balance=Decimal("1000000000000000000"),
-        usdc_balance=Decimal("5000000000"),
-        fresh_threshold=5,
     )
 
 
@@ -126,7 +106,7 @@ class TestPipelinePersistence:
             db_manager=db_manager,
         )
 
-        await pipeline._on_trade(sample_trade)
+        await pipeline.process_trade(sample_trade)
 
         rows = await _wallet_rows(async_engine)
         assert [(row.address, row.nonce, row.is_fresh) for row in rows] == [(WALLET, 2, True)]
@@ -135,29 +115,30 @@ class TestPipelinePersistence:
     async def test_persists_wallet_without_a_funding_tracer(
         self,
         test_settings: Settings,
+        fake_redis: FakeAsyncRedis,
         db_manager: DatabaseManager,
-        sample_trade: TradeEvent,
-        sample_profile: WalletProfile,
         async_engine: AsyncEngine,
+        sample_trade: TradeEvent,
+        mainstream_market: MarketMetadata,
+        funded_chain: TransferLogIndex,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Guard the explicitly initialized transfer count when no tracer is configured."""
-        pipeline = Pipeline(test_settings)
-        pipeline._db_manager = db_manager
-        pipeline._funding_tracer = None
-        fresh_signal = FreshWalletSignal(
-            trade_event=sample_trade,
-            wallet_profile=sample_profile,
-            confidence=0.8,
-            factors={"base": 0.5},
+        pipeline = await wire_pipeline(
+            test_settings,
+            redis=fake_redis,
+            eth=_fresh_wallet_eth(funded_chain),
+            market=mainstream_market,
+            db_manager=db_manager,
+            trace_funding=False,
         )
 
         with caplog.at_level(logging.WARNING):
-            await pipeline._persist_wallet_and_funding(fresh_signal)
+            await pipeline.process_trade(sample_trade)
 
         assert "Failed to persist wallet/funding data" not in caplog.text
         rows = await _wallet_rows(async_engine)
-        assert [row.address for row in rows] == [sample_profile.address]
+        assert [row.address for row in rows] == [WALLET]
         assert await _funding_rows(async_engine) == []
 
     async def test_on_trade_persists_funding_transfers(
@@ -179,7 +160,7 @@ class TestPipelinePersistence:
             db_manager=db_manager,
         )
 
-        await pipeline._on_trade(sample_trade)
+        await pipeline.process_trade(sample_trade)
 
         rows = await _funding_rows(async_engine)
         # The tracer stores ``transactionHash.hex()``, which is bare hex without a ``0x`` prefix.
@@ -208,7 +189,7 @@ class TestPipelinePersistence:
             db_manager=db_manager,
         )
 
-        await pipeline._on_trade(sample_trade)
+        await pipeline.process_trade(sample_trade)
 
         assert await _wallet_rows(async_engine) == []
         assert await _funding_rows(async_engine) == []
@@ -239,7 +220,7 @@ class TestPipelinePersistence:
 
         try:
             with caplog.at_level(logging.WARNING):
-                await pipeline._on_trade(sample_trade)
+                await pipeline.process_trade(sample_trade)
         finally:
             await unreachable_db.dispose_async()
 
@@ -268,8 +249,8 @@ class TestPipelinePersistence:
             db_manager=db_manager,
         )
 
-        await pipeline._on_trade(sample_trade)
-        await pipeline._on_trade(sample_trade)
+        await pipeline.process_trade(sample_trade)
+        await pipeline.process_trade(sample_trade)
 
         assert len(await _funding_rows(async_engine)) == 1
         assert len(await _wallet_rows(async_engine)) == 1

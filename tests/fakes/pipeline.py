@@ -126,6 +126,7 @@ async def wire_pipeline(
     poll_clock: FakeClock | None = None,
     crawl_gate: threading.Event | None = None,
     state_log: list[str] | None = None,
+    trace_funding: bool = True,
 ) -> Pipeline:
     """Build a ``Pipeline`` the way ``Pipeline._initialize_components`` does.
 
@@ -137,6 +138,7 @@ async def wire_pipeline(
     ``poll_clock``, market metadata is pre-cached in
     Redis the way a completed sync leaves it, and delivery goes to ``channels`` instead of Discord
     or Telegram. ``state_log`` records poller and metadata state transitions in order.
+    ``trace_funding=False`` leaves the pipeline without a funding tracer.
     """
     pipeline = Pipeline(settings)
     pipeline._redis = redis
@@ -151,7 +153,7 @@ async def wire_pipeline(
         web3=FakeAsyncWeb3(eth),
     )
     wallet_analyzer = WalletAnalyzer(polygon_client, redis=redis)
-    pipeline._funding_tracer = FundingTracer(polygon_client)
+    pipeline._funding_tracer = FundingTracer(polygon_client) if trace_funding else None
 
     clob_client = ClobClient()
     base_client = FakeBaseClobClient()
@@ -203,7 +205,7 @@ def _wire_poller(
         pipeline._on_ingestion_state(state)
 
     return TradePoller(
-        pipeline._on_trade,
+        pipeline.process_trade,
         redis=redis,
         settings=pipeline._settings.polymarket,
         metadata=pipeline._metadata_sync,

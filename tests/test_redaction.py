@@ -47,6 +47,7 @@ from polymarket_insider_tracker.redaction import (
     redact_url,
     url_credential_components,
 )
+from tests.console_capture import capture_console_output
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.config import Settings
@@ -991,7 +992,7 @@ class TestDetectorFailureRedaction:
             RuntimeError(self._size_exception_texts()[0])
         )
         with caplog.at_level(logging.WARNING):
-            await pipeline._on_trade(_detector_trade())
+            await pipeline.process_trade(_detector_trade())
 
         last_error = pipeline.stats.last_error or ""
         for secret in self._secrets():
@@ -2199,7 +2200,7 @@ class TestExceptionGraphSanitization:
 
     def _capture_production_record(self, emit: Callable[[logging.Logger], None]) -> str:
         pipeline_logger = logging.getLogger("polymarket_insider_tracker.pipeline")
-        return _capture_console_output(lambda: emit(pipeline_logger))
+        return capture_console_output(lambda: emit(pipeline_logger))
 
     def test_self_cause_cycle_renders_and_masks_the_bytes_argument(self) -> None:
         error = RuntimeError(R21_GRAPH_SECRET.encode())
@@ -2296,29 +2297,6 @@ class TestExceptionGraphSanitization:
         assert R21_GRAPH_SECRET not in output
 
 
-def _capture_console_output(emit: Callable[[], None]) -> str:
-    """Emit one record and return exactly what the production console handler wrote."""
-    import io
-    import logging as stdlib_logging
-
-    from polymarket_insider_tracker.__main__ import configure_logging
-
-    configure_logging("INFO")
-    console = next(
-        handler
-        for handler in stdlib_logging.getLogger().handlers
-        if isinstance(handler, stdlib_logging.StreamHandler)
-    )
-    capture = io.StringIO()
-    previous = console.setStream(capture)
-    try:
-        emit()
-    finally:
-        if previous is not None:
-            console.setStream(previous)
-    return capture.getvalue()
-
-
 class _ReadOnlyMapping(Mapping[str, object]):
     """A minimal non-dict ``Mapping``: exactly what ``LogRecord`` accepts.
 
@@ -2368,7 +2346,7 @@ class TestCachedExceptionTextBoundary:
         app_logger.addHandler(prior)
         error = self._cached_url_error()
         try:
-            output = _capture_console_output(
+            output = capture_console_output(
                 lambda: app_logger.error("request failed", exc_info=(type(error), error, None))
             )
         finally:
@@ -2399,7 +2377,7 @@ class TestCachedExceptionTextBoundary:
             }
         )
 
-        output = _capture_console_output(lambda: logging.getLogger(record.name).handle(record))
+        output = capture_console_output(lambda: logging.getLogger(record.name).handle(record))
 
         assert "request failed" in output
         assert self.CACHED_SECRET not in output
@@ -2409,7 +2387,7 @@ class TestCachedExceptionTextBoundary:
         with its sanitized exception line."""
         error = self._cached_url_error()
 
-        output = _capture_console_output(
+        output = capture_console_output(
             lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(
                 "request failed", exc_info=(type(error), error, None)
             )
@@ -2442,7 +2420,7 @@ class TestPositionalMappingArgumentRedaction:
     MAPPING_SECRET = "R26_POSITIONAL_MAPPING_SECRET"
 
     def _emit(self, message: str, args: Mapping[str, object]) -> str:
-        return _capture_console_output(
+        return capture_console_output(
             lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(message, args)
         )
 
@@ -2527,7 +2505,7 @@ class TestPositionalMappingArgumentRedaction:
             with pytest.warns(DeprecationWarning, match="set_weights"):
                 scorer.set_weights({"fresh_wallet": 0.4})
 
-        output = _capture_console_output(update)
+        output = capture_console_output(update)
 
         assert "Updated risk scorer weights: ***" in output
         assert scorer.get_weights()["fresh_wallet"] == 0.4
@@ -2552,7 +2530,7 @@ class TestStandardMappingArgumentRedaction:
         return [UserDict, ChainMap, MappingProxyType, _ReadOnlyMapping]
 
     def _emit(self, message: str, args: Mapping[str, object]) -> str:
-        return _capture_console_output(
+        return capture_console_output(
             lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(message, args)
         )
 
@@ -2648,7 +2626,7 @@ class TestScrubbedRecordKeepsEmitting:
     MAPPING_SECRET = "R28_UNFORMATTABLE_SECRET"
 
     def _emit(self, message: str, args: object) -> str:
-        return _capture_console_output(
+        return capture_console_output(
             lambda: logging.getLogger("polymarket_insider_tracker.pipeline").error(message, args)
         )
 

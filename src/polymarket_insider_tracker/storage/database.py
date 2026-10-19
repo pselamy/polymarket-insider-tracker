@@ -135,6 +135,26 @@ class DatabaseManager:
         self._sync_session_factory: sessionmaker[Session] | None = None
         self._async_session_factory: async_sessionmaker[AsyncSession] | None = None
 
+    @property
+    def is_sync_open(self) -> bool:
+        """Whether the sync engine and session factory currently exist (until ``dispose``)."""
+        return self._sync_engine is not None and self._sync_session_factory is not None
+
+    @property
+    def is_async_open(self) -> bool:
+        """Whether the async engine and session factory currently exist (until ``dispose_async``)."""
+        return self._async_engine is not None and self._async_session_factory is not None
+
+    def attach_async_engine(self, engine: AsyncEngine) -> None:
+        """Serve async sessions from an engine the caller already built.
+
+        The manager owns the engine from here on: ``dispose_async`` disposes it. This lets a
+        caller with a differently configured engine (another dialect, a shared pool) reuse every
+        session and transaction path of the manager.
+        """
+        self._async_engine = engine
+        self._async_session_factory = create_async_session_factory(engine)
+
     def _get_sync_engine(self) -> Engine:
         """Get or create the synchronous engine."""
         if self._sync_engine is None:
