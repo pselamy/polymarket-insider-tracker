@@ -2,12 +2,16 @@
 
 import os
 from collections.abc import AsyncIterator, Iterator
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from fakeredis import FakeAsyncRedis
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
+from polymarket_insider_tracker.ingestor.models import TradeEvent
+from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import Base
 
@@ -68,3 +72,36 @@ async def db_manager(async_engine: AsyncEngine) -> DatabaseManager:
     manager._async_engine = async_engine
     manager._async_session_factory = async_sessionmaker(bind=async_engine, expire_on_commit=False)
     return manager
+
+
+@pytest.fixture
+def sample_trade() -> TradeEvent:
+    """Create the sample trade event shared by the alert-history and risk-scorer tests."""
+    return TradeEvent(
+        market_id="market_abc123",
+        trade_id="tx_001",
+        wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        side="BUY",
+        outcome="Yes",
+        outcome_index=0,
+        price=Decimal("0.65"),
+        size=Decimal("10000"),
+        timestamp=datetime.now(UTC),
+        asset_id="token_123",
+        event_title="Test Market",
+    )
+
+
+@pytest.fixture
+def sample_wallet_profile() -> WalletProfile:
+    """Create the fresh wallet profile shared by the alert-history and risk-scorer tests."""
+    return WalletProfile(
+        address="0x1234567890abcdef1234567890abcdef12345678",
+        nonce=2,
+        first_seen=datetime.now(UTC),
+        age_hours=1.0,
+        is_fresh=True,
+        total_tx_count=2,
+        matic_balance=Decimal("1000000000000000000"),
+        usdc_balance=Decimal("1000000"),
+    )
