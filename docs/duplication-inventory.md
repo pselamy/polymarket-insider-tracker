@@ -167,11 +167,11 @@ knowledge).
 | 8 | 0 | 0 | test_health_server.py | **Resolved**: component checker wiring (`wire_components`) and the serve/GET/stop probe (`probe`) have one home each in `tests/ingestor/test_health_server.py` | resolved (PR #169) |
 | 9 | 3 | 44 | discord.py, telegram.py | Duplicated rate-limit wait, `_backoff`, and failure-redaction channel logic | real; resolved, see the 2026-10-19 resolution update below |
 | 10 | 0 | 0 | test_terminal_error_durable.py | **Resolved**: pipeline wiring (`_wire_poller_pipeline`), the terminal-401 failure sequence (`_pipeline_with_terminal_401`, `_fail_poller_cycle`, `_report_poller_failure`) and the durable-row assertion (`_assert_poller_401_row`) now have one home each in `tests/test_terminal_error_durable.py` | resolved (PR #172) |
-| 11 | 3 | 33 | profiler/test_models.py | Repeated `Transaction` construction blocks | real |
+| 11 | 0 | 0 | profiler/test_models.py | **Resolved**: the `Transaction` construction shared by the equality and hashing tests now has one home (`TestTransactionEquality._transaction`) | resolved (this card) |
 | 12 | 2 | 32 | test_funding.py, test_funding_rpc.py | Parallel method docstrings/signatures describing the same RPC API | real |
 | 13 | 2 | 30 | rev_20260522_1130_risk_assessments.py, rev_20260910_0000_safe_observable_operation.py, rev_20260920_0000_terminal_errors.py | Alembic revision scaffolding (`__all__`, `upgrade()` head) | incidental |
-| 14 | 2 | 29 | test_publisher.py, test_publisher_codec.py | Duplicated codec fixture/assertion pairs | real |
-| 15 | 2 | 26 | test_trade_row_v2.py, test_trade_rows.py | Duplicated row-decoding assertions | real |
+| 14 | 0 | 0 | tests/ingestor/conftest.py | **Resolved**: the `sample_trade_event` fixture has one home (`tests/ingestor/conftest.py`) and the publish-then-read sequence has one helper (`_publish_then_read`) | resolved (this card) |
+| 15 | 0 | 0 | tests/fakes/trades.py | **Resolved**: the synthetic `market_metadata` builder and the `MALFORMED_NUMERIC_CASES` table now have one home in `tests/fakes/trades.py`; the v1 and v2 row-decoding tests use them | resolved (this card) |
 | 16 | 3 | 25 | test_service_entrypoint.py, test_verifier_standalone.py | Duplicated `_verifier` module-loader helper and entry bootstrap | real |
 | 17 | 2 | 22 | test_main.py | Repeated settings/pipeline wiring snippets | real |
 | 18 | 1 | 20 | test_sniper.py | Repeated cluster-feeding test construction | real |
@@ -777,3 +777,23 @@ groups (561 duplicated lines, 0.92%); this branch rebased onto it reports 43 (51
 `test_fresh_pipeline_reads_terminal_reason_from_durable_row` keeps its own state
 setup because it seeds a prior row rather than failing the poller. No assertion
 changed and the six collected test IDs are unchanged.
+
+## 2026-10-19 resolution update: clusters 11, 14 and 15 (small test-construction duplicates)
+
+Cluster 11: the equality, inequality and hashing tests in `tests/profiler/test_models.py`
+restated one `Transaction` literal five times; `TestTransactionEquality._transaction(hash=...)`
+now owns it and the "different" case overrides only the hash. Cluster 14: the identical
+`sample_trade_event` fixture in `test_publisher.py` and `test_publisher_codec.py` moved to
+`tests/ingestor/conftest.py`, and `test_read_events` / `test_read_events_with_bytes` share
+`_publish_then_read` (the second test still asserts only the entry id, as before). Cluster 15:
+`test_trade_rows.py` and `test_trade_row_v2.py` shared a `_market` builder (now
+`tests.fakes.trades.market_metadata`) and the eight malformed price/size/timestamp cases (now
+`MALFORMED_NUMERIC_CASES`; the v1 list appends it in the same order, so parametrized IDs are
+unchanged). `sample_trade_event` copies in `tests/test_pipeline.py` and
+`tests/integration/test_end_to_end.py` were not touched (outside the card scope).
+
+Re-measured with the pinned jscpd 5.3.3 and the same flags over the tracked Python files:
+the parent tree (292 files) reports 43 clone groups (518 duplicated lines, 0.85%); this
+branch (293 files) reports 36 (430 lines, 0.70%). Matched by file pair and line count, exactly
+the seven cluster 11/14/15 groups are gone and none was added. The 715 collected test IDs
+under `tests/ingestor` and `tests/profiler` are identical before and after.
