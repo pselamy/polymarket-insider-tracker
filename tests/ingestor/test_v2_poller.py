@@ -13,7 +13,6 @@ import pytest
 from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.config import PolymarketSettings
-from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.observation_boundary import (
     BoundaryOrigin,
     LossReason,
@@ -30,21 +29,16 @@ from tests.fakes import (
     trade_row,
     v2_row,
 )
+from tests.ingestor._poller_harness import (
+    RecordingTradeCallback,
+)
+from tests.ingestor._poller_harness import (
+    build_poller as _poller,
+)
 
 NOW = 1_788_983_720.0
 T0 = int(NOW)
 V2_TRADES_URL = "https://data-api.polymarket.com/v2/trades"
-
-
-class RecordingTradeCallback:
-    def __init__(self) -> None:
-        self.trades: list[TradeEvent] = []
-
-    async def __call__(self, trade: TradeEvent) -> None:
-        self.trades.append(trade)
-
-    def timestamps(self) -> list[int]:
-        return [int(trade.timestamp.timestamp()) for trade in self.trades]
 
 
 @pytest.fixture
@@ -60,24 +54,6 @@ def settings() -> PolymarketSettings:
 @pytest.fixture
 def callback() -> RecordingTradeCallback:
     return RecordingTradeCallback()
-
-
-def _poller(
-    server: FakeV2TradesServer,
-    clock: FakeClock,
-    fake_redis: FakeAsyncRedis,
-    settings: PolymarketSettings,
-    callback: RecordingTradeCallback,
-) -> TradePoller:
-    return TradePoller(
-        callback,
-        redis=fake_redis,
-        settings=settings,
-        http_client=server.client(),
-        clock=clock,
-        sleeper=clock.sleep,
-        random_source=lambda: 0.0,
-    )
 
 
 async def _anchored_poller(

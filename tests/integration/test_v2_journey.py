@@ -4,7 +4,7 @@ The same pipeline, fakes, and assertions as the v1 journey in ``test_end_to_end.
 ``POLYMARKET_TRADES_URL`` pointed at the official v2 endpoint and a ``{data, pagination}`` cursor
 provider behind it. It proves the wiring end to end at the dry-run boundary: exactly one stored
 assessment, zero channel deliveries, and zero successful-delivery dedup keys. The shared
-scaffolding lives in ``_v2_journey_harness``; this file carries only the explicit-v2-URL
+scaffolding lives in ``_journey_harness``; this file carries only the explicit-v2-URL
 configuration.
 """
 
@@ -13,13 +13,13 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 from tests.fakes import FakeClock, make_test_settings
-from tests.integration._v2_journey_harness import (
+from tests.integration._journey_harness import (
     POLL_START,
     JourneyEnvironment,
-    _run_until,
     persisted_assessments,
     pipeline_row,
     run_dry_run_journey,
+    run_until,
     seeded_v2_server,
 )
 
@@ -72,8 +72,8 @@ async def test_journey_harness_characterization(
     assert row["conditionId"] == sample_trade_event.market_id
     assert row["asset"] == sample_trade_event.asset_id
 
-    await _run_until(lambda: True)
+    await run_until(lambda: True)
     with pytest.raises(AssertionError):
-        await _run_until(lambda: False, timeout=0.01)
+        await run_until(lambda: False, timeout=0.01)
 
     assert await persisted_assessments(async_engine) == []

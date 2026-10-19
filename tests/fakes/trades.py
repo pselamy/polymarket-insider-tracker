@@ -154,6 +154,54 @@ class RecordedRequest:
     timeout: dict[str, float | None] | None
 
 
+def recorded_request(request: httpx.Request, clock: Callable[[], float]) -> RecordedRequest:
+    """Capture one received request; the single home for provider request recording.
+
+    Both the list-shaped v1 fake and the cursor-shaped v2 fake record incoming requests
+    this way, so tests asserting on ``server.requests`` mean the same thing on either path.
+    """
+    return RecordedRequest(
+        url=str(request.url),
+        params=dict(request.url.params.items()),
+        at=clock(),
+        headers=dict(request.headers.items()),
+        timeout=request.extensions.get("timeout"),
+    )
+
+
+@dataclass
+class ProviderHttp:
+    """The ``httpx.MockTransport`` surface shared by both trade-provider fakes.
+
+    One home for exposing a fake provider as a transport/client and for capturing a
+    received request. Each fake binds ``transport``/``client`` from an instance of this in
+    ``__post_init__``, so its public API is unchanged.
+    """
+
+    server: Callable[[httpx.Request], httpx.Response]
+    clock: Callable[[], float]
+    requests: list[RecordedRequest]
+
+    @classmethod
+    def attach(cls, owner: object) -> ProviderHttp:
+        """Give ``owner`` the shared transport/client surface and store the recorder on it."""
+        http = cls(owner, owner.clock, owner.requests)
+        owner.transport = http.transport
+        owner.client = http.client
+        return http
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self.server)
+
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=self.transport())
+
+    def record(self, request: httpx.Request) -> dict[str, str]:
+        """Append the recorded request and return its query params."""
+        self.requests.append(recorded_request(request, self.clock))
+        return dict(request.url.params.items())
+
+
 def _sort_timestamp(row: object) -> int:
     """Order malformed rows as if they were oldest, the way a provider would still serve them."""
     value = row.get("timestamp", 0) if isinstance(row, dict) else 0
@@ -190,6 +238,9 @@ class FakeTradesServer:
     _cache: dict[str, _CachedBody] = field(default_factory=dict[str, _CachedBody])
     _version: int = 0
 
+    def __post_init__(self) -> None:
+        self._http = ProviderHttp.attach(self)
+
     def publish(self, row: object, *, taker: bool = True) -> None:
         """Append one raw row (any JSON value) to the ledger; a repeat is served as a repeat."""
         self._ledger.append(_LedgerEntry(row, taker, len(self._ledger)))
@@ -212,23 +263,8 @@ class FakeTradesServer:
     def row_count(self) -> int:
         return len(self._ledger)
 
-    def transport(self) -> httpx.MockTransport:
-        return httpx.MockTransport(self)
-
-    def client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=self.transport())
-
     def __call__(self, request: httpx.Request) -> httpx.Response:
-        params = dict(request.url.params.items())
-        self.requests.append(
-            RecordedRequest(
-                url=str(request.url),
-                params=params,
-                at=self.clock(),
-                headers=dict(request.headers.items()),
-                timeout=request.extensions.get("timeout"),
-            )
-        )
+        params = self._http.record(request)
         if self.faults:
             return self._fail(self.faults.pop(0), request)
         return self._serve(request, params)

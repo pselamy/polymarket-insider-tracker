@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from tests.fakes.trades import FakeClock, RecordedRequest
+from tests.fakes.trades import FakeClock, ProviderHttp, RecordedRequest
 
 V2_PAGE_LIMIT = 1000
 CACHE_CONTROL = "public, max-age=300"
@@ -43,6 +43,9 @@ class FakeV2TradesServer:
     _raw_injected: list[bytes] = field(default_factory=list[bytes])
     served_bodies: list[bytes] = field(default_factory=list[bytes])
 
+    def __post_init__(self) -> None:
+        self._http = ProviderHttp.attach(self)
+
     def publish(self, row: Mapping[str, Any]) -> None:
         """Append one already-v2-shaped row (build with ``v2_row(trade_row(...))``)."""
         self._ledger.append(dict(row))
@@ -59,23 +62,8 @@ class FakeV2TradesServer:
     def row_count(self) -> int:
         return len(self._ledger)
 
-    def transport(self) -> httpx.MockTransport:
-        return httpx.MockTransport(self)
-
-    def client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=self.transport())
-
     def __call__(self, request: httpx.Request) -> httpx.Response:
-        params = dict(request.url.params.items())
-        self.requests.append(
-            RecordedRequest(
-                url=str(request.url),
-                params=params,
-                at=self.clock(),
-                headers=dict(request.headers.items()),
-                timeout=request.extensions.get("timeout"),
-            )
-        )
+        params = self._http.record(request)
         if self._injected:
             return httpx.Response(200, json=self._injected.pop(0), request=request)
         if self._raw_injected:

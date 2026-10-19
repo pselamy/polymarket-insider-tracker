@@ -19,8 +19,7 @@ from typing import Any
 import aiohttp
 import pytest
 from fakeredis import FakeAsyncRedis
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine
 from tests.fakes import (
     FakeAlertChannel,
     FakeClock,
@@ -31,14 +30,26 @@ from tests.fakes import (
     trade_row,
     wire_pipeline,
 )
+from tests.integration._journey_harness import (
+    POLL_START,
+    dry_run_assessment,
+    running_pipeline,
+    wire_journey_pipeline,
+)
+from tests.integration._journey_harness import (
+    persisted_assessments as _persisted_assessments,
+)
+from tests.integration._journey_harness import (
+    pipeline_row as _pipeline_row,
+)
+from tests.integration._journey_harness import (
+    run_until as _run_until,
+)
 
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.pipeline import PipelineState
 from polymarket_insider_tracker.storage.database import DatabaseManager
-from polymarket_insider_tracker.storage.models import RiskAssessmentModel
-
-POLL_START = 1_788_983_720.0
 
 
 @pytest.fixture
@@ -79,38 +90,11 @@ def niche_market(sample_trade_event: TradeEvent) -> MarketMetadata:
     return _market(sample_trade_event, "science")
 
 
-async def _persisted_assessments(engine: AsyncEngine) -> list[RiskAssessmentModel]:
-    async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
-        return list((await session.execute(select(RiskAssessmentModel))).scalars().all())
-
-
 def _seeded_server(clock: FakeClock) -> FakeTradesServer:
     server = FakeTradesServer(clock=clock)
     server.publish(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1))
     server.publish(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2))
     return server
-
-
-def _pipeline_row(sample_trade: TradeEvent, clock: FakeClock, tx_num: int = 9) -> dict[str, object]:
-    row = trade_row(
-        timestamp=int(clock.now) + 1,
-        transaction=tx_num,
-        market=sample_trade.market_id,
-        asset=sample_trade.asset_id,
-        price=str(sample_trade.price),
-        size=str(sample_trade.size),
-    )
-    row["proxyWallet"] = sample_trade.wallet_address
-    return row
-
-
-async def _run_until(predicate: Any, *, timeout: float = 5.0) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while asyncio.get_running_loop().time() < deadline:
-        if predicate():
-            return
-        await asyncio.sleep(0.002)
-    raise AssertionError("condition was not reached")
 
 
 async def _await_readiness(
@@ -177,10 +161,9 @@ class TestEndToEndPipelineHarness:
             health_port=unused_tcp_port,
         )
 
-        pipeline = await wire_pipeline(
+        pipeline = await wire_journey_pipeline(
             settings,
             redis=fake_redis,
-            eth=FakeEth(transaction_count=0),
             market=niche_market,
             db_manager=db_manager,
             channels=[discord, telegram],
@@ -188,8 +171,7 @@ class TestEndToEndPipelineHarness:
             poll_clock=clock,
         )
 
-        try:
-            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+        async with running_pipeline(pipeline):
             await _run_until(lambda: len(server.requests) >= 1)
 
             # Check health readiness (bounded poll; the settled state is asserted)
@@ -219,8 +201,6 @@ class TestEndToEndPipelineHarness:
             server.publish(_pipeline_row(sample_trade_event, clock))
             await _run_until(lambda: pipeline.stats.trades_processed >= 1)
             await _run_until(lambda: len(server.requests) >= 4)
-        finally:
-            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
 
         # Verification: dry run safety guarantees
         assert pipeline.stats.trades_processed == 1
@@ -234,12 +214,7 @@ class TestEndToEndPipelineHarness:
 
         # Assessment persisted with dry_run disposition and populated diagnostics
         rows = await _persisted_assessments(async_engine)
-        assert len(rows) == 1
-        assessment_row = rows[0]
-        assert assessment_row.should_alert is True
-        assert assessment_row.delivery_disposition == "dry_run"
-        assert assessment_row.dry_run is True
-        assert assessment_row.wallet_address == sample_trade_event.wallet_address.lower()
+        assessment_row = dry_run_assessment(rows, sample_trade_event)
         assert assessment_row.wallet_tx_count == 0
         assert assessment_row.wallet_age_known is False
         assert assessment_row.signals_triggered == 2
