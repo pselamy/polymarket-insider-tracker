@@ -347,5 +347,7 @@ and staging with `quality.duplication_inputs.stage_inputs`:
 Set-difference of the raw clone lists: exactly the cluster-22 clone
 (`src/.../detector/fresh_wallet.py:223-234 <-> src/.../detector/size_anomaly.py:386-397`,
 55 tokens / 12 lines) disappeared and **no new clone group appeared anywhere**.
-Resolved by the draft PR from branch `ralph/dedup-batch`.
+Resolved by draft PR
+[#158](https://github.com/pselamy/polymarket-insider-tracker/pull/158) from branch
+`ralph/dedup-batch`.
 
