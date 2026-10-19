@@ -151,7 +151,7 @@ knowledge).
 | 25 | 0 | 0 | compare_owned_then_execute (new) | **Resolved**: the watch/compare-owner/MULTI/EXEC CAS skeleton now has one home (`_channel_delivery.compare_owned_then_execute`, terminal operation supplied as an explicit callable); `compare_and_delete` and `compare_and_expire` delegate to it | resolved (PR #157) |
 | 26 | 1 | 10 | ingestor/test_models.py | Repeated model-construction blocks | real |
 | 27 | 1 | 10 | test_trade_row_v2_properties.py | Repeated property-based row assertions | real |
-| 28 | 0 | 0 | _entry_bootstrap.py (new) | **Resolved**: the script entry-point sibling-import bootstrap now has one home (`scripts/_entry_bootstrap.py`); both entry points load it | resolved (draft PR, branch `ralph/dedup-bootstrap`) |
+| 28 | 0 | 0 | _entry_bootstrap.py (new) | **Resolved**: the script entry-point sibling-import bootstrap now has one home (`scripts/_entry_bootstrap.py`); both entry points load it | resolved (PR #160) |
 | 29 | 1 | 8 | _v2_walk_harness.py, test_v2_cursor_walk.py | `CursorWalk` harness construction recipe duplicated between `build_walk` and an inline jitter-injection test setup | real |
 | 30 | 1 | 8 | test_endpoint_switch_resume.py | Repeated v1->v2 endpoint-switch test bootstrap (server/redis/seed/poller wiring block) | real |
 | 31 | 1 | 6 | storage/models.py | SQLAlchemy `datetime.now(UTC)` timestamp column defaults | incidental |
@@ -473,5 +473,6 @@ Set-difference of the raw clone lists: exactly the cluster-28 clone
 lines) disappeared and **no new clone group appeared anywhere**. The
 characterization test was written with a single consolidated loader program so
 that it neither self-duplicated nor copied the `_LOAD`/`_LOAD_VERIFIER` loader
-text that cluster 16 still owns. Resolved by this card's draft PR from branch
+text that cluster 16 still owns. Resolved by draft PR
+[#160](https://github.com/pselamy/polymarket-insider-tracker/pull/160) from branch
 `ralph/dedup-bootstrap`.
