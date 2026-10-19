@@ -12,6 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from polymarket_insider_tracker.ingestor.v2_cursor_walk import (
+    MAX_RETRIES,
     MAX_WALK_PAGES,
     CursorWalk,
     ProofCheck,
@@ -23,7 +24,6 @@ from tests.fakes import CountingBudget, FakeClock, FakeCursorFeed, trade_row, v2
 NOW = 1_788_983_720
 START = NOW - 600
 END = NOW
-DEFAULT_MAX_RETRIES = 4
 
 
 def v2_rows(count: int, *, offset: int = 0) -> list[dict[str, object]]:
@@ -46,7 +46,7 @@ def build_walk(
     feed: FakeCursorFeed,
     *,
     max_pages: int = MAX_WALK_PAGES,
-    max_retries: int = DEFAULT_MAX_RETRIES,
+    max_retries: int = MAX_RETRIES,
     is_cancelled: Callable[[], bool] | None = None,
 ) -> Harness:
     budget_clock = FakeClock(0.0)
@@ -56,6 +56,7 @@ def build_walk(
         budget=budget,
         clock=FakeClock(float(NOW)),
         sleeper=budget_clock.sleep,
+        random_source=lambda: 1.0,
         max_pages=max_pages,
         max_retries=max_retries,
         is_cancelled=is_cancelled,
@@ -69,7 +70,7 @@ async def run_walk(
     proof: ProofCheck | None = None,
     taker_only: bool = False,
     max_pages: int = MAX_WALK_PAGES,
-    max_retries: int = DEFAULT_MAX_RETRIES,
+    max_retries: int = MAX_RETRIES,
     is_cancelled: Callable[[], bool] | None = None,
 ) -> tuple[WalkResult, Harness]:
     harness = build_walk(

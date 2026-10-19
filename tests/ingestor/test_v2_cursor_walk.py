@@ -264,6 +264,27 @@ class TestAttemptBudget:
         assert harness.budget.acquires == 2
         assert harness.budget_clock.sleeps == [1.0]
 
+    @pytest.mark.parametrize("jitter", [0.0, 0.25, 1.0])
+    async def test_retry_delay_uses_full_jitter_from_the_injected_random(
+        self, jitter: float
+    ) -> None:
+        feed = FakeCursorFeed({None: v2_envelope([], next_cursor=None)})
+        feed.fail_next(V2TransientError("throttled"))
+        budget_clock = FakeClock(0.0)
+        budget = CountingBudget(clock=budget_clock, sleep=budget_clock.sleep)
+        walk = CursorWalk(
+            feed,
+            budget=budget,
+            clock=FakeClock(float(NOW)),
+            sleeper=budget_clock.sleep,
+            random_source=lambda: jitter,
+        )
+
+        result = await walk.run(taker_only=False, start=START, end=END)
+
+        assert result.stop_reason is StopReason.EXHAUSTED
+        assert budget_clock.sleeps == [1.0 * jitter]
+
     async def test_exhausted_transient_retries_raise(self) -> None:
         feed = FakeCursorFeed({None: v2_envelope([], next_cursor=None)})
         for _ in range(5):

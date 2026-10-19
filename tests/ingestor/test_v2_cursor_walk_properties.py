@@ -19,7 +19,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from polymarket_insider_tracker.ingestor.v2_cursor_walk import (
-    DEFAULT_MAX_RETRIES,
+    MAX_RETRIES,
     MAX_WALK_PAGES,
     MAX_WALK_ROWS,
     StopReason,
@@ -65,7 +65,7 @@ def reference_walk(
     failures: Sequence[bool],
     *,
     max_pages: int = MAX_WALK_PAGES,
-    max_retries: int = DEFAULT_MAX_RETRIES,
+    max_retries: int = MAX_RETRIES,
     max_rows: int = MAX_WALK_ROWS,
 ) -> ReferenceWalk:
     """An independent traversal of the scripted pages, mirroring the approved walk rules."""

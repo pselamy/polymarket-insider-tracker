@@ -17,6 +17,7 @@ empty terminal cycle is a successful quiet cycle, not a new gap.
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from enum import StrEnum
 from typing import Final
 
 from polymarket_insider_tracker.ingestor._attempt_budget import AttemptBudget
+from polymarket_insider_tracker.ingestor._retry import MAX_RETRIES, RandomSource, RetryPolicy
 from polymarket_insider_tracker.ingestor.trade_row_v2 import parse_v2_trade_row
 from polymarket_insider_tracker.ingestor.trade_rows import InvalidRow, TradeObservation
 from polymarket_insider_tracker.ingestor.v2_page import (
@@ -37,10 +39,6 @@ from polymarket_insider_tracker.ingestor.v2_page import (
 
 MAX_WALK_PAGES: Final[int] = 20
 MAX_WALK_ROWS: Final[int] = 20_000
-DEFAULT_MAX_RETRIES: Final[int] = 4
-RETRY_BACKOFF_BASE_SECONDS: Final[float] = 1.0
-RETRY_BACKOFF_CAP_SECONDS: Final[float] = 30.0
-RETRY_AFTER_CAP_SECONDS: Final[float] = 60.0
 
 Clock = Callable[[], float]
 Sleeper = Callable[[float], Awaitable[None]]
@@ -48,7 +46,7 @@ CancellationCheck = Callable[[], bool]
 ProofCheck = Callable[[Sequence[TradeObservation]], bool]
 
 __all__ = [
-    "DEFAULT_MAX_RETRIES",
+    "MAX_RETRIES",
     "MAX_WALK_PAGES",
     "MAX_WALK_ROWS",
     "CursorWalk",
@@ -113,16 +111,17 @@ class CursorWalk:
         budget: AttemptBudget | None = None,
         clock: Clock = time.time,
         sleeper: Sleeper = asyncio.sleep,
+        random_source: RandomSource = random.random,
         max_pages: int = MAX_WALK_PAGES,
-        max_retries: int = DEFAULT_MAX_RETRIES,
+        max_retries: int = MAX_RETRIES,
         is_cancelled: CancellationCheck | None = None,
     ) -> None:
         self._transport = transport
         self._budget = budget if budget is not None else AttemptBudget()
         self._clock = clock
         self._sleeper = sleeper
+        self._retry = RetryPolicy(max_retries=max_retries, random_source=random_source)
         self._max_pages = max_pages
-        self._max_retries = max_retries
         self._is_cancelled = is_cancelled
 
     async def run(
@@ -159,25 +158,23 @@ class CursorWalk:
         return None
 
     async def _fetch(self, request: V2PageRequest) -> object:
-        for attempt in range(self._max_retries + 1):
+        for attempt in range(self._retry.attempt_limit()):
             try:
                 return await self._attempt(request)
             except V2TransientError as error:
-                await self._handle_transient(attempt, error)
+                await self._retry_or_raise(attempt, error)
         raise AssertionError("retry loop always returns or raises")
 
     async def _attempt(self, request: V2PageRequest) -> object:
         await self._budget.acquire()
         return await self._transport.fetch(request)
 
-    async def _handle_transient(self, attempt: int, error: V2TransientError) -> None:
-        if attempt == self._max_retries:
+    async def _retry_or_raise(self, attempt: int, error: V2TransientError) -> None:
+        if attempt == self._retry.max_retries:
             raise error
-        await self._sleeper(self._delay(attempt, error))
-
-    def _delay(self, attempt: int, error: V2TransientError) -> float:
-        backoff = min(RETRY_BACKOFF_CAP_SECONDS, RETRY_BACKOFF_BASE_SECONDS * (1 << attempt))
-        return backoff + min(error.retry_after_seconds, RETRY_AFTER_CAP_SECONDS)
+        await self._sleeper(
+            self._retry.delay_seconds(attempt, retry_after_seconds=error.retry_after_seconds)
+        )
 
 
 @dataclass
