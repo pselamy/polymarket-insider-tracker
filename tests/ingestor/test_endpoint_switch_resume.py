@@ -13,9 +13,7 @@ from __future__ import annotations
 from fakeredis import FakeAsyncRedis, FakeServer
 
 from polymarket_insider_tracker.config import PolymarketSettings
-from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.observation_boundary import BoundaryOrigin
-from polymarket_insider_tracker.ingestor.trade_poller import TradePoller
 from tests.fakes import (
     FakeClock,
     FakeTradesServer,
@@ -24,44 +22,17 @@ from tests.fakes import (
     trade_row,
     v2_row,
 )
+from tests.ingestor._poller_harness import (
+    RecordingTradeCallback,
+)
+from tests.ingestor._poller_harness import (
+    build_poller as _poller,
+)
 
 OFFICIAL_V1 = "https://data-api.polymarket.com/trades"
 OFFICIAL_V2 = "https://data-api.polymarket.com/v2/trades"
 NOW = 1_788_983_720.0
 T0 = int(NOW)
-
-
-class RecordingTradeCallback:
-    """The downstream trade consumer; keeps every delivered event in order."""
-
-    def __init__(self) -> None:
-        self.trades: list[TradeEvent] = []
-
-    async def __call__(self, trade: TradeEvent) -> None:
-        self.trades.append(trade)
-
-    def timestamps(self) -> list[int]:
-        return [int(trade.timestamp.timestamp()) for trade in self.trades]
-
-
-def _poller(
-    server: FakeTradesServer | FakeV2TradesServer,
-    clock: FakeClock,
-    redis: FakeAsyncRedis,
-    settings: PolymarketSettings,
-    callback: RecordingTradeCallback,
-) -> TradePoller:
-    return TradePoller(
-        callback,
-        redis=redis,
-        settings=settings,
-        metadata=None,
-        on_state_change=None,
-        http_client=server.client(),
-        clock=clock,
-        sleeper=clock.sleep,
-        random_source=lambda: 0.0,
-    )
 
 
 def _polymarket(trades_url: str) -> PolymarketSettings:

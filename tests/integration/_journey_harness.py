@@ -1,18 +1,18 @@
-"""One home for the shared v2 dry-run journey scaffolding.
+"""One home for the shared dry-run journey scaffolding.
 
-Both v2 journeys prove the same dry-run contract — exactly one stored explainable assessment,
-zero channel deliveries, and zero successful-delivery dedup keys — from different entry
-configurations: the official v2 URL configured explicitly, and the approved default with
-``POLYMARKET_TRADES_URL`` unset. The pipeline wiring, journey execution, and contract
-assertions live here once; the shared fixtures live in this directory's ``conftest.py``. Each
-journey file carries only its own configuration difference and any journey-specific assertions
-on the returned assessment.
+The v1, explicit-v2, and default-v2 journeys prove the same contract — exactly one stored
+explainable assessment, zero channel deliveries, and zero successful-delivery dedup keys — over
+the same fake boundaries. The pipeline wiring, seeded cursor history, waiting/persistence
+helpers, journey execution, and contract assertions therefore live here once. Each journey file
+carries only its own entry configuration and any journey-specific assertions. Not collected as
+tests (its name does not start with ``test_``).
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from fakeredis import FakeAsyncRedis
@@ -27,7 +27,9 @@ from tests.fakes import (
     v2_row,
     wire_pipeline,
 )
+from tests.fakes.pipeline import TradesServer
 
+from polymarket_insider_tracker.alerter.dispatcher import AlertChannel
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline
@@ -68,7 +70,7 @@ def pipeline_row(sample_trade: TradeEvent, clock: FakeClock, tx_num: int = 9) ->
     return row
 
 
-async def _run_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
+async def run_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
         if predicate():
@@ -80,6 +82,52 @@ async def _run_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> 
 async def persisted_assessments(engine: AsyncEngine) -> list[RiskAssessmentModel]:
     async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
         return list((await session.execute(select(RiskAssessmentModel))).scalars().all())
+
+
+async def wire_journey_pipeline(
+    settings: Settings,
+    *,
+    redis: FakeAsyncRedis,
+    market: MarketMetadata,
+    db_manager: DatabaseManager,
+    channels: Sequence[AlertChannel],
+    trades: TradesServer,
+    poll_clock: FakeClock,
+) -> Pipeline:
+    """Build a journey's real pipeline over the fake boundaries."""
+    return await wire_pipeline(
+        settings,
+        redis=redis,
+        eth=FakeEth(transaction_count=0),
+        market=market,
+        db_manager=db_manager,
+        channels=channels,
+        trades=trades,
+        poll_clock=poll_clock,
+    )
+
+
+@asynccontextmanager
+async def running_pipeline(pipeline: Pipeline) -> AsyncIterator[Pipeline]:
+    """Run the background services for the block, then stop them cleanly."""
+    try:
+        await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+        yield pipeline
+    finally:
+        await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
+
+
+def dry_run_assessment(
+    rows: list[RiskAssessmentModel], sample_trade: TradeEvent
+) -> RiskAssessmentModel:
+    """Assert the single dry-run assessment contract and return it for further checks."""
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.should_alert is True
+    assert row.delivery_disposition == "dry_run"
+    assert row.dry_run is True
+    assert row.wallet_address == sample_trade.wallet_address.lower()
+    return row
 
 
 async def run_dry_run_journey(
@@ -98,25 +146,21 @@ async def run_dry_run_journey(
     """
     discord = FakeAlertChannel("discord")
     telegram = FakeAlertChannel("telegram")
-    pipeline: Pipeline = await wire_pipeline(
+    pipeline = await wire_journey_pipeline(
         settings,
         redis=environment.redis,
-        eth=FakeEth(transaction_count=0),
         market=market,
         db_manager=environment.db_manager,
         channels=[discord, telegram],
         trades=server,
         poll_clock=clock,
     )
-    try:
-        await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+    async with running_pipeline(pipeline):
         # A proof spanning the seeded two-row history forces more than one cursor page.
-        await _run_until(lambda: len(server.requests) >= 3)
+        await run_until(lambda: len(server.requests) >= 3)
         server.publish(v2_row(pipeline_row(sample_trade, clock)))
-        await _run_until(lambda: pipeline.stats.trades_processed >= 1)
-        await _run_until(lambda: len(server.requests) >= 6)
-    finally:
-        await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
+        await run_until(lambda: pipeline.stats.trades_processed >= 1)
+        await run_until(lambda: len(server.requests) >= 6)
 
     assert pipeline.stats.trades_processed == 1
     assert pipeline.stats.alerts_sent == 0
@@ -126,10 +170,4 @@ async def run_dry_run_journey(
     assert await environment.redis.keys("alert:ambiguous:*") == []
 
     rows = await persisted_assessments(environment.engine)
-    assert len(rows) == 1
-    assessment = rows[0]
-    assert assessment.should_alert is True
-    assert assessment.delivery_disposition == "dry_run"
-    assert assessment.dry_run is True
-    assert assessment.wallet_address == sample_trade.wallet_address.lower()
-    return assessment
+    return dry_run_assessment(rows, sample_trade)

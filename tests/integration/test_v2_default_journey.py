@@ -5,7 +5,7 @@ the approved default — the official Data API v2 endpoint — is what the polle
 through the real acquisition wiring (``ingestor.acquisition``). It proves the default path end to
 end at the dry-run boundary: exactly one stored explainable assessment, zero channel deliveries,
 and zero successful-delivery dedup keys. No guard, no skip: the wiring is merged. The shared
-scaffolding lives in ``_v2_journey_harness``; this file carries only the default-URL configuration
+scaffolding lives in ``_journey_harness``; this file carries only the default-URL configuration
 and the assessment-quality assertions.
 """
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 from tests.fakes import FakeClock, make_test_settings
-from tests.integration._v2_journey_harness import (
+from tests.integration._journey_harness import (
     POLL_START,
     JourneyEnvironment,
     run_dry_run_journey,
