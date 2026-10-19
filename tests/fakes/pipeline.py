@@ -58,7 +58,7 @@ def make_test_settings(
     discord_webhook_url: str | None = None,
     telegram_bot_token: str | None = None,
     telegram_chat_id: str | None = None,
-    trades_url: str = "https://data-api.polymarket.com/trades",
+    trades_url: str = "https://trades.invalid/trades",
     trades_coverage: str = "all",
     trades_poll_interval_seconds: int = 5,
     trades_recovery_horizon_seconds: int = 600,

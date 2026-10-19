@@ -471,7 +471,7 @@ class TestPolymarketSettings:
             warnings.simplefilter("always")
             settings = PolymarketSettings()
 
-        assert settings.trades_url == "https://data-api.polymarket.com/trades"
+        assert settings.trades_url == "https://data-api.polymarket.com/v2/trades"
         assert settings.trades_coverage is TradesCoverage.ALL
         assert settings.trades_poll_interval_seconds == 5
         assert settings.trades_recovery_horizon_seconds == 600
@@ -541,7 +541,7 @@ class TestPolymarketSettings:
             settings = PolymarketSettings()
 
         assert settings.ws_url == "wss://legacy.invalid/ws"
-        assert settings.trades_url == "https://data-api.polymarket.com/trades"
+        assert settings.trades_url == "https://data-api.polymarket.com/v2/trades"
         deprecations = [w for w in caught if w.category is WebSocketSettingDeprecationWarning]
         assert len(deprecations) == 1
         message = str(deprecations[0].message)
