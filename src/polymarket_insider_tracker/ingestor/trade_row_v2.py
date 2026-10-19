@@ -43,8 +43,17 @@ def _translate_row(row: dict[str, Any]) -> dict[str, Any]:
     return translated
 
 
+def translate_v2_row(raw: object) -> object:
+    """Rename one documented v2 row's fields onto the existing v1 input contract.
+
+    Non-mapping rows are returned unchanged so the existing parser still classifies them the way it
+    classifies any malformed v1 row.
+    """
+    if not isinstance(raw, dict):
+        return raw
+    return _translate_row(cast(dict[str, Any], raw))
+
+
 def parse_v2_trade_row(raw: object, *, now: int) -> TradeObservation | InvalidRow:
     """Decode one documented v2 row and parse it through the existing v1 contract."""
-    if not isinstance(raw, dict):
-        return parse_trade_row(raw, now=now)
-    return parse_trade_row(_translate_row(cast(dict[str, Any], raw)), now=now)
+    return parse_trade_row(translate_v2_row(raw), now=now)
