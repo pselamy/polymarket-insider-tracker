@@ -252,3 +252,22 @@ def test_json_output_for_a_v2_run_stays_wallet_free(
     assert re.search(r"0x[0-9a-fA-F]{40}", out) is None
     assert synthetic_wallet(5) not in out
     assert "Real Name" not in out
+
+
+def test_configured_official_v1_url_is_a_usage_error(
+    smoke: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The smoke refuses a configured official v1 route exactly as configuration validation does."""
+    from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL
+
+    monkeypatch.setenv("POLYMARKET_TRADES_URL", OFFICIAL_V1_TRADES_URL)
+
+    code = smoke.main(["--live"])
+
+    out_err = capsys.readouterr().err
+    assert code == smoke.EXIT_USAGE
+    assert "2026-10-24" in out_err
+    assert OFFICIAL_V2_TRADES_URL in out_err
+    assert "checkpoint" in out_err

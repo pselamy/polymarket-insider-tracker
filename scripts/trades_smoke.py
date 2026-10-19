@@ -7,9 +7,8 @@ per selected coverage mode (the v2 ``{data, pagination}`` envelope for the offic
 the default, the v1 list body otherwise). Records are aggregate-only — no wallet, name, pseudonym,
 profile value, or raw row is retained and the body is hashed and discarded — and the command never
 opens Redis or PostgreSQL, never sends a credential, and is in no verifier profile or CI job; see
-``contracts/live-smoke.md``. Exit status: ``0`` all passed and reachable; ``1`` a record failed
-(incompatible schema, terminal status, invalid-row share above 5%) or every attempt transient;
-``2`` invocation error.
+``contracts/live-smoke.md``. Exit status: ``0`` all passed and reachable; ``1`` any failed record
+or all attempts transient; ``2`` invocation error, including a configured official v1 URL.
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ from typing import Literal, NoReturn
 
 import httpx
 
-from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
+from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL, reject_v1_trades_url
 from polymarket_insider_tracker.ingestor.trade_rows import InvalidRow, parse_trade_row
 from polymarket_insider_tracker.ingestor.trades_source import (
     RETRY_AFTER_CAP_SECONDS,
@@ -350,8 +349,11 @@ def exit_code_for(records: Sequence[SmokeRecord]) -> int:
 
 
 def resolve_trades_url() -> str:
-    """The configured trades URL, or the documented default; never the legacy setting."""
-    return os.environ.get("POLYMARKET_TRADES_URL", DEFAULT_TRADES_URL)
+    """The configured URL (an official v1 route or non-HTTP(S) scheme rejected) or the default."""
+    url = reject_v1_trades_url(os.environ.get("POLYMARKET_TRADES_URL", DEFAULT_TRADES_URL))
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("POLYMARKET_TRADES_URL must be HTTP(S)")
+    return url
 
 
 class _ArgumentParser(argparse.ArgumentParser):
@@ -414,9 +416,10 @@ def main(argv: Sequence[str] | None = None, *, client_factory: ClientFactory | N
     args = _parse(argv)
     if args is None:
         return EXIT_USAGE
-    url = resolve_trades_url()
-    if not url.startswith(("http://", "https://")):
-        print("trades_smoke.py: error: POLYMARKET_TRADES_URL must be HTTP(S)", file=sys.stderr)
+    try:
+        url = resolve_trades_url()
+    except ValueError as exc:
+        print(f"trades_smoke.py: error: {exc}", file=sys.stderr)
         return EXIT_USAGE
     modes = list(COVERAGE_MODES) if args.coverage == "both" else [args.coverage]
     build = client_factory or httpx.AsyncClient
