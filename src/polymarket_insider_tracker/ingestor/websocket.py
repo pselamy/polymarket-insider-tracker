@@ -88,8 +88,8 @@ class TradeStreamHandler:
         host: str = DEFAULT_WS_HOST,
         on_state_change: StateCallback | None = None,
         ping_interval: int = DEFAULT_PING_INTERVAL,
-        max_reconnect_delay: int = DEFAULT_MAX_RECONNECT_DELAY,
-        initial_reconnect_delay: int = DEFAULT_INITIAL_RECONNECT_DELAY,
+        max_reconnect_delay: float = DEFAULT_MAX_RECONNECT_DELAY,
+        initial_reconnect_delay: float = DEFAULT_INITIAL_RECONNECT_DELAY,
         event_filter: str | None = None,
         market_filter: str | None = None,
     ) -> None:

@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 from fakeredis import FakeAsyncRedis
 
+from polymarket_insider_tracker.ingestor.clob_client import ClobClient, ClobClientError
 from polymarket_insider_tracker.ingestor.metadata_sync import (
     DEFAULT_CACHE_TTL_SECONDS,
     DEFAULT_REDIS_KEY_PREFIX,
@@ -25,25 +26,29 @@ from polymarket_insider_tracker.ingestor.models import (
 from tests.fakes import FakeGammaClient
 
 
-class FakeClobClient:
-    """Fake CLOB client providing market lookup."""
+class FakeClobClient(ClobClient):
+    """Fake CLOB client providing market lookup; constructing the real client is offline."""
 
     def __init__(
         self, markets: list[Market] | None = None, raise_error: Exception | None = None
     ) -> None:
+        super().__init__()
         self._markets = markets or []
         self._raise_error = raise_error
 
-    def get_markets(self, only_active: bool = True) -> list[Market]:
-        _ = only_active
+    def get_markets(self, active_only: bool = True) -> list[Market]:
+        _ = active_only
         if self._raise_error is not None:
             raise self._raise_error
         return list(self._markets)
 
-    def get_market(self, condition_id: str) -> Market | None:
+    def get_market(self, condition_id: str) -> Market:
         if self._raise_error is not None:
             raise self._raise_error
-        return next((m for m in self._markets if m.condition_id == condition_id), None)
+        market = next((m for m in self._markets if m.condition_id == condition_id), None)
+        if market is None:
+            raise ClobClientError(f"Failed to fetch market {condition_id}: not found")
+        return market
 
 
 # Test fixtures
@@ -260,7 +265,7 @@ class TestMarketMetadataSync:
 
         # Stop
         await sync.stop()
-        assert sync.state == SyncState.STOPPED
+        assert SyncState(sync.state) == SyncState.STOPPED
 
     @pytest.mark.asyncio
     async def test_start_performs_initial_sync(

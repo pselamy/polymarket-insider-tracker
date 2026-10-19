@@ -19,14 +19,16 @@ import importlib.util
 import os
 import uuid
 from asyncio import CancelledError
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 from fakeredis import FakeAsyncRedis, FakeServer
 from redis.asyncio import Redis
+from redis.asyncio.client import Pipeline
 from redis.exceptions import ResponseError, WatchError
+from tests.fakes.redis_await import as_bytes, settled
 
 # The services profile selects this file as its only pytest gate, so both
 # PostgreSQL journey tests are re-exported here to run in the "PostgreSQL and
@@ -72,9 +74,9 @@ async def _connect_real_redis() -> Redis:
     url = _runtime_services().validate_loopback_redis_url(
         os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
     )
-    client = Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
+    client: Redis = Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
     try:
-        assert await client.ping() is True
+        assert await settled(client.ping()) is True
     except BaseException:
         await client.aclose()
         raise
@@ -132,16 +134,18 @@ class FailedHandshakeRedis(FakeAsyncRedis):
         self.failure = failure
         self.closed = False
 
-    async def ping(self):
+    async def ping(self, **_kwargs: object) -> bool:
         raise self.failure
 
-    async def aclose(self, close_connection_pool=None) -> None:
+    async def aclose(self, close_connection_pool: bool | None = None) -> None:
         await super().aclose(close_connection_pool=close_connection_pool)
         self.closed = True
 
 
 @pytest.mark.parametrize("failure", [ResponseError("rejected"), CancelledError()])
-async def test_failed_real_client_setup_always_closes(monkeypatch, failure) -> None:
+async def test_failed_real_client_setup_always_closes(
+    monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
     client = FailedHandshakeRedis(failure)
     monkeypatch.setenv("REDIS_URL", LOCAL_REDIS_URL)
     monkeypatch.setattr(Redis, "from_url", lambda _url, **_options: client)
@@ -250,7 +254,12 @@ async def test_pipeline_applies_every_command_in_order(contract: ContractRedis) 
     assert await redis.xlen(contract.key("stream")) == 2
 
 
-async def _read(redis: Redis, group: str, consumer: str, stream: str, start: str) -> list[object]:
+_begin_multi: Callable[[Pipeline], None] = Pipeline.multi  # redis-py leaves multi() unannotated
+
+
+async def _read(
+    redis: Redis, group: str, consumer: str, stream: str, start: str
+) -> list[tuple[bytes, dict[bytes, bytes]]]:
     results = await redis.xreadgroup(group, consumer, {stream: start}, count=10)
     return list(results[0][1]) if results else []
 
@@ -338,23 +347,25 @@ async def test_checkpoint_hash_round_trips_as_bytes(contract: ContractRedis) -> 
     """The ingestion checkpoint is a hash of integer and enum fields read back as bytes."""
     redis, key = contract.client, contract.key("ingest:checkpoint")
 
-    assert await redis.hgetall(key) == {}
+    assert await settled(redis.hgetall(key)) == {}
     assert (
-        await redis.hset(
-            key,
-            mapping={
-                "schema_version": 2,
-                "boundary_time": 1788983716,
-                "emission_floor": 1788983716,
-                "boundary_origin": "first-start",
-                "written_at": 1788983720,
-                "coverage": "all",
-                "last_request_end": 1788983720,
-            },
+        await settled(
+            redis.hset(
+                key,
+                mapping={
+                    "schema_version": 2,
+                    "boundary_time": 1788983716,
+                    "emission_floor": 1788983716,
+                    "boundary_origin": "first-start",
+                    "written_at": 1788983720,
+                    "coverage": "all",
+                    "last_request_end": 1788983720,
+                },
+            )
         )
         == 7
     )
-    assert await redis.hgetall(key) == {
+    assert await settled(redis.hgetall(key)) == {
         b"schema_version": b"2",
         b"boundary_time": b"1788983716",
         b"emission_floor": b"1788983716",
@@ -363,9 +374,9 @@ async def test_checkpoint_hash_round_trips_as_bytes(contract: ContractRedis) -> 
         b"coverage": b"all",
         b"last_request_end": b"1788983720",
     }
-    assert await redis.hset(key, mapping={"boundary_time": 1788983800}) == 0
-    assert await redis.hget(key, "boundary_time") == b"1788983800"
-    assert await redis.hget(key, "absent") is None
+    assert await settled(redis.hset(key, mapping={"boundary_time": 1788983800})) == 0
+    assert await as_bytes(redis.hget(key, "boundary_time")) == b"1788983800"
+    assert await as_bytes(redis.hget(key, "absent")) is None
 
 
 async def test_identity_window_trim_and_cardinality(contract: ContractRedis) -> None:
@@ -389,14 +400,15 @@ async def test_loss_event_list_is_newest_first_and_bounded(contract: ContractRed
     """Loss events are pushed newest-first and trimmed to a bounded retention."""
     redis, key = contract.client, contract.key("ingest:loss-events")
 
-    assert await redis.lrange(key, 0, -1) == []
-    assert await redis.lpush(key, '{"n": 1}') == 1
-    assert await redis.lpush(key, '{"n": 2}', '{"n": 3}') == 3
-    assert await redis.lrange(key, 0, -1) == [b'{"n": 3}', b'{"n": 2}', b'{"n": 1}']
-    assert await redis.ltrim(key, 0, 1) is True
-    assert await redis.lrange(key, 0, -1) == [b'{"n": 3}', b'{"n": 2}']
-    assert await redis.lrange(key, 0, 4) == [b'{"n": 3}', b'{"n": 2}']
-    assert await redis.llen(key) == 2
+    assert await settled(redis.lrange(key, 0, -1)) == []
+    assert await settled(redis.lpush(key, '{"n": 1}')) == 1
+    assert await settled(redis.lpush(key, '{"n": 2}', '{"n": 3}')) == 3
+    assert await settled(redis.lrange(key, 0, -1)) == [b'{"n": 3}', b'{"n": 2}', b'{"n": 1}']
+    trimmed: object = await settled(redis.ltrim(key, 0, 1))
+    assert trimmed is True
+    assert await settled(redis.lrange(key, 0, -1)) == [b'{"n": 3}', b'{"n": 2}']
+    assert await settled(redis.lrange(key, 0, 4)) == [b'{"n": 3}', b'{"n": 2}']
+    assert await settled(redis.llen(key)) == 2
 
 
 async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedis) -> None:
@@ -416,9 +428,9 @@ async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedi
         results = await pipe.execute()
 
     assert results == [2, 2, 1, 1, True]
-    assert await redis.hget(checkpoint, "boundary_time") == b"900"
+    assert await as_bytes(redis.hget(checkpoint, "boundary_time")) == b"900"
     assert await redis.zrangebyscore(identities, "-inf", "+inf") == [b"kept", b"new-a", b"new-b"]
-    assert await redis.lrange(losses, 0, -1) == [b'{"reason": "horizon-expired"}']
+    assert await settled(redis.lrange(losses, 0, -1)) == [b'{"reason": "horizon-expired"}']
 
     async with redis.pipeline(transaction=True) as pipe:
         pipe.hset(checkpoint, mapping={"boundary_time": 950})
@@ -428,9 +440,9 @@ async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedi
         pipe.ltrim(losses, 0, 0)
         assert await pipe.execute() == [0, 1, 0, 2, True]
 
-    assert await redis.hget(checkpoint, "boundary_time") == b"950"
+    assert await as_bytes(redis.hget(checkpoint, "boundary_time")) == b"950"
     assert await redis.zcard(identities) == 4
-    assert await redis.lrange(losses, 0, -1) == [b'{"reason": "restart-beyond-horizon"}']
+    assert await settled(redis.lrange(losses, 0, -1)) == [b'{"reason": "restart-beyond-horizon"}']
 
 
 async def test_watched_type_change_aborts_before_transaction_writes(
@@ -449,7 +461,7 @@ async def test_watched_type_change_aborts_before_transaction_writes(
             await pipe.watch(watched)
             assert await pipe.type(watched) == b"none"
             await competitor.set(watched, "wrong-type")
-            pipe.multi()
+            _begin_multi(pipe)
             pipe.hset(watched, mapping={"field": "value"})
             pipe.set(transaction_owned, "must-not-exist")
             with pytest.raises(WatchError):
@@ -472,7 +484,7 @@ async def test_compare_and_delete_removes_only_the_owned_value(contract: Contrac
     async with redis.pipeline(transaction=True) as pipe:
         await pipe.watch(key)
         assert await pipe.get(key) == b"owner-token"
-        pipe.multi()
+        _begin_multi(pipe)
         pipe.delete(key)
         assert await pipe.execute() == [1]
 
@@ -495,7 +507,7 @@ async def test_compare_and_delete_aborts_when_the_value_changes_under_watch(
             await pipe.watch(key)
             assert await pipe.get(key) == b"stale-token"
             await competitor.set(key, "new-owner-token", ex=60)
-            pipe.multi()
+            _begin_multi(pipe)
             pipe.delete(key)
             with pytest.raises(WatchError):
                 await pipe.execute()
@@ -516,7 +528,7 @@ async def test_compare_and_expire_extends_only_the_owned_value(contract: Contrac
     async with redis.pipeline(transaction=True) as pipe:
         await pipe.watch(key)
         assert await pipe.get(key) == b"owner-token"
-        pipe.multi()
+        _begin_multi(pipe)
         pipe.expire(key, 120)
         assert await pipe.execute() == [True]
 
@@ -540,7 +552,7 @@ async def test_compare_and_expire_aborts_when_the_value_changes_under_watch(
             await pipe.watch(key)
             assert await pipe.get(key) == b"stale-token"
             await competitor.set(key, "new-owner-token", ex=30)
-            pipe.multi()
+            _begin_multi(pipe)
             pipe.expire(key, 600)
             with pytest.raises(WatchError):
                 await pipe.execute()

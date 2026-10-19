@@ -38,6 +38,7 @@ from tests.fakes import (
     timeout,
     trade_row,
 )
+from tests.fakes.redis_await import as_bytes, settled
 from tests.fakes.trades import Fault
 
 NOW = 1_788_983_720.0
@@ -760,7 +761,7 @@ class TestRestart:
         vars(redis_server)["connected"] = True
         await restarted.run_cycle()
 
-        assert restarted.status.state is IngestionState.RUNNING
+        assert IngestionState(restarted.status.state) is IngestionState.RUNNING
         assert restarted.status.boundary_origin is BoundaryOrigin.RE_ANCHORED
         assert len(restarted.status.loss_events) == 1
         assert callback.trades == []
@@ -831,7 +832,7 @@ class TestRestart:
                 pages_examined=1,
             ),
         )
-        assert await fake_redis.llen(restarted.boundary.loss_events_key) == 1
+        assert await settled(fake_redis.llen(restarted.boundary.loss_events_key)) == 1
         assert (
             _metric("polymarket_ingest_loss_events_total", reason="restart-beyond-horizon")
             - loss_before
@@ -928,7 +929,7 @@ class TestSaturation:
         assert frozen.loss_events == ()
         assert callback.timestamps()[:4] == [T0 + 2, T0 + 3, T0 + 4, T0 + 5]
         assert (
-            await fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time")
+            await as_bytes(fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time"))
             == str(T0 - 1).encode()
         )
         assert continued.state is IngestionState.POSSIBLE_DATA_LOSS
@@ -1001,7 +1002,7 @@ class TestSaturation:
             ),
         )
         assert (
-            await fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time")
+            await as_bytes(fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time"))
             == str(T0 + 6).encode()
         )
         assert (
@@ -1113,7 +1114,7 @@ class TestStopAndCrash:
         assert poller.status.counts[RowDisposition.EMITTED.value] == 1
         assert poller.status.boundary_time == T0 - 1
         assert (
-            await fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time")
+            await as_bytes(fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time"))
             == str(T0 - 1).encode()
         )
         assert poller.state is IngestionState.STOPPED

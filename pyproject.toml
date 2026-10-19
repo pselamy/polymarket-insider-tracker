@@ -108,6 +108,8 @@ files = [
     "conftest.py",
     "tests/alerter",
     "tests/fakes",
+    "tests/ingestor",
+    "tests/integration",
     "tests/quality",
     "tests/storage",
 ]

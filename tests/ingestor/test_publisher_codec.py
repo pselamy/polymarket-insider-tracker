@@ -39,11 +39,6 @@ from polymarket_insider_tracker.ingestor._publisher_codec import (
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.publisher import (
     EventPublisher,
-    _decode_entry_id,
-    _decode_stream_dict,
-    _deserialize_trade_event,
-    _parse_event_timestamp,
-    _serialize_trade_event,
 )
 
 
@@ -118,17 +113,17 @@ class TestCodecIdentity:
             assert func.__qualname__ == name
 
     def test_pickle_round_trip_by_reference(self) -> None:
-        func = pickle.loads(pickle.dumps(_serialize_trade_event))
-        assert func is _serialize_trade_event
+        func = pickle.loads(pickle.dumps(codec.serialize_trade_event))
+        assert func is codec.serialize_trade_event
 
     def test_signatures_preserved(self) -> None:
         import inspect
 
-        serialize_sig = inspect.signature(_serialize_trade_event)
+        serialize_sig = inspect.signature(codec.serialize_trade_event)
         assert list(serialize_sig.parameters) == ["event"]
         assert serialize_sig.parameters["event"].annotation is TradeEvent
         assert serialize_sig.return_annotation == dict[str, str]
-        decode_sig = inspect.signature(_decode_entry_id)
+        decode_sig = inspect.signature(codec.decode_entry_id)
         assert list(decode_sig.parameters) == ["entry_id"]
         assert decode_sig.return_annotation is str
 
@@ -137,22 +132,24 @@ class TestWireContract:
     """Wire keys, order, defaults, bytes and timestamp behavior are unchanged."""
 
     def test_serialize_wire_keys_and_order(self, sample_trade_event: TradeEvent) -> None:
-        data = _serialize_trade_event(sample_trade_event)
+        data = codec.serialize_trade_event(sample_trade_event)
         assert list(data.keys()) == EXPECTED_WIRE_KEYS
         assert all(isinstance(v, str) for v in data.values())
         assert data["price"] == "0.65"
         assert data["timestamp"] == "2026-01-04T12:00:00+00:00"
 
     def test_bytes_round_trip(self, sample_trade_event: TradeEvent) -> None:
-        wire = _serialize_trade_event(sample_trade_event)
-        redis_form = {k.encode(): v.encode() for k, v in wire.items()}
-        assert _deserialize_trade_event(redis_form) == sample_trade_event
+        wire = codec.serialize_trade_event(sample_trade_event)
+        redis_form: dict[bytes | str, bytes | str] = {
+            k.encode(): v.encode() for k, v in wire.items()
+        }
+        assert codec.deserialize_trade_event(redis_form) == sample_trade_event
 
     def test_mixed_str_bytes_decode(self) -> None:
-        assert _decode_stream_dict({b"a": "1", "b": b"2"}) == {"a": "1", "b": "2"}
+        assert codec.decode_stream_dict({b"a": "1", "b": b"2"}) == {"a": "1", "b": "2"}
 
     def test_deserialize_defaults(self) -> None:
-        event = _deserialize_trade_event({})
+        event = codec.deserialize_trade_event({})
         assert event.side == "BUY"
         assert event.outcome_index == 0
         assert event.price == Decimal("0")
@@ -160,23 +157,23 @@ class TestWireContract:
         assert event.market_id == ""
 
     def test_side_normalization(self) -> None:
-        assert _deserialize_trade_event({"side": "sell"}).side == "SELL"
-        assert _deserialize_trade_event({"side": "BUY"}).side == "BUY"
-        assert _deserialize_trade_event({"side": "maybe"}).side == "SELL"
+        assert codec.deserialize_trade_event({"side": "sell"}).side == "SELL"
+        assert codec.deserialize_trade_event({"side": "BUY"}).side == "BUY"
+        assert codec.deserialize_trade_event({"side": "maybe"}).side == "SELL"
 
     def test_invalid_timestamp_falls_back_to_now(self) -> None:
         before = datetime.now(UTC)
-        parsed = _parse_event_timestamp("not-a-timestamp")
+        parsed = codec.parse_event_timestamp("not-a-timestamp")
         after = datetime.now(UTC)
         assert before <= parsed <= after
 
     def test_valid_timestamp_parsed(self) -> None:
-        parsed = _parse_event_timestamp("2026-01-04T12:00:00+00:00")
+        parsed = codec.parse_event_timestamp("2026-01-04T12:00:00+00:00")
         assert parsed == datetime(2026, 1, 4, 12, 0, 0, tzinfo=UTC)
 
     def test_decode_entry_id(self) -> None:
-        assert _decode_entry_id(b"1-0") == "1-0"
-        assert _decode_entry_id("1-0") == "1-0"
+        assert codec.decode_entry_id(b"1-0") == "1-0"
+        assert codec.decode_entry_id("1-0") == "1-0"
 
 
 class TestPublisherSeam:
@@ -186,7 +183,7 @@ class TestPublisherSeam:
         self, sample_trade_event: TradeEvent, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         calls: list[str] = []
-        original = publisher._serialize_trade_event
+        original = codec.serialize_trade_event
 
         def recording(event: TradeEvent) -> dict[str, str]:
             calls.append(event.trade_id)
