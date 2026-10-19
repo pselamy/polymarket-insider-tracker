@@ -254,8 +254,7 @@ class AlertFormatter:
             "footer": {"text": "Polymarket Insider Tracker"},
         }
 
-        if "wallet" in links:
-            embed["url"] = links["wallet"]
+        embed["url"] = links["wallet"]
 
         return embed
 
@@ -269,8 +268,7 @@ class AlertFormatter:
     @staticmethod
     def _build_telegram_link_lines(links: dict[str, str]) -> list[str]:
         lines: list[str] = []
-        if "wallet" in links:
-            lines.append(f"[View Wallet]({links['wallet']})")
+        lines.append(f"[View Wallet]({links['wallet']})")
         if "market" in links:
             lines.append(f"[View Market]({links['market']})")
         return lines
@@ -342,8 +340,7 @@ class AlertFormatter:
     @staticmethod
     def _build_plain_links(links: dict[str, str]) -> list[str]:
         lines: list[str] = []
-        if "wallet" in links:
-            lines.append(f"Wallet: {links['wallet']}")
+        lines.append(f"Wallet: {links['wallet']}")
         if "market" in links:
             lines.append(f"Market: {links['market']}")
         return lines

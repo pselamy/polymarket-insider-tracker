@@ -268,6 +268,15 @@ class TestGetFirstUsdcTransfer:
         assert result is None
 
 
+class TestFirstTokenTransferFailure:
+    """A failing log query degrades to "no transfer" instead of aborting the trace."""
+
+    async def test_unreachable_chain_yields_no_first_transfer(self) -> None:
+        tracer = _polygon_tracer(FakeEth(always_fail=True))
+
+        assert await tracer.get_first_usdc_transfer(TEST_WALLET) is None
+
+
 class TestGetTransferLogs:
     """Tests for _get_transfer_logs method."""
 

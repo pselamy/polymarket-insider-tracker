@@ -335,8 +335,6 @@ class RiskScorer:
 
     @staticmethod
     def _apply_multi_signal_bonus(score: Decimal, count: int) -> Decimal:
-        if count >= 3:
-            return score * Decimal(str(MULTI_SIGNAL_BONUS_3))
         if count >= 2:
             return score * Decimal(str(MULTI_SIGNAL_BONUS_2))
         return score

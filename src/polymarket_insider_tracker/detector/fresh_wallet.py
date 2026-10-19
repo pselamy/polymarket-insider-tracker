@@ -31,7 +31,8 @@ LARGE_TRADE_THRESHOLD = Decimal("10000")
 class WalletProfiler(Protocol):
     """Wallet profiling the detector needs (satisfied structurally by ``WalletAnalyzer``)."""
 
-    async def analyze(self, address: str, /) -> WalletProfile: ...
+    async def analyze(self, address: str, /) -> WalletProfile:
+        """Profile the wallet at ``address``."""
 
 
 class FreshWalletDetector:

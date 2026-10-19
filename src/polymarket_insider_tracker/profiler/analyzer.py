@@ -28,9 +28,11 @@ DEFAULT_PROFILE_CACHE_TTL = 300  # 5 minutes
 class WalletChainReader(Protocol):
     """The chain queries the analyzer needs (satisfied structurally by ``PolygonClient``)."""
 
-    async def get_wallet_info(self, address: str, /) -> WalletInfo: ...
+    async def get_wallet_info(self, address: str, /) -> WalletInfo:
+        """Read the on-chain wallet facts for ``address``."""
 
-    async def get_token_balance(self, address: str, token_address: str, /) -> Decimal: ...
+    async def get_token_balance(self, address: str, token_address: str, /) -> Decimal:
+        """Read ``address``'s balance of ``token_address``."""
 
 
 class WalletAnalyzer:

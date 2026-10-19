@@ -28,9 +28,11 @@ if TYPE_CHECKING:
 class _QueuedPipeline(Protocol):
     """Surface of the queued terminal Redis operations used by the CAS home."""
 
-    def delete(self, *names: str) -> object: ...
+    def delete(self, *names: str) -> object:
+        """Queue deletion of the named keys."""
 
-    def expire(self, name: str, time: int) -> object: ...
+    def expire(self, name: str, time: int) -> object:
+        """Queue a TTL update for the named key."""
 
 
 async def is_channel_suppressed(
