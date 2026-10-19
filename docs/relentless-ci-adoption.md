@@ -553,3 +553,15 @@ Closest to 100% and chosen for step 1 (staged enrollment): the 24 modules alread
 `profiler/rpc_handle.py` and `profiler/funding.py`. Their gaps are one-line `Protocol` stubs
 (`->exit` branches, closed by a docstring-only body rather than any exclusion) and a few
 behaviours without a test.
+
+### Coverage step 1: staged enforcement
+
+The last two commands in `quality/checks.json` enforce the gate: `coverage run -m pytest tests
+--ignore=tests/tooling` followed by `coverage report --fail-under=100 --include=<enrolled modules>`.
+The enrolled list is the 33 modules now at 100% line and branch (the 24 complete modules plus the nine
+brought up in this step); it may only grow. No `pragma: no cover`, omit list or threshold relaxation
+is used. Dead code removed to get there: three unreachable `"wallet" in links` checks in
+`alerter/formatter.py` and the unreachable 3+ signal bonus branch in `detector/scorer.py`.
+
+Defect-fails: appending an unexercised two-branch function to `endpoints.py` drops it to 83% and
+`coverage report` exits 2; the reverted tree exits 0 (100%, 1687 statements, 276 branches).
