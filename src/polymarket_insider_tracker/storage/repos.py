@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
+from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
 from polymarket_insider_tracker.storage.models import (
     FundingTransferModel,
     RiskAssessmentModel,
@@ -25,8 +26,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
-
-UNRECORDED_DELIVERY_DISPOSITION = "unrecorded"
 
 
 class RowCountResult(Protocol):
@@ -568,8 +567,8 @@ class RiskAssessmentDTO:
     scoring_algorithm_version: str
     scoring_config: str | None
     # Defaults mirror the domain record's Slice 003 fields (detector.models);
-    # the disposition literal lives here (a detector -> storage import drags
-    # detector's dependency tree into warning-strict entrypoints).
+    # the disposition literal has one home in the dependency-free constants
+    # module (a detector-package import here would drag web3 into strict runs).
     delivery_disposition: str = field(default=UNRECORDED_DELIVERY_DISPOSITION)
     delivery_channels: str | None = field(default=None)
     dry_run: bool = field(default=False)

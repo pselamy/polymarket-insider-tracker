@@ -8,9 +8,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
 
+from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
-from polymarket_insider_tracker.storage.repos import UNRECORDED_DELIVERY_DISPOSITION
 
 # Version of the scoring algorithm (weights, bonuses, quantization, and combination
 # rules) recorded on every newly persisted assessment. Rows created before the
@@ -261,7 +261,7 @@ class RiskAssessment:
 
     # Slice 003 Safe Observable Operation fields. The honest defaults — an
     # unrecorded disposition, never a dry run, unknown observations — are shared
-    # with the persistence DTO through UNRECORDED_DELIVERY_DISPOSITION.
+    # with the persistence DTO through the dependency-free constants module.
     delivery_disposition: str = UNRECORDED_DELIVERY_DISPOSITION
     delivery_channels: str | None = None
     dry_run: bool = False

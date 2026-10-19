@@ -9,6 +9,8 @@ a single home without any observable change.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -346,3 +348,51 @@ class TestSignalProperties:
 
         assert signal.is_high_confidence is expected_high
         assert signal.is_very_high_confidence is expected_very_high
+
+
+class TestImportIsolation:
+    """Pin the dependency direction: detector models must not import storage.
+
+    Any full import of ``polymarket_insider_tracker.detector.models`` still
+    loads storage transitively through the pre-existing
+    ``ingestor -> config -> storage.database_url -> storage/__init__`` chain,
+    which predates the cluster-7 card and is outside its scope. What this card
+    must never regress is that no detector module imports the storage layer and
+    the disposition default stays the one dependency-free constant.
+    """
+
+    def test_detector_models_do_not_import_the_storage_package(self) -> None:
+        """A fresh interpreter traces no storage import originating in detector."""
+        program = "\n".join(
+            [
+                "import builtins",
+                "STORAGE = 'polymarket_insider_tracker.storage'",
+                "storage_imports = []",
+                "real_import = builtins.__import__",
+                "def traced_import(*args, **kwargs):",
+                "    name = args[0]",
+                "    caller = args[1].get('__name__') if len(args) > 1 else None",
+                "    if name == STORAGE or name.startswith(STORAGE + '.'):",
+                "        storage_imports.append((name, caller or '<unknown>'))",
+                "    return real_import(*args, **kwargs)",
+                "builtins.__import__ = traced_import",
+                "import polymarket_insider_tracker.detector.models as models",
+                "import polymarket_insider_tracker.constants as constants",
+                "import polymarket_insider_tracker.storage.repos as repos",
+                "assert models.UNRECORDED_DELIVERY_DISPOSITION == 'unrecorded'",
+                "assert (",
+                "    models.UNRECORDED_DELIVERY_DISPOSITION",
+                "    is constants.UNRECORDED_DELIVERY_DISPOSITION",
+                "    is repos.UNRECORDED_DELIVERY_DISPOSITION",
+                ")",
+                "importers = {caller for _, caller in storage_imports}",
+                "det = [i for i in importers if i.startswith('polymarket_insider_tracker.det')]",
+                "assert not det, sorted(storage_imports)",
+            ]
+        )
+
+        result = subprocess.run(
+            [sys.executable, "-c", program], capture_output=True, text=True, timeout=120
+        )
+
+        assert result.returncode == 0, result.stderr
