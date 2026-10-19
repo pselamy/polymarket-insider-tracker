@@ -10,7 +10,7 @@ what changed since and whether any conclusion depends on it.
 Command (stdlib only, no `src/` import; exit 1 when any recorded hash drifts):
 
 ```bash
-sh specs/004-truthful-detection-contract/evidence/run-evidence.sh check_source_hashes
+uv run python -m scripts.spec004_evidence.check_source_hashes
 ```
 
 | File (`src/polymarket_insider_tracker/`) | Recorded (`summary.json`) | On 1bdccbc | Disposition |

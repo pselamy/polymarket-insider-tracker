@@ -118,7 +118,7 @@ migration); this packet is not reduced to a CI or planning-only goal.
 ## Addendum 2026-10-19 (appended; the text above is historical and was not rewritten)
 
 - Source pins refreshed to main `1bdccbc`: see `evidence/source-refresh-1bdccbc.md`; the check is
-  `sh specs/004-truthful-detection-contract/evidence/run-evidence.sh check_source_hashes` (reports 3 of 7
+  `uv run python -m scripts.spec004_evidence.check_source_hashes` (reports 3 of 7
   recorded hashes drifting, all refactor-only).
 - The "scoring runtime unchanged" statement above still holds for `scorer.py` and `pipeline.py`
   (byte-identical) and holds semantically for the three refactored detector files.

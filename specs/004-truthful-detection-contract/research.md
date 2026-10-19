@@ -268,7 +268,7 @@ labelled UNVERIFIED.
 
 ## R10 — Threshold reachability under live evidence (added 2026-10-19; resolves F03, F04, F05)
 
-Every number below is recomputed by `sh evidence/run-evidence.sh reachability` (stdlib only, no `src/`
+Every number below is recomputed by `uv run python -m scripts.spec004_evidence.reachability` (stdlib only, no `src/`
 import; it re-reads the product source as text and fails if a copied constant drifted) and is committed
 as [evidence/reachability.md](evidence/reachability.md); `--check` proves the file is current. Weights,
 caps and bonuses are those of `detector/scorer.py` (0.40/0.35/0.25, ×1.2 for two groups),
@@ -332,7 +332,7 @@ deliverable alert at default settings.
 
 The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
 adds 40 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
-by `evidence/evidence-tools.md` (`replay_live`)) using unknown age and every volume state, with the 003.1-as-wired score
+by `scripts/spec004_evidence/`replay_live`.py`) using unknown age and every volume state, with the 003.1-as-wired score
 next to the proposed one. 0 of 40 qualify at 0.80; 7 at 0.78.
 
 ## R02a — Volume freshness that matches the real sync (added 2026-10-19; resolves F07, F08, F09, F10, F12, F14)
