@@ -11,7 +11,6 @@ These tests prove:
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import subprocess
 import sys
@@ -20,6 +19,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from tests.tooling.module_loading import load_module
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
@@ -102,19 +102,11 @@ def _marker(kind: str) -> str:
 
 
 def _verifier() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("verify_under_test", VERIFIER_PATH)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module("verify_under_test", VERIFIER_PATH)
 
 
 def _complexipy_runner() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("complexipy_gate_under_test", RUNNER_PATH)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module("complexipy_gate_under_test", RUNNER_PATH)
 
 
 def _tracked_files(pattern: str) -> list[str]:

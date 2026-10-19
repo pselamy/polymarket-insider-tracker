@@ -24,13 +24,13 @@ is NOT_INSPECTED and claimed by nobody.
 
 from __future__ import annotations
 
-import importlib.util
 import tomllib
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 import yaml
+from tests.tooling.module_loading import load_module
 
 from polymarket_insider_tracker.config import DatabaseSettings, RedisSettings
 
@@ -74,19 +74,11 @@ SCORE_5_CODE = (
 
 
 def _verifier() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("verify_policy_snapshot", VERIFIER_PATH)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module("verify_policy_snapshot", VERIFIER_PATH)
 
 
 def _complexipy_runner() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("complexipy_gate_policy_snapshot", RUNNER_PATH)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module("complexipy_gate_policy_snapshot", RUNNER_PATH)
 
 
 def _workflow() -> dict[str, object]:

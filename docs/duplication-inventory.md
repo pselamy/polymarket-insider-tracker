@@ -172,10 +172,10 @@ knowledge).
 | 13 | 2 | 30 | rev_20260522_1130_risk_assessments.py, rev_20260910_0000_safe_observable_operation.py, rev_20260920_0000_terminal_errors.py | Alembic revision scaffolding (`__all__`, `upgrade()` head) | incidental |
 | 14 | 0 | 0 | tests/ingestor/conftest.py | **Resolved**: the `sample_trade_event` fixture has one home (`tests/ingestor/conftest.py`) and the publish-then-read sequence has one helper (`_publish_then_read`) | resolved (this card) |
 | 15 | 0 | 0 | tests/fakes/trades.py | **Resolved**: the synthetic `market_metadata` builder and the `MALFORMED_NUMERIC_CASES` table now have one home in `tests/fakes/trades.py`; the v1 and v2 row-decoding tests use them | resolved (this card) |
-| 16 | 3 | 25 | test_service_entrypoint.py, test_verifier_standalone.py | Duplicated `_verifier` module-loader helper and entry bootstrap | real |
-| 17 | 2 | 22 | test_main.py | Repeated settings/pipeline wiring snippets | real |
+| 16 | 0 | 0 | tests/tooling/module_loading.py | **Resolved**: the isolated-interpreter `load(name, path)` program and the `from scripts import X` prologue have one home (`LOAD_PROGRAM`, `scripts_program`) | resolved (this card) |
+| 17 | 0 | 0 | tests/test_main.py | **Resolved**: the `cli.run_pipeline` recording stub has one home (`_record_pipeline_runs`) | resolved (this card) |
 | 18 | 1 | 20 | test_sniper.py | Repeated cluster-feeding test construction | real |
-| 19 | 2 | 18 | test_complexipy.py, test_gate_negatives.py, test_policy_snapshot.py | Duplicated `spec_from_file_location` verifier loader helper | real |
+| 19 | 0 | 0 | tests/tooling/module_loading.py | **Resolved**: in-process file-path loading has one home (`load_module`) | resolved (this card) |
 | 20 | 1 | 17 | test_analyzer.py | Repeated analyzer input construction | real |
 | 21 | 1 | 13 | _funding_rpc.py, funding.py | Parallel docstrings for the wrapped vs wrapper transfer-log API | incidental |
 | 22 | 1 | 12 | fresh_wallet.py, size_anomaly.py | Duplicated batch-result `_handle_batch_result` gather/zip knowledge | real; resolved, see the 2026-10-19 cluster 22 resolution update below |
@@ -797,3 +797,22 @@ the parent tree (292 files) reports 43 clone groups (518 duplicated lines, 0.85%
 branch (293 files) reports 36 (430 lines, 0.70%). Matched by file pair and line count, exactly
 the seven cluster 11/14/15 groups are gone and none was added. The 715 collected test IDs
 under `tests/ingestor` and `tests/profiler` are identical before and after.
+
+## 2026-10-19 resolution update: clusters 16, 17 and 19 (verifier/spec module loaders, test_main wiring)
+
+Cluster 19: `test_complexipy.py`, `test_gate_negatives.py` and `test_policy_snapshot.py` each
+carried the same `spec_from_file_location` recipe; it is now `tests.tooling.module_loading.load_module`
+and each call site still names its own module explicitly. Cluster 16: `_LOAD` and `_LOAD_VERIFIER`
+were the same isolated-interpreter loader program except that `_LOAD` registered the module in
+`sys.modules` and `_LOAD_VERIFIER` did not. They are now one `LOAD_PROGRAM` that registers (harmless in
+a fresh interpreter; no verifier assertion depends on absence), and the five pickle/import programs
+share the `scripts_program` prologue. Cluster 17: three `TestMain`/`TestCliOverrideConsistency` tests
+repeated the `cli.run_pipeline` recording stub; `_record_pipeline_runs` owns it. The fourth
+`run_pipeline` stub in `test_main.py` (blocks until cancelled) is different knowledge and was left alone.
+Incidental similarity left alone: the `_run`/`_run_program` and `_copy_scripts`/`_copy_verifier` helpers
+differ in `-S`, timeout and source directory and are below the clone threshold.
+
+Re-measured with the pinned jscpd 5.3.3 (`quality.duplication.scan`, minimum 50, over
+`quality.source_scope.discover`): the parent tree reports 36 clone groups (430 duplicated lines,
+0.70%); this branch reports 29 (365 lines). Matched by token count, lines and file pair, exactly
+the seven cluster 16/17/19 groups are gone and none was added.
