@@ -73,8 +73,10 @@ class FakeV2TradesServer:
 
     def _page_envelope(self, params: Mapping[str, str]) -> dict[str, object]:
         offset = self._offset(params.get("cursor"))
-        limit = self.page_size if "cursor" in params else min(
-            int(params.get("limit", str(self.page_size))), self.page_size
+        limit = (
+            self.page_size
+            if "cursor" in params
+            else min(int(params.get("limit", str(self.page_size))), self.page_size)
         )
         ordered = sorted(
             enumerate(self._ledger), key=lambda item: (-_sort_timestamp(item[1]), -item[0])

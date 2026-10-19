@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from polymarket_insider_tracker import __version__
+from polymarket_insider_tracker.ingestor._cycle_cutoff import CycleCutoff
 from polymarket_insider_tracker.ingestor._retry import BACKOFF_CAP_SECONDS as BACKOFF_CAP_SECONDS
 from polymarket_insider_tracker.ingestor._retry import (
     MAX_RETRIES,
@@ -176,7 +177,8 @@ def parse_retry_after(value: str | None, *, now: float) -> float:
     return max(0.0, delay)
 
 
-def _is_transient_status(status: int) -> bool:
+def is_transient_status(status: int) -> bool:
+    """Whether a status is retryable for the trades endpoint (shared by both paths)."""
     return status in TRANSIENT_STATUSES or status >= 500
 
 
@@ -205,16 +207,16 @@ class TradesSourceClient:
         self._sleeper = sleeper
         self._retry = RetryPolicy(max_retries=max_retries, random_source=random_source)
         self._on_attempt = on_attempt
-        self._last_end: int | None = None
+        self._cutoff = CycleCutoff(clock, sleeper)
         self._attempts: list[RequestAttempt] = []
 
     @property
     def last_request_end(self) -> int | None:
-        return self._last_end
+        return self._cutoff.last
 
     def restore_last_end(self, end: int | None) -> None:
         """Continue the strictly increasing ``end`` sequence from a durable checkpoint."""
-        self._last_end = end
+        self._cutoff.restore(end)
 
     @property
     def attempts(self) -> tuple[RequestAttempt, ...]:
@@ -226,9 +228,12 @@ class TradesSourceClient:
         floor = reference - BUDGET_WINDOW_SECONDS
         return sum(1 for attempt in self._attempts if attempt.at > floor)
 
-    async def fetch_primary(self, *, boundary_time: int | None, horizon_seconds: int) -> TradesPage:
-        """Fetch the newest page with a strictly increasing ``end`` as the cycle cutoff."""
-        end = await self._next_end()
+    async def fetch_primary(
+        self, *, boundary_time: int | None, horizon_seconds: int, proof: object | None = None
+    ) -> TradesPage:
+        """Fetch the newest page; ``proof`` keeps one call signature across both paths."""
+        _ = proof
+        end = await self._cutoff.next()
         request = TradesRequest(
             offset=0,
             taker_only=self._taker_only,
@@ -246,14 +251,6 @@ class TradesSourceClient:
             end=primary.end,
         )
         return await self._fetch(request)
-
-    async def _next_end(self) -> int:
-        now = self._clock()
-        end = int(now) if self._last_end is None else max(self._last_end + 1, int(now))
-        if end > now:
-            await self._sleeper(end - now)
-        self._last_end = end
-        return end
 
     async def _fetch(self, request: TradesRequest) -> TradesPage:
         for attempt in range(self._retry.attempt_limit()):
@@ -334,7 +331,7 @@ class TradesSourceClient:
         status = response.status_code
         if status == 200:
             return self._parse_success(response, request, started, attempt)
-        if _is_transient_status(status):
+        if is_transient_status(status):
             retry_after = parse_retry_after(response.headers.get("Retry-After"), now=self._clock())
             return self._transient(
                 started, attempt, status, "status", f"HTTP {status}", retry_after

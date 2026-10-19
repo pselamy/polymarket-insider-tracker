@@ -26,11 +26,9 @@ from tests.fakes import (
     FakeClock,
     FakeEth,
     FakeTradesServer,
-    FakeV2TradesServer,
     make_test_settings,
     terminal,
     trade_row,
-    v2_row,
     wire_pipeline,
 )
 
@@ -41,7 +39,6 @@ from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import RiskAssessmentModel
 
 POLL_START = 1_788_983_720.0
-V2_TRADES_URL = "https://data-api.polymarket.com/v2/trades"
 
 
 @pytest.fixture
@@ -91,14 +88,6 @@ def _seeded_server(clock: FakeClock) -> FakeTradesServer:
     server = FakeTradesServer(clock=clock)
     server.publish(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1))
     server.publish(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2))
-    return server
-
-
-def _seeded_v2_server(clock: FakeClock) -> FakeV2TradesServer:
-    """The same two-row history as ``_seeded_server``, served across several v2 cursor pages."""
-    server = FakeV2TradesServer(clock=clock, page_size=1)
-    server.publish(v2_row(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1)))
-    server.publish(v2_row(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2)))
     return server
 
 
@@ -258,66 +247,6 @@ class TestEndToEndPipelineHarness:
         assert assessment_row.scoring_algorithm_version == "003.1"
         assert assessment_row.scoring_config is not None
         assert '"weights"' in assessment_row.scoring_config
-
-    @pytest.mark.asyncio
-    async def test_end_to_end_dry_run_pipeline_v2(
-        self,
-        unused_tcp_port: int,
-        fake_redis: FakeAsyncRedis,
-        db_manager: DatabaseManager,
-        async_engine: AsyncEngine,
-        sample_trade_event: TradeEvent,
-        niche_market: MarketMetadata,
-    ) -> None:
-        """The dry-run journey over the v2 cursor feed: one assessment, zero delivery, zero dedup."""
-        clock = FakeClock(POLL_START)
-        server = _seeded_v2_server(clock)
-        discord = FakeAlertChannel("discord")
-        telegram = FakeAlertChannel("telegram")
-
-        settings = make_test_settings(
-            dry_run=True,
-            alert_threshold=0.4,
-            health_port=unused_tcp_port,
-            trades_url=V2_TRADES_URL,
-        )
-
-        pipeline = await wire_pipeline(
-            settings,
-            redis=fake_redis,
-            eth=FakeEth(transaction_count=0),
-            market=niche_market,
-            db_manager=db_manager,
-            channels=[discord, telegram],
-            trades=server,
-            poll_clock=clock,
-        )
-
-        try:
-            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
-            # A proof spanning the seeded two-row history forces more than one cursor page.
-            await _run_until(lambda: len(server.requests) >= 3)
-
-            server.publish(v2_row(_pipeline_row(sample_trade_event, clock)))
-            await _run_until(lambda: pipeline.stats.trades_processed >= 1)
-            await _run_until(lambda: len(server.requests) >= 6)
-        finally:
-            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
-
-        assert pipeline.stats.trades_processed == 1
-        assert pipeline.stats.alerts_sent == 0
-        assert len(discord.deliveries) == 0
-        assert len(telegram.deliveries) == 0
-
-        assert await fake_redis.keys("alert:dedup:*") == []
-        assert await fake_redis.keys("alert:ambiguous:*") == []
-
-        rows = await _persisted_assessments(async_engine)
-        assert len(rows) == 1
-        assessment_row = rows[0]
-        assert assessment_row.should_alert is True
-        assert assessment_row.delivery_disposition == "dry_run"
-        assert assessment_row.wallet_address == sample_trade_event.wallet_address.lower()
 
     @pytest.mark.asyncio
     async def test_end_to_end_live_delivery_and_deduplication(

@@ -15,7 +15,7 @@ import logging
 import random
 import re
 import time
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -26,6 +26,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from redis.asyncio import Redis
 
 from polymarket_insider_tracker.config import PolymarketSettings
+from polymarket_insider_tracker.ingestor.acquisition import make_trades_source
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.observation_boundary import (
     BoundaryOrigin,
@@ -35,20 +36,18 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     ObservationBoundary,
     ProofResult,
 )
+from polymarket_insider_tracker.ingestor.page_analysis import PageAnalysis as PageAnalysis
 from polymarket_insider_tracker.ingestor.trade_rows import (
-    InvalidRow,
     OutcomeResolution,
     RowDisposition,
     TradeObservation,
     classify_observation,
-    parse_trade_row,
     repair_outcome,
     zero_disposition_counts,
 )
 from polymarket_insider_tracker.ingestor.trades_source import (
     RequestAttempt,
     TradesPage,
-    TradesSourceClient,
     TradesTerminalError,
 )
 from polymarket_insider_tracker.redaction import redact_exception_message, redact_text
@@ -184,62 +183,6 @@ class _Tallies:
 
 
 @dataclass
-class PageAnalysis:
-    """Strictly parsed page content: unique eligible observations plus per-row tallies."""
-
-    cutoff: int
-    observations: dict[str, TradeObservation] = field(default_factory=dict[str, TradeObservation])
-    outcomes: list[TradeObservation] = field(default_factory=list[TradeObservation])
-    resolved_outcomes: int = 0
-    invalid: list[InvalidRow] = field(default_factory=list[InvalidRow])
-    deferred: int = 0
-    repeats: int = 0
-    row_count: int = 0
-    latest_seen: int | None = None
-
-    def add_rows(self, rows: Iterable[object], *, now: int) -> None:
-        for raw in rows:
-            self._add(parse_trade_row(raw, now=now))
-
-    def _add(self, parsed: TradeObservation | InvalidRow) -> None:
-        self.row_count += 1
-        if isinstance(parsed, InvalidRow):
-            self.invalid.append(parsed)
-            return
-        self.outcomes.append(parsed)
-        self.latest_seen = max(parsed.provider_timestamp, self.latest_seen or 0)
-        if parsed.provider_timestamp > self.cutoff:
-            self.deferred += 1
-            return
-        self._remember_observation(parsed)
-
-    def _remember_observation(self, parsed: TradeObservation) -> None:
-        existing = self.observations.get(parsed.identity)
-        if existing is None:
-            self.observations[parsed.identity] = parsed
-            return
-        self.repeats += 1
-        if existing.outcome_resolution is OutcomeResolution.UNKNOWN:
-            self.observations[parsed.identity] = parsed
-
-    @property
-    def oldest(self) -> int | None:
-        timestamps = [observation.provider_timestamp for observation in self.observations.values()]
-        return min(timestamps) if timestamps else None
-
-    @property
-    def newest(self) -> int | None:
-        timestamps = [observation.provider_timestamp for observation in self.observations.values()]
-        return max(timestamps) if timestamps else None
-
-    @property
-    def span_seconds(self) -> int:
-        if self.newest is None or self.oldest is None:
-            return 0
-        return self.newest - self.oldest
-
-
-@dataclass
 class _OpenGap:
     """An interval the durable boundary could not be proven across; held until it resolves."""
 
@@ -328,7 +271,7 @@ class TradePoller:
         self._horizon = settings.trades_recovery_horizon_seconds
         self._owns_client = http_client is None
         self._http = http_client or httpx.AsyncClient()
-        self._client = TradesSourceClient(
+        self._client = make_trades_source(
             self._http,
             url=settings.trades_url,
             coverage=self._coverage,
@@ -518,10 +461,37 @@ class TradePoller:
             self._client.fetch_primary(
                 boundary_time=checkpoint.boundary_time if checkpoint else None,
                 horizon_seconds=self._horizon,
+                proof=self._walk_proof,
             )
         )
         assert isinstance(page, TradesPage)
         return page
+
+    def _walk_proof(self, cutoff: int) -> Callable[[Sequence[TradeObservation]], bool]:
+        """The v2 walk's proof callback: the existing durable proof over cumulative observations.
+
+        On a first start or an over-horizon restart the poller anchors (or re-anchors) from this
+        cycle's first page, exactly as the v1 primary fetch did, so the walk stops after one page.
+        Otherwise the callback reuses ``_prove`` unchanged, so continuity and reach stay the single
+        implementation. The v2 source ignores this for the v1 path.
+        """
+        stop_after_first = self.boundary.checkpoint is None or self._restart_would_reanchor()
+
+        def check(observations: Sequence[TradeObservation]) -> bool:
+            if stop_after_first:
+                return True
+            analysis = PageAnalysis(cutoff=cutoff)
+            analysis.add_observations(observations)
+            return self._prove(analysis, None).proven
+
+        return check
+
+    def _restart_would_reanchor(self) -> bool:
+        """A read-only form of ``_restart_is_beyond_horizon`` for the walk's early stop."""
+        checkpoint = self.boundary.checkpoint
+        if not self._restart_check_pending or checkpoint is None:
+            return False
+        return int(self._clock()) - checkpoint.boundary_time > self._horizon
 
     def _absorb(self, page: TradesPage, analysis: PageAnalysis) -> None:
         """Parse one response into the cycle's analysis and record its reachability."""
