@@ -14,7 +14,7 @@ Selection mirrors the service-profile gates: both tests run only when ``DATABASE
 ``REDIS_URL`` are present (the ``services`` gates inherit both), skip cleanly when the deterministic
 compatibility suite scrubs service configuration, and reject a non-loopback ``REDIS_URL`` before any
 client exists. The services profile's only pytest path is ``test_redis_contract``, which re-exports
-both tests. The shared journey scaffolding lives in ``_v2_journey_harness`` and the disposable
+both tests. The shared journey scaffolding lives in ``_journey_harness`` and the disposable
 database helper in ``test_postgres_journey``.
 """
 
@@ -35,15 +35,15 @@ from tests.fakes import (
     v2_row,
     wire_pipeline,
 )
-from tests.integration._v2_journey_harness import (
+from tests.integration._journey_harness import (
     POLL_START,
     JourneyEnvironment,
-    _run_until,
     persisted_assessments,
     pipeline_row,
     run_dry_run_journey,
     seeded_v2_server,
 )
+from tests.integration._journey_harness import run_until as _run_until
 from tests.integration.test_postgres_journey import _disposable_database
 
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
