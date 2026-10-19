@@ -55,6 +55,39 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DATABASE_ENV = "DATABASE_URL"
 TX_NUMBER = 9
 
+# Pinned scoring expectations for this deterministic fixture, derived from the fixture
+# inputs and the scoring configuration the assessment must record, not copied from an
+# observed run. The trade is $5000 x $0.65 = $3250 notional from a nonce-0 wallet, so the
+# fresh-wallet detector scores base 0.5 + brand-new bonus 0.2 (age unknown, trade below the
+# $10,000 large-trade bonus). The "science" market has no volume/book data, so the
+# size-anomaly detector emits the niche-only base 0.2. Applying the recorded weights
+# (fresh_wallet 0.40, size_anomaly 0.35, niche_market 0.25) to the quantized confidences
+# and the two-signal 1.2x bonus gives:
+#     (0.700*0.40 + 0.200*0.35 + 0.200*0.25) * 1.2 = 0.480
+# A change to any weight, bonus, or base confidence makes these literals stop matching the
+# stored row, so a scoring change fails this test instead of silently passing.
+_EXPECTED_FRESH_WALLET_CONFIDENCE = Decimal("0.700")
+_EXPECTED_SIZE_ANOMALY_CONFIDENCE = Decimal("0.200")
+_EXPECTED_WEIGHTED_SCORE = (
+    (
+        _EXPECTED_FRESH_WALLET_CONFIDENCE * Decimal("0.40")
+        + _EXPECTED_SIZE_ANOMALY_CONFIDENCE * Decimal("0.35")
+        + _EXPECTED_SIZE_ANOMALY_CONFIDENCE * Decimal("0.25")
+    )
+    * Decimal("1.2")
+).quantize(Decimal("0.001"))
+_EXPECTED_SCORING_CONFIG: dict[str, object] = {
+    "alert_threshold": "0.400",
+    "multi_signal_bonus_2": "1.2",
+    "multi_signal_bonus_3": "1.3",
+    "score_quantum": "0.001",
+    "weights": {
+        "fresh_wallet": "0.4",
+        "niche_market": "0.25",
+        "size_anomaly": "0.35",
+    },
+}
+
 
 def _required_database_url() -> str:
     """Return the service URL or skip when the deterministic suite scrubbed it."""
@@ -154,17 +187,18 @@ def _assert_trade_identity(row: RiskAssessmentModel, trade: TradeEvent) -> None:
 def _assert_score_inputs(row: RiskAssessmentModel) -> None:
     assert row.signals_triggered == 2
     assert row.is_niche_market is True
-    assert row.fresh_wallet_confidence is not None
-    assert row.fresh_wallet_confidence > 0
-    assert row.size_anomaly_confidence is not None
-    assert row.size_anomaly_confidence > 0
+    assert row.fresh_wallet_confidence == _EXPECTED_FRESH_WALLET_CONFIDENCE
+    assert row.size_anomaly_confidence == _EXPECTED_SIZE_ANOMALY_CONFIDENCE
     assert row.wallet_tx_count == 0
     assert row.wallet_age_known is False
-    assert row.weighted_score > 0
+    assert row.weighted_score == _EXPECTED_WEIGHTED_SCORE
     assert row.threshold_at_eval == Decimal("0.400")
     assert row.scoring_algorithm_version == "003.1"
+
+
+def _assert_scoring_config(row: RiskAssessmentModel) -> None:
     assert row.scoring_config is not None
-    assert '"weights"' in row.scoring_config
+    assert json.loads(row.scoring_config) == _EXPECTED_SCORING_CONFIG
 
 
 def _assert_dry_run_disposition(row: RiskAssessmentModel) -> None:
@@ -229,6 +263,7 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
         row = rows[0]
         _assert_trade_identity(row, trade)
         _assert_score_inputs(row)
+        _assert_scoring_config(row)
         _assert_dry_run_disposition(row)
 
 
