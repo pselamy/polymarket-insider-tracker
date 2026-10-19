@@ -37,6 +37,7 @@ dev = [
     "pyyaml>=6.0.0",
     "aiosqlite>=0.19.0",
     "fakeredis==2.38.0",
+    "hypothesis==6.170.1",
 ]
 
 [build-system]
@@ -162,9 +163,4 @@ source_paths = ["src/polymarket_insider_tracker/redaction.py"]
 only_mutate = ["*/redaction.py"]
 also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
 pytest_add_cli_args_test_selection = ["tests/test_redaction.py", "-q", "-p", "no:cacheprovider"]
-
-[dependency-groups]
-dev = [
-    "hypothesis>=6.170.1",
-]
 
