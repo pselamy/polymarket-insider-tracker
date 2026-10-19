@@ -20,7 +20,7 @@ record that a CLOB-only path can rewrite.
 | `daily_volume_acquired_at` | aware UTC datetime \| null | The instant the page's response body was received by `GammaClient` (read from an injectable clock immediately after the HTTP response completes, before JSON decoding). Carried unchanged through the crawl result, the volume record and Redis; a cache read never restamps it. Null when no observation exists. |
 | `daily_volume_source` | string \| null | Source identifier, e.g. `gamma-markets-v1` (endpoint + first-party revision note `49ec9991b7f3e95197a4d53910f6086bf3ff2294`); `caller` for an explicit argument (§1.3). Null for legacy records. A source is **qualified** iff it is in the code-defined qualified set, initially `{gamma-markets-v1, caller}` (set membership is the T018 receipt). |
 | `volume_state` | enum (8 values) | Exactly one of `available`, `unavailable`, `unqualified`, `missing`, `invalid`, `nonpositive`, `invalid_time`, `stale`; assigned by the precedence table in §1.2. |
-| `volume_reason` | enum \| null | Sub-reason, recorded for diagnosis, never a separate state (§1.2 last column). |
+| `volume_reason` | enum | Sub-reason, recorded for diagnosis, never a separate state (§1.2 last column). |
 
 `evaluated_at` is the single evaluation instant injected into the evaluation (contracts/detector-api.md
 §Evaluation clock). Age is `evaluated_at - daily_volume_acquired_at`.
@@ -91,7 +91,7 @@ can never be mistaken for Gamma data. The live pipeline never passes it.
 | `age_state = unknown`, `nonce < B`, notional ≥ 1000 | class `low_activity_unknown_age`; confidence **exactly 0.50**; factors `{base: 0.5}` only |
 | …and nonce = 0 | still exactly 0.50 (no brand-new addition) |
 | …and notional > 10000 | still exactly 0.50 (no large-trade addition) |
-| `age_state = unknown`, `nonce >= B` or notional < 1000 | `known_nonqualifying` / no signal; never promoted |
+| `age_state = unknown`, `nonce >= B` or notional < 1000 | `known_nonqualifying` (the class name means "evaluated, input did not qualify", whatever the age state) / no signal; never promoted |
 | profile retrieval failed | `retrieval_failed`; no freshness fact; no signal |
 | required label | “low-activity wallet, age unknown” on the proxy address; never “new”, “fresh”, “under 48 hours” |
 
@@ -120,7 +120,7 @@ classification. Old rows keep version-specific reader semantics (§4); unknown-a
 Configured-boundary-10 mismatch closed: when the effective boundary is 10, the default
 analyzer rule would mark nonce 9 non-fresh while the new detector correctly classifies a
 known-age nonce-9 candidate as `fresh`. The joint regression (tasks T009c) asserts the
-classified signal, JSON flag, persisted row, rendered label, confidence `≤ 0.50` for
+classified signal, JSON flag, persisted row, rendered label, confidence exactly `0.50` for
 unknown age, no age bonus, and listed factors together — for both the unknown-age case and
 the boundary-10 override case.
 

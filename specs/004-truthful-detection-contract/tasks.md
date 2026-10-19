@@ -34,7 +34,7 @@ Named files, entry points, dependency order:
   evaluation; classification uses `nonce < B` with notional ≥ 1000 and age ≤ 48h gates
   (FR-007/009, D1)
 - [ ] T009c [US1] Freshness-closure regression in `tests/detector/test_fresh_wallet.py` —
-  unknown-age candidate asserts confidence ≤ 0.50, no age/new-wallet/large-trade bonus,
+  unknown-age candidate asserts confidence exactly 0.50 (never lower or higher), no age/new-wallet/large-trade bonus,
   low-activity factor, JSON `wallet_is_fresh` (`detector/models.py:124`), persisted
   `WalletProfileDTO.is_fresh` (`pipeline.py:671`), rendered label, PLUS the boundary-10 /
   nonce-9 override mismatch (FR-008/010, SC-003/006, D2). Joint assertion, not separate
@@ -187,7 +187,7 @@ T009d with T012a–d (detector vs ingestor tables), T013 with T015 (capability v
 
 Full per-requirement table with implementation task(s), named test/scenario obligation, and
 future evidence receipt lives in `evidence/implementation-validation.md` §Traceability.
-Summary: FR-001–011 → T009a–d/T011/T012/T013/T015/T016; FR-012–014 → T013/T014;
+Summary: FR-001–011 → T009a–d/T011/T012a–d/T013/T015/T016; FR-012–014 → T013/T014;
 FR-015/016 → T009d/T010; FR-017/018 → T014; FR-019 → T002/T019; FR-020 → T006/T017/T020;
 FR-021 → T010; FR-022/SC-009 → T028; SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
 (US1-1..4, US2-1..4, US3-1..4) → T009d/T010/T013/T014/T015/T017/T019 with journey

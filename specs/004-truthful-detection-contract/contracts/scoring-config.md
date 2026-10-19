@@ -67,7 +67,7 @@ readable summary.
 | `wallet.observation_time` | UTC timestamp | yes | The profile's `analyzed_at`. |
 | `wallet.retrieval_error` | string ≤ 128 | yes | Error class name only. |
 | `wallet.confidence`, `wallet.factors` | 3-decimal string; object name → decimal string | confidence null when no signal | Unknown age ⇒ `"0.500"`, factors `{"base":"0.5"}`. |
-| `size.volume_state`, `size.volume_reason` | enum (8 states); string ≤ 64 | reason null only for none | data-model §1.2. |
+| `size.volume_state`, `size.volume_reason` | enum (8 states); enum of the §1.2 reasons | never null (every state has a reason) | data-model §1.2. |
 | `size.volume24hr_present`, `size.volume24hr_raw` | boolean; **any JSON value** | raw null when absent/null | Decoded JSON value verbatim. Bounded: if its canonical JSON exceeds 256 bytes it is replaced by `{"$truncated":true,"type":"<json type>","bytes":<n>,"sha256":"<hex>"}`. |
 | `size.daily_volume` | decimal string | null unless `available` | The only denominator. |
 | `size.daily_volume_acquired_at`, `size.daily_volume_age_seconds`, `size.daily_volume_source` | UTC timestamp; decimal string; string | null when no observation | Age = `evaluated_at − acquired_at`. |

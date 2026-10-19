@@ -118,7 +118,7 @@
             "volume_state": {
               "enum": ["available", "unavailable", "unqualified", "missing", "invalid", "nonpositive", "invalid_time", "stale"]
             },
-            "volume_reason": {"type": ["string", "null"], "maxLength": 64},
+            "volume_reason": {"enum": ["gamma_fetch_failed", "absent_from_complete_crawl", "crawl_truncated", "clob_miss_path", "no_volume_record", "metadata_lookup_failed", "unknown_source", "no_provenance", "null_or_absent", "not_a_finite_number", "zero", "negative", "absent", "naive", "unparseable", "nonpositive_epoch", "future", "older_than_600s", "gamma", "caller"]},
             "volume24hr_present": {"type": "boolean"},
             "volume24hr_raw": {},
             "daily_volume": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
