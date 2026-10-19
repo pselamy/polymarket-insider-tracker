@@ -37,7 +37,11 @@
     "scripts",
     "quality",
     "alembic",
-    "conftest.py"
+    "conftest.py",
+    "tests/alerter",
+    "tests/fakes",
+    "tests/quality",
+    "tests/storage"
   ],
   [
     "pyright"

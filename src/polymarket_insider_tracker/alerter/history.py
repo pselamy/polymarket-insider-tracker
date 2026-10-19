@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["AlertHistory", "AlertRecord", "_generate_dedup_key", "_get_signals_from_assessment"]
+
 # Compatibility: the record type and pure helpers now live in
 # ``_history_records``; keep the historical ``history.<name>`` module/qualname
 # identity so existing import paths and pickle references keep resolving.

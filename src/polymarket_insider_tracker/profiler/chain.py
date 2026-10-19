@@ -24,6 +24,7 @@ from web3.exceptions import Web3Exception
 from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
+from polymarket_insider_tracker.profiler.rpc_handle import Web3Handle, erc20_balance_of
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,7 @@ class PolygonClient:
         max_requests_per_second: float = DEFAULT_MAX_REQUESTS_PER_SECOND,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
+        web3: Web3Handle | None = None,
     ) -> None:
         """Initialize the Polygon client.
 
@@ -133,6 +135,7 @@ class PolygonClient:
             max_requests_per_second: Rate limit for RPC calls.
             max_retries: Maximum retry attempts on failure.
             retry_delay_seconds: Initial delay between retries.
+            web3: Optional primary RPC handle replacing the HTTP one built from ``rpc_url``.
         """
         self._rpc_url = rpc_url
         self._fallback_rpc_url = fallback_rpc_url
@@ -142,8 +145,8 @@ class PolygonClient:
         self._retry_delay = retry_delay_seconds
 
         # Create web3 instances
-        self._w3 = AsyncWeb3(AsyncHTTPProvider(rpc_url))
-        self._w3_fallback: AsyncWeb3[AsyncHTTPProvider] | None = None
+        self._w3: Web3Handle = web3 or AsyncWeb3(AsyncHTTPProvider(rpc_url))
+        self._w3_fallback: Web3Handle | None = None
         if fallback_rpc_url:
             self._w3_fallback = AsyncWeb3(AsyncHTTPProvider(fallback_rpc_url))
 
@@ -199,7 +202,7 @@ class PolygonClient:
         """Acquire one shared Polygon RPC request slot."""
         await self._rate_limiter.acquire()
 
-    def select_web3(self) -> AsyncWeb3[AsyncHTTPProvider]:
+    def select_web3(self) -> Web3Handle:
         """Return the currently healthy primary or fallback Web3 client."""
         if self._primary_healthy:
             return self._w3
@@ -213,7 +216,7 @@ class PolygonClient:
 
     async def _try_rpc_provider(
         self,
-        w3: AsyncWeb3[AsyncHTTPProvider],
+        w3: Web3Handle,
         provider_name: str,
         func_name: str,
         *args: Any,
@@ -443,13 +446,7 @@ class PolygonClient:
 
         try:
             w3 = self._w3 if self._primary_healthy else (self._w3_fallback or self._w3)
-            contract = w3.eth.contract(
-                address=AsyncWeb3.to_checksum_address(token_address),
-                abi=erc20_abi,
-            )
-            balance = await contract.functions.balanceOf(
-                AsyncWeb3.to_checksum_address(address)
-            ).call()
+            balance = await erc20_balance_of(w3, token_address, address, erc20_abi)
         except Web3Exception as e:
             raise RPCError(f"Failed to get token balance: {redact_exception_message(e)}") from e
 

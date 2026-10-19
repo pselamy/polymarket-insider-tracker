@@ -25,6 +25,14 @@ from polymarket_insider_tracker.detector.models import (
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
+
+def _embed_field(alert: FormattedAlert, name: str) -> dict[str, str] | None:
+    """Return the named field of the Discord embed, narrowing the untyped embed payload."""
+    fields = alert.discord_embed["fields"]
+    assert isinstance(fields, list)
+    return next((f for f in fields if f["name"] == name), None)
+
+
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -347,9 +355,7 @@ class TestDiscordEmbed:
         """Test that embed includes wallet field."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
-        fields = result.discord_embed["fields"]
-
-        wallet_field = next((f for f in fields if f["name"] == "Wallet"), None)
+        wallet_field = _embed_field(result, "Wallet")
         assert wallet_field is not None
         assert "0x1234" in wallet_field["value"]
 
@@ -357,18 +363,15 @@ class TestDiscordEmbed:
         """Test that wallet age is shown when fresh wallet signal present."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
-        fields = result.discord_embed["fields"]
-
-        wallet_field = next((f for f in fields if f["name"] == "Wallet"), None)
+        wallet_field = _embed_field(result, "Wallet")
+        assert wallet_field is not None
         assert "Age:" in wallet_field["value"]
 
     def test_embed_includes_trade_details(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that trade details are in embed."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
-        fields = result.discord_embed["fields"]
-
-        trade_field = next((f for f in fields if f["name"] == "Trade"), None)
+        trade_field = _embed_field(result, "Trade")
         assert trade_field is not None
         assert "BUY" in trade_field["value"]
         assert "Yes" in trade_field["value"]
@@ -377,9 +380,7 @@ class TestDiscordEmbed:
         """Test that signals are listed in embed."""
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
-        fields = result.discord_embed["fields"]
-
-        signals_field = next((f for f in fields if f["name"] == "Signals"), None)
+        signals_field = _embed_field(result, "Signals")
         assert signals_field is not None
         assert "Fresh Wallet" in signals_field["value"]
 
@@ -387,9 +388,7 @@ class TestDiscordEmbed:
         """Test that detailed mode includes confidence breakdown."""
         formatter = AlertFormatter(verbosity="detailed")
         result = formatter.format(high_risk_assessment)
-        fields = result.discord_embed["fields"]
-
-        conf_field = next((f for f in fields if f["name"] == "Confidence"), None)
+        conf_field = _embed_field(result, "Confidence")
         assert conf_field is not None
 
 
