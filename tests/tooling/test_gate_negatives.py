@@ -20,7 +20,6 @@ here; they are reported as separate existing gaps, not reopened.
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -29,6 +28,7 @@ from types import ModuleType
 from typing import cast
 
 import pytest
+from tests.tooling.module_loading import load_module
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
@@ -45,11 +45,7 @@ MALFORMED_SOURCE = "not python {{{\n"
 
 
 def _verifier() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("verify_under_test", VERIFIER_PATH)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module("verify_under_test", VERIFIER_PATH)
 
 
 def _run(argv: tuple[str, ...], root: Path) -> subprocess.CompletedProcess[str]:
