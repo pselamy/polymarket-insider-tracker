@@ -200,20 +200,10 @@ class TestWalletInfo:
 class TestTransactionEquality:
     """Tests for transaction equality and hashing."""
 
-    def test_equal_transactions(self) -> None:
-        """Test that identical transactions are equal."""
-        tx1 = Transaction(
-            hash="0xabc",
-            block_number=1,
-            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-            from_address="0x1",
-            to_address="0x2",
-            value=Decimal("1000"),
-            gas_used=21000,
-            gas_price=Decimal("50"),
-        )
-        tx2 = Transaction(
-            hash="0xabc",
+    @staticmethod
+    def _transaction(hash: str = "0xabc") -> Transaction:
+        return Transaction(
+            hash=hash,
             block_number=1,
             timestamp=datetime(2026, 1, 1, tzinfo=UTC),
             from_address="0x1",
@@ -223,45 +213,17 @@ class TestTransactionEquality:
             gas_price=Decimal("50"),
         )
 
-        assert tx1 == tx2
+    def test_equal_transactions(self) -> None:
+        """Test that identical transactions are equal."""
+        assert self._transaction() == self._transaction()
 
     def test_different_transactions(self) -> None:
         """Test that different transactions are not equal."""
-        tx1 = Transaction(
-            hash="0xabc",
-            block_number=1,
-            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-            from_address="0x1",
-            to_address="0x2",
-            value=Decimal("1000"),
-            gas_used=21000,
-            gas_price=Decimal("50"),
-        )
-        tx2 = Transaction(
-            hash="0xdef",  # Different hash
-            block_number=1,
-            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-            from_address="0x1",
-            to_address="0x2",
-            value=Decimal("1000"),
-            gas_used=21000,
-            gas_price=Decimal("50"),
-        )
-
-        assert tx1 != tx2
+        assert self._transaction() != self._transaction(hash="0xdef")
 
     def test_transaction_hashable(self) -> None:
         """Test that transactions can be used in sets."""
-        tx = Transaction(
-            hash="0xabc",
-            block_number=1,
-            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-            from_address="0x1",
-            to_address="0x2",
-            value=Decimal("1000"),
-            gas_used=21000,
-            gas_price=Decimal("50"),
-        )
+        tx = self._transaction()
 
         tx_set = {tx}
         assert tx in tx_set
