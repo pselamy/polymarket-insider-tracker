@@ -835,3 +835,5 @@ Re-measured with the pinned jscpd 5.3.3 (`quality.duplication.scan`, minimum 50,
 `quality.source_scope.discover`): the parent tree reports 29 clone groups (365 duplicated lines,
 0.60%); this branch reports 19 (256 lines, 0.42%). Exactly the ten clone groups of these clusters
 (cluster 30 had two) are gone and none was added.
+
+Re-measured after the rebase onto `origin/main` at `f4d2112` (which carries #176 and #180): `origin/main` reports 29 clone groups (365 duplicated lines, 0.60%) and this branch 19 (256 lines, 0.42%), unchanged from the figures above; the whole-tree scan is over 265 sources.
