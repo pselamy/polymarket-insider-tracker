@@ -12,10 +12,15 @@ authored scope later grew to 280 files at this card's parent `bfc1a10`, when #15
 added one integration test; that file introduced no clone, so the 86/1092 totals
 below are unchanged between 279 and 280 files.)
 
-Totals after the cluster-22 resolution: **85 clone groups, 1080 duplicated lines,
-1.80% duplication** over **282 authored Python files** (the scanner's own
-statistics report 249 sources: files it actually tokenized after skipping ones
-smaller than the clone minimums). The pre-resolution tree at this card's parent
+Totals on this rebased tree (main after #158 plus this card's cluster-25
+resolution): **88 clone groups, 1116 duplicated lines, 1.85% duplication** over
+**283 authored Python files** (the scanner's own statistics report 250 sources:
+files it actually tokenized after skipping ones smaller than the clone
+minimums). `origin/main` at `6be456a` (after #158, before this card) measures
+**85 groups, 1080 duplicated lines, 1.80%** over 282 files with the identical
+enumeration; the delta is exactly this card's −1 cluster-25 product clone and
++4 characterization-module self-pairs (see the cluster-25 resolution and its
+rebase re-measurement below). The pre-resolution tree at this card's parent
 `bfc1a10` measured **86 groups, 1092 duplicated lines, 1.83%** over 280 files with
 the identical enumeration. For comparison, `origin/main` at `cdaf230` (after #152
 and #154) measures **95 groups, 1224 duplicated lines, 2.06%** over 276 files.
@@ -142,7 +147,7 @@ knowledge).
 | 22 | 1 | 12 | fresh_wallet.py, size_anomaly.py | Duplicated batch-result `_handle_batch_result` gather/zip knowledge | real; resolved, see the 2026-10-19 cluster 22 resolution update below |
 | 23 | 1 | 12 | test_clob_client.py | Repeated paged-market fixture | real |
 | 24 | 1 | 11 | test_redis_contract.py | Repeated competing-owner CAS contract scenario | real |
-| 25 | 1 | 10 | _channel_delivery.py | `compare_and_delete` vs `compare_and_expire`: near-identical Redis watch/CAS logic | real |
+| 25 | 0 | 0 | compare_owned_then_execute (new) | **Resolved**: the watch/compare-owner/MULTI/EXEC CAS skeleton now has one home (`_channel_delivery.compare_owned_then_execute`, terminal operation supplied as an explicit callable); `compare_and_delete` and `compare_and_expire` delegate to it | resolved (PR #157) |
 | 26 | 1 | 10 | ingestor/test_models.py | Repeated model-construction blocks | real |
 | 27 | 1 | 10 | test_trade_row_v2_properties.py | Repeated property-based row assertions | real |
 | 28 | 1 | 9 | runtime_services.py, verify.py | Duplicated script entry-point bootstrap (`_helper_package`/`__spec__` block) | real |
@@ -155,10 +160,13 @@ Real knowledge dominates: most clusters are duplicated maintenance surfaces —
 fixture blocks, wiring scaffolds, parallel Discord/Telegram knowledge, and
 Redis CAS logic. The three incidental clusters are convention-mandated
 scaffolding (Alembic revisions, SQLAlchemy column defaults) and parallel API
-docstrings. The cluster table above is the original knowledge grouping; with
-cluster 5, the "introduced by #151" cluster, and cluster 22 now resolved, the
-current total is the 85 groups regenerated in the per-clone list below from the
-pinned scan.
+docstrings. The cluster table above is the original knowledge grouping; the
+per-clone list below is main's post-#158 regenerated record (85 groups, which
+still contains the cluster-25 pair) and is superseded by the later resolution
+sections: with cluster 5, cluster 9, the "introduced by #151" cluster, cluster
+22, and cluster 25 resolved, the current measured total on this rebased tree is
+**88 groups / 1116 duplicated lines / 1.85%** (see the totals statement above
+and the cluster-25 rebase re-measurement below).
 
 ## Every clone (scanner output, ordered by tokens)
 
@@ -306,10 +314,82 @@ method:
 
 Set-difference against the rebased main scan: exactly the three cluster-9
 clones disappeared and **no new clone group appeared anywhere**.
-`src/...` abbreviates `src/polymarket_insider_tracker`. This document is
-inventory only; the cluster-5, cluster-9, and "introduced by #151" resolutions
-above are the only product changes reflected here. Deduplication decisions for
-the remaining clusters belong to later, separately authorized cards.
+
+### 2026-10-19 resolution update: cluster 25 (Redis watch/compare-then-execute CAS logic)
+
+Cluster 25 is resolved by the dedup card for cluster 25: draft PR
+[#157](https://github.com/pselamy/polymarket-insider-tracker/pull/157) from
+branch `ralph/dedup-cas`. The Redis delivery-claim safety rule — open a
+transactional pipeline, `WATCH` the claim key, `GET` and decode the stored
+ownership token, `UNWATCH` and return `False` on a foreign or missing token
+without ever issuing a transaction, otherwise `MULTI`, queue the terminal
+operation once, `EXEC`, return `True` — moved to exactly one home,
+`src/polymarket_insider_tracker/alerter/_channel_delivery.py`
+`compare_owned_then_execute(self, key, token, queue_terminal)`. The terminal
+operation is an explicit callable against the tiny `_QueuedPipeline` Protocol
+(the `delete`/`expire` surface) — not a boolean/mode flag, per the card. The two
+former copies remain the named entry points pinned by
+`tests/alerter/test_history_extraction.py` and delegate to the home:
+`compare_and_delete` queues `pipe.delete(key)`, `compare_and_expire` queues
+`pipe.expire(key, ttl)`. The `release_channel_claim`/`extend_channel_claim`
+wrappers and their `WatchError` translation to `False` are untouched, and all
+tests pass unchanged (only the US-001 characterization tests were added, before
+the refactor).
+
+Re-measurement with the pinned scanner (jscpd 5.3.3 receipt verified via
+`mise --yes --locked exec -- jscpd --version`, same SCAN_POLICY at the 50-token
+tier, no ignore lists or exclusions), enumerating the authored scope exactly
+as `verify_sources` does — `quality.source_scope.discover` + `validate_path`,
+skipping the 5 rejected `.pyi` stubs, with the 399-line size hook deliberately
+not applied — then staging with `quality.duplication_inputs.stage_inputs` and
+calling `quality.duplication.scan(root, config, staged, output, minimum=50,
+deadline)`:
+
+- Before (baseline commit `2bdf748`, the pre-refactor head of this branch,
+  same enumeration): **90 clone groups, 1138 duplicated lines, 1.89%** over
+  281 authored files (248 sources tokenized). The cluster-25 pair
+  `src/.../alerter/_channel_delivery.py:100-109 <-> 132-141` (73 tokens,
+  10 lines) reproduces there.
+- After (this change, commit `7053893`): **89 clone groups, 1128 duplicated
+  lines, 1.87%** over 281 authored files (248 sources tokenized).
+
+Set-difference of the raw pair sets between the two scans: exactly the one
+cluster-25 pair disappeared and **no new pair appeared anywhere**. Compared
+with the round-1 scan above (86 groups), the four added pairs are self-pairs
+inside `tests/alerter/test_cas_characterization.py` (53, 57, 61, and 113
+tokens), the US-001 characterization module added by this card and present in
+both measured trees; they are not attributable to the dedup change. Cluster 24
+(the competing-owner scenario clone inside
+`tests/integration/test_redis_contract.py`) is a different card's scope and is
+untouched. `src/...` abbreviates `src/polymarket_insider_tracker`.
+
+### 2026-10-19 rebase re-measurement (rebased onto main after #158)
+
+After review round 1 the branch was rebased onto main (which now carries the
+cluster-22 resolution from #158, so this document's cluster-22 resolution below
+is part of this tree), and the loop bookkeeping files (`prd.json`,
+`progress.txt`) were removed from the branch's net diff. Both trees were
+re-measured with the identical pinned method (same enumeration, staging, and
+`quality.duplication.scan(..., minimum=50, ...)` call):
+
+- `origin/main` at `6be456a`: **85 clone groups, 1080 duplicated lines, 1.80%**
+  over 282 authored files (249 sources tokenized).
+- This branch (rebased head, 283 authored files): **88 clone groups, 1116
+  duplicated lines, 1.85%** over 283 files (250 sources tokenized).
+
+Set-difference of the raw pair sets (order-insensitive on the A/B sides):
+exactly the cluster-25 pair
+(`src/.../alerter/_channel_delivery.py:100-109 <-> 132-141`, 73 tokens / 10
+lines) disappeared relative to rebased main and the only additions are the four
+self-pairs inside `tests/alerter/test_cas_characterization.py` (53, 57, 61, and
+113 tokens) already recorded above — **no new product clone appeared anywhere**.
+The pre-rebase figures recorded above (90 -> 89 groups) described the branch
+before it carried #158 and are kept as recorded.
+
+This document is inventory only; the cluster-5, cluster-9, "introduced by
+#151", cluster-22 (via #158), and cluster-25 resolutions are the only product
+changes reflected here. Deduplication decisions for the remaining clusters
+belong to later, separately authorized cards.
 
 ## 2026-10-19 resolution update: cluster 22 (detector batch-result gather/zip)
 

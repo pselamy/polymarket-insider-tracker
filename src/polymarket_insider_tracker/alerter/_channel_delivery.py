@@ -15,13 +15,22 @@ introspection and monkeypatch seams keep resolving.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from redis.exceptions import WatchError
 
 if TYPE_CHECKING:
     from .history import AlertHistory
+
+
+class _QueuedPipeline(Protocol):
+    """Surface of the queued terminal Redis operations used by the CAS home."""
+
+    def delete(self, *names: str) -> object: ...
+
+    def expire(self, name: str, time: int) -> object: ...
 
 
 async def is_channel_suppressed(
@@ -97,7 +106,24 @@ async def release_channel_claim(
         return False
 
 
-async def compare_and_delete(self: AlertHistory, key: str, token: str) -> bool:
+async def compare_owned_then_execute(
+    self: AlertHistory,
+    key: str,
+    token: str,
+    queue_terminal: Callable[[_QueuedPipeline], object],
+) -> bool:
+    """Single home of the delivery-claim compare-owner CAS rule.
+
+    Opens a WATCH/MULTI/EXEC transaction against ``key`` and decides against
+    the stored ownership token under watch, so an expired-and-reacquired claim
+    (another owner's token) can never be mutated. When this owner still owns
+    the claim, ``queue_terminal`` queues the terminal operation inside the
+    MULTI block exactly once and ``EXEC`` runs it unretried; otherwise the
+    watch is released with ``UNWATCH`` and no transaction is issued at all.
+    Callers translate a ``WatchError`` raised by ``EXEC`` into ``False`` —
+    there is no retry by design; the transaction aborts atomically so the
+    queued terminal operation never lands.
+    """
     async with self.redis.pipeline(transaction=True) as pipe:
         await pipe.watch(key)
         current = await pipe.get(key)
@@ -106,9 +132,19 @@ async def compare_and_delete(self: AlertHistory, key: str, token: str) -> bool:
             await pipe.unwatch()
             return False
         pipe.multi()
-        pipe.delete(key)
+        queue_terminal(pipe)
         await pipe.execute()
         return True
+
+
+async def compare_and_delete(self: AlertHistory, key: str, token: str) -> bool:
+    """Return True while releasing the claim at ``key`` owned by ``token``.
+
+    Compare-then-DELETE release of the delivery claim via
+    :func:`compare_owned_then_execute`; a foreign or absent owner is never
+    deleted. ``WatchError`` must be translated by callers into ``False``.
+    """
+    return await compare_owned_then_execute(self, key, token, lambda pipe: pipe.delete(key))
 
 
 async def extend_channel_claim(
@@ -130,17 +166,13 @@ async def extend_channel_claim(
 
 
 async def compare_and_expire(self: AlertHistory, key: str, token: str, ttl: int) -> bool:
-    async with self.redis.pipeline(transaction=True) as pipe:
-        await pipe.watch(key)
-        current = await pipe.get(key)
-        owner = current.decode() if isinstance(current, bytes) else current
-        if owner != token:
-            await pipe.unwatch()
-            return False
-        pipe.multi()
-        pipe.expire(key, ttl)
-        await pipe.execute()
-        return True
+    """Return True while renewing the lease at ``key`` owned by ``token``.
+
+    Compare-then-EXPIRE lease renewal via :func:`compare_owned_then_execute`;
+    a foreign or absent owner is never extended. ``WatchError`` must be
+    translated by callers into ``False``.
+    """
+    return await compare_owned_then_execute(self, key, token, lambda pipe: pipe.expire(key, ttl))
 
 
 async def record_channel_ambiguous(
