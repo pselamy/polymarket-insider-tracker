@@ -56,6 +56,24 @@ class FakePolygonClient:
         return self.token_balance
 
 
+def _fresh_and_old_infos() -> dict[str, WalletInfo]:
+    """A fresh wallet (nonce 2) and an old one (nonce 100), keyed by address."""
+    return {
+        VALID_ADDRESS: WalletInfo(
+            address=VALID_ADDRESS.lower(),
+            transaction_count=2,
+            balance_wei=Decimal("1000"),
+            first_transaction=None,
+        ),
+        VALID_ADDRESS_2: WalletInfo(
+            address=VALID_ADDRESS_2.lower(),
+            transaction_count=100,
+            balance_wei=Decimal("2000"),
+            first_transaction=None,
+        ),
+    }
+
+
 class TestWalletAnalyzerInit:
     """Tests for WalletAnalyzer initialization."""
 
@@ -334,21 +352,7 @@ class TestWalletAnalyzerBatch:
     @pytest.mark.asyncio
     async def test_analyze_batch(self) -> None:
         """Test batch analysis."""
-        infos = {
-            VALID_ADDRESS: WalletInfo(
-                address=VALID_ADDRESS.lower(),
-                transaction_count=2,
-                balance_wei=Decimal("1000"),
-                first_transaction=None,
-            ),
-            VALID_ADDRESS_2: WalletInfo(
-                address=VALID_ADDRESS_2.lower(),
-                transaction_count=100,
-                balance_wei=Decimal("2000"),
-                first_transaction=None,
-            ),
-        }
-        client = FakePolygonClient(wallet_infos=infos)
+        client = FakePolygonClient(wallet_infos=_fresh_and_old_infos())
         analyzer = WalletAnalyzer(client)
         profiles = await analyzer.analyze_batch([VALID_ADDRESS, VALID_ADDRESS_2])
 
@@ -380,21 +384,7 @@ class TestWalletAnalyzerBatch:
     @pytest.mark.asyncio
     async def test_get_fresh_wallets(self) -> None:
         """Test filtering to only fresh wallets."""
-        infos = {
-            VALID_ADDRESS: WalletInfo(
-                address=VALID_ADDRESS.lower(),
-                transaction_count=2,
-                balance_wei=Decimal("1000"),
-                first_transaction=None,
-            ),
-            VALID_ADDRESS_2: WalletInfo(
-                address=VALID_ADDRESS_2.lower(),
-                transaction_count=100,
-                balance_wei=Decimal("2000"),
-                first_transaction=None,
-            ),
-        }
-        client = FakePolygonClient(wallet_infos=infos)
+        client = FakePolygonClient(wallet_infos=_fresh_and_old_infos())
         analyzer = WalletAnalyzer(client)
         fresh = await analyzer.get_fresh_wallets([VALID_ADDRESS, VALID_ADDRESS_2])
 

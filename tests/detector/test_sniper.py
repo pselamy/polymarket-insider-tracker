@@ -36,6 +36,27 @@ def create_test_trade(
     )
 
 
+def clustered_detector(markets: list[str]) -> SniperDetector:
+    """A detector fed five wallets that enter each market 30 seconds after creation."""
+    detector = SniperDetector(
+        min_cluster_size=3,
+        min_entries_per_wallet=2,
+        eps=1.0,
+        min_samples=2,
+    )
+    wallets = [f"0x{i:040x}" for i in range(5)]
+    for market in markets:
+        market_created = datetime.now(UTC)
+        for wallet in wallets:
+            trade = create_test_trade(
+                wallet_address=wallet,
+                market_id=market,
+                timestamp=market_created + timedelta(seconds=30),
+            )
+            detector.record_entry(trade, market_created)
+    return detector
+
+
 class TestSniperDetectorInit:
     """Tests for SniperDetector initialization."""
 
@@ -276,23 +297,7 @@ class TestIsSniper:
 
     def test_returns_true_for_cluster_member(self) -> None:
         """Test that cluster members return True."""
-        detector = SniperDetector(
-            min_cluster_size=3,
-            min_entries_per_wallet=2,
-            eps=1.0,
-            min_samples=2,
-        )
-
-        wallets = [f"0x{i:040x}" for i in range(5)]
-        for market in ["market_001", "market_002"]:
-            market_created = datetime.now(UTC)
-            for wallet in wallets:
-                trade = create_test_trade(
-                    wallet_address=wallet,
-                    market_id=market,
-                    timestamp=market_created + timedelta(seconds=30),
-                )
-                detector.record_entry(trade, market_created)
+        detector = clustered_detector(["market_001", "market_002"])
 
         signals = detector.run_clustering()
 
@@ -312,23 +317,7 @@ class TestGetClusterForWallet:
 
     def test_returns_cluster_info_for_member(self) -> None:
         """Test that cluster members get ClusterInfo."""
-        detector = SniperDetector(
-            min_cluster_size=3,
-            min_entries_per_wallet=2,
-            eps=1.0,
-            min_samples=2,
-        )
-
-        wallets = [f"0x{i:040x}" for i in range(5)]
-        for market in ["market_001", "market_002"]:
-            market_created = datetime.now(UTC)
-            for wallet in wallets:
-                trade = create_test_trade(
-                    wallet_address=wallet,
-                    market_id=market,
-                    timestamp=market_created + timedelta(seconds=30),
-                )
-                detector.record_entry(trade, market_created)
+        detector = clustered_detector(["market_001", "market_002"])
 
         signals = detector.run_clustering()
 
