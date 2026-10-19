@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, cast
@@ -566,17 +566,14 @@ class RiskAssessmentDTO:
     # backfill may produce 'legacy-unversioned'.
     scoring_algorithm_version: str
     scoring_config: str | None
-    # Defaults mirror the domain record's Slice 003 fields (detector.models);
-    # the disposition literal has one home in the dependency-free constants
-    # module (a detector-package import here would drag web3 into strict runs).
-    delivery_disposition: str = field(default=UNRECORDED_DELIVERY_DISPOSITION)
-    delivery_channels: str | None = field(default=None)
-    dry_run: bool = field(default=False)
-    volume_available: bool | None = field(default=None)
-    market_daily_volume: Decimal | None = field(default=None)
-    book_depth_available: bool | None = field(default=None)
-    wallet_tx_count: int | None = field(default=None)
-    wallet_age_known: bool | None = field(default=None)
+    delivery_disposition: str = UNRECORDED_DELIVERY_DISPOSITION
+    delivery_channels: str | None = None
+    dry_run: bool = False
+    volume_available: bool | None = None
+    market_daily_volume: Decimal | None = None
+    book_depth_available: bool | None = None
+    wallet_tx_count: int | None = None
+    wallet_age_known: bool | None = None
     created_at: datetime | None = None
 
 

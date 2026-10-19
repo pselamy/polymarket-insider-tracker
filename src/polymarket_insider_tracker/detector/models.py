@@ -156,13 +156,13 @@ class SizeAnomalySignal:
     factors: dict[str, float]
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    # Confidence and identity properties have exactly one home in the module
+    # Identity and confidence properties have exactly one home in the module
     # helpers above; every signal class reuses the same property objects.
-    is_high_confidence = property(_is_high_confidence)
-    is_very_high_confidence = property(_is_very_high_confidence)
     wallet_address = property(_trade_wallet_address)
     market_id = property(_trade_market_id)
     trade_size_usdc = property(_trade_size_usdc)
+    is_high_confidence = property(_is_high_confidence)
+    is_very_high_confidence = property(_is_very_high_confidence)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to dictionary for Redis stream publishing."""

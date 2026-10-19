@@ -38,7 +38,7 @@ Totals after the cluster-7 card's round-3 rebase onto `origin/main` at
 with the identical enumeration, and the raw clone-list difference is exactly the
 three cluster-7 clones removed (197, 67 and 52 tokens) plus the two
 characterization-module self-pairs added (51 and 68 tokens); no new product
-clone group. The round-1 figures that follow are kept as recorded: after the
+clone group. **Round-3 review correction (supersedes the 87/1071 figures directly above):** those figures were reached partly by token-shuffling edits that hid two clones from jscpd without removing any knowledge (`field(default=...)` wrappers restating plain defaults in `RiskAssessmentDTO`, and a reordered property-binding block in `SizeAnomalySignal`). Both edits are reverted and the characterization module's three copy-pasted threshold tests are now one table-driven test. Re-measured with the identical pinned method: **87 clone groups, 1080 duplicated lines, 1.78%** over 285 files, against `origin/main` at `382a0f6` **88 groups, 1116 lines, 1.85%** over 283 files. Raw clone-list difference: the 197- and 67-token cluster-7 clones removed, one 96-token residual added (see the cluster-7 round-3 correction below); the 52-token DTO/domain mirror is present on both sides, unchanged. The round-1 figures that follow are kept as recorded: after the
 card's round-1 rebase onto `6be456a`: **84 clone groups, 1035 duplicated lines, 1.71% duplication** over
 **283 authored Python files** (the scanner's own statistics report 250 sources).
 The pre-refactor tree of the rebased card chain (US-001 characterization tests
@@ -156,7 +156,7 @@ knowledge).
 | 4 | 9 | 92 | test_dispatcher.py | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
 | 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
 | 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
-| 7 | 0 | 0 | detector/models.py, storage/repos.py | **Resolved**: confidence thresholds/classification, trade-identity property accessors and the trade-head serialization now have one home (`serialized_trade_head`, `is_high_confidence_score`, shared property objects, `UNRECORDED_DELIVERY_DISPOSITION`) | resolved (see the 2026-10-19 cluster 7 resolution update below) |
+| 7 | 2 | 24 | detector/models.py, storage/repos.py | **Resolved**: confidence thresholds/classification, trade-identity property accessors and the trade-head serialization now have one home (`serialized_trade_head`, `is_high_confidence_score`, shared property objects, `UNRECORDED_DELIVERY_DISPOSITION`). Two residual groups remain visible on purpose: the `FreshWalletSignal`/`SizeAnomalySignal` declaration block (96 tokens) and the `RiskAssessment`/`RiskAssessmentDTO` field-default mirror (52 tokens, intentional persistence/domain layer boundary) | resolved; residual incidental (see the round-3 review correction below) |
 | 8 | 4 | 47 | test_health_server.py | Repeated `set_component_checker` wiring for up/degraded/down cases | real |
 | 9 | 3 | 44 | discord.py, telegram.py | Duplicated rate-limit wait, `_backoff`, and failure-redaction channel logic | real; resolved, see the 2026-10-19 resolution update below |
 | 10 | 3 | 43 | test_terminal_error_durable.py | Repeated pipeline wiring + terminal-failure sequencing | real |
@@ -510,3 +510,49 @@ added files are `constants.py` and the characterization module `tests/detector/t
 Set-difference: the three cluster-7 clones above disappeared; the only additions
 are the two intra-file characterization-test clones (51 and 68 tokens, now at
 `tests/detector/test_models.py:313-317 <-> 326-330` and `321-330 <-> 334-343`).
+
+### Round-3 review correction: two clones were hidden, not removed
+
+The round-1 and round-3 rebase figures above claimed the 52-token
+`RiskAssessment`/`RiskAssessmentDTO` clone was gone and that the 197-token
+signal clone left nothing behind. Both claims came from token-shuffling edits,
+not from removing knowledge: `RiskAssessmentDTO` restated its plain defaults as
+`field(default=...)`, and `SizeAnomalySignal` bound the shared property objects
+in a different order from `FreshWalletSignal`. Both edits are reverted.
+`RiskAssessmentDTO` uses plain defaults again, with only the disposition
+reading `UNRECORDED_DELIVERY_DISPOSITION`, and both signal classes bind the
+accessors in the same order. The characterization module's three copy-pasted
+threshold tests were also folded into one table-driven test over the three
+builders, with the same twelve cases.
+
+Re-measured with the identical pinned method and enumeration: `origin/main` at
+`382a0f6` **88 groups, 1116 lines, 1.85%** over 283 files; this branch
+**87 groups, 1080 lines, 1.78%** over 285 files. Raw clone-list difference:
+
+- removed: `src/.../detector/models.py:38-75 <-> 109-146` (197 tokens) and
+  `src/.../detector/models.py:57-70 <-> 182-195` (67 tokens);
+- added: `src/.../detector/models.py:106-121 <-> 155-170` (96 tokens);
+- unchanged on both sides: `src/.../detector/models.py:265-272 <->
+  src/.../storage/repos.py:569-576` (52 tokens; main `244-251 <-> 574-581`).
+
+Both remaining groups are left visible and are verdicted **incidental**:
+
+- **96-token signal declaration block.** It spans the `confidence`, `factors`
+  and `timestamp` field declarations, the five `property(...)` bindings and the
+  `to_dict` opening that spreads `serialized_trade_head`. Every behaviour it
+  names (thresholds, accessors, trade-head entries) now has one home in the
+  module helpers. What remains is each frozen dataclass declaring its own
+  public surface. Collapsing it further would need a shared base class or
+  mixin, which this card forbids ("no base classes/mixins ... just to share
+  lines").
+- **52-token DTO/domain field-default mirror.** `RiskAssessmentDTO` is the
+  persistence row shape (it mirrors `RiskAssessmentModel` columns), and
+  `RiskAssessment` is the domain record. Their Slice 003 optional fields share
+  names and `None`/`False` defaults because they describe the same persisted
+  facts at two layers. The only shared *value* that could drift, the
+  `"unrecorded"` disposition, has one home in the dependency-free
+  `constants.py`. Sharing the field list would need dataclass inheritance or a
+  generated schema across the persistence/domain boundary. Either way storage
+  would depend on the domain shape or the reverse, and slice 004 will change
+  the domain side independently. This is an intentional layer boundary and is
+  recorded rather than disguised.

@@ -29,6 +29,7 @@ from polymarket_insider_tracker.profiler.models import WalletProfile
 
 FIXED_TIMESTAMP = datetime(2026, 1, 15, 12, 30, 45, tzinfo=UTC)
 TradeAnchoredBuilder = Callable[[TradeEvent | None], FreshWalletSignal | SizeAnomalySignal]
+ConfidenceBuilder = Callable[..., FreshWalletSignal | SizeAnomalySignal | SniperClusterSignal]
 
 
 def build_trade_event() -> TradeEvent:
@@ -311,40 +312,22 @@ class TestSignalProperties:
         assert signal.trade_size_usdc == Decimal("6500.00")
 
     @pytest.mark.parametrize(
-        ("confidence", "expected_high", "expected_very_high"),
-        [(0.7, True, False), (0.69, False, False), (0.85, True, True), (0.84, True, False)],
+        "build_signal",
+        [build_fresh_wallet_signal, build_size_anomaly_signal, build_sniper_cluster_signal],
     )
-    def test_fresh_wallet_signal_confidence_thresholds(
-        self, confidence: float, expected_high: bool, expected_very_high: bool
-    ) -> None:
-        """The 0.7 and 0.85 boundaries are inclusive for the fresh-wallet signal."""
-        signal = build_fresh_wallet_signal(confidence=confidence)
-
-        assert signal.is_high_confidence is expected_high
-        assert signal.is_very_high_confidence is expected_very_high
-
     @pytest.mark.parametrize(
         ("confidence", "expected_high", "expected_very_high"),
         [(0.7, True, False), (0.69, False, False), (0.85, True, True), (0.84, True, False)],
     )
-    def test_size_anomaly_signal_confidence_thresholds(
-        self, confidence: float, expected_high: bool, expected_very_high: bool
+    def test_confidence_thresholds(
+        self,
+        build_signal: ConfidenceBuilder,
+        confidence: float,
+        expected_high: bool,
+        expected_very_high: bool,
     ) -> None:
-        """The 0.7 and 0.85 boundaries are inclusive for the size-anomaly signal."""
-        signal = build_size_anomaly_signal(confidence=confidence)
-
-        assert signal.is_high_confidence is expected_high
-        assert signal.is_very_high_confidence is expected_very_high
-
-    @pytest.mark.parametrize(
-        ("confidence", "expected_high", "expected_very_high"),
-        [(0.7, True, False), (0.69, False, False), (0.85, True, True), (0.84, True, False)],
-    )
-    def test_sniper_cluster_signal_confidence_thresholds(
-        self, confidence: float, expected_high: bool, expected_very_high: bool
-    ) -> None:
-        """The 0.7 and 0.85 boundaries are inclusive for the sniper-cluster signal."""
-        signal = build_sniper_cluster_signal(confidence=confidence)
+        """The 0.7 and 0.85 boundaries are inclusive for every signal model."""
+        signal = build_signal(confidence=confidence)
 
         assert signal.is_high_confidence is expected_high
         assert signal.is_very_high_confidence is expected_very_high
