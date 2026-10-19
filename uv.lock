@@ -1722,25 +1722,16 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "aiohttp" },
-    { name = "black" },
-    { name = "complexipy" },
     { name = "cosmic-ray" },
     { name = "deptry" },
     { name = "grimp" },
     { name = "markdown-it-py" },
     { name = "mdformat" },
     { name = "mdformat-gfm" },
-    { name = "mypy" },
     { name = "packaging" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
+    { name = "polymarket-insider-tracker", extra = ["dev"] },
     { name = "pytest-json-report" },
-    { name = "pyyaml" },
-    { name = "ruff" },
     { name = "types-pyyaml" },
-    { name = "vulture" },
 ]
 
 [package.metadata]
@@ -1779,25 +1770,16 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aiohttp", specifier = ">=3.9.0" },
-    { name = "black", specifier = ">=25" },
-    { name = "complexipy", specifier = ">=4" },
-    { name = "cosmic-ray", specifier = ">=8.7.0" },
-    { name = "deptry", specifier = ">=0.25.1" },
-    { name = "grimp", specifier = ">=3.17" },
+    { name = "cosmic-ray", specifier = "==8.7.0" },
+    { name = "deptry", specifier = "==0.25.1" },
+    { name = "grimp", specifier = "==3.17" },
     { name = "markdown-it-py", specifier = "==4.2.0" },
     { name = "mdformat", specifier = "==1.0.0" },
     { name = "mdformat-gfm", specifier = "==1.0.0" },
-    { name = "mypy", specifier = ">=1.16" },
-    { name = "packaging", specifier = ">=26.3" },
-    { name = "pyright", specifier = ">=1.1" },
-    { name = "pytest", specifier = ">=8" },
-    { name = "pytest-cov", specifier = ">=6" },
-    { name = "pytest-json-report", specifier = ">=1.5" },
-    { name = "pyyaml", specifier = ">=6.0.0" },
-    { name = "ruff", specifier = ">=0.12" },
-    { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
-    { name = "vulture", specifier = ">=2" },
+    { name = "packaging", specifier = "==26.3" },
+    { name = "polymarket-insider-tracker", extras = ["dev"] },
+    { name = "pytest-json-report", specifier = "==1.5.0" },
+    { name = "types-pyyaml", specifier = "==6.0.12.20260906" },
 ]
 
 [[package]]
