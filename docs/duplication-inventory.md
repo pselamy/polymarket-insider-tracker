@@ -164,7 +164,7 @@ knowledge).
 | 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
 | 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
 | 7 | 2 | 24 | detector/models.py, storage/repos.py | **Resolved**: confidence thresholds/classification, trade-identity property accessors and the trade-head serialization now have one home (`serialized_trade_head`, `is_high_confidence_score`, shared property objects, `UNRECORDED_DELIVERY_DISPOSITION`). Two residual groups remain visible on purpose: the `FreshWalletSignal`/`SizeAnomalySignal` declaration block (96 tokens) and the `RiskAssessment`/`RiskAssessmentDTO` field-default mirror (52 tokens, intentional persistence/domain layer boundary) | resolved; residual incidental (see the round-3 review correction below) |
-| 8 | 4 | 47 | test_health_server.py | Repeated `set_component_checker` wiring for up/degraded/down cases | real |
+| 8 | 0 | 0 | test_health_server.py | **Resolved**: component checker wiring (`wire_components`) and the serve/GET/stop probe (`probe`) have one home each in `tests/ingestor/test_health_server.py` | resolved (PR #169) |
 | 9 | 3 | 44 | discord.py, telegram.py | Duplicated rate-limit wait, `_backoff`, and failure-redaction channel logic | real; resolved, see the 2026-10-19 resolution update below |
 | 10 | 3 | 43 | test_terminal_error_durable.py | Repeated pipeline wiring + terminal-failure sequencing | real |
 | 11 | 3 | 33 | profiler/test_models.py | Repeated `Transaction` construction blocks | real |
@@ -747,3 +747,13 @@ swap. `test_terminal_path_credential_failure_is_redacted_everywhere` keeps its o
 setup on purpose: it builds the poller without `poll_clock`, a real difference. No
 redaction assertion changed: the `not in` assertion count in the file is 147 before
 and after, and the collected test IDs are unchanged.
+
+## 2026-10-19 resolution update: cluster 8 (health-server component wiring)
+
+`wire_components` and `probe` in `tests/ingestor/test_health_server.py` now own the
+per-component checker wiring and the serve/GET/stop sequence; the four cluster-8
+clone pairs are gone. Re-measured with the pinned jscpd 5.3.3 and the same flags over
+the tracked `src tests scripts alembic quality` Python files plus `conftest.py`
+(292 files; not the discovered authored scope above, so totals are not comparable to
+the figures above): 56 clone groups before, 52 after, none in `test_health_server.py`
+and none added. All assertions are unchanged.
