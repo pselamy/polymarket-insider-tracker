@@ -174,21 +174,21 @@ knowledge).
 | 15 | 0 | 0 | tests/fakes/trades.py | **Resolved**: the synthetic `market_metadata` builder and the `MALFORMED_NUMERIC_CASES` table now have one home in `tests/fakes/trades.py`; the v1 and v2 row-decoding tests use them | resolved (this card) |
 | 16 | 0 | 0 | tests/tooling/module_loading.py | **Resolved**: the isolated-interpreter `load(name, path)` program and the `from scripts import X` prologue have one home (`LOAD_PROGRAM`, `scripts_program`) | resolved (this card) |
 | 17 | 0 | 0 | tests/test_main.py | **Resolved**: the `cli.run_pipeline` recording stub has one home (`_record_pipeline_runs`) | resolved (this card) |
-| 18 | 1 | 20 | test_sniper.py | Repeated cluster-feeding test construction | real |
+| 18 | 0 | 0 | test_sniper.py | **Resolved**: the five-wallet 30-second cluster feed has one home (`clustered_detector`) | resolved (this card) |
 | 19 | 0 | 0 | tests/tooling/module_loading.py | **Resolved**: in-process file-path loading has one home (`load_module`) | resolved (this card) |
-| 20 | 1 | 17 | test_analyzer.py | Repeated analyzer input construction | real |
+| 20 | 0 | 0 | test_analyzer.py | **Resolved**: the fresh (nonce 2) and old (nonce 100) wallet-info pair has one home (`_fresh_and_old_infos`) | resolved (this card) |
 | 21 | 1 | 13 | _funding_rpc.py, funding.py | Parallel docstrings for the wrapped vs wrapper transfer-log API | incidental |
 | 22 | 1 | 12 | fresh_wallet.py, size_anomaly.py | Duplicated batch-result `_handle_batch_result` gather/zip knowledge | real; resolved, see the 2026-10-19 cluster 22 resolution update below |
-| 23 | 1 | 12 | test_clob_client.py | Repeated paged-market fixture | real |
-| 24 | 1 | 11 | test_redis_contract.py | Repeated competing-owner CAS contract scenario | real |
+| 23 | 0 | 0 | test_clob_client.py | **Resolved**: the open/closed market page has one home (`_open_and_closed_page`) | resolved (this card) |
+| 24 | 0 | 0 | test_redis_contract.py | **Resolved**: the stale-token WATCH, competitor takeover and aborted EXEC scenario has one home (`_abort_after_takeover`, `_competing_client`) | resolved (this card) |
 | 25 | 0 | 0 | compare_owned_then_execute (new) | **Resolved**: the watch/compare-owner/MULTI/EXEC CAS skeleton now has one home (`_channel_delivery.compare_owned_then_execute`, terminal operation supplied as an explicit callable); `compare_and_delete` and `compare_and_expire` delegate to it | resolved (PR #157) |
-| 26 | 1 | 10 | ingestor/test_models.py | Repeated model-construction blocks | real |
-| 27 | 1 | 10 | test_trade_row_v2_properties.py | Repeated property-based row assertions | real |
+| 26 | 0 | 0 | ingestor/test_models.py | **Resolved**: the one-bid/one-ask book has one home (`_tight_orderbook`) | resolved (this card) |
+| 27 | 0 | 0 | test_trade_row_v2_properties.py | **Resolved**: the v1/v2 rejection comparison has one home (`_assert_rejected_alike`) | resolved (this card) |
 | 28 | 0 | 0 | _entry_bootstrap.py (new) | **Resolved**: the script entry-point sibling-import bootstrap now has one home (`scripts/_entry_bootstrap.py`); both entry points load it | resolved (PR #160) |
-| 29 | 1 | 8 | _v2_walk_harness.py, test_v2_cursor_walk.py | `CursorWalk` harness construction recipe duplicated between `build_walk` and an inline jitter-injection test setup | real |
-| 30 | 1 | 8 | test_endpoint_switch_resume.py | Repeated v1->v2 endpoint-switch test bootstrap (server/redis/seed/poller wiring block) | real |
+| 29 | 0 | 0 | _v2_walk_harness.py, test_v2_cursor_walk.py | **Resolved**: `build_walk` takes the injected `random_source`; the jitter test uses it | resolved (this card) |
+| 30 | 0 | 0 | test_endpoint_switch_resume.py | **Resolved**: the v1 first-cycle run (`_run_v1_cycle`) and the v2 server after the switch (`_v2_server_after_v1`) have one home each | resolved (this card) |
 | 31 | 1 | 6 | storage/models.py | SQLAlchemy `datetime.now(UTC)` timestamp column defaults | incidental |
-| 32 | 1 | 6 | test_gamma_client.py | Repeated paged-response fixture | real |
+| 32 | 0 | 0 | test_gamma_client.py | **Resolved**: the first-page-then-tail handler has one home (`_first_page_then`) | resolved (this card) |
 
 Real knowledge dominates: most clusters are duplicated maintenance surfaces —
 fixture blocks, wiring scaffolds, parallel Discord/Telegram knowledge, and
@@ -816,3 +816,22 @@ Re-measured with the pinned jscpd 5.3.3 (`quality.duplication.scan`, minimum 50,
 `quality.source_scope.discover`): the parent tree reports 36 clone groups (430 duplicated lines,
 0.70%); this branch reports 29 (365 lines). Matched by token count, lines and file pair, exactly
 the seven cluster 16/17/19 groups are gone and none was added.
+
+## 2026-10-19 resolution update: clusters 18, 20, 23, 24, 26, 27, 29, 30 and 32 (remaining small test-construction duplicates)
+
+Cluster 18: `clustered_detector` in `test_sniper.py` owns the five-wallet, 30-second-after-creation feed
+and the detector parameters (the four tests that restated it use it). Cluster 20:
+`_fresh_and_old_infos` in `test_analyzer.py` owns the nonce-2 and nonce-100 wallet pair. Cluster 23:
+`_open_and_closed_page` (`test_clob_client.py`). Cluster 24: `_abort_after_takeover` and
+`_competing_client` in `test_redis_contract.py` (the type-change test also uses `_competing_client`;
+the expire test keeps its own TTL assertion). Cluster 26: `_tight_orderbook` (`ingestor/test_models.py`).
+Cluster 27: `_assert_rejected_alike` (`test_trade_row_v2_properties.py`). Cluster 29: `build_walk` gained
+a `random_source` argument defaulting to the previous `lambda: 1.0`; the CursorWalk defaults it
+replaces for `max_pages`/`max_retries` are the same constants. Cluster 30: `_run_v1_cycle` and
+`_v2_server_after_v1`. Cluster 32: `_first_page_then` (`test_gamma_client.py`). No behaviour differences
+between any pair of copies were found; every existing test is unchanged.
+
+Re-measured with the pinned jscpd 5.3.3 (`quality.duplication.scan`, minimum 50, over
+`quality.source_scope.discover`): the parent tree reports 29 clone groups (365 duplicated lines,
+0.60%); this branch reports 19 (256 lines, 0.42%). Exactly the ten clone groups of these clusters
+(cluster 30 had two) are gone and none was added.
