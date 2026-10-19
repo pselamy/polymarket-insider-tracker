@@ -128,6 +128,36 @@ by `tests/quality/` and are bound to the ledger above.
 The independent strict type gates are unchanged: mypy still covers `src` and
 `scripts`, and Pyright still covers `src/polymarket_insider_tracker`.
 
+## REF-CMD-19 step 1: per-root strict mypy measurement (2026-10-19)
+
+Strict mypy (the repository's own `[tool.mypy]` strict configuration, mypy
+`1.19.1`, Python-3.11 isolated locked resolution — the same environment shape as
+the `strict-types` gate) was run **once per authored root**, passing the root
+explicitly so every error line carries the file it belongs to:
+
+| Root | Checked files | Errors | Dominant codes |
+| --- | --- | --- | --- |
+| `src` | 65 | 0 | — |
+| `scripts` | 14 | 0 | — |
+| `quality` | 89 | 0 | — |
+| `alembic` | 5 | 0 | — |
+| `conftest.py` | 1 | 1 → **0 after fix** | `no-untyped-def` |
+| `tests` | 88 | **520 errors in 46 files** (deferred to a later card) | `attr-defined` 163, `arg-type` 147, `no-untyped-def` 93, `assignment` 41, `misc` 33 |
+
+Consequence: every **non-test** authored root is strict-mypy clean. The single
+`conftest.py` error was
+`conftest.py:12: error: Function is missing a return type annotation [no-untyped-def]`,
+fixed by annotating the `event_loop_policy` fixture with
+`asyncio.AbstractEventLoopPolicy` (real typing, no suppression of any kind).
+
+Relative to the reference row: the earlier measurement (403 errors) predates the
+current vendored `quality/` tree and tool versions; the per-row REF-CMD-19 numbers
+are refreshed in the enrollment update below. Today's full-scope run
+`mypy src tests quality` over 263 files reports **520 errors in 46 files**, all of
+them inside `tests/` (the reference example diagnostic
+`tests/tooling/test_traceability.py:86: error: Function is missing a return type
+annotation [no-untyped-def]` still reproduces as the first line).
+
 ## REF-CMD-16 update: jscpd provisioned, scanner runs, enrollment still blocked
 
 Provisioning (2026-10-19): `mise.toml` and `mise.lock` are now checked in, copied
