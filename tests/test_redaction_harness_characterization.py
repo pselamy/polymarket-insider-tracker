@@ -1,7 +1,7 @@
 """Characterization of the harness behaviour shared by the redaction-policy tests.
 
 Cluster 3 of the clone inventory gives the repeated redaction harness setups one
-home inside ``tests/test_redaction.py``. These tests pin, through the public
+home (now ``tests/console_capture.py``). These tests pin, through the public
 seams the harnesses drive, the behaviour the shared helpers must keep.
 """
 
@@ -12,7 +12,7 @@ import logging
 import pytest
 from fakeredis import FakeAsyncRedis
 
-from tests.test_redaction import _capture_console_output
+from tests.console_capture import capture_console_output
 
 CHARACTERIZED_SECRET = "harness-characterization-secret"
 
@@ -20,7 +20,7 @@ CHARACTERIZED_SECRET = "harness-characterization-secret"
 def test_console_capture_masks_a_secret_url_on_the_pipeline_logger() -> None:
     logger = logging.getLogger("polymarket_insider_tracker.pipeline")
 
-    output = _capture_console_output(
+    output = capture_console_output(
         lambda: logger.error("failed https://x.internal?k=%s", CHARACTERIZED_SECRET)
     )
 

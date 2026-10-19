@@ -384,7 +384,7 @@ which may only grow.
 | `tests/quality` | 10 | 0 | **enrolled this step** |
 | `quality`, `alembic`, `conftest.py` | 0 | 0 | **enrolled this step** |
 | `tests/__init__.py`, `tests/test_harness_isolation.py`, `tests/test_sample_fixtures.py`, `tests/test_setup.py`, `tests/test_trades_v2_config.py` | 0 | 0 | **enrolled this step** |
-| `tests/storage` | 9 | 9 | unenrolled |
+| `tests/storage` | 9 | 9 | unenrolled (enrolled in step 2) |
 | `tests/test_redaction_harness_characterization.py` | 1 | 1 | unenrolled |
 | `tests/conftest.py` | 2 | 2 | unenrolled |
 | `tests/test_persist_assessment.py` | 5 | 5 | unenrolled |
@@ -437,3 +437,17 @@ Remaining unenrolled `tests/` roots: none.
 
 Defect-fails: appending `PLANTED: int = "a"` to `tests/tooling/test_verify.py` makes the enrolled mypy
 command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.
+
+## REF-CMD-20 step 2: next small test roots (2026-10-19)
+
+Enrolled in `[tool.pyright].include` (strict, zero suppressions): `tests/storage` (9 → 0),
+`tests/conftest.py` (2 → 0), `tests/test_redaction_harness_characterization.py` (1 → 0), the new
+shared helper `tests/console_capture.py` (moved out of `tests/test_redaction.py`), and
+`tests/test_pipeline_persistence.py` (9 → 0). Still unenrolled: `tests/test_persist_assessment.py`
+(5; it scores hand-built `SignalBundle`s through the private `Pipeline._score_and_alert` and needs
+its own decision on a public scoring entry point), and every larger root in the step 1 table.
+
+Honest fixes, no suppression: `DatabaseManager.is_sync_open` / `is_async_open` and
+`attach_async_engine` replace private-attribute reads and writes; `Pipeline._on_trade` became the
+public `Pipeline.process_trade` (the documented per-trade entry the poller and replay callers
+use); `wire_pipeline(trace_funding=False)` replaces assigning `_funding_tracer = None`.

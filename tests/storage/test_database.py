@@ -46,13 +46,11 @@ def test_sync_dispose_clears_engine_and_factory() -> None:
     manager = DatabaseManager(CANONICAL_URL, async_mode=False)
     session = manager.get_sync_session()
     session.close()
-    assert manager._sync_engine is not None
-    assert manager._sync_session_factory is not None
+    assert manager.is_sync_open
 
     manager.dispose()
 
-    assert manager._sync_engine is None
-    assert manager._sync_session_factory is None
+    assert not manager.is_sync_open
 
 
 @pytest.mark.asyncio
@@ -60,10 +58,8 @@ async def test_async_dispose_clears_engine_and_factory() -> None:
     manager = DatabaseManager(CANONICAL_URL)
     async with manager.get_async_session():
         pass
-    assert manager._async_engine is not None
-    assert manager._async_session_factory is not None
+    assert manager.is_async_open
 
     await manager.dispose_async()
 
-    assert manager._async_engine is None
-    assert manager._async_session_factory is None
+    assert not manager.is_async_open

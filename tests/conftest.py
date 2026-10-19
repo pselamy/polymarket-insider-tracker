@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from fakeredis import FakeAsyncRedis
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
@@ -69,8 +69,7 @@ async def db_manager(async_engine: AsyncEngine) -> DatabaseManager:
     manager = DatabaseManager(
         "postgresql+psycopg://tracker:unused@127.0.0.1:1/unit-tests", async_mode=True
     )
-    manager._async_engine = async_engine
-    manager._async_session_factory = async_sessionmaker(bind=async_engine, expire_on_commit=False)
+    manager.attach_async_engine(async_engine)
     return manager
 
 

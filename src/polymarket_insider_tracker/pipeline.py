@@ -428,7 +428,7 @@ class Pipeline:
         # Initialize the trade poller over the documented public trades query
         logger.debug("Initializing trade poller...")
         self._trade_poller = TradePoller(
-            self._on_trade,
+            self.process_trade,
             redis=self._redis,
             settings=settings.polymarket,
             metadata=self._metadata_sync,
@@ -578,7 +578,7 @@ class Pipeline:
 
         logger.debug("Resources cleaned up")
 
-    async def _on_trade(self, trade: TradeEvent) -> None:
+    async def process_trade(self, trade: TradeEvent) -> None:
         """Process a single trade event.
 
         This is the main event handler that runs the detection pipeline:

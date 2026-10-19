@@ -10,6 +10,7 @@ from sqlalchemy import Text, create_engine, select
 from sqlalchemy.orm import Session
 
 from polymarket_insider_tracker.detector.models import SCORING_ALGORITHM_VERSION, RiskAssessment
+from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.storage.models import Base, RiskAssessmentModel
 from polymarket_insider_tracker.storage.repos import RiskAssessmentDTO
 
@@ -50,10 +51,10 @@ def test_delivery_channels_column_is_text() -> None:
     assert isinstance(column.type, Text)
 
 
-def test_risk_assessment_domain_model_has_slice003_fields() -> None:
+def test_risk_assessment_domain_model_has_slice003_fields(sample_trade: TradeEvent) -> None:
     """Verify that RiskAssessment dataclass supports the new fields with backward-compatible defaults."""
     assessment = RiskAssessment(
-        trade_event=None,  # type: ignore[arg-type]
+        trade_event=sample_trade,
         wallet_address="0x1234567890abcdef1234567890abcdef12345678",
         market_id="market-test-1",
         weighted_score=0.85,

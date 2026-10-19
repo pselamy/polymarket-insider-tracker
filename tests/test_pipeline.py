@@ -253,7 +253,7 @@ class TestOnTrade:
             market=mainstream_market,
         )
 
-        await pipeline._on_trade(sample_trade_event)
+        await pipeline.process_trade(sample_trade_event)
 
         assert pipeline.stats.trades_processed == 1
         assert pipeline.stats.last_trade_time is not None
@@ -269,7 +269,7 @@ class TestOnTrade:
         pipeline._fresh_wallet_detector = BarrierDetector(barrier)
         pipeline._size_anomaly_detector = BarrierDetector(barrier)
 
-        await asyncio.wait_for(pipeline._on_trade(sample_trade_event), timeout=1.0)
+        await asyncio.wait_for(pipeline.process_trade(sample_trade_event), timeout=1.0)
 
         assert pipeline.stats.trades_processed == 1
         assert pipeline.stats.errors == 0
@@ -289,7 +289,7 @@ class TestOnTrade:
         pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("Detector error"))
 
         with caplog.at_level(logging.WARNING):
-            await pipeline._on_trade(sample_trade_event)
+            await pipeline.process_trade(sample_trade_event)
 
         assert "fresh wallet detection failed" in caplog.text
         assert pipeline.stats.trades_processed == 1
@@ -312,7 +312,7 @@ class TestOnTrade:
         pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
         pipeline._size_anomaly_detector = FailingDetector(RuntimeError("metadata down"))
 
-        await pipeline._on_trade(sample_trade_event)
+        await pipeline.process_trade(sample_trade_event)
 
         assert pipeline.stats.errors == 2
         assert pipeline.stats.last_error is not None
@@ -341,7 +341,7 @@ class TestOnTrade:
         pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
         pipeline._size_anomaly_detector = FailingDetector(RuntimeError("metadata down"))
 
-        await pipeline._on_trade(sample_trade_event)
+        await pipeline.process_trade(sample_trade_event)
 
         assert pipeline.stats.errors == 2
         assert await persisted_assessments(async_engine) == []
@@ -365,7 +365,7 @@ class TestOnTrade:
             channels=[channel],
         )
 
-        await pipeline._on_trade(sample_trade_event)
+        await pipeline.process_trade(sample_trade_event)
 
         assert pipeline.stats.signals_generated == 1
         assert pipeline.stats.alerts_sent == 1
@@ -1001,7 +1001,7 @@ class TestAssessmentDurabilityOrdering:
             channels=[channel],
         )
 
-        await pipeline._on_trade(sample_trade_event)
+        await pipeline.process_trade(sample_trade_event)
 
         # The pending row was already durable when the channel was contacted...
         assert channel.rows_at_send == [1]
@@ -1030,7 +1030,7 @@ class TestAssessmentDurabilityOrdering:
         )
         pipeline._alert_formatter = _ExplodingFormatter()  # type: ignore[assignment]
 
-        await pipeline._on_trade(sample_trade_event)
+        await pipeline.process_trade(sample_trade_event)
 
         rows = await persisted_assessments(async_engine)
         assert len(rows) == 1
@@ -1065,7 +1065,7 @@ class TestAssessmentDurabilityOrdering:
         )
         pipeline._db_manager = flaky  # type: ignore[assignment]
 
-        await pipeline._on_trade(sample_trade_event)
+        await pipeline.process_trade(sample_trade_event)
 
         assert len(channel.deliveries) == 1
         assert pipeline.stats.errors == 1
