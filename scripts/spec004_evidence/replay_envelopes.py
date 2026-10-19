@@ -1,0 +1,170 @@
+"""Build one 004.1 evaluation envelope per live-replay case (contracts/scoring-config.md).
+
+Stdlib only; never imports from src/. The verdicts come from ``replay_live`` (the executable
+precedence table) and the scoring arithmetic from ``reachability``; this module only lays the
+results out in the stored envelope shape so ``check_envelope`` can validate every volume state.
+"""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta
+from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Any, cast
+
+from scripts.spec004_evidence import replay_live as rl
+from scripts.spec004_evidence.reachability import (
+    Market,
+    Wallet,
+    score,
+    size_signal,
+    wallet_confidence,
+)
+
+EVALUATED_AT = datetime.fromisoformat("2026-10-19T12:00:00+00:00")
+WEIGHTS = {
+    "fresh_wallet": Decimal("0.4"),
+    "niche_market": Decimal("0.25"),
+    "size_anomaly": Decimal("0.35"),
+}
+
+
+def plain(value: Decimal) -> str:
+    """Plain-notation decimal string without a trailing exponent."""
+    return format(value, "f")
+
+
+def stamp(age: object) -> tuple[str | None, str | None]:
+    """(acquired_at, signed age seconds); both null when the stamp is unusable."""
+    if not isinstance(age, int):
+        return None, None
+    return (EVALUATED_AT - timedelta(seconds=age)).isoformat(), str(age)
+
+
+def volume_stamp(obs: rl.Observation, explicit: Decimal | None) -> tuple[str | None, str | None]:
+    if explicit is not None:
+        return EVALUATED_AT.isoformat(), "0"
+    if obs.kind == "unavailable":
+        return None, None
+    return stamp(obs.acquired_age_seconds)
+
+
+def volume_source(obs: rl.Observation, explicit: Decimal | None) -> str | None:
+    if explicit is not None:
+        return "caller"
+    return None if obs.kind == "unavailable" else obs.source
+
+
+def raw_fields(obs: rl.Observation, explicit: Decimal | None) -> tuple[bool, object]:
+    if explicit is not None or obs.kind == "unavailable":
+        return False, None
+    return obs.present, obs.raw
+
+
+def size_block(
+    spec: dict[str, Any], verdict: rl.Verdict, size: tuple[float, bool] | None
+) -> dict[str, Any]:
+    state, reason, volume = verdict
+    obs = rl.build_observation(spec["observation"])
+    explicit = rl.explicit_volume(spec)
+    acquired, age = volume_stamp(obs, explicit)
+    present, raw = raw_fields(obs, explicit)
+    notional = Decimal(str(spec["notional"]))
+    impact = (
+        None if volume is None else (notional / volume).quantize(Decimal("0.0001"), ROUND_HALF_EVEN)
+    )
+    conf = None if size is None else f"{size[0]:.3f}"
+    return {
+        "book_impact": None,
+        "book_state": "unavailable",
+        "category": str(spec["category"]),
+        "category_source": str(spec["category_source"]),
+        "confidence": conf,
+        "daily_volume": None if volume is None else plain(volume),
+        "daily_volume_acquired_at": acquired,
+        "daily_volume_age_seconds": age,
+        "daily_volume_source": volume_source(obs, explicit),
+        "factors": {},
+        "niche": bool(size and size[1]),
+        "niche_basis": rl.niche_basis(size, volume).removesuffix("-not-niche"),
+        "signal_emitted": size is not None,
+        "volume24hr_present": present,
+        "volume24hr_raw": raw,
+        "volume_impact": None if impact is None else plain(impact),
+        "volume_reason": reason,
+        "volume_state": state,
+    }
+
+
+def wallet_block(wconf: float | None, nonce: int) -> dict[str, Any]:
+    return {
+        "age_basis": "none",
+        "age_hours": None,
+        "age_state": "unknown",
+        "boundary": rl.BOUNDARY,
+        "classification": "known_nonqualifying" if wconf is None else "low_activity_unknown_age",
+        "confidence": None if wconf is None else f"{wconf:.3f}",
+        "factors": {} if wconf is None else {"base": "0.5"},
+        "observation_time": "2026-10-19T11:58:10+00:00",
+        "retrieval_error": None,
+        "subject_kind": "proxy_wallet",
+        "tx_count": nonce,
+    }
+
+
+def term(confidence: float | None, weight: Decimal) -> Decimal:
+    return Decimal(0) if confidence is None else Decimal(f"{confidence:.3f}") * weight
+
+
+def contributions(wconf: float | None, size: tuple[float, bool] | None) -> dict[str, str]:
+    size_conf = None if size is None else size[0]
+    niche_conf = size_conf if size is not None and size[1] else None
+    wallet = term(wconf, WEIGHTS["fresh_wallet"])
+    size_c = term(size_conf, WEIGHTS["size_anomaly"])
+    niche = term(niche_conf, WEIGHTS["niche_market"])
+    bonus = Decimal("1.2") if wconf is not None and size is not None else Decimal(1)
+    return {
+        "bonus": plain(bonus),
+        "capped_score": plain(min((wallet + size_c + niche) * bonus, Decimal(1))),
+        "fresh_wallet": plain(wallet),
+        "niche_market": plain(niche),
+        "size_anomaly": plain(size_c),
+    }
+
+
+def build_envelope(spec: dict[str, Any], template: dict[str, Any]) -> dict[str, Any]:
+    """A complete 004.1 document for one replay case, based on the example's static keys."""
+    notional = Decimal(str(spec["notional"]))
+    nonce = int(spec["nonce"])
+    verdict = rl.classify(rl.build_observation(spec["observation"]), rl.explicit_volume(spec))
+    market = Market(
+        "m",
+        verdict[2],
+        str(spec["category"]) in rl.NICHE_PRONE and spec["category_source"] == "metadata",
+    )
+    wconf = (
+        wallet_confidence(Wallet("unknown age", nonce, None), notional, proposed=True)
+        if nonce < rl.BOUNDARY
+        else None
+    )
+    size = size_signal(market, notional, volume_passed=True)
+    proposed = score(wconf, size)
+    doc = cast(dict[str, Any], json.loads(json.dumps(template)))
+    doc["evaluation_evidence"] = {
+        "contributions": contributions(wconf, size),
+        "evaluated_at": EVALUATED_AT.isoformat(),
+        "notional": plain(notional),
+        "result": {
+            "should_alert": proposed >= Decimal(doc["alert_threshold"]),
+            "signals_triggered": int(wconf is not None) + int(size is not None),
+            "weighted_score": plain(proposed.quantize(Decimal("0.001"), ROUND_HALF_EVEN)),
+        },
+        "size": size_block(spec, verdict, size),
+        "wallet": wallet_block(wconf, nonce),
+    }
+    return doc
+
+
+def replay_specs() -> list[dict[str, Any]]:
+    corpus = json.loads((rl.HERE / "replay-live" / "cases.json").read_text())
+    return [rl.merged(corpus["defaults"], case) for case in corpus["cases"]]

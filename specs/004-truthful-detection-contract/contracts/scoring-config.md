@@ -70,7 +70,7 @@ readable summary.
 | `size.volume_state`, `size.volume_reason` | enum (8 states); enum of the §1.2 reasons | never null (every state has a reason) | data-model §1.2. |
 | `size.volume24hr_present`, `size.volume24hr_raw` | boolean; **any JSON value** | raw null when absent/null | Decoded JSON value verbatim. Bounded: if its canonical JSON exceeds 256 bytes it is replaced by `{"$truncated":true,"type":"<json type>","bytes":<n>,"sha256":"<hex>"}`. |
 | `size.daily_volume` | decimal string | null unless `available` | The only denominator. |
-| `size.daily_volume_acquired_at`, `size.daily_volume_age_seconds`, `size.daily_volume_source` | UTC timestamp; decimal string; string | null when no observation | Age = `evaluated_at − acquired_at`. |
+| `size.daily_volume_acquired_at`, `size.daily_volume_age_seconds`, `size.daily_volume_source` | UTC timestamp; **signed** decimal string (`-?[0-9]+(\.[0-9]+)?`); string | `acquired_at` and `age` null when no observation exists **or the stamp is unusable** (`absent`, `naive`, `unparseable`, `nonpositive_epoch`; the unusable stamp itself is not stored); `source` null when no observation | Age = `evaluated_at − acquired_at`. A future stamp (`invalid_time`/`future`) is stored with its real timestamp and a **negative** age (e.g. `"-1"`), so the evidence shows how far ahead it was; age is `>= 0` in every other state that has a stamp, and `0`–`600` in `available`. An explicit caller volume records `acquired_at = evaluated_at`, age `"0"`. |
 | `size.volume_impact` | 4-decimal string (`ROUND_HALF_EVEN`) | **null unless `available`** | `notional / daily_volume`; never `"0.0000"` for a non-measurement (SC-002). |
 | `size.book_state` / `size.book_impact` | const `"unavailable"` / `null` | impact always null | FR-006. |
 | `size.niche`, `size.niche_basis`, `size.category`, `size.category_source` | bool; `numeric`/`category`/`none`; string; `metadata`/`minimal` | category null if unknown | data-model §3. |
@@ -82,7 +82,7 @@ readable summary.
 Reconstruction (CHK014): every `result` field is recomputable from the rest of the document with
 decimal arithmetic alone; `scripts/spec004_evidence/check_envelope.py` performs exactly that and also verifies the volume
 cross-field rules (`daily_volume`/`volume_impact` non-null exactly when `available`; age within
-0–600 s when `available`; unknown age ⇒ confidence exactly `0.500`). SC-005 (±0.01) is therefore met
+0–600 s when `available`; negative age only for `invalid_time`/`future`; one envelope is built and validated for every replay-live case; unknown age ⇒ confidence exactly `0.500`). SC-005 (±0.01) is therefore met
 with zero tolerance for stored 004.1 rows.
 
 ## 3. Reader dispatch

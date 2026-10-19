@@ -68,6 +68,7 @@
   },
   "$defs": {
     "decimal": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$"},
+    "signed_decimal": {"type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$"},
     "score3": {"type": "string", "pattern": "^(0\\.[0-9]{3}|1\\.000)$"},
     "impact4": {"type": "string", "pattern": "^[0-9]+\\.[0-9]{4}$"},
     "utc": {
@@ -123,7 +124,7 @@
             "volume24hr_raw": {},
             "daily_volume": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
             "daily_volume_acquired_at": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/utc"}]},
-            "daily_volume_age_seconds": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
+            "daily_volume_age_seconds": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/signed_decimal"}]},
             "daily_volume_source": {"type": ["string", "null"], "maxLength": 64},
             "volume_impact": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/impact4"}]},
             "book_state": {"const": "unavailable"},

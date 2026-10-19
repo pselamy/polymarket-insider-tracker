@@ -19,6 +19,8 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 from typing import Any, cast
 
+from scripts.spec004_evidence.replay_envelopes import build_envelope, replay_specs
+
 CONTRACTS = (
     Path(__file__).resolve().parents[2] / "specs" / "004-truthful-detection-contract" / "contracts"
 )
@@ -225,6 +227,15 @@ def available_volume_errors(evidence: dict[str, Any]) -> list[str]:
     return errors
 
 
+def age_sign_errors(size: dict[str, Any]) -> list[str]:
+    age = size["daily_volume_age_seconds"]
+    if age is None or Decimal(age) >= 0:
+        return []
+    if (size["volume_state"], size["volume_reason"]) == ("invalid_time", "future"):
+        return []
+    return ["negative age outside invalid_time/future"]
+
+
 def volume_state_errors(evidence: dict[str, Any]) -> list[str]:
     size = evidence["size"]
     available = size["volume_state"] == "available"
@@ -233,6 +244,7 @@ def volume_state_errors(evidence: dict[str, Any]) -> list[str]:
         errors.append("daily_volume must be non-null exactly when volume_state is available")
     if available != (size["volume_impact"] is not None):
         errors.append("volume_impact must be non-null exactly when volume_state is available")
+    errors += age_sign_errors(size)
     return errors + (available_volume_errors(evidence) if available else [])
 
 
@@ -264,6 +276,10 @@ def mutations(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     variant(
         "naive stamp", lambda d: d["evaluation_evidence"].update(evaluated_at="2026-10-19T12:00:00")
     )
+    variant(
+        "non-numeric age",
+        lambda d: d["evaluation_evidence"]["size"].update(daily_volume_age_seconds="x"),
+    )
     variant("wrong version", lambda d: d.update(evidence_schema="003.1"))
     variant("bool as int", lambda d: d["detector_config"].update(fresh_transaction_boundary=True))
     return cases
@@ -292,9 +308,20 @@ def mutation_failures(schema: dict[str, Any]) -> list[str]:
     ]
 
 
+def replay_failures(schema: dict[str, Any]) -> list[str]:
+    """One envelope per replay-live case: schema, reconstruction and state rules must all hold."""
+    template = load("scoring-config-004.1.example.json")
+    failures: list[str] = []
+    for spec in replay_specs():
+        doc = build_envelope(spec, template)
+        found = validate(doc, schema, schema) + reconstruct(doc)
+        failures += [f"replay {spec['case_id']}: {e}" for e in found]
+    return failures
+
+
 def main() -> int:
     schema = load("scoring-config-004.1.schema.json")
-    failures: list[str] = []
+    failures: list[str] = replay_failures(schema)
     for name in ("scoring-config-004.1.example.json", "scoring-config-004.1.failure-row.json"):
         failures += document_failures(name, schema)
     failures += mutation_failures(schema)
