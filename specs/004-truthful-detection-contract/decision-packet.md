@@ -5,6 +5,24 @@ not a routine merge, production deployment, real notification, trading, or calib
 Tests and implementation remain future work. Data API V2 ingestion is now the live contract on main (see spec Dependencies); this
 packet is rewritten in full by the 2026-10-19 revision.
 
+## DECISIONS FOR PATRICK (open; none is settled by this revision)
+
+### D1 — Wallet-age source (DECISION FOR PATRICK)
+
+Current main cannot produce a known wallet age (`profiler/chain.py:485-532` returns no first
+transaction for any wallet), and the profiled address is the V2 `proxy_wallet`, whose nonce meaning is
+**unverified**. Full analysis: [research.md](research.md) R09.
+
+| Option | Live behaviour | Main trade-off |
+|---|---|---|
+| **O1** age branch non-operational; score only on low-activity evidence | every wallet candidate is "low-activity wallet, age unknown", confidence exactly 0.50 | Truthful, no new dependency; maximum score is 0.78 (see D2) |
+| **O2** Polymarket-activity age from the earliest public trade for the proxy address | "first Polymarket trade seen < 48 h ago" when full history is reachable, else unknown | Measures newness to Polymarket without the nonce question; needs a qualified per-user query, offset-capped so often only a lower bound |
+| **O3** external indexer for chain first-transaction age | "first on-chain transaction < 48 h ago" | Vendor, credential/quota and cost; still subject to the proxy-address question |
+
+**Recommended default: O1 for slice 004**, O2 as the first follow-up after the T027 qualification
+receipt. If you pick O2 or O3 the spec already has the wording rules and the unknown-age fallback; the
+implementation then gains a source task. Until you choose, the contract is written for O1 and says so.
+
 ## Final behavior (if authorized)
 
 Two-group research core (fresh/low-activity wallet + size anomaly; niche as size modifier),

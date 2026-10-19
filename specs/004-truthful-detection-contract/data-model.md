@@ -1,6 +1,6 @@
 # Data Model: Truthful Detection Contract
 
-**Feature**: `specs/004-truthful-detection-contract` | **Date**: 2026-10-17 | **Status**: proposed.
+**Feature**: `specs/004-truthful-detection-contract` | **Date**: 2026-10-17, revised 2026-10-19 | **Status**: proposed.
 Extends the [003 data model](../003-safe-observable-operation/data-model.md); no competing
 migration or harness. Implementation is not authorized.
 
@@ -19,11 +19,28 @@ migration or harness. Implementation is not authorized.
 
 | Field | Type | Rule |
 |---|---|---|
-| `tx_count` (nonce) | int \| null | Observed prior-transaction count; null when retrieval failed. |
-| `age_hours` | Decimal \| null | Known age; null = unknown. |
-| `age_state` | enum | `known` \| `unknown`. |
-| `classification` | enum | `fresh` (known age ≤ 48h, `nonce < B`, notional ≥ 1000, where `B` is the captured effective exclusive boundary, default 5) \| `low_activity_unknown_age` (unknown age, `nonce < B`, notional ≥ 1000; confidence exactly 0.50, no age/new-wallet/large-trade additions) \| `known_nonqualifying` (immutable evidence of a non-qualifying input, distinct from missing) \| `not_requested` \| `retrieval_failed`. The `5` is the default of `DETECTOR_FRESH_TRANSACTION_BOUNDARY`, never a hardcoded constant: boundary 3 excludes nonce 3 (`transaction-override-3-3` emits no wallet signal), boundary 10 includes nonce 9 (`transaction-override-10-9` emits a wallet signal). Equality rule: nonce exactly `B` never qualifies. |
-| `observation_time` | aware UTC | Evidence observation timestamp. |
+| `subject_kind` | enum `proxy_wallet` | The profiled address is the V2 `proxy_wallet` (`TradeEvent.wallet_address`). Always `proxy_wallet` in this slice; any future EOA resolution needs its own spec (FR-007a). |
+| `tx_count` (nonce) | int \| null | Observed prior-transaction count **of the proxy address**; null when retrieval failed. Never described as the participant's history. |
+| `age_hours` | Decimal \| null | Known age; null = unknown. Null whenever `age_basis` is `none`. |
+| `age_basis` | enum | `none` \| `polymarket_first_trade` \| `chain_first_transaction` (FR-007b). `none` is the only value current main can produce (`profiler/chain.py:485-532` returns no first transaction for any wallet). A known age without a basis is invalid evidence. |
+| `age_state` | enum | `known` (basis ≠ `none`) \| `unknown`. |
+| `classification` | enum | `fresh` (known age ≤ 48h, `nonce < B`, notional ≥ 1000, where `B` is the captured effective exclusive boundary, default 5) \| `low_activity_unknown_age` (unknown age, `nonce < B`, notional ≥ 1000; confidence exactly 0.50, see the unknown-age table below) \| `known_nonqualifying` (immutable evidence of a non-qualifying input, distinct from missing) \| `not_requested` \| `retrieval_failed`. The `5` is the default of `DETECTOR_FRESH_TRANSACTION_BOUNDARY`, never a hardcoded constant: boundary 3 excludes nonce 3 (`transaction-override-3-3` emits no wallet signal), boundary 10 includes nonce 9 (`transaction-override-10-9` emits a wallet signal). Equality rule: nonce exactly `B` never qualifies. |
+| `observation_time` | aware UTC | The wallet profile's `analyzed_at` (`profiler/models.py:96`): when the nonce/first-seen values were obtained, **not** when the detector read them. A cached profile keeps its original `analyzed_at`; a cache read never restamps it. Evidence records both `observation_time` and the trade-evaluation time so a reviewer can see the gap. |
+
+### Unknown-age rule (single normative table; spec FR-008)
+
+| Input | Result |
+|---|---|
+| `age_state = unknown`, `nonce < B`, notional ≥ 1000 | class `low_activity_unknown_age`; confidence **exactly 0.50**; factors `{base: 0.5}` only |
+| …and nonce = 0 | still exactly 0.50 (no brand-new addition) |
+| …and notional > 10000 | still exactly 0.50 (no large-trade addition) |
+| `age_state = unknown`, `nonce >= B` or notional < 1000 | `known_nonqualifying` / no signal; never promoted |
+| profile retrieval failed | `retrieval_failed`; no freshness fact; no signal |
+| required label | “low-activity wallet, age unknown” on the proxy address; never “new”, “fresh”, “under 48 hours” |
+
+"Capped at 0.50" is retired wording: no artifact may permit a value other than 0.50. The
+reviewer-owned CHK005 text still says "cap 0.50"; it is left untouched for the reviewer and is read as
+this table.
 
 ### 2a. Canonical freshness rule (governs all surfaces)
 

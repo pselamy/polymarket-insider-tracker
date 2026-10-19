@@ -91,6 +91,12 @@ Named files, entry points, dependency order:
 - [ ] T019 Full pipeline/storage/output/failure/restart/integration evidence per
   `quickstart.md` journey scenarios 1–10 (SC-001–008). Depends on T010, T015–T017.
 - [ ] T020 Real PostgreSQL/Redis parity + migration downgrade exercise (disposable DB only)
+- [ ] T027 Wallet-subject qualification receipt (needs explicit authorization for read-only anonymous
+  probes; none were run in this revision): bounded sample of proxy addresses, compare
+  `eth_getTransactionCount` with public trade counts and record whether the nonce moves with trading;
+  if DECISION D1 selects O2, also qualify the per-user trades query (ordering, `takerOnly`,
+  10,000-row offset cap, maker visibility). Until it exists the wallet group stays described as
+  "low transaction count on the proxy address" (spec FR-007a/b). (F01, F02)
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 

@@ -72,6 +72,9 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   and `DETECTOR_SIZE_VOLUME_THRESHOLD` default 0.02 (strict `>`). Existing wallet minimum
   notional 1000, age ceiling 48h, niche volume 50000 / niche-only minimum 500, confidence
   constants, and weight rules stay fixed.
+- **Wallet identity and age (revised 2026-10-19)**: the profiled address is the V2 `proxy_wallet`
+  (FR-007a, nonce meaning unverified); live age is unknown until DECISION D1 selects a qualified
+  source (FR-007b, research R09; recommended default O1); unknown age is exactly 0.50 everywhere.
 - **Wallet/size semantics**: known-age requires notional ≥ 1000, `nonce < B` (effective
   boundary), age ≤ 48h; unknown-age low-activity requires notional ≥ 1000, `nonce < B`,
   confidence exactly 0.50, no age/new-wallet/large-trade additions; missing retrieval

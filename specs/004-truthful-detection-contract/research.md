@@ -207,3 +207,56 @@ follows. See[evidence/replay.md](evidence/replay.md).
 Canonical reproduction tooling still needs complete source enrollment, types/complexity controls and
 regression proof before adoption. Full pipeline, real storage, output, failure, restart and integration
 evidence remain mandatory. Reviewer checklists remain human-owned; implementation remains reserved.
+
+## R09 — Wallet identity and age source (added 2026-10-19; resolves review findings F01, F02, F26)
+
+**What is profiled (verified in code)**: the trade's wallet is the V2 `proxy_wallet`:
+`ingestor/trade_row_v2.py:27` maps it to `proxyWallet`; `ingestor/trade_rows.py:169` takes it as the
+identity wallet and `:251` sets `TradeEvent.wallet_address`; `profiler/analyzer.py:168` →
+`profiler/chain.py:308-327` call `eth_getTransactionCount` on exactly that address. This predates V2
+(slice 001 already mapped `proxyWallet`→`wallet_address`).
+
+**What that address can and cannot carry**
+
+| Can carry (code-verified) | Cannot carry / unverified |
+|---|---|
+| A per-address Polygon transaction count at profiling time (`analyzed_at`) | Whether that count tracks Polymarket trading for a proxy address. If the address is a contract account its nonce counts contract creations, not trades; if relayers submit the transactions the address's own nonce may not move at all. **Neither is verified for Polymarket** (no first-party code, test or checked-in evidence); the reviewers' "stays 0" claim is likewise unverified. The spec is written to hold under either outcome. |
+| The address as a stable trade-row identity (lowercased, slice 001 contract) | The participant's account age, total history or identity; a proxy address is not shown to be 1:1 with a person |
+| Nothing about age on current main | `first_seen` is `None` for every wallet: `profiler/chain.py:519-530`, `profiler/analyzer.py:180-196` |
+
+Consequences adopted in the spec: FR-007a (subject kind recorded; wording limited to "low transaction
+count on the proxy address"), FR-007b (age needs a recorded basis; live age unknown until a source
+is selected), FR-008 (unknown age is exactly 0.50), and a required qualification receipt (T027) before
+the wallet group may be described more strongly.
+
+**Age-source options** (a product/data-semantics choice → DECISION D1 in
+[decision-packet.md](decision-packet.md); nothing here is settled)
+
+| Option | What "age" means | Trade-offs | Evidence status |
+|---|---|---|---|
+| **O1 – age branch non-operational; score only on low-activity evidence** (recommended default for this slice) | No age. Live wallet group = `low_activity_unknown_age`, confidence exactly 0.50 | No new dependency, credential, request or rate cost; fully truthful; the known-age branch stays tested via injected profiles but is documented non-operational. Cost: max score 0.78 (see R10), so 0.80 alerts need D2 | Fully supported by current code |
+| **O2 – Polymarket-activity age**: earliest public trade seen for the proxy address in the Data API | "Time since this proxy address's first public Polymarket trade" (`age_basis = polymarket_first_trade`). Not chain age and must never be worded as such | Directly measures "new to Polymarket", independent of the nonce question; one extra anonymous request per candidate (only trades ≥ $1,000 pass the wallet gate, so volume is small against the 200 req/10 s Data API limit recorded in slice 001 feasibility). Costs: needs a per-user query qualified for this use, results are newest-first with a 10,000-row offset cap, so "earliest" is only exact for addresses whose whole history fits; otherwise age is a lower bound and must be `unknown`. A maker-side trade may be hidden if `takerOnly` defaults apply | The official endpoint is documented as "Get trades for a user or markets" (`specs/001-supported-trade-ingestion/evidence/feasibility.md:13`) but the user filter, ordering and `takerOnly` interaction are **UNVERIFIED** here; no live call was made in this revision |
+| **O3 – external indexer** (chain first-transaction time of the address) | `age_basis = chain_first_transaction` | Matches the original README meaning; adds a vendor dependency, a credential or quota, new failure/cost surface and a trust decision; still subject to the proxy-address semantics question (a contract's creation time is not the participant's first use) | No indexer in the repo (`get_first_transaction` note at `profiler/chain.py:524-527`); vendor behaviour unverified |
+| **O4 – Gamma public-profile style creation timestamp** | Account creation as Polymarket records it | Possibly the closest to "new account" | **UNVERIFIED lead only**: nothing in the repo or checked-in evidence shows such an endpoint or its terms; listed so a future qualification can evaluate it, not as a candidate this revision can recommend |
+
+**Recommended default**: O1 for this slice, with O2 as the first follow-up candidate once a bounded,
+authorized qualification (T027) establishes the per-user query semantics. Rationale: it is the only option
+whose every claim is supported by code on main today, and it keeps FR-007/FR-008 truthful without
+adding a network surface to the detection path.
+
+**FR-007/FR-008 under each option**
+
+| | O1 | O2 | O3 |
+|---|---|---|---|
+| Live `age_state` | always `unknown` | `known` when full history is reachable, else `unknown` | `known` when indexer answers, else `unknown` |
+| Live classification | `low_activity_unknown_age` only | `fresh` or `low_activity_unknown_age` | same as O2 |
+| Wording of a `fresh` hit | n/a (never emitted live) | "first Polymarket trade seen < 48 h ago" | "first on-chain transaction < 48 h ago" |
+| Unknown-age rule (exactly 0.50) | applies to every candidate | applies when history truncated or lookup failed | applies on indexer miss/failure |
+| Known-age confidence formula | unchanged, library-only | unchanged | unchanged |
+
+The unknown-age rule is identical under every option: exactly 0.50, factors `{base}`, no bonuses.
+
+**Qualification receipt T027 (not performed; needs explicit authorization)**: for a bounded sample of
+proxy addresses, compare `eth_getTransactionCount` against the address's public trade count and record
+whether the nonce moves with trading. Until then every statement about proxy-address nonce meaning is
+labelled UNVERIFIED.

@@ -45,5 +45,10 @@ Pins exact current interfaces (refreshed 2026-10-19 to main `1bdccbc`; originall
    sentinels (including `0.0`) keep version-specific reader semantics and are documented
    as non-measurements. Compatibility window covers the deprecated custom-weight
    API/window per 003.
-4. Same quantized score and actual threshold on every output surface; unknown age and
+4. Wallet evidence returned by the evaluation entry point carries `subject_kind = "proxy_wallet"`,
+   `age_basis` (`none` on current main) and `observation_time = profile.analyzed_at`
+   ([data-model.md](../data-model.md) §2). The unknown-age rule (exactly 0.50, factors `{base}`
+   only, no brand-new/very-young/large-trade addition) is defined once in data-model §2 and is
+   not restated here; nothing in this contract permits "capped at".
+5. Same quantized score and actual threshold on every output surface; unknown age and
    unavailable volume/book explicitly labeled; niche shown as size modifier.

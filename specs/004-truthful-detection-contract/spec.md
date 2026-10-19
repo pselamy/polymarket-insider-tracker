@@ -88,6 +88,8 @@ persisted assessment fields, sample output, README, example environment, and the
 - Market metadata can be stale; the assessment must include observation or refresh time where available.
 - Wallet transaction count can change between profiling and alert review; evidence needs its observation time.
 - An age can be known and older than 48 hours even when transaction count remains low.
+- The profiled address is a proxy wallet: a low or zero transaction count on that address is not evidence about
+  the participant's history, and the nonce semantics of the address are unverified (FR-007a).
 - Transaction count exactly at the configured boundary must use one documented inclusive/exclusive rule.
 - A niche market factor is part of size evidence, not a third independently observed detector invocation.
 - An override can make a formerly unreachable score qualify; persisted thresholds must preserve that context.
@@ -111,12 +113,27 @@ persisted assessment fields, sample output, README, example environment, and the
   they MUST NOT be presented as observed zero impact.
 - **FR-006**: Book-depth impact MUST NOT contribute to the supported core score until a source and freshness
   contract are separately approved and wired. Existing library support MAY remain non-operational.
-- **FR-007**: A newly-created-wallet claim MUST require known age at or below 48 hours and transaction count
-  below the configured freshness boundary.
+- **FR-007**: A newly-created-wallet claim MUST require known age at or below 48 hours, a recorded age basis
+  (FR-007b), and transaction count below the configured freshness boundary.
+- **FR-007a** *(wallet subject)*: The wallet that is profiled is the trade row's `proxy_wallet` address
+  (`TradeEvent.wallet_address`). Evidence MUST record that subject kind (`proxy_wallet`), and every output MUST
+  describe the number as the transaction count **of that proxy address**. No output MAY claim it measures the
+  participant's total trading history, experience or account age. Whether a proxy address's Polygon nonce tracks
+  trading activity at all is **unverified** (no first-party code, test or checked-in evidence); until a
+  qualification receipt exists the wallet group MUST NOT be described more strongly than "low transaction
+  count on the proxy address".
+- **FR-007b** *(age source)*: A known age MUST carry its basis: `polymarket_first_trade` (earliest public
+  trade seen for the proxy address), `chain_first_transaction` (qualified indexer), or none. Current main has
+  no operational age source (`get_first_transaction` returns `None` for every wallet). Which source, if any,
+  the live product uses is DECISION D1 in [decision-packet.md](decision-packet.md); until a source is selected
+  and qualified, live age is **always unknown** and the known-age classification is exercised only by injected
+  test profiles and is documented as non-operational. Failure to obtain an age is `unknown`, never `fresh`.
 - **FR-008**: When age is unknown and transaction count is below the boundary, the detector MAY emit a
   lower-certainty low-activity-wallet candidate, but all outputs MUST label age as unknown and MUST NOT state
-  or imply a less-than-48-hour age. Its confidence MUST be capped at 0.50 and MUST NOT receive an age-based
-  or newly-created-wallet bonus.
+  or imply a less-than-48-hour age. Its confidence MUST be **exactly 0.50** (neither lower nor higher,
+  independent of nonce value and trade size), its only factor is the low-activity factor, and it MUST NOT
+  receive an age-based, brand-new (nonce 0), very-young or large-trade addition. This is the canonical
+  unknown-age rule; [data-model.md](data-model.md) §2 restates it as the single normative table.
 - **FR-009**: The transaction-count boundary MUST be strictly fewer than 5 prior transactions for the default
   contract, matching public wording and eliminating the current competing inclusive rules.
 - **FR-010**: Missing wallet evidence MUST reduce or remove its contribution; failure to retrieve evidence
@@ -148,8 +165,9 @@ persisted assessment fields, sample output, README, example environment, and the
 
 ### Key Entities
 
-- **Wallet Evidence**: Observed transaction count, known or unknown first-seen time and age, balances,
-  observation time, retrieval status, and resulting fresh/low-activity classification.
+- **Wallet Evidence**: Subject address kind (`proxy_wallet`), observed transaction count of that address,
+  known or unknown first-seen time and age with its basis, balances, observation time, retrieval status, and
+  resulting fresh/low-activity classification.
 - **Market Evidence**: Market identity and category, positive known or unavailable daily volume, unavailable
   book depth for this slice, data freshness, and resulting niche context.
 - **Operational Signal Group**: One live detector result with confidence and factors that may contribute to
@@ -186,8 +204,10 @@ persisted assessment fields, sample output, README, example environment, and the
 - The current 0.80 runtime default is retained as the operational default because it is already the code and
   changelog contract; this slice does not claim the threshold is statistically calibrated.
 - “Fresh wallet” becomes a precise known-age classification. Low transaction count with unknown age remains
-  useful but is labeled a lower-certainty “low-activity wallet, age unknown” candidate capped at confidence
-  0.50 with no age or newly-created bonus.
+  useful but is labeled a lower-certainty “low-activity wallet, age unknown” candidate with confidence exactly
+  0.50 and no age, brand-new, very-young or large-trade bonus.
+  Because no age source is operational (FR-007b), this is the **only** wallet classification the live
+  runtime can produce until decision D1 selects and qualifies a source.
 - The default transaction-count rule is fewer than 5 prior transactions, following the README wording. This
   intentionally resolves the current mix of `< 5` and `<= 5` behavior.
 - Available positive daily volume is part of the core size contract. Book-depth scoring is disabled and
