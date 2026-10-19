@@ -160,7 +160,7 @@ knowledge).
 | 1 | 11 | 196 | test_formatter.py, test_history.py, test_scorer.py, test_size_anomaly.py | Repeated `sample_trade`/`sample_wallet_profile` fixtures and formatter/history case scaffolds (two fixture families share one component) | real |
 | 2 | 0 | 0 | _journey_harness.py | **Resolved**: the sample trade, single-token market, seeded provider history, journey settings, and wire/start/stop scaffolding now have one home (`tests/integration/_journey_harness.py`); the five suites use it | resolved (PR #163) |
 | 3 | 7 | 94 | test_redaction.py | Repeated harness setups asserting the same redaction policy across inputs | real |
-| 4 | 9 | 92 | test_dispatcher.py | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
+| 4 | 0 | 0 | test_dispatcher.py | **Resolved**: channel-to-fake-server wiring (`wired_channel`) and the failed-send redaction assertion (`assert_failure_logged_without`) have one home; the paired success, failure, rate-limit, read-timeout and retry-after cases are parametrized over the channel | resolved (PR #166) |
 | 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
 | 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
 | 7 | 2 | 24 | detector/models.py, storage/repos.py | **Resolved**: confidence thresholds/classification, trade-identity property accessors and the trade-head serialization now have one home (`serialized_trade_head`, `is_high_confidence_score`, shared property objects, `UNRECORDED_DELIVERY_DISPOSITION`). Two residual groups remain visible on purpose: the `FreshWalletSignal`/`SizeAnomalySignal` declaration block (96 tokens) and the `RiskAssessment`/`RiskAssessmentDTO` field-default mirror (52 tokens, intentional persistence/domain layer boundary) | resolved; residual incidental (see the round-3 review correction below) |
@@ -229,8 +229,6 @@ resolution sections at the end for each card's own measurements.
 | 75 | 14 | tests/ingestor/test_health_server.py:123-136 | tests/ingestor/test_health_server.py:259-272 |
 | 74 | 13 | src/.../profiler/_funding_rpc.py:108-120 | src/.../profiler/funding.py:258-270 |
 | 74 | 12 | tests/test_main.py:304-315 | tests/test_main.py:362-373 |
-| 73 | 14 | tests/alerter/test_dispatcher.py:421-434 | tests/alerter/test_dispatcher.py:545-559 |
-| 72 | 13 | tests/alerter/test_dispatcher.py:403-415 | tests/alerter/test_dispatcher.py:523-535 |
 | 71 | 21 | tests/alerter/test_formatter.py:23-43 | tests/detector/test_scorer.py:23-43 |
 | 70 | 11 | tests/integration/test_redis_contract.py:487-497 | tests/integration/test_redis_contract.py:532-542 |
 | 69 | 15 | tests/integration/test_end_to_end.py:57-71 | tests/test_pipeline.py:82-96 |
@@ -265,9 +263,6 @@ resolution sections at the end for each card's own measurements.
 | 57 | 6 | tests/ingestor/test_trade_poller.py:912-917 | tests/ingestor/test_trade_poller.py:977-981 |
 | 56 | 9 | tests/ingestor/test_publisher.py:247-255 | tests/ingestor/test_publisher.py:272-280 |
 | 55 | 17 | tests/alerter/test_formatter.py:88-104 | tests/alerter/test_history.py:83-99 |
-| 55 | 11 | tests/alerter/test_dispatcher.py:124-134 | tests/alerter/test_dispatcher.py:273-282 |
-| 55 | 10 | tests/alerter/test_dispatcher.py:228-237 | tests/alerter/test_dispatcher.py:309-318 |
-| 55 | 10 | tests/alerter/test_dispatcher.py:888-897 | tests/alerter/test_dispatcher.py:915-925 |
 | 55 | 9 | tests/tooling/test_service_entrypoint.py:14-22 | tests/tooling/test_verifier_standalone.py:43-51 |
 | 53 | 16 | tests/test_persist_assessment.py:4-19 | tests/test_pipeline_persistence.py:5-20 |
 | 53 | 12 | tests/alerter/test_cas_characterization.py:203-214 | tests/alerter/test_cas_characterization.py:262-273 |
@@ -277,11 +272,8 @@ resolution sections at the end for each card's own measurements.
 | 53 | 8 | tests/tooling/test_service_entrypoint.py:148-155 | tests/tooling/test_verifier_standalone.py:165-172 |
 | 53 | 7 | tests/ingestor/test_endpoint_switch_resume.py:80-86 | tests/ingestor/test_endpoint_switch_resume.py:107-113 |
 | 52 | 15 | alembic/versions/rev_20260522_1130_risk_assessments.py:19-33 | alembic/versions/rev_20260920_0000_terminal_errors.py:19-33 |
-| 52 | 12 | tests/alerter/test_dispatcher.py:157-168 | tests/alerter/test_dispatcher.py:307-318 |
 | 52 | 11 | tests/ingestor/test_trade_row_v2.py:134-144 | tests/ingestor/test_trade_rows.py:117-127 |
 | 52 | 8 | src/.../detector/models.py:265-272 | src/.../storage/repos.py:575-582 |
-| 52 | 8 | tests/alerter/test_dispatcher.py:935-942 | tests/alerter/test_dispatcher.py:954-961 |
-| 52 | 7 | tests/alerter/test_dispatcher.py:439-445 | tests/alerter/test_dispatcher.py:565-571 |
 | 52 | 6 | tests/ingestor/test_trade_poller.py:339-344 | tests/ingestor/test_trade_poller.py:417-422 |
 | 51 | 12 | tests/ingestor/test_clob_client.py:176-187 | tests/ingestor/test_clob_client.py:192-203 |
 | 51 | 9 | tests/tooling/test_complexipy.py:105-113 | tests/tooling/test_policy_snapshot.py:77-85 |
@@ -291,7 +283,6 @@ resolution sections at the end for each card's own measurements.
 | 50 | 9 | tests/integration/test_end_to_end.py:253-261 | tests/integration/test_postgres_journey.py:238-246 |
 | 50 | 9 | tests/integration/test_end_to_end.py:322-330 | tests/test_pipeline.py:578-585 |
 | 50 | 8 | tests/ingestor/_v2_walk_harness.py:52-59 | tests/ingestor/test_v2_cursor_walk.py:301-308 |
-| 50 | 7 | tests/alerter/test_dispatcher.py:384-390 | tests/alerter/test_dispatcher.py:494-500 |
 | 50 | 7 | tests/alerter/test_history.py:549-555 | tests/alerter/test_history.py:567-573 |
 | 50 | 6 | tests/test_persist_assessment.py:96-101 | tests/test_pipeline.py:107-112 |
 
@@ -718,3 +709,12 @@ They share a shape but encode different test knowledge (different `factors`,
 question text, prices, sizes and ages), so sharing them would change behaviour or
 need a parameterised factory that merely hides the difference. The formatter and
 size-anomaly `sample_trade` fixtures likewise differ in value and stay local.
+
+## Cluster 4 resolution update (2026-10-19, PR #166)
+
+Re-scanned with the identical pinned jscpd method over the 289 tracked Python
+files: **74 clone groups before, 65 after**; all nine `test_dispatcher.py`
+self-clones are gone and no new group appeared. Redaction cases whose provider
+response bodies genuinely differ stay as separate Discord/Telegram functions
+(they share only the assertion helper). Totals in the header reflect the
+authored-scope measurement and are reduced by these nine groups.
