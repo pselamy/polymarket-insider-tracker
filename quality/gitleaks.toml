@@ -1,0 +1,19 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Protected generated directories; source enrollment rejects tracked inputs here"
+paths = [
+  '^\.git/',
+  '^\.venv/',
+  '^\.codegraph/',
+  '^\.pytest_cache/',
+  '^\.hypothesis/',
+  '^\.mypy_cache/',
+  '^\.ruff_cache/',
+  '^\.quality-results/',
+  '^node_modules/',
+  '^dist/',
+  '^coverage/',
+  '(^|/)__pycache__/',
+]

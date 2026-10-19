@@ -1,0 +1,32 @@
+[
+  [
+    "uv",
+    "lock",
+    "--check"
+  ],
+  [
+    "black",
+    "--check",
+    "src",
+    "tests",
+    "quality"
+  ],
+  [
+    "ruff",
+    "check",
+    "src",
+    "tests",
+    "quality"
+  ],
+  [
+    "pyright"
+  ],
+  [
+    "complexipy",
+    "src",
+    "tests",
+    "quality",
+    "--max-complexity-allowed",
+    "5"
+  ]
+]

@@ -76,7 +76,7 @@ def test_all_profile_preserves_first_seen_order_and_deduplicates() -> None:
 
 def test_vulture_gate_is_unfiltered_and_names_its_complete_scope() -> None:
     module = _load_module()
-    canonical_scope = ("src", "tests", "scripts", "alembic", "conftest.py")
+    canonical_scope = ("src", "tests", "scripts", "alembic", "conftest.py", "quality")
 
     assert module.GATES["vulture"].command == (
         "uv",
@@ -100,7 +100,7 @@ def test_vulture_gate_is_unfiltered_and_names_its_complete_scope() -> None:
 
 def test_complexipy_gate_is_configured_and_matches_canonical_policy() -> None:
     module = _load_module()
-    canonical_scope = ("src", "tests", "scripts", "alembic", "conftest.py")
+    canonical_scope = ("src", "tests", "scripts", "alembic", "conftest.py", "quality")
 
     assert module.GATES["complexipy"].command == (
         "uv",
@@ -130,7 +130,7 @@ def test_complexipy_gate_is_configured_and_matches_canonical_policy() -> None:
     assert pyproject["tool"]["complexipy"]["check-script"] is True
     assert dict(module.DIRECT_GATE_COMMANDS)["complexipy"] == (
         "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
-        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "src tests scripts alembic conftest.py quality --max-complexity-allowed 5 --no-ignore "
         "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
         "--check-script=true"
     )
@@ -459,9 +459,9 @@ def test_help_lists_every_direct_gate_command() -> None:
         "uv run --isolated --locked --all-extras --python 3.11 "
         "pyright src/polymarket_insider_tracker",
         "uv run --isolated --locked --all-extras --python 3.11 vulture "
-        "src tests scripts alembic conftest.py",
+        "src tests scripts alembic conftest.py quality",
         "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
-        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "src tests scripts alembic conftest.py quality --max-complexity-allowed 5 --no-ignore "
         "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
         "--check-script=true",
         "uv run pytest",

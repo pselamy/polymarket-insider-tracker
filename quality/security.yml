@@ -1,0 +1,55 @@
+rules:
+  - id: python-dynamic-evaluation
+    languages: [python]
+    severity: ERROR
+    message: Do not execute input as Python code.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+  - id: python-unsafe-deserialization
+    languages: [python]
+    severity: ERROR
+    message: Use data-only serialization instead of executable deserialization.
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+      - pattern: yaml.unsafe_load(...)
+      - pattern: yaml.load(...)
+  - id: python-input-to-shell
+    languages: [python]
+    severity: ERROR
+    message: Untrusted input reaches a shell command.
+    mode: taint
+    pattern-sources:
+      - pattern: input(...)
+      - pattern: sys.stdin.read(...)
+      - pattern: sys.argv[$INDEX]
+    pattern-sinks:
+      - pattern: os.system($COMMAND)
+      - pattern: subprocess.run($COMMAND, ..., shell=True, ...)
+      - pattern: subprocess.Popen($COMMAND, ..., shell=True, ...)
+  - id: javascript-dynamic-evaluation
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Do not execute input as JavaScript code.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+  - id: javascript-input-to-shell
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Untrusted input reaches a shell command.
+    mode: taint
+    pattern-sources:
+      - pattern: process.argv[$INDEX]
+      - pattern: readFileSync(0, ...)
+      - pattern: $REQUEST.body
+      - pattern: $REQUEST.query
+    pattern-sinks:
+      - pattern: exec($COMMAND, ...)
+      - pattern: execSync($COMMAND, ...)
+  - id: tls-verification-disabled
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Keep TLS certificate verification enabled.
+    pattern: "{..., rejectUnauthorized: false, ...}"

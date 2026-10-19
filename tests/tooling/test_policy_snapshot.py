@@ -7,7 +7,7 @@ verifier, the config file, and the CI workflow without any test failing.
 
 Golden policy (change requires Patrick's approval — see module docstring rule):
 - Complexipy threshold ``max-complexity-allowed`` is exactly ``5``.
-- Gate scope is exactly ``src tests scripts alembic conftest.py``.
+- Gate scope is exactly ``src tests scripts alembic conftest.py quality``.
 - Blocking CI jobs are exactly
   ``(static, vulture, complexipy, compatibility, services)``.
 - Strict type gates stay strict (mypy ``strict = true``, Pyright
@@ -41,7 +41,7 @@ WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 PIPELINE_PATH = REPOSITORY_ROOT / "src" / "polymarket_insider_tracker" / "pipeline.py"
 
 GOLDEN_MAX_COMPLEXITY = 5
-GOLDEN_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+GOLDEN_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py", "quality")
 GOLDEN_BLOCKING_JOBS = ("static", "vulture", "complexipy", "compatibility", "services")
 
 GOLDEN_COMPLEXIPY_COMMAND = (
@@ -214,7 +214,7 @@ def test_golden_strict_type_flags_are_not_weakened() -> None:
 
 
 def _write_fixture_scope(root: Path, code: str) -> None:
-    for directory in ("src", "tests", "scripts", "alembic"):
+    for directory in ("src", "tests", "scripts", "alembic", "quality"):
         (root / directory).mkdir(parents=True, exist_ok=True)
     (root / "src" / "sample.py").write_text(code, encoding="utf-8")
     (root / "conftest.py").write_text("", encoding="utf-8")

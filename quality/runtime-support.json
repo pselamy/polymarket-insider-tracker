@@ -1,0 +1,13 @@
+{
+  "source": "https://raw.githubusercontent.com/python/devguide/d9adc4f23cfad7e9e366f4fec408bdea18f99cc2/versions.rst",
+  "releaseCycleSource": "https://peps.python.org/api/release-cycle.json",
+  "snapshotSha256": "bfad427643c0a2dce8dddc55cece7bd6674d9774a704c8c3d2b7c267981b97b2",
+  "reviewedOn": "2026-09-29",
+  "reviewBy": "2026-12-28",
+  "versions": [
+    "3.11",
+    "3.12",
+    "3.13",
+    "3.14"
+  ]
+}

@@ -93,3 +93,23 @@ then the enrolled commands; every other hook stays unenrolled as documented abov
 
 Defect-fails / clean-passes evidence for each enrolled control is recorded in
 [`docs/relentless-ci-defect-evidence.md`](relentless-ci-defect-evidence.md).
+
+## Owned-scope expansion
+
+The vendored `quality/` package is authored Python owned by this repository, so the
+repository's own invariant — every tracked Python file is covered by the owned
+scope — now includes it. The **vulture** and **complexipy** gate scopes are extended
+from `src tests scripts alembic conftest.py` to
+`src tests scripts alembic conftest.py quality` in `pyproject.toml`,
+`scripts/_verify_policy.py`, `scripts/complexipy_gate.py`, and the existing CI
+vulture/complexipy steps. This strictly **adds** coverage; it removes no path,
+lowers no threshold, and adds no exclusion, baseline, or allowlist. The existing
+gates' exit semantics and required-check wiring are unchanged.
+
+The `quality` package's functions that are used only by the reference test suite are
+exercised by the vendored tests under `tests/quality/`, so vulture sees them used
+without any whitelist. `quality/checks.json` and the enrolled hook set are covered
+by `tests/quality/` and are bound to the ledger above.
+
+The independent strict type gates are unchanged: mypy still covers `src` and
+`scripts`, and Pyright still covers `src/polymarket_insider_tracker`.
