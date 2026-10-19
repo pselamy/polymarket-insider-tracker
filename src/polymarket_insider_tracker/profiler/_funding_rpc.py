@@ -246,13 +246,15 @@ class TransferLogScanner:
         await self.polygon_client.acquire_rate_limit()
         w3 = self._select_w3()
         # Note: web3 typing is overly restrictive for block params
-        return await w3.eth.get_logs(
-            {
-                "address": AsyncWeb3.to_checksum_address(contract_address),
-                "topics": topics,
-                "fromBlock": from_block,
-                "toBlock": to_block,
-            }
+        return list(
+            await w3.eth.get_logs(
+                {
+                    "address": AsyncWeb3.to_checksum_address(contract_address),
+                    "topics": topics,
+                    "fromBlock": from_block,
+                    "toBlock": to_block,
+                }
+            )
         )
 
     def _select_w3(self) -> Web3Handle:

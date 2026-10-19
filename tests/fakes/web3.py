@@ -8,6 +8,7 @@ from typing import Any
 from eth_typing import ChecksumAddress
 from web3 import AsyncWeb3
 from web3.exceptions import Web3Exception
+from web3.types import FilterParams
 
 from polymarket_insider_tracker.profiler.funding import TRANSFER_EVENT_SIGNATURE
 
@@ -28,10 +29,16 @@ def transfer_log(
     }
 
 
-def _topic_hex(topic: bytes | str) -> str:
+def _topic_hex(topic: object) -> str:
     if isinstance(topic, bytes):
         return "0x" + topic.hex()
+    assert isinstance(topic, str), f"eth_getLogs topic must be bytes or hex text, got {topic!r}"
     return topic.lower()
+
+
+def _block(identifier: object) -> int:
+    assert isinstance(identifier, int), f"eth_getLogs window must be numeric, got {identifier!r}"
+    return identifier
 
 
 class TransferLogIndex:
@@ -47,7 +54,7 @@ class TransferLogIndex:
     def __init__(self) -> None:
         self._transfers: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._faults: dict[int, Exception] = {}
-        self.queries: list[dict[str, Any]] = []
+        self.queries: list[FilterParams] = []
 
     def add_transfer(self, token: str, log: dict[str, Any]) -> None:
         key = (token.lower(), _topic_hex(log["topics"][2]))
@@ -56,42 +63,39 @@ class TransferLogIndex:
     def fail_chunk(self, from_block: int, error: Exception) -> None:
         self._faults[from_block] = error
 
-    async def __call__(self, filter_params: dict[str, Any]) -> list[dict[str, Any]]:
+    async def __call__(self, filter_params: FilterParams) -> list[dict[str, Any]]:
         self.queries.append(filter_params)
-        fault = self._faults.get(filter_params["fromBlock"])
+        from_block = _block(filter_params["fromBlock"])
+        to_block = _block(filter_params["toBlock"])
+        fault = self._faults.get(from_block)
         if fault is not None:
             raise fault
         key = (str(filter_params["address"]).lower(), _topic_hex(filter_params["topics"][2]))
         return [
             log
             for log in self._transfers.get(key, [])
-            if filter_params["fromBlock"] <= log["blockNumber"] <= filter_params["toBlock"]
+            if from_block <= log["blockNumber"] <= to_block
         ]
 
 
 class FakeContractFunction:
-    """A bound ERC-20 view function returning a fixed balance."""
+    """Bound ERC-20 view call returning a fixed balance."""
 
     def __init__(self, balance: int) -> None:
         self._balance = balance
-
-    def __call__(self, *args: Any, **kwargs: Any) -> FakeContractFunction:
-        _ = (args, kwargs)
-        return self
 
     async def call(self) -> int:
         return self._balance
 
 
 class FakeContractFunctions:
-    """The ``functions`` namespace of an ERC-20 contract: only ``balanceOf`` exists."""
+    """The ``functions`` namespace of an ERC-20 contract."""
 
     def __init__(self, balance: int) -> None:
         self._balance = balance
 
-    def __getattr__(self, function_name: str) -> FakeContractFunction:
-        if function_name != "balanceOf":
-            raise AttributeError(function_name)
+    def balanceOf(self, address: ChecksumAddress) -> FakeContractFunction:
+        _ = address
         return FakeContractFunction(self._balance)
 
 
@@ -180,7 +184,7 @@ class FakeEth:
         _ = (address, kwargs)
         return FakeContract(self._token_balance)
 
-    async def get_logs(self, filter_params: dict[str, Any]) -> list[dict[str, Any]]:
+    async def get_logs(self, filter_params: FilterParams) -> list[dict[str, Any]]:
         self._count_call()
         if self._logs is None:
             return []

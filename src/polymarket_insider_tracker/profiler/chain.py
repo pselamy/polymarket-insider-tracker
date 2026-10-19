@@ -24,7 +24,7 @@ from web3.exceptions import Web3Exception
 from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
-from polymarket_insider_tracker.profiler.rpc_handle import Web3Handle
+from polymarket_insider_tracker.profiler.rpc_handle import Web3Handle, erc20_balance_of
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
@@ -144,11 +144,13 @@ class PolygonClient:
         self._max_retries = max_retries
         self._retry_delay = retry_delay_seconds
 
+        # Create web3 instances
         self._w3: Web3Handle = web3 or AsyncWeb3(AsyncHTTPProvider(rpc_url))
         self._w3_fallback: Web3Handle | None = None
         if fallback_rpc_url:
             self._w3_fallback = AsyncWeb3(AsyncHTTPProvider(fallback_rpc_url))
 
+        # Rate limiter
         self._rate_limiter = RateLimiter.create(max_requests_per_second)
 
         # Track primary RPC health
@@ -156,6 +158,7 @@ class PolygonClient:
         self._last_primary_check = 0.0
         self._primary_recovery_interval = 60.0  # Try primary again after 60s
 
+        # Cache key prefix
         self._cache_prefix = "polygon:"
 
     def _cache_key(self, key_type: str, address: str) -> str:
@@ -443,13 +446,7 @@ class PolygonClient:
 
         try:
             w3 = self._w3 if self._primary_healthy else (self._w3_fallback or self._w3)
-            contract = w3.eth.contract(
-                address=AsyncWeb3.to_checksum_address(token_address),
-                abi=erc20_abi,
-            )
-            balance = await contract.functions.balanceOf(
-                AsyncWeb3.to_checksum_address(address)
-            ).call()
+            balance = await erc20_balance_of(w3, token_address, address, erc20_abi)
         except Web3Exception as e:
             raise RPCError(f"Failed to get token balance: {redact_exception_message(e)}") from e
 
