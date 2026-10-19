@@ -1,0 +1,16 @@
+{
+  "shellcheck": ["shellcheck", "--version"],
+  "shellcheckVersion": "0.11.0",
+  "actionlint": ["actionlint"],
+  "zizmor": [
+    "zizmor",
+    "--offline",
+    "--pedantic",
+    "--no-ignores",
+    "--strict-collection",
+    "--collect",
+    "all",
+    "--format",
+    "json"
+  ]
+}

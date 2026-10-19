@@ -40,6 +40,25 @@ dev = [
     "hypothesis==6.170.1",
 ]
 
+# Vendored Relentless CI tooling. `uv run --locked --group dev python -m quality.verify`
+# installs this group; the enrolled controls in quality/checks.json use these tools.
+# The group reuses the `dev` extra for tools both surfaces share (black, ruff, mypy,
+# pyright, vulture, complexipy, pytest, pytest-cov, pyyaml) so there is exactly one
+# pin per tool, and adds only the tools the quality package needs that the extra lacks.
+[dependency-groups]
+dev = [
+    "polymarket-insider-tracker[dev]",
+    "cosmic-ray==8.7.0",
+    "deptry==0.25.1",
+    "grimp==3.17",
+    "markdown-it-py==4.2.0",
+    "mdformat==1.0.0",
+    "mdformat-gfm==1.0.0",
+    "packaging==26.3",
+    "pytest-json-report==1.5.0",
+    "types-pyyaml==6.0.12.20260906",
+]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -108,12 +127,12 @@ typeCheckingMode = "strict"
 # Vulture runs at its default confidence with no baseline, allowlist, ignore list, decorator
 # exemption, or path exclusion; framework-consumed names are made visible through real code and tests.
 [tool.vulture]
-paths = ["src", "tests", "scripts", "alembic", "conftest.py"]
+paths = ["src", "tests", "scripts", "alembic", "conftest.py", "quality"]
 
 # Complexipy enforces cognitive complexity <= 5 across all repository-owned Python files.
 # Inline ignores are disabled; functions and module-level control flow are analyzed with zero exemptions.
 [tool.complexipy]
-paths = ["src", "tests", "scripts", "alembic", "conftest.py"]
+paths = ["src", "tests", "scripts", "alembic", "conftest.py", "quality"]
 max-complexity-allowed = 5
 no-ignore = true
 check-script = true

@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-CANONICAL_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+CANONICAL_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py", "quality")
 POLICY_FLAGS = (
     "--max-complexity-allowed",
     "5",

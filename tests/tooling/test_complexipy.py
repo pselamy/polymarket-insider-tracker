@@ -24,7 +24,7 @@ import pytest
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_PATH = REPOSITORY_ROOT / "scripts" / "verify.py"
 RUNNER_PATH = REPOSITORY_ROOT / "scripts" / "complexipy_gate.py"
-CANONICAL_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+CANONICAL_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py", "quality")
 POLICY_FLAGS = (
     "--max-complexity-allowed",
     "5",
@@ -377,7 +377,7 @@ def test_check_script_rejects_score_6_module_body(tmp_path: Path) -> None:
 
 
 def _create_committed_complexity_fixture(root: Path) -> None:
-    for directory in ("src", "tests", "scripts", "alembic"):
+    for directory in ("src", "tests", "scripts", "alembic", "quality"):
         (root / directory).mkdir()
     (root / "src" / "sample.py").write_text(SCORE_6_CODE, encoding="utf-8")
     (root / "conftest.py").write_text("", encoding="utf-8")

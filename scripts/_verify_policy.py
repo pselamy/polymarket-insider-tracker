@@ -54,6 +54,7 @@ GATES: Mapping[str, Gate] = {
             "scripts",
             "alembic",
             "conftest.py",
+            "quality",
         ),
     ),
     "complexipy": Gate(
@@ -73,6 +74,7 @@ GATES: Mapping[str, Gate] = {
             "scripts",
             "alembic",
             "conftest.py",
+            "quality",
             "--max-complexity-allowed",
             "5",
             "--no-ignore",
@@ -176,12 +178,12 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     (
         "vulture",
         "uv run --isolated --locked --all-extras --python 3.11 vulture "
-        "src tests scripts alembic conftest.py",
+        "src tests scripts alembic conftest.py quality",
     ),
     (
         "complexipy",
         "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "
-        "src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore "
+        "src tests scripts alembic conftest.py quality --max-complexity-allowed 5 --no-ignore "
         "--ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. "
         "--check-script=true",
     ),

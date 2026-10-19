@@ -29,12 +29,12 @@ TRACEABILITY_LEDGER = Path("specs/002-reproducible-runtime/evidence/TRACEABILITY
 # Every job the protected aggregator must depend on, in workflow order.
 BLOCKING_JOBS = ("static", "vulture", "complexipy", "compatibility", "services")
 # Every tracked repository Python file lives under exactly one of these paths, in gate order.
-CANONICAL_VULTURE_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+CANONICAL_VULTURE_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py", "quality")
 CANONICAL_VULTURE_COMMAND = (
     "uv run --isolated --locked --all-extras --python 3.11 vulture "
     + " ".join(CANONICAL_VULTURE_SCOPE)
 )
-CANONICAL_COMPLEXIPY_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py")
+CANONICAL_COMPLEXIPY_SCOPE = ("src", "tests", "scripts", "alembic", "conftest.py", "quality")
 # The command names its scope and policy explicitly so cwd configuration and snapshots cannot
 # silently relax, exclude, or baseline any part of the gate.
 CANONICAL_COMPLEXIPY_COMMAND = (
