@@ -57,7 +57,7 @@ hooks; **unenrolled** = measured, documented, not yet enforced.
 | REF-CMD-13 | `uv export --locked --only-group build …` | 2 | 1 | `error: Group `build` is not defined in the project's `dependency-groups` table` | unenrolled |
 | REF-CMD-14 | `python -m quality.build_constraints_main` | 1 | 1 | `FileNotFoundError: .quality-results/build-constraints.txt` (depends on REF-CMD-13) | unenrolled |
 | REF-CMD-15 | `python -m quality.package_main` | 1 | 1 | `CalledProcessError`: `uv build … --require-hashes` cannot resolve `setuptools>=61.0` (reference build-constraint policy) | unenrolled |
-| REF-CMD-16 | `python -m quality.duplication_main` | 1 | 90 | `ValueError: scripts/traceability.py: 447 physical lines exceeds 399` (fails in `verify_sources` before scanning; the pinned native scanner itself now runs — see the REF-CMD-16 update note below) | unenrolled |
+| REF-CMD-16 | `python -m quality.duplication_main` | 1 | 92 | `ValueError: scripts/traceability.py: 447 physical lines exceeds 399` (fails in `verify_sources` before scanning; the pinned native scanner itself runs — measured directly, see the review-round-1 update below) | unenrolled |
 | REF-CMD-17 | `black --check src tests quality` | 1 | 32 | `would reformat quality/build_constraints.py`, `package_build.py`, `commands.py`, `package_process.py`, `mutation_pool.py` | enrolled at the **full authored scope** after formatting `quality/` at line length 100 |
 | REF-CMD-18 | `ruff check src tests quality` | 1 | 5 | `SIM105` (`commands.py`, `owned_process.py`), `SIM102` (`incomplete.py`), `ARG001` (`document_links.py`, `trusted_policy/github_read.py`) | enrolled at the **full authored scope** after fixing the 5 vendored violations |
 | REF-CMD-19 | `mypy src tests quality` | 1 | 403 | `tests/tooling/test_traceability.py:86: error: Function is missing a return type annotation`; 403 `error:` lines across the full authored scope | unenrolled |
@@ -155,3 +155,57 @@ the ledger row above. The full clone inventory lives in
 remains **unenrolled** (US-004's zero-clone condition is not met), and the
 `399-line` size gate must be paid down before `duplication_main` can reach the
 scanner and a clean enrollment is possible.
+
+## Review round 1 correction: duplication measured without the out-of-scope file splits
+
+Correction (2026-10-19): the first measurement above ran on a tree that also carried
+three out-of-scope file splits (`__main__.py`, `scripts/traceability.py`,
+`scripts/trades_smoke.py` into eight helper modules) made only to get past the
+399-line hook. That split violated this card's rules and has been reverted (commit
+`43b4abb`; `git diff origin/main -- src scripts` is empty). The historical numbers
+above are kept as recorded; the corrected measurement below supersedes them.
+
+The corrected scan bypasses the size hook without modifying any vendored logic:
+the authored scope is enumerated exactly as `verify_sources` does
+(`quality.source_scope.discover` + `validate_path` — the same file set, minus the
+`verify_size` call), the files are frozen with
+`quality.duplication_inputs.stage_inputs`, and the vendored
+`quality.duplication.scan(root, config, staged, output, minimum=50, deadline)` runs
+the scanner with its own `SCAN_POLICY[50]` arguments. Exact raw command (from the
+repo root, pinned tool set):
+
+```
+mise --yes --locked exec -- jscpd --config <empty-config.json> --mode mild \
+  --format python --min-tokens 50 --min-lines 4 --threshold 0 \
+  --max-size 9007199254740991 --no-gitignore --absolute --reporters json \
+  --summary --summary-top <n> --workers 1 --no-colors --no-tips \
+  --output <dir> <staged files...>
+```
+
+Result on the reverted tree: **258 authored Python files staged, 92 clone groups,
+1230 duplicated lines, 2.16% duplication** (scanner statistics report 225 sources
+after its small-file skips). All 90 clones from the first measurement reproduce
+byte-identically; the two additions come from the v1->v2 endpoint work merged to
+main (`tests/ingestor/test_endpoint_switch_resume.py` bootstrap, 67 tokens;
+`tests/ingestor/_v2_walk_harness.py` <-> `tests/ingestor/test_v2_cursor_walk.py`
+harness construction, 50 tokens). The regenerated inventory is
+[`docs/duplication-inventory.md`](duplication-inventory.md).
+
+REF-CMD-16 / REF-HOOK-01 coupling: `python -m quality.duplication_main` cannot
+reach the scanner on this tree, and enrollment additionally depends on the
+unenrolled source-size hook. Exact call path:
+
+```
+quality.duplication_main.main
+  -> quality.duplication.verify_duplication(root)
+    -> quality.duplication_inputs.duplication_inputs(root)   # freezes enrolled inputs
+      -> quality.source_scope.verify_sources(root)           # REF-HOOK-01
+        -> quality.source_scope.verify_size(path)            # raises on first >399-line file
+```
+
+On the current tree `verify_size` raises
+`ValueError: scripts/traceability.py: 447 physical lines exceeds 399` (48 of the
+258 authored files exceed 399 lines). REF-HOOK-01 is itself unenrolled, so
+`duplication_main` (and therefore any REF-CMD-16 enrollment evidence produced
+through it) stays blocked twice over: by the 92 measured clones and by the size
+hook its own input-freezing step depends on.

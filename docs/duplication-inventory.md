@@ -1,64 +1,83 @@
 # Clone inventory (jscpd 5.3.3, pinned reference policy)
 
-Measured 2026-10-19 over the full authored scope (255 authored Python files
-discovered by `quality.source_scope`), using the vendored `SCAN_POLICY` at the
-50-token tier: `--mode mild --format python --min-tokens 50 --min-lines 4
---threshold 0 --no-gitignore --workers 1`, empty config, no ignore lists, no
-exclusions.
+Measured 2026-10-19 (review round 1) on the reverted tree — the three
+out-of-scope file splits from the first measurement were removed, so this
+scan covers the full authored scope as it exists on main plus this card's
+alembic/mise/docs changes: **258 authored Python files** enumerated by
+`quality.source_scope.discover` + `validate_path` (the `verify_sources`
+file set without its 399-line size hook; see
+[relentless-ci-adoption.md](relentless-ci-adoption.md) for the coupling).
+Vendored `SCAN_POLICY` at the 50-token tier: `--mode mild --format python
+--min-tokens 50 --min-lines 4 --threshold 0 --no-gitignore --workers 1`,
+empty config, no ignore lists, no exclusions.
 
-Totals: **90 clone groups, 1214 duplicated lines, 2.19% duplication.**
-Raw scanner report: `/tmp/duptest/full2/jscpd-report.json` (measurement-time
-artifact; re-runnable with `mise --yes --locked exec -- jscpd` using the args
-above).
+Totals: **92 clone groups, 1230 duplicated lines, 2.16% duplication** (the
+scanner's own statistics report 225 sources: files it actually tokenized after
+skipping ones smaller than the clone minimums).
+
+Reproduce: enumerate the authored scope, stage it, then call the vendored
+`quality.duplication.scan(root, config, staged, output, minimum=50, deadline)`
+(equivalent raw command, run from the repo root with the pinned tool set:
+`mise --yes --locked exec -- jscpd --config <empty-config.json> --mode mild
+--format python --min-tokens 50 --min-lines 4 --threshold 0 --max-size
+9007199254740991 --no-gitignore --absolute --reporters json --summary
+--summary-top <n> --workers 1 --no-colors --no-tips --output <dir> <files...>`).
+jscpd exits 1 under the threshold-0 policy whenever any clone exists; the
+report it writes is the measurement artifact.
 
 Every clone reported by the scanner is listed below, first grouped into
-clusters by the duplicated *knowledge* (same rule, mapping, query, validation,
-or fixture — not merely similar text), then listed individually. A cluster is
-annotated **real** (the same knowledge is genuinely maintained in two places and
-a divergence would be a defect risk) or **incidental** (structurally similar
-scaffolding required by convention, not shared knowledge).
+clusters by the duplicated *knowledge* (same rule, mapping, query,
+validation, or fixture — not merely similar text), then listed individually.
+A cluster is annotated **real** (the same knowledge is genuinely maintained
+in two places and a divergence would be a defect risk) or **incidental**
+(structurally similar scaffolding required by convention, not shared
+knowledge).
 
 ## Clusters ordered by size
 
 | # | Clones | Dup lines | Files | Knowledge | Verdict |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 11 | 196 | test_formatter, test_history, test_scorer, test_size_anomaly | Repeated `sample_trade`/`sample_wallet_profile` fixtures and formatter/history case scaffolds | real |
-| 2 | 12 | 147 | test_end_to_end, test_postgres_journey, test_persist_assessment, test_pipeline, test_pipeline_persistence | Repeated `wire_pipeline(...)` bootstrap blocks with the same fake-stack wiring | real |
-| 3 | 7 | 94 | test_redaction (self) | Repeated harness setups asserting the same redaction policy across inputs | real |
-| 4 | 9 | 92 | test_dispatcher (self) | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
-| 5 | 2 | 76 | scripts/_service_redaction, scripts/_verify_redaction | **Identical URL parsing + credential-extraction module** (pattern, `_split_userinfo`, `_extract_query_password`, `_query_credentials`, `_url_credentials`, `_credential_forms`, `_redacted_url`) | real |
-| 6 | 6 | 64 | test_trade_poller (self) | Repeated poller cycle setups and repair assertions | real |
-| 7 | 3 | 60 | detector/models (self), storage/repos | Duplicated dataclass property/`to_dict` serialization knowledge across signal models | real |
-| 8 | 4 | 47 | test_health_server (self) | Repeated `set_component_checker` wiring for up/degraded/down cases | real |
-| 9 | 3 | 44 | alerter/channels/discord, alerter/channels/telegram | Duplicated rate-limit wait, `_backoff`, and failure-redaction channel logic | real |
-| 10 | 3 | 43 | test_terminal_error_durable (self) | Repeated pipeline wiring + terminal-failure sequencing | real |
-| 11 | 3 | 25 | test_service_entrypoint, test_verifier_standalone | Duplicated `_verifier` module-loader helper and entry bootstrap | real |
-| 12 | 3 | 33 | test_models (profiler, self) | Repeated `Transaction` construction blocks | real |
-| 13 | 2 | 29 | test_publisher, test_publisher_codec | Duplicated codec fixture/assertion pairs | real |
-| 14 | 2 | 32 | test_funding, test_funding_rpc | Parallel method docstrings/signatures describing the same RPC API | real |
-| 15 | 2 | 22 | test_main (self) | Repeated settings/pipeline wiring snippets | real |
-| 16 | 2 | 26 | test_trade_row_v2, test_trade_rows | Duplicated row-decoding assertions | real |
-| 17 | 2 | 18 | test_complexipy, test_gate_negatives, test_policy_snapshot | Duplicated `spec_from_file_location` verifier loader helper | real |
-| 18 | 2 | 30 | alembic revisions (risk_assessments, safe_observable_operation, terminal_errors) | Alembic revision scaffolding (`__all__`, `upgrade()` head) | incidental |
-| 19 | 1 | 20 | test_sniper (self) | Repeated cluster-feeding test construction | real |
-| 20 | 1 | 17 | test_analyzer (self) | Repeated analyzer input construction | real |
-| 21 | 1 | 13 | profiler/_funding_rpc, profiler/funding | Parallel docstrings for the wrapped vs wrapper transfer-log API | incidental |
-| 22 | 1 | 10 | _channel_delivery (self) | `compare_and_delete` vs `compare_and_expire`: near-identical Redis watch/CAS logic | real |
-| 23 | 1 | 11 | test_redis_contract (self) | Repeated competing-owner CAS contract scenario | real |
-| 24 | 1 | 9 | scripts/runtime_services, scripts/verify | Duplicated script entry-point bootstrap (`_helper_package`/`__spec__` block) | real |
-| 25 | 1 | 6 | storage/models (self) | SQLAlchemy `datetime.now(UTC)` timestamp column defaults | incidental |
-| 26 | 1 | 10 | test_models (ingestor, self) | Repeated model-construction blocks | real |
-| 27 | 1 | 6 | test_gamma_client (self) | Repeated paged-response fixture | real |
-| 28 | 1 | 10 | test_trade_row_v2_properties (self) | Repeated property-based row assertions | real |
-| 29 | 1 | 12 | detector/fresh_wallet, detector/size_anomaly | Duplicated batch-result `_handle_batch_result` gather/zip knowledge | real |
-| 30 | 1 | 12 | test_clob_client (self) | Repeated paged-market fixture | real |
-| 31 | 1 | 9 | test_scorer (self) | Repeated scorer input construction | real |
+| 1 | 11 | 196 | test_formatter.py, test_history.py, test_scorer.py, test_size_anomaly.py | Repeated `sample_trade`/`sample_wallet_profile` fixtures and formatter/history case scaffolds (two fixture families share one component) | real |
+| 2 | 12 | 147 | test_end_to_end.py, test_persist_assessment.py, test_pipeline.py, test_pipeline_persistence.py, test_postgres_journey.py | Repeated `wire_pipeline(...)` bootstrap blocks with the same fake-stack wiring | real |
+| 3 | 7 | 94 | test_redaction.py | Repeated harness setups asserting the same redaction policy across inputs | real |
+| 4 | 9 | 92 | test_dispatcher.py | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
+| 5 | 2 | 76 | _service_redaction.py, _verify_redaction.py | **Identical URL parsing + credential-extraction module** (pattern, `_split_userinfo`, `_extract_query_password`, `_query_credentials`, `_url_credentials`, `_credential_forms`, `_redacted_url`) | real |
+| 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
+| 7 | 3 | 60 | detector/models.py, storage/repos.py | Duplicated dataclass property/`to_dict` serialization knowledge across signal models | real |
+| 8 | 4 | 47 | test_health_server.py | Repeated `set_component_checker` wiring for up/degraded/down cases | real |
+| 9 | 3 | 44 | discord.py, telegram.py | Duplicated rate-limit wait, `_backoff`, and failure-redaction channel logic | real |
+| 10 | 3 | 43 | test_terminal_error_durable.py | Repeated pipeline wiring + terminal-failure sequencing | real |
+| 11 | 3 | 33 | profiler/test_models.py | Repeated `Transaction` construction blocks | real |
+| 12 | 2 | 32 | test_funding.py, test_funding_rpc.py | Parallel method docstrings/signatures describing the same RPC API | real |
+| 13 | 2 | 30 | rev_20260522_1130_risk_assessments.py, rev_20260910_0000_safe_observable_operation.py, rev_20260920_0000_terminal_errors.py | Alembic revision scaffolding (`__all__`, `upgrade()` head) | incidental |
+| 14 | 2 | 29 | test_publisher.py, test_publisher_codec.py | Duplicated codec fixture/assertion pairs | real |
+| 15 | 2 | 26 | test_trade_row_v2.py, test_trade_rows.py | Duplicated row-decoding assertions | real |
+| 16 | 3 | 25 | test_service_entrypoint.py, test_verifier_standalone.py | Duplicated `_verifier` module-loader helper and entry bootstrap | real |
+| 17 | 2 | 22 | test_main.py | Repeated settings/pipeline wiring snippets | real |
+| 18 | 1 | 20 | test_sniper.py | Repeated cluster-feeding test construction | real |
+| 19 | 2 | 18 | test_complexipy.py, test_gate_negatives.py, test_policy_snapshot.py | Duplicated `spec_from_file_location` verifier loader helper | real |
+| 20 | 1 | 17 | test_analyzer.py | Repeated analyzer input construction | real |
+| 21 | 1 | 13 | _funding_rpc.py, funding.py | Parallel docstrings for the wrapped vs wrapper transfer-log API | incidental |
+| 22 | 1 | 12 | fresh_wallet.py, size_anomaly.py | Duplicated batch-result `_handle_batch_result` gather/zip knowledge | real |
+| 23 | 1 | 12 | test_clob_client.py | Repeated paged-market fixture | real |
+| 24 | 1 | 11 | test_redis_contract.py | Repeated competing-owner CAS contract scenario | real |
+| 25 | 1 | 10 | _channel_delivery.py | `compare_and_delete` vs `compare_and_expire`: near-identical Redis watch/CAS logic | real |
+| 26 | 1 | 10 | ingestor/test_models.py | Repeated model-construction blocks | real |
+| 27 | 1 | 10 | test_trade_row_v2_properties.py | Repeated property-based row assertions | real |
+| 28 | 1 | 9 | runtime_services.py, verify.py | Duplicated script entry-point bootstrap (`_helper_package`/`__spec__` block) | real |
+| 29 | 1 | 8 | _v2_walk_harness.py, test_v2_cursor_walk.py | `CursorWalk` harness construction recipe duplicated between `build_walk` and an inline jitter-injection test setup | real |
+| 30 | 1 | 8 | test_endpoint_switch_resume.py | Repeated v1->v2 endpoint-switch test bootstrap (server/redis/seed/poller wiring block) | real |
+| 31 | 1 | 6 | storage/models.py | SQLAlchemy `datetime.now(UTC)` timestamp column defaults | incidental |
+| 32 | 1 | 6 | test_gamma_client.py | Repeated paged-response fixture | real |
 
-Real knowledge dominates: 27 of 31 clusters (81 of 90 clones) are duplicated
-maintenance surfaces — fixture blocks, wiring scaffolds, parallel
-Discord/Telegram knowledge, URL-credential parsing, and Redis CAS logic. The
-three incidental clusters are convention-mandated scaffolding (Alembic
-revisions, SQLAlchemy column defaults) and parallel API docstrings.
+Real knowledge dominates: 29 of 32 clusters (88 of
+92 clones) are duplicated maintenance surfaces — fixture blocks,
+wiring scaffolds, parallel Discord/Telegram knowledge, URL-credential
+parsing, and Redis CAS logic. The three incidental clusters are
+convention-mandated scaffolding (Alembic revisions, SQLAlchemy column
+defaults) and parallel API docstrings. The two clusters added since the
+first measurement come from the v1->v2 endpoint work merged to main
+(`test_endpoint_switch_resume` bootstrap, `_v2_walk_harness` construction).
 
 ## Every clone (scanner output, ordered by tokens)
 
@@ -104,6 +123,7 @@ revisions, SQLAlchemy column defaults) and parallel API docstrings.
 | 68 | 12 | tests/alerter/test_formatter.py:502-513 | tests/alerter/test_formatter.py:680-691 |
 | 68 | 14 | tests/test_terminal_error_durable.py:36-49 | tests/test_terminal_error_durable.py:81-94 |
 | 67 | 14 | src/.../detector/models.py:57-70 | src/.../detector/models.py:182-195 |
+| 67 | 8 | tests/ingestor/test_endpoint_switch_resume.py:74-81 | tests/ingestor/test_endpoint_switch_resume.py:103-110 |
 | 67 | 11 | tests/ingestor/test_health_server.py:65-75 | tests/ingestor/test_health_server.py:276-286 |
 | 67 | 10 | tests/test_main.py:305-314 | tests/test_main.py:572-581 |
 | 66 | 15 | tests/ingestor/test_trade_row_v2.py:50-64 | tests/ingestor/test_trade_rows.py:37-51 |
@@ -154,10 +174,11 @@ revisions, SQLAlchemy column defaults) and parallel API docstrings.
 | 50 | 7 | tests/alerter/test_dispatcher.py:384-390 | tests/alerter/test_dispatcher.py:494-500 |
 | 50 | 15 | tests/alerter/test_formatter.py:74-88 | tests/alerter/test_history.py:69-83 |
 | 50 | 7 | tests/alerter/test_history.py:549-555 | tests/alerter/test_history.py:567-573 |
+| 50 | 8 | tests/ingestor/_v2_walk_harness.py:52-59 | tests/ingestor/test_v2_cursor_walk.py:301-308 |
 | 50 | 9 | tests/integration/test_end_to_end.py:185-193 | tests/integration/test_postgres_journey.py:238-246 |
 | 50 | 9 | tests/integration/test_end_to_end.py:347-355 | tests/test_pipeline.py:578-585 |
 | 50 | 6 | tests/test_persist_assessment.py:96-101 | tests/test_pipeline.py:107-112 |
 
 `src/...` abbreviates `src/polymarket_insider_tracker`. This document is
-inventory only: no product code was changed to produce it (US-003 scope).
-Deduplication decisions belong to later, separately authorized cards.
+inventory only: no product code was changed to produce it. Deduplication
+decisions belong to later, separately authorized cards.
