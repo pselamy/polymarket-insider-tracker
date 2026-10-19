@@ -94,8 +94,10 @@ fixture blocks, wiring scaffolds, parallel Discord/Telegram knowledge, and
 Redis CAS logic. The three incidental clusters are convention-mandated
 scaffolding (Alembic revisions, SQLAlchemy column defaults) and parallel API
 docstrings. The cluster table above is the original knowledge grouping with
-cluster 5 now resolved; the per-clone list below is regenerated from the
-current pinned scan.
+cluster 5 now resolved; its Clones column therefore sums to 90 of the current
+99 groups — the remaining 9 are v1->v2 endpoint-test clones merged to main
+after that grouping and appear only in the per-clone list below, which is
+regenerated from the current pinned scan.
 
 ## Every clone (scanner output, ordered by tokens)
 
