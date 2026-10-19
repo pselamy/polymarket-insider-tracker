@@ -356,4 +356,4 @@ def test_pipeline_wires_the_real_redis_client_identity() -> None:
     source = PIPELINE_PATH.read_text(encoding="utf-8")
 
     assert "from redis.asyncio import Redis" in source
-    assert pipeline.Redis is Redis
+    assert vars(pipeline)["Redis"] is Redis

@@ -92,7 +92,8 @@ class TestTerminalErrorDurable:
         with caplog.at_level(logging.ERROR):
             await _fail_poller_cycle(pipeline)
 
-        assert pipeline.state is PipelineState.STOPPED
+        state_before = pipeline.state
+        assert state_before is PipelineState.STOPPED
         _report_poller_failure(pipeline)
         assert pipeline.state is PipelineState.ERROR
         ready, reason, components = await pipeline.check_readiness()
@@ -195,6 +196,7 @@ class TestTerminalErrorDurable:
             FakeTradesServer(clock=FakeClock(POLL_START)),
             FakeClock(POLL_START),
         )
+        assert fresh._trade_poller is not None
         fresh._state = PipelineState.ERROR
         fresh._trade_poller._state = IngestionState.FAILED
         assert fresh._trade_poller.status.last_error is None

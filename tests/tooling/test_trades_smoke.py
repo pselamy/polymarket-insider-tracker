@@ -11,6 +11,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from scripts.trades_smoke import SmokeRecord
 from tests.fakes import (
     FakeClock,
     FakeTradesServer,
@@ -63,7 +64,7 @@ def _wallet_bearing_rows(count: int, *, newest: int = T0 - 1) -> list[dict[str, 
     ]
 
 
-async def _run(smoke: ModuleType, server: FakeTradesServer, clock: FakeClock) -> object:
+async def _run(smoke: ModuleType, server: FakeTradesServer, clock: FakeClock) -> SmokeRecord:
     records = await smoke.run_smoke(
         server.client(),
         url=URL,
@@ -74,7 +75,8 @@ async def _run(smoke: ModuleType, server: FakeTradesServer, clock: FakeClock) ->
         random_source=lambda: 0.0,
     )
     assert len(records) == 1
-    return records[0]
+    record: SmokeRecord = records[0]
+    return record
 
 
 class TestSevenCases:

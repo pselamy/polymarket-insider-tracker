@@ -93,7 +93,7 @@ count.
 | `REF-CMD-01` | `uv lock --check` | whole-project lock (no path scope) |
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
-| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests/alerter tests/detector tests/fakes tests/ingestor tests/integration tests/profiler tests/quality tests/storage` | **non-test authored roots** plus `tests/alerter`, `tests/detector`, `tests/fakes`, `tests/ingestor`, `tests/integration`, `tests/profiler`, `tests/quality`, `tests/storage` |
+| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests` | **all authored roots**: `src scripts quality alembic conftest.py tests` (step 5 completes `tests/`) |
 | `REF-CMD-20` | `pyright` | **staged**: `src/polymarket_insider_tracker`, `scripts`, `quality`, `alembic`, `conftest.py`, `tests/quality` and four zero-diagnostic top-level test modules (see the REF-CMD-20 step 1 section); the rest of `tests` stays unenrolled |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
@@ -415,3 +415,25 @@ Typing fixes in this step use no suppression, cast, or `Any`: `TypeGuard` helper
 accessor functions plus small Protocols for the Redis and pytest constructors whose upstream
 `**kwargs` are untyped. The verify gate, its tests, and the README command moved from
 `pyright src/polymarket_insider_tracker` to the config-driven `pyright`.
+
+## REF-CMD-19 step 5: strict mypy over the last `tests/` roots (2026-10-19)
+
+Measured from `origin/main` at `986a7c6` (Python 3.11 locked resolution), alone-per-root:
+
+| root | errors | files | step 5 |
+|---|---|---|---|
+| `tests/tooling` | 118 | 5 (`test_trades_smoke.py` 72, `test_trades_smoke_v2.py` 42, others 1-2) | cleaned and enrolled |
+| root `tests/test_*.py` | 59 | 4 (`test_main.py` 41, `test_redaction.py` 13, `test_terminal_error_durable.py` 3, `test_shutdown.py` 1) | cleaned and enrolled |
+
+Top codes before: `attr-defined` 118, `no-untyped-def` 39, `union-attr` 6, `arg-type` 6, `override` 3.
+Cleaned: 177 errors, with no suppressions, casts, `Any` returns or relaxed flags. `[tool.mypy] files`
+and the REF-CMD-19 command now name the whole `tests` tree, so every authored root is covered. Fixes
+are typing-only: smoke records are typed `SmokeRecord`; the CLI lifecycle fakes subclass `Pipeline`;
+`Redis` is imported from `redis.asyncio` instead of through `pipeline`; the hostile-`args` exception
+overrides `__getattribute__` (a property cannot override `BaseException.args`); the `.pyc` header is
+built with `marshal`/`struct` instead of a private importlib helper. No `src/` changes.
+
+Remaining unenrolled `tests/` roots: none.
+
+Defect-fails: appending `PLANTED: int = "a"` to `tests/tooling/test_verify.py` makes the enrolled mypy
+command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.

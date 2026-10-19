@@ -5,13 +5,16 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import marshal
 import shlex
+import struct
 import subprocess
 from hashlib import sha256
 from pathlib import Path
-from types import ModuleType
+from types import CodeType, ModuleType
 
 import pytest
+from scripts.traceability import LedgerResult
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LEDGERS = tuple(
@@ -33,6 +36,11 @@ def _validator() -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _timestamp_pyc(code: CodeType, mtime: int, size: int) -> bytes:
+    header = importlib.util.MAGIC_NUMBER + struct.pack("<LLL", 0, mtime & 0xFFFFFFFF, size)
+    return header + marshal.dumps(code)
 
 
 def _head(root: Path = REPOSITORY_ROOT) -> str:
@@ -88,11 +96,14 @@ def _check(
     output: Path | None = None,
     ledger: Path = LEDGERS[0],
     root: Path = REPOSITORY_ROOT,
-):
+) -> LedgerResult:
     validator = _validator()
     ledger = root / ledger.relative_to(REPOSITORY_ROOT)
     context = validator.LedgerContext(root, ledger, frozenset({NODE}), frozenset(), _head(root))
-    return validator.validate_ledger_document(document, context, execution_output=output)
+    result: LedgerResult = validator.validate_ledger_document(
+        document, context, execution_output=output
+    )
+    return result
 
 
 @pytest.fixture
@@ -626,9 +637,7 @@ def test_ignored_bytecode_cannot_change_committed_result(
         cache = Path(importlib.util.cache_from_source(str(helper)))
         cache.parent.mkdir(parents=True, exist_ok=True)
         cache.write_bytes(
-            importlib._bootstrap_external._code_to_timestamp_pyc(
-                compiled, int(helper.stat().st_mtime), helper.stat().st_size
-            )
+            _timestamp_pyc(compiled, int(helper.stat().st_mtime), helper.stat().st_size)
         )
         try:
             result = _check(

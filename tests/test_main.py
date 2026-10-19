@@ -23,44 +23,45 @@ from polymarket_insider_tracker.config import (
     WebSocketSettingDeprecationWarning,
     websocket_deprecation_message,
 )
+from polymarket_insider_tracker.pipeline import Pipeline
 from tests.fakes import resist_cancellation_for
 
 
 class TestCreateParser:
     """Tests for argument parser creation."""
 
-    def test_parser_has_version(self):
+    def test_parser_has_version(self) -> None:
         """Parser should have version flag."""
         parser = create_parser()
         with pytest.raises(SystemExit) as exc_info:
             parser.parse_args(["--version"])
         assert exc_info.value.code == 0
 
-    def test_parser_config_check(self):
+    def test_parser_config_check(self) -> None:
         """Parser should accept --config-check flag."""
         parser = create_parser()
         args = parser.parse_args(["--config-check"])
         assert args.config_check is True
 
-    def test_parser_log_level(self):
+    def test_parser_log_level(self) -> None:
         """Parser should accept --log-level option."""
         parser = create_parser()
         args = parser.parse_args(["--log-level", "DEBUG"])
         assert args.log_level == "DEBUG"
 
-    def test_parser_dry_run(self):
+    def test_parser_dry_run(self) -> None:
         """Parser should accept --dry-run flag."""
         parser = create_parser()
         args = parser.parse_args(["--dry-run"])
         assert args.dry_run is True
 
-    def test_parser_health_port(self):
+    def test_parser_health_port(self) -> None:
         """Parser should accept --health-port option."""
         parser = create_parser()
         args = parser.parse_args(["--health-port", "9090"])
         assert args.health_port == 9090
 
-    def test_parser_default_values(self):
+    def test_parser_default_values(self) -> None:
         """Parser should have correct defaults."""
         parser = create_parser()
         args = parser.parse_args([])
@@ -73,14 +74,14 @@ class TestCreateParser:
 class TestConfigureLogging:
     """Tests for logging configuration."""
 
-    def test_configure_logging_info(self):
+    def test_configure_logging_info(self) -> None:
         """Should configure logging at INFO level."""
         configure_logging("INFO")
         import logging
 
         assert logging.getLogger().level == logging.INFO
 
-    def test_configure_logging_debug(self):
+    def test_configure_logging_debug(self) -> None:
         """Should configure logging at DEBUG level."""
         configure_logging("DEBUG")
         import logging
@@ -91,13 +92,13 @@ class TestConfigureLogging:
 class TestPrintBanner:
     """Tests for banner printing."""
 
-    def test_banner_contains_app_name(self, capsys):
+    def test_banner_contains_app_name(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Banner should contain application name."""
         print_banner()
         captured = capsys.readouterr()
         assert "Polymarket Insider Tracker" in captured.out
 
-    def test_banner_contains_version(self, capsys):
+    def test_banner_contains_version(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Banner should contain version."""
         print_banner()
         captured = capsys.readouterr()
@@ -107,14 +108,16 @@ class TestPrintBanner:
 class TestValidateConfig:
     """Tests for configuration validation."""
 
-    def test_validate_config_success(self, monkeypatch):
+    def test_validate_config_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Should return settings on valid config."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
 
         settings = validate_config()
         assert settings is not None
 
-    def test_validate_config_failure(self, monkeypatch, capsys):
+    def test_validate_config_failure(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Should return None on invalid config."""
         # Clear any existing DATABASE_URL
         monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -125,7 +128,9 @@ class TestValidateConfig:
         captured = capsys.readouterr()
         assert "Configuration validation failed" in captured.err
 
-    def test_validation_stderr_never_echoes_a_credential_bearing_url(self, monkeypatch, capsys):
+    def test_validation_stderr_never_echoes_a_credential_bearing_url(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """A malformed URL that carries a secret must be rejected without echoing it."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         monkeypatch.setenv("POLYGON_RPC_URL", "https://https://user:TOPSECRET@example.com/hook")
@@ -143,7 +148,7 @@ class TestValidateConfig:
         ["POLYGON_RPC_URL", "POLYMARKET_TRADES_URL", "REDIS_URL"],
     )
     def test_nfkc_poisoned_url_never_echoes_a_credential(
-        self, monkeypatch, capsys, env_name: str
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], env_name: str
     ) -> None:
         """Round-14 High: an NFKC-rejected URL with a secret is mapped to a fixed message."""
         from polymarket_insider_tracker.__main__ import _sanitized_validation_message
@@ -185,7 +190,11 @@ class TestValidateConfig:
         ],
     )
     def test_port_shaped_credential_maps_to_the_port_failure_class(
-        self, monkeypatch, capsys, env_name: str, poisoned: str
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        env_name: str,
+        poisoned: str,
     ) -> None:
         """Round-18: the CLI diagnostic names the real failure class, value-free.
 
@@ -210,7 +219,9 @@ class TestValidateConfig:
 class TestRunConfigCheck:
     """Tests for config check mode."""
 
-    def test_config_check_prints_summary(self, monkeypatch, capsys):
+    def test_config_check_prints_summary(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Config check should print configuration summary."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
 
@@ -225,8 +236,8 @@ class TestRunConfigCheck:
         assert "Configuration:" in captured.out
 
     def test_config_check_prints_the_trades_source_and_legacy_disposition(
-        self, monkeypatch, capsys
-    ):
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """The check names the supported source settings and reports no WebSocket host."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         monkeypatch.delenv("POLYMARKET_WS_URL", raising=False)
@@ -244,8 +255,8 @@ class TestRunConfigCheck:
         assert "deprecated" not in out.lower()
 
     def test_config_check_repeats_the_deprecation_warning_when_legacy_url_is_set(
-        self, monkeypatch, capsys
-    ):
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """A set POLYMARKET_WS_URL is reported as deprecated with the replacement variables."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         monkeypatch.setenv("POLYMARKET_WS_URL", "wss://legacy.invalid/ws")
@@ -260,7 +271,9 @@ class TestRunConfigCheck:
         assert websocket_deprecation_message() in out
         assert "legacy.invalid" not in out
 
-    def test_config_check_never_prints_trades_url_credentials(self, monkeypatch, capsys):
+    def test_config_check_never_prints_trades_url_credentials(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Round-4 finding 6: the CLI printed the raw trades URL, leaking userinfo
         and query-string credentials to stdout."""
         user_secret = "cli-trades-userinfo-secret"
@@ -280,7 +293,9 @@ class TestRunConfigCheck:
         assert query_secret not in out
         assert "data.example.com" in out
 
-    def test_config_check_states_offline_syntax_only(self, monkeypatch, capsys):
+    def test_config_check_states_offline_syntax_only(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Config check must explicitly state it is an offline syntax check and not claim ready to run."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         settings = validate_config()
@@ -300,7 +315,7 @@ class TestRunConfigCheck:
 class TestMain:
     """Tests for main entry point."""
 
-    def test_main_with_health_port_override(self, monkeypatch):
+    def test_main_with_health_port_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Main should pass overridden health port to settings and run_pipeline."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         runs: list[tuple[Settings, bool]] = []
@@ -320,7 +335,9 @@ class TestMain:
         assert settings.health_port == 9090
         assert dry_run is True
 
-    def test_main_with_invalid_health_port(self, monkeypatch, capsys):
+    def test_main_with_invalid_health_port(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """Main should reject out-of-range health port and exit with config error."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
 
@@ -331,7 +348,7 @@ class TestMain:
         err = capsys.readouterr().err
         assert "health_port" in err
 
-    def test_main_with_config_check(self, monkeypatch):
+    def test_main_with_config_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Main should exit successfully with --config-check."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
 
@@ -340,7 +357,7 @@ class TestMain:
 
         assert exc_info.value.code == EXIT_SUCCESS
 
-    def test_main_with_invalid_config(self, monkeypatch):
+    def test_main_with_invalid_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Main should exit with config error on invalid config."""
         monkeypatch.delenv("DATABASE_URL", raising=False)
 
@@ -349,7 +366,7 @@ class TestMain:
 
         assert exc_info.value.code == EXIT_CONFIG_ERROR
 
-    def test_main_with_dry_run_and_config_check(self, monkeypatch):
+    def test_main_with_dry_run_and_config_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Main should handle dry-run with config-check."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
 
@@ -358,7 +375,7 @@ class TestMain:
 
         assert exc_info.value.code == EXIT_SUCCESS
 
-    def test_main_runs_pipeline(self, monkeypatch):
+    def test_main_runs_pipeline(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Main should run the pipeline with the validated settings and dry-run flag."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         runs: list[tuple[Settings, bool]] = []
@@ -377,7 +394,9 @@ class TestMain:
             ("postgresql+psycopg://localhost/test", True)
         ]
 
-    def test_main_exits_with_error_when_pipeline_encounters_worker_error(self, monkeypatch):
+    def test_main_exits_with_error_when_pipeline_encounters_worker_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Main should exit with EXIT_ERROR (code 1) when run_pipeline reports worker error."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
 
@@ -391,7 +410,7 @@ class TestMain:
 
         assert exc_info.value.code == EXIT_ERROR
 
-    def test_exit_code_for_pipeline_returns_error_on_pipeline_error_state(self):
+    def test_exit_code_for_pipeline_returns_error_on_pipeline_error_state(self) -> None:
         """_exit_code_for_pipeline returns EXIT_ERROR when pipeline state is ERROR."""
         from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
         from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
@@ -400,7 +419,7 @@ class TestMain:
         pipeline._state = PipelineState.ERROR
         assert _exit_code_for_pipeline(pipeline) == EXIT_ERROR
 
-    def test_exit_code_is_success_after_graceful_stop_with_recoverable_errors(self):
+    def test_exit_code_is_success_after_graceful_stop_with_recoverable_errors(self) -> None:
         """Recoverable processing errors must not turn a graceful shutdown into exit 1."""
         from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
         from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
@@ -412,21 +431,17 @@ class TestMain:
         assert _exit_code_for_pipeline(pipeline) == EXIT_SUCCESS
 
 
-class HangingStopPipeline:
+class HangingStopPipeline(Pipeline):
     """Working fake whose graceful stop never finishes on its own."""
 
-    def __init__(self, _settings: Settings, *, dry_run: bool = False) -> None:
-        self.dry_run = dry_run
-        self.state = None
+    def __init__(self, settings: Settings, *, dry_run: bool = False) -> None:
+        super().__init__(settings, dry_run=dry_run)
         self._stop_event = asyncio.Event()
         self.stop_calls = 0
 
-    @property
-    def stop_event(self) -> asyncio.Event:
-        return self._stop_event
-
     async def start(self) -> None:
         # Simulate an immediate internal stop request so run_pipeline reaches stop().
+        assert self._stop_event is not None
         self._stop_event.set()
 
     async def stop(self) -> None:
@@ -444,8 +459,8 @@ class CountingStopPipeline(HangingStopPipeline):
 class CancellationResistantStopPipeline(HangingStopPipeline):
     """Working fake whose stop suppresses cancellation and finishes late on its own."""
 
-    def __init__(self, _settings: Settings, *, dry_run: bool = False) -> None:
-        super().__init__(_settings, dry_run=dry_run)
+    def __init__(self, settings: Settings, *, dry_run: bool = False) -> None:
+        super().__init__(settings, dry_run=dry_run)
         self.stop_finished = asyncio.Event()
 
     async def stop(self) -> None:
@@ -457,7 +472,9 @@ class CancellationResistantStopPipeline(HangingStopPipeline):
 class TestRunPipelineShutdownTimeout:
     """run_pipeline must enforce shutdown_timeout around pipeline.stop (US3 scenario 4)."""
 
-    async def test_hanging_pipeline_stop_is_bounded_and_exits_error(self, monkeypatch):
+    async def test_hanging_pipeline_stop_is_bounded_and_exits_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A hung stop is one attempt under one deadline: exit 1 in ~timeout, not 2x."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         settings = validate_config()
@@ -488,7 +505,9 @@ class TestRunPipelineShutdownTimeout:
         # One 0.2s deadline, not the doubled 0.4s the cleanup callback used to add.
         assert elapsed < 0.35
 
-    async def test_successful_stop_is_not_repeated_by_cleanup(self, monkeypatch):
+    async def test_successful_stop_is_not_repeated_by_cleanup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """After the explicit stop finishes, shutdown cleanup must not stop again."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         settings = validate_config()
@@ -515,7 +534,9 @@ class TestRunPipelineShutdownTimeout:
         assert exit_code == EXIT_SUCCESS
         assert created[0].stop_calls == 1
 
-    async def test_cancellation_resistant_stop_cannot_defeat_the_deadline(self, monkeypatch):
+    async def test_cancellation_resistant_stop_cannot_defeat_the_deadline(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Round-4 finding 7: a stop that suppresses cancellation used to make a tiny
         timeout return success only after the stop's own 0.5s. The deadline must be
         enforced independently of coroutine cooperation, and the late completion must
@@ -555,7 +576,9 @@ class TestCliOverrideConsistency:
     """Round-4 finding 8: every CLI override must appear identically in runtime
     configuration and in every printed summary (FR-004)."""
 
-    def test_config_check_reflects_dry_run_and_log_level_overrides(self, monkeypatch, capsys):
+    def test_config_check_reflects_dry_run_and_log_level_overrides(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
 
         with pytest.raises(SystemExit) as exc_info:
@@ -568,7 +591,9 @@ class TestCliOverrideConsistency:
         assert "Dry Run: False" not in out
         assert "Log Level: INFO" not in out
 
-    def test_overrides_reach_runtime_settings_and_summary_alike(self, monkeypatch, capsys):
+    def test_overrides_reach_runtime_settings_and_summary_alike(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         runs: list[tuple[Settings, bool]] = []
 
@@ -590,7 +615,9 @@ class TestCliOverrideConsistency:
         assert "Dry Run: True" in out
         assert "Log Level: WARNING" in out
 
-    def test_environment_values_survive_without_cli_overrides(self, monkeypatch, capsys):
+    def test_environment_values_survive_without_cli_overrides(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         monkeypatch.setenv("DRY_RUN", "true")
         monkeypatch.setenv("LOG_LEVEL", "ERROR")
@@ -607,7 +634,7 @@ class TestCliOverrideConsistency:
 class TestIntegration:
     """Integration tests for CLI invocation."""
 
-    def test_cli_help_option(self, capsys):
+    def test_cli_help_option(self, capsys: pytest.CaptureFixture[str]) -> None:
         """CLI should display help with -h option."""
         with pytest.raises(SystemExit) as exc_info:
             main(["-h"])
@@ -619,7 +646,7 @@ class TestIntegration:
         assert "--dry-run" in captured.out
         assert "--log-level" in captured.out
 
-    def test_cli_version_option(self, capsys):
+    def test_cli_version_option(self, capsys: pytest.CaptureFixture[str]) -> None:
         """CLI should display version with --version option."""
         with pytest.raises(SystemExit) as exc_info:
             main(["--version"])
@@ -628,7 +655,7 @@ class TestIntegration:
         captured = capsys.readouterr()
         assert "0.1.0" in captured.out
 
-    def test_cli_invalid_log_level(self, capsys):
+    def test_cli_invalid_log_level(self, capsys: pytest.CaptureFixture[str]) -> None:
         """CLI should reject invalid log level."""
         with pytest.raises(SystemExit) as exc_info:
             main(["--log-level", "INVALID"])
