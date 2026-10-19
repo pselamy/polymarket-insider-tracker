@@ -331,9 +331,7 @@ Cleaned and enrolled: 110 errors (plus 9 reached through imports of root `tests/
 comments were removed) or relaxed flags. Fixes are typing-only: `tests/fakes/redis_await.py`
 (`settled`, `as_bytes`) awaits the `Awaitable[T] | T` results redis-py declares; fakes and
 harnesses accept `redis.asyncio.Redis`; `FakeClobClient` subclasses `ClobClient`; the codec tests
-import `_publisher_codec` directly instead of private re-exports. The one `src/` touch widens the
-`TradeStreamHandler` reconnect-delay annotations from `int` to `float` (the delays are seconds and
-tests pass `0.01`); runtime behaviour is unchanged.
+import `_publisher_codec` directly instead of private re-exports. The `src/` touches are annotation-only: `TradeStreamHandler` reconnect-delay parameters widen `int` to `float` (seconds; tests pass `0.01`); a `SignalDetector[S]` Protocol types the pipeline's two detector attributes and a `StreamConnection` Protocol types the handler's `_ws`, so fakes are assigned directly with no `monkeypatch.setattr` or `id()` workarounds.
 
 Remaining unenrolled `tests/` roots: `tests/detector`, `tests/profiler`, `tests/tooling` and 7
 root-level `tests/test_*.py` files.
@@ -341,5 +339,5 @@ root-level `tests/test_*.py` files.
 Defect-fails: appending `PLANTED: int = "a"` to `tests/ingestor/test_gamma_client.py` makes the
 enrolled mypy command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.
 Pinned jscpd clone delta against `origin/main`: 74 clones / 909 duplicated lines before and
-after, measured at `origin/main` 370e77b (delta 0). Six test files already above 399 lines grew by 1-12 lines each because annotating the
+after, measured at `origin/main` 370e77b (delta 0). Re-measured after the rebase onto `f2e2167` (raw pinned jscpd, same flags, authored `.py` scope): `origin/main` 63 clones / 766 duplicated lines over 256 files; this branch 63 / 766 over 257 files (delta 0). Six test files already above 399 lines grew by 1-12 lines each because annotating the
 awaits and fakes needs real lines (disclosed as a conflict with the no-growth guidance).

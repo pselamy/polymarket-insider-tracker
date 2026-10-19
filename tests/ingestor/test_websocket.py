@@ -339,7 +339,7 @@ class TestTradeStreamHandler:
 
         ws = await handler._connect()
 
-        assert id(ws) == id(fake_ws)
+        assert ws is fake_ws
         assert len(fake_ws.sent_messages) == 1
 
         # Verify subscription message includes action: subscribe
@@ -371,14 +371,13 @@ class TestTradeStreamHandler:
         await handler._reconnect_loop()
 
         assert handler._running is True
-        assert id(handler._ws) == id(fake_ws)
+        assert handler._ws is fake_ws
 
     @pytest.mark.asyncio
-    async def test_cleanup_closes_websocket(
-        self, handler: TradeStreamHandler, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_cleanup_closes_websocket(self, handler: TradeStreamHandler) -> None:
         """Test that cleanup closes the WebSocket."""
-        monkeypatch.setattr(handler, "_ws", fake_ws := FakeWebSocket())
+        fake_ws = FakeWebSocket()
+        handler._ws = fake_ws
 
         await handler._cleanup()
 

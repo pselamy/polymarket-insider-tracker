@@ -89,14 +89,6 @@ def mainstream_market(sample_trade_event: TradeEvent) -> MarketMetadata:
     return market_for_trade(sample_trade_event, "politics")
 
 
-def _fail_every_detector(monkeypatch: pytest.MonkeyPatch, pipeline: Pipeline) -> None:
-    """Make both signal detectors raise, as when their upstream dependencies are down."""
-    fresh_wallet = FailingDetector(RuntimeError("polygon rpc down"))
-    size_anomaly = FailingDetector(RuntimeError("metadata down"))
-    monkeypatch.setattr(pipeline, "_fresh_wallet_detector", fresh_wallet)
-    monkeypatch.setattr(pipeline, "_size_anomaly_detector", size_anomaly)
-
-
 class TestPipelineState:
     """Tests for pipeline state management."""
 
@@ -269,16 +261,13 @@ class TestOnTrade:
         assert pipeline.stats.errors == 0
 
     async def test_on_trade_runs_detectors_in_parallel(
-        self,
-        test_settings: Settings,
-        sample_trade_event: TradeEvent,
-        monkeypatch: pytest.MonkeyPatch,
+        self, test_settings: Settings, sample_trade_event: TradeEvent
     ) -> None:
         """Both detectors must be in flight at once; sequential execution would deadlock."""
         pipeline = Pipeline(test_settings)
         barrier = asyncio.Barrier(2)
-        monkeypatch.setattr(pipeline, "_fresh_wallet_detector", BarrierDetector(barrier))
-        monkeypatch.setattr(pipeline, "_size_anomaly_detector", BarrierDetector(barrier))
+        pipeline._fresh_wallet_detector = BarrierDetector(barrier)
+        pipeline._size_anomaly_detector = BarrierDetector(barrier)
 
         await asyncio.wait_for(pipeline._on_trade(sample_trade_event), timeout=1.0)
 
@@ -292,15 +281,12 @@ class TestOnTrade:
         sample_trade_event: TradeEvent,
         niche_market: MarketMetadata,
         caplog: pytest.LogCaptureFixture,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A failing detector is counted and exposed while the other signal still scores."""
         pipeline = await wire_pipeline(
             test_settings, redis=fake_redis, eth=FakeEth(), market=niche_market
         )
-        monkeypatch.setattr(
-            pipeline, "_fresh_wallet_detector", FailingDetector(RuntimeError("Detector error"))
-        )
+        pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("Detector error"))
 
         with caplog.at_level(logging.WARNING):
             await pipeline._on_trade(sample_trade_event)
@@ -318,13 +304,13 @@ class TestOnTrade:
         db_manager: DatabaseManager,
         async_engine: AsyncEngine,
         sample_trade_event: TradeEvent,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When every detector fails, the absent evidence is durably explained (US3-3)."""
         pipeline = await wire_pipeline(
             make_test_settings(), redis=fake_redis, eth=FakeEth(), db_manager=db_manager
         )
-        _fail_every_detector(monkeypatch, pipeline)
+        pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
+        pipeline._size_anomaly_detector = FailingDetector(RuntimeError("metadata down"))
 
         await pipeline._on_trade(sample_trade_event)
 
@@ -344,7 +330,6 @@ class TestOnTrade:
         db_manager: DatabaseManager,
         async_engine: AsyncEngine,
         sample_trade_event: TradeEvent,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """The skip row honors the persist_assessments switch; the count still happens."""
         pipeline = await wire_pipeline(
@@ -353,7 +338,8 @@ class TestOnTrade:
             eth=FakeEth(),
             db_manager=db_manager,
         )
-        _fail_every_detector(monkeypatch, pipeline)
+        pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
+        pipeline._size_anomaly_detector = FailingDetector(RuntimeError("metadata down"))
 
         await pipeline._on_trade(sample_trade_event)
 
