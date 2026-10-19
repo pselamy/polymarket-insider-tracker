@@ -5,6 +5,7 @@ from fresh wallets and generates alert signals with confidence scores.
 """
 
 import logging
+from abc import abstractmethod
 from decimal import Decimal
 from typing import Protocol
 
@@ -31,6 +32,7 @@ LARGE_TRADE_THRESHOLD = Decimal("10000")
 class WalletProfiler(Protocol):
     """Wallet profiling the detector needs (satisfied structurally by ``WalletAnalyzer``)."""
 
+    @abstractmethod
     async def analyze(self, address: str, /) -> WalletProfile:
         """Profile the wallet at ``address``."""
 
