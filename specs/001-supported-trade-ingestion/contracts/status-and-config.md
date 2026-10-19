@@ -55,6 +55,8 @@ Metric objects are created once at module import, following `ingestor/health.py`
 
 - `Pipeline._initialize_components` builds `TradePoller(on_trade=self._on_trade, redis=...,
   settings=settings.polymarket, metadata=self._metadata_sync, on_state_change=...)`.
+  *Correction (REF-CMD-20 step 2):* the callback is now the public `Pipeline.process_trade`;
+  behaviour is unchanged.
 - `Pipeline._start_background_services` creates the poller task first, then the metadata sync task.
 - A `failed` transition records `PipelineStats.last_error` and increments `errors`; propagation to
   `PipelineState`, readiness, and CLI exit is slice 003's contract (G-016) and is not claimed here.
