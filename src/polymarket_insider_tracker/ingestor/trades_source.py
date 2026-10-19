@@ -6,25 +6,43 @@ cache key, classifies responses as success, transient, or terminal, retries tran
 with capped full-jitter backoff plus ``Retry-After``, and records every attempt so the request
 budget is observable. It never sends a credential and never requests beyond the documented
 ``limit``/``offset`` maximums. See ``contracts/source-acquisition.md``.
+
+The per-attempt request-build, send, status-classification, attempt-recording, and budget-window
+mechanics live in :mod:`polymarket_insider_tracker.ingestor._http_attempt` so this client and the v2
+page transport share exactly one implementation; this module keeps only the v1 list-body success
+parser and its error taxonomy.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import random
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from email.utils import parsedate_to_datetime
-from typing import Literal, cast
-from urllib.parse import urlsplit
+from typing import cast
 
 import httpx
 
-from polymarket_insider_tracker import __version__
 from polymarket_insider_tracker.ingestor._cycle_cutoff import CycleCutoff
+from polymarket_insider_tracker.ingestor._http_attempt import (
+    BUDGET_WINDOW_SECONDS,
+    REQUEST_TIMEOUT_SECONDS,
+    TRANSIENT_STATUSES,
+    USER_AGENT,
+    AttemptOutcome,
+    AttemptResponse,
+    AttemptTerminalError,
+    AttemptTransientError,
+    HttpAttempts,
+    RequestAttempt,
+    TerminalReason,
+    TransientKind,
+    is_transient_status,
+    parse_retry_after,
+    redacted_url,
+)
 from polymarket_insider_tracker.ingestor._retry import BACKOFF_CAP_SECONDS as BACKOFF_CAP_SECONDS
 from polymarket_insider_tracker.ingestor._retry import (
     MAX_RETRIES,
@@ -34,18 +52,38 @@ from polymarket_insider_tracker.ingestor._retry import (
 from polymarket_insider_tracker.ingestor._retry import (
     RETRY_AFTER_CAP_SECONDS as RETRY_AFTER_CAP_SECONDS,
 )
-from polymarket_insider_tracker.redaction import redact_url as _redact_url
+
+__all__ = [
+    "BACKOFF_CAP_SECONDS",
+    "BUDGET_WINDOW_SECONDS",
+    "MAX_RETRIES",
+    "PAGE_LIMIT",
+    "RECOVERY_OFFSET",
+    "REQUEST_TIMEOUT_SECONDS",
+    "RETRY_AFTER_CAP_SECONDS",
+    "TRANSIENT_STATUSES",
+    "USER_AGENT",
+    "AttemptOutcome",
+    "Clock",
+    "RequestAttempt",
+    "ResponseHeaders",
+    "Sleeper",
+    "TerminalReason",
+    "TradesPage",
+    "TradesRequest",
+    "TradesSourceClient",
+    "TradesSourceError",
+    "TradesTerminalError",
+    "TradesTransientError",
+    "TransientKind",
+    "is_transient_status",
+    "parse_retry_after",
+    "redacted_url",
+    "start_for",
+]
 
 PAGE_LIMIT = 10_000
 RECOVERY_OFFSET = 10_000
-REQUEST_TIMEOUT_SECONDS = 15.0
-BUDGET_WINDOW_SECONDS = 10.0
-TRANSIENT_STATUSES = frozenset({408, 425, 429})
-USER_AGENT = f"polymarket-insider-tracker/{__version__}"
-
-AttemptOutcome = Literal["success", "transient", "terminal"]
-TransientKind = Literal["status", "timeout", "transport", "unparseable"]
-TerminalReason = Literal["http-status", "incompatible-schema"]
 
 Clock = Callable[[], float]
 Sleeper = Callable[[float], Awaitable[None]]
@@ -128,58 +166,11 @@ class TradesPage:
     headers: ResponseHeaders
 
 
-@dataclass(frozen=True)
-class RequestAttempt:
-    """One HTTP attempt, retries included, for budget accounting and metrics."""
-
-    at: float
-    outcome: AttemptOutcome
-    status: int | None
-    duration_seconds: float
-    attempt: int
-
-
-def redacted_url(url: str) -> str:
-    """Return the operator-facing endpoint label for ``url``.
-
-    The label goes through the central redaction policy so a non-root path
-    (``POLYMARKET_TRADES_URL`` accepts a proxied path that may carry a
-    credential segment) is fail-closed while scheme/host/port stay readable.
-    Runtime requests still use the configured URL unchanged.
-    """
-    return _redact_url(url)
-
-
 def start_for(boundary_time: int | None, horizon_seconds: int) -> int:
     """The documented ``start`` bound: boundary minus horizon, or ``0`` on first start."""
     if boundary_time is None:
         return 0
     return max(0, boundary_time - horizon_seconds)
-
-
-def _retry_after_seconds(value: str) -> float | None:
-    if value.lstrip("-").isdigit():
-        return float(value)
-    try:
-        return parsedate_to_datetime(value).timestamp()
-    except (TypeError, ValueError):
-        return None
-
-
-def parse_retry_after(value: str | None, *, now: float) -> float:
-    """Parse ``Retry-After`` seconds or an HTTP date into a non-negative delay in seconds."""
-    if value is None:
-        return 0.0
-    parsed = _retry_after_seconds(value.strip())
-    if parsed is None:
-        return 0.0
-    delay = parsed if value.strip().lstrip("-").isdigit() else parsed - now
-    return max(0.0, delay)
-
-
-def is_transient_status(status: int) -> bool:
-    """Whether a status is retryable for the trades endpoint (shared by both paths)."""
-    return status in TRANSIENT_STATUSES or status >= 500
 
 
 class TradesSourceClient:
@@ -197,18 +188,13 @@ class TradesSourceClient:
         max_retries: int = MAX_RETRIES,
         on_attempt: Callable[[RequestAttempt], None] | None = None,
     ) -> None:
-        parsed_url = urlsplit(url)
-        if parsed_url.username is not None or parsed_url.password is not None:
-            raise ValueError("trades URL must not contain credentials")
-        self._client = client
         self._url = url
         self._taker_only = coverage == "taker-only"
         self._clock = clock
         self._sleeper = sleeper
         self._retry = RetryPolicy(max_retries=max_retries, random_source=random_source)
-        self._on_attempt = on_attempt
         self._cutoff = CycleCutoff(clock, sleeper)
-        self._attempts: list[RequestAttempt] = []
+        self._http = HttpAttempts(client, url=url, clock=clock, on_attempt=on_attempt)
 
     @property
     def last_request_end(self) -> int | None:
@@ -220,13 +206,11 @@ class TradesSourceClient:
 
     @property
     def attempts(self) -> tuple[RequestAttempt, ...]:
-        return tuple(self._attempts)
+        return self._http.attempts
 
     def requests_in_window(self, now: float | None = None) -> int:
         """Attempts made within the last ``BUDGET_WINDOW_SECONDS``."""
-        reference = self._clock() if now is None else now
-        floor = reference - BUDGET_WINDOW_SECONDS
-        return sum(1 for attempt in self._attempts if attempt.at > floor)
+        return self._http.requests_in_window(now)
 
     async def fetch_primary(
         self, *, boundary_time: int | None, horizon_seconds: int, proof: object | None = None
@@ -275,128 +259,47 @@ class TradesSourceClient:
     async def _attempt(
         self, request: TradesRequest, attempt: int
     ) -> TradesPage | TradesTransientError:
-        started = self._clock()
-        outgoing = self._built_request(request, started, attempt)
-        if isinstance(outgoing, TradesTransientError):
-            return outgoing
         try:
-            response = await self._client.send(outgoing, auth=None, follow_redirects=False)
-        except httpx.TimeoutException:
-            return self._transient(started, attempt, None, "timeout", "timeout")
-        except httpx.TransportError:
-            return self._transient(started, attempt, None, "transport", "transport error")
-        return self._classify(response, request, started, attempt)
+            result = await self._http.attempt(self._url, request.params(), index=attempt)
+            return self._parse_success(result, request)
+        except AttemptTransientError as exc:
+            return self._to_transient(exc)
+        except AttemptTerminalError as exc:
+            raise self._to_terminal(exc) from None
 
-    def _built_request(
-        self, request: TradesRequest, started: float, attempt: int
-    ) -> httpx.Request | TradesTransientError:
-        """The documented request, or a redacted transient error when it cannot build.
-
-        ``httpx.InvalidURL`` subclasses ``Exception`` directly, not
-        ``ValueError``, so it must be named here explicitly or an invalid
-        injected URL would bypass this boundary entirely and rely on the
-        poller's error-text mask alone.
-        """
-        try:
-            return self._build_request(request)
-        except (TypeError, ValueError, httpx.InvalidURL) as exc:
-            return self._redacted_request_error(started, attempt, exc)
-
-    def _build_request(self, request: TradesRequest) -> httpx.Request:
-        """Assemble the documented GET request for ``request`` unchanged."""
-        return httpx.Request(
-            "GET",
-            self._url,
-            params=request.params(),
-            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-            extensions={"timeout": httpx.Timeout(REQUEST_TIMEOUT_SECONDS).as_dict()},
-        )
-
-    def _redacted_request_error(
-        self, started: float, attempt: int, exc: Exception
-    ) -> TradesTransientError:
-        """A request-construction failure as transient without echoing the URL."""
-        _ = exc
-        self._record(started, attempt, "transient", None)
+    def _to_transient(self, error: AttemptTransientError) -> TradesTransientError:
         return TradesTransientError(
-            f"transient failure (invalid request URL) from {redacted_url(self._url)}",
-            status=None,
-            kind="transport",
-            retry_after_seconds=0.0,
+            str(error),
+            status=error.status,
+            kind=error.kind,
+            retry_after_seconds=error.retry_after_seconds,
         )
 
-    def _classify(
-        self, response: httpx.Response, request: TradesRequest, started: float, attempt: int
-    ) -> TradesPage | TradesTransientError:
-        status = response.status_code
-        if status == 200:
-            return self._parse_success(response, request, started, attempt)
-        if is_transient_status(status):
-            retry_after = parse_retry_after(response.headers.get("Retry-After"), now=self._clock())
-            return self._transient(
-                started, attempt, status, "status", f"HTTP {status}", retry_after
-            )
-        self._record(started, attempt, "terminal", status)
-        raise TradesTerminalError(
-            f"HTTP {status} from {redacted_url(self._url)}", status=status, reason="http-status"
-        )
+    def _to_terminal(self, error: AttemptTerminalError) -> TradesTerminalError:
+        return TradesTerminalError(str(error), status=error.status, reason=error.reason)
 
-    def _parse_success(
-        self, response: httpx.Response, request: TradesRequest, started: float, attempt: int
-    ) -> TradesPage | TradesTransientError:
-        try:
-            body: object = json.loads(response.content)
-        except ValueError:
-            return self._transient(started, attempt, 200, "unparseable", "unparseable body")
+    def _parse_success(self, result: AttemptResponse, request: TradesRequest) -> TradesPage:
+        body = self._http.decode(
+            self._url, result.response, started=result.started, index=result.index
+        )
         if not isinstance(body, list):
-            self._record(started, attempt, "terminal", 200)
+            self._http.record(result.started, result.index, "terminal", 200)
             raise TradesTerminalError(
                 f"incompatible-schema: non-list body from {redacted_url(self._url)}",
                 status=200,
                 reason="incompatible-schema",
             )
-        self._record(started, attempt, "success", 200)
+        self._http.record(result.started, result.index, "success", 200)
         return TradesPage(
             request=request,
             rows=tuple(cast(list[object], body)),
             received_at=self._clock(),
-            attempts=attempt + 1,
+            attempts=result.index + 1,
             http_status=200,
-            body_sha256=hashlib.sha256(response.content).hexdigest(),
+            body_sha256=hashlib.sha256(result.response.content).hexdigest(),
             headers=ResponseHeaders(
-                cache_control=response.headers.get("cache-control"),
-                cf_cache_status=response.headers.get("cf-cache-status"),
-                age=response.headers.get("age"),
+                cache_control=result.response.headers.get("cache-control"),
+                cf_cache_status=result.response.headers.get("cf-cache-status"),
+                age=result.response.headers.get("age"),
             ),
         )
-
-    def _transient(
-        self,
-        started: float,
-        attempt: int,
-        status: int | None,
-        kind: TransientKind,
-        detail: str,
-        retry_after: float = 0.0,
-    ) -> TradesTransientError:
-        self._record(started, attempt, "transient", status)
-        return TradesTransientError(
-            f"transient failure ({detail}) from {redacted_url(self._url)}",
-            status=status,
-            kind=kind,
-            retry_after_seconds=retry_after,
-        )
-
-    def _record(
-        self, started: float, attempt: int, outcome: AttemptOutcome, status: int | None
-    ) -> None:
-        record = RequestAttempt(
-            at=started,
-            outcome=outcome,
-            status=status,
-            duration_seconds=max(0.0, self._clock() - started),
-            attempt=attempt,
-        )
-        self._attempts.append(record)
-        if self._on_attempt is not None:
-            self._on_attempt(record)

@@ -34,24 +34,22 @@ import httpx
 
 from polymarket_insider_tracker.ingestor._attempt_budget import AttemptBudget
 from polymarket_insider_tracker.ingestor._cycle_cutoff import CycleCutoff
+from polymarket_insider_tracker.ingestor._http_attempt import (
+    AttemptTerminalError,
+    AttemptTransientError,
+    HttpAttempts,
+    RequestAttempt,
+)
 from polymarket_insider_tracker.ingestor._retry import MAX_RETRIES, RandomSource
 from polymarket_insider_tracker.ingestor.trade_row_v2 import translate_v2_row
 from polymarket_insider_tracker.ingestor.trade_rows import TradeObservation
 from polymarket_insider_tracker.ingestor.trades_source import (
-    BUDGET_WINDOW_SECONDS,
-    REQUEST_TIMEOUT_SECONDS,
-    USER_AGENT,
-    AttemptOutcome,
-    RequestAttempt,
     ResponseHeaders,
     TradesPage,
     TradesRequest,
     TradesSourceClient,
     TradesTerminalError,
     TradesTransientError,
-    is_transient_status,
-    parse_retry_after,
-    redacted_url,
     start_for,
 )
 from polymarket_insider_tracker.ingestor.v2_cursor_walk import MAX_WALK_PAGES, CursorWalk
@@ -93,7 +91,9 @@ class V2PageHttpTransport:
 
     It makes exactly one attempt (the bounded walk owns retry), returns the decoded JSON body, and
     raises :class:`V2TransientError`/:class:`V2TerminalError` so the walk's shared retry policy
-    classifies it. Every attempt is recorded for the poller's metrics and request budget.
+    classifies it. Every attempt is recorded for the poller's metrics and request budget through the
+    same :class:`~polymarket_insider_tracker.ingestor._http_attempt.HttpAttempts` executor the v1
+    page client uses.
     """
 
     def __init__(
@@ -104,37 +104,31 @@ class V2PageHttpTransport:
         clock: Clock = time.time,
         on_attempt: AttemptsCallback | None = None,
     ) -> None:
-        self._client = client
+        self._http = HttpAttempts(client, url=url, clock=clock, on_attempt=on_attempt)
         self._url = url
-        self._clock = clock
-        self._on_attempt = on_attempt
-        self._attempts: list[RequestAttempt] = []
         self._key: tuple[str | None, int, int] | None = None
         self._index = 0
 
     @property
     def attempt_count(self) -> int:
-        return len(self._attempts)
+        return self._http.count
 
     def requests_in_window(self, now: float | None = None) -> int:
-        reference = self._clock() if now is None else now
-        floor = reference - BUDGET_WINDOW_SECONDS
-        return sum(1 for attempt in self._attempts if attempt.at > floor)
+        return self._http.requests_in_window(now)
 
     async def fetch(self, request: V2PageRequest) -> object:
-        started = self._clock()
         index = self._next_index(request)
-        outgoing = self._build(request)
-        if isinstance(outgoing, V2TransientError):
-            self._record(started, index, "transient", None)
-            raise outgoing
         try:
-            response = await self._client.send(outgoing, auth=None, follow_redirects=False)
-        except httpx.TimeoutException:
-            raise self._transient(started, index, None, "timeout") from None
-        except httpx.TransportError:
-            raise self._transient(started, index, None, "transport error") from None
-        return self._classify(response, started, index)
+            result = await self._http.attempt(self._url, request.params(), index=index)
+            body = self._http.decode(
+                self._url, result.response, started=result.started, index=result.index
+            )
+            self._http.record(result.started, result.index, "success", 200)
+            return body
+        except AttemptTransientError as exc:
+            raise V2TransientError(str(exc), retry_after_seconds=exc.retry_after_seconds) from None
+        except AttemptTerminalError as exc:
+            raise V2TerminalError(str(exc)) from None
 
     def _next_index(self, request: V2PageRequest) -> int:
         key = (request.cursor, request.start, request.end)
@@ -143,66 +137,6 @@ class V2PageHttpTransport:
         else:
             self._key, self._index = key, 0
         return self._index
-
-    def _build(self, request: V2PageRequest) -> httpx.Request | V2TransientError:
-        try:
-            return httpx.Request(
-                "GET",
-                self._url,
-                params=request.params(),
-                headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-                extensions={"timeout": httpx.Timeout(REQUEST_TIMEOUT_SECONDS).as_dict()},
-            )
-        except (TypeError, ValueError, httpx.InvalidURL):
-            return V2TransientError(
-                f"transient failure (invalid request URL) from {redacted_url(self._url)}"
-            )
-
-    def _classify(self, response: httpx.Response, started: float, index: int) -> object:
-        status = response.status_code
-        if status == 200:
-            return self._decode(response, started, index)
-        if is_transient_status(status):
-            retry_after = parse_retry_after(response.headers.get("Retry-After"), now=self._clock())
-            raise self._transient(started, index, status, f"HTTP {status}", retry_after)
-        self._record(started, index, "terminal", status)
-        raise V2TerminalError(f"HTTP {status} from {redacted_url(self._url)}")
-
-    def _decode(self, response: httpx.Response, started: float, index: int) -> object:
-        try:
-            body = json.loads(response.content)
-        except ValueError:
-            raise self._transient(started, index, 200, "unparseable body") from None
-        self._record(started, index, "success", 200)
-        return body
-
-    def _transient(
-        self,
-        started: float,
-        index: int,
-        status: int | None,
-        detail: str,
-        retry_after: float = 0.0,
-    ) -> V2TransientError:
-        self._record(started, index, "transient", status)
-        return V2TransientError(
-            f"transient failure ({detail}) from {redacted_url(self._url)}",
-            retry_after_seconds=retry_after,
-        )
-
-    def _record(
-        self, started: float, index: int, outcome: AttemptOutcome, status: int | None
-    ) -> None:
-        record = RequestAttempt(
-            at=started,
-            outcome=outcome,
-            status=status,
-            duration_seconds=max(0.0, self._clock() - started),
-            attempt=index,
-        )
-        self._attempts.append(record)
-        if self._on_attempt is not None:
-            self._on_attempt(record)
 
 
 class V2TradesSource:
