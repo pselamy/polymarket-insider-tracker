@@ -28,8 +28,9 @@ exact active configuration".
 
 Because the 004.1 document is a strict superset of the 003.1 document, a consumer that only reads the
 five configuration keys is unaffected; a consumer that rejects unknown keys breaks and must be updated
-(this is the named compatibility risk). Task T017 includes the matching edit of slice 003's
-`assessment-storage.md` §4 so that shared contract states the union, rather than 004 contradicting it.
+(this is the named compatibility risk). Slice 003's `assessment-storage.md` §4 has been amended in this
+revision to state the same versioned union and point here, so the two normative contracts agree; T017 remains
+the code task that implements the writer and readers.
 
 No new DDL: the column is `TEXT` (`storage/models.py:168`). One versioned amendment only.
 

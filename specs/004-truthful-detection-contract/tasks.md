@@ -108,8 +108,9 @@ Named files, entry points, dependency order:
   (unknown version raises, column/`evidence_schema` mismatch is a corrupt row), the exact
   `scoring-config-004.1.schema.json` as conformance fixture (a test validates real persisted rows against
   it, as `scripts/spec004_evidence/`check_envelope`.py` does for the examples), detector-failure rows with
-  `evaluation_evidence: null` + `detector_failures`, and the matching edit of slice 003
-  `assessment-storage.md` §4 so the shared contract states the union.
+  `evaluation_evidence: null` + `detector_failures`. The contract text of slice 003
+  `assessment-storage.md` §4 is already amended (versioned union); T017 only implements it and
+  must not reopen that text.
 
 ## Phase 6: Cross-cutting evidence (future implementation)
 
