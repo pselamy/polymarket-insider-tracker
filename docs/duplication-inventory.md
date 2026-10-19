@@ -756,8 +756,8 @@ and none added. All assertions are unchanged.
 
 Measured with the identical pinned method (jscpd 5.3.3, `SCAN_POLICY` at the 50-token
 tier, empty config, no ignores) over the 292 authored Python files enumerated by
-`quality.source_scope.discover`: `origin/main` at `a8d58c6` reports **56 clone groups,
-672 duplicated lines, 1.10%**; this tree reports **50 groups, 608 lines, 0.99%**. The six
+`quality.source_scope.discover`: `origin/main` at `b0f37b6` (after #169) reports **52 clone groups,
+625 duplicated lines, 1.02%**; this tree reports **46 groups, 561 lines, 0.92%**. The six
 `test_trade_poller.py` self-pairs (12, 18, 9, 6, 13 and 6 lines) are absent and the
 file-pair set difference is empty, so no new clone group was introduced. Other
 clusters' rows above are historical receipts from their own trees.
