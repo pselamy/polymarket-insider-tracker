@@ -7,10 +7,10 @@ without a competing migration. Implementation is not authorized.
 ## Proposed vs existing (read carefully)
 
 Everything below is a **proposed** amendment for the future implementation to author under
-reserved human validation. Existing behavior on main `46e4192`: `scoring_config` is the
+reserved human validation. Existing behavior on main `1bdccbc` (refreshed 2026-10-19; originally `46e4192`): `scoring_config` is the
 canonical pure-configuration JSON recorded on every new assessment
 (`detector/scorer.py:217-220`); assessment rows carry scalar columns plus nullable
-`scoring_config` TEXT (`storage/models.py:168`, `storage/repos.py:573,617`). No existing
+`scoring_config` TEXT (`storage/models.py:168`, `storage/repos.py:574,618`). No existing
 strict reader accepts the additive keys — direct library consumers reading
 `scoring_config` JSON MUST tolerate them after implementation (pure-config readers keep
 working; envelope readers opt into `evaluation_evidence`). There is exactly one versioned

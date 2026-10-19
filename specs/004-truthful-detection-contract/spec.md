@@ -200,3 +200,24 @@ persisted assessment fields, sample output, README, example environment, and the
   to those contracts and does not own a second migration or harness.
 - Slice 003 must also resolve the failing default Polygon endpoint before this slice can claim the default
   wallet-evidence workflow is usable.
+
+## Dependencies and Non-Goals
+
+**Dependencies (all landed on main `1bdccbc`; revised 2026-10-19)**
+
+- **Slice 001 Data API V2 ingestion is the live trade contract**, not a pending separate concern: the
+  default trades URL is the official V2 endpoint (`d647adf`) and V2 rows decode into `TradeEvent`
+  (`ingestor/trade_row_v2.py`). Slice 004 consumes it and does not change acquisition, cadence,
+  cursors or loss handling. Its journey suites are therefore in scope as test obligations
+  (tasks T021–T026).
+- **The wallet subject is the V2 `proxy_wallet`.** `TradeEvent.wallet_address` is the lowercased
+  `proxyWallet` of the public trade row (`ingestor/trade_row_v2.py:27`, `ingestor/trade_rows.py:169`),
+  and the wallet profiler queries exactly that address (`profiler/analyzer.py:168`). Whether that
+  address's Polygon transaction count or age measures the participant's experience is **unverified**
+  (no first-party code, test or checked-in evidence); see FR-007a.
+- Slice 003 owns the assessment schema, `scoring_config` column and dry-run safety (G-018).
+
+**Non-goals**: trading or execution, financial advice, backtesting or calibration, book-depth scoring,
+funding or sniper scoring, changes to the V2 acquisition path or its cadence, a new database migration,
+and any Polymarket credential. The V2 migration itself is complete and out of scope; only its effect on
+wallet identity and on the journey tests is in scope.

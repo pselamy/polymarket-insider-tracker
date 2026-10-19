@@ -1,16 +1,16 @@
 # Contract: Detector Evaluation API Compatibility
 
 **Feature**: `specs/004-truthful-detection-contract` | **Date**: 2026-10-17 | **Status**: proposed.
-Pins exact current interfaces (base `46e4192`); implementation is not authorized.
+Pins exact current interfaces (refreshed 2026-10-19 to main `1bdccbc`; originally `46e4192`); implementation is not authorized.
 
 ## Current pins
 
 - `FreshWalletDetector.__init__(wallet_analyzer, *, min_trade_size=1000, max_nonce=5, max_age_hours=48)`
   (`detector/fresh_wallet.py:56`); `analyze(trade) -> FreshWalletSignal | None`.
 - `SizeAnomalyDetector.__init__(metadata_sync, *, volume_threshold=0.02, book_threshold=0.05,
-  niche_volume_threshold=50000, niche_min_trade_size=500)` (`detector/size_anomaly.py:60`);
+  niche_volume_threshold=50000, niche_min_trade_size=500)` (`detector/size_anomaly.py:61`);
   `analyze(trade, *, daily_volume=None, book_depth=None)`.
-- `DetectorSettings` (`config.py:334`); `RiskScorer.scoring_config` canonical JSON
+- `DetectorSettings` (`config.py:335`); `RiskScorer.scoring_config` canonical JSON
   (threshold, both bonuses, quantum, weights); `RiskScorer.assess(bundle)`;
   `MarketMetadataSync` sync 300s / cache TTL 600s; `MarketMetadata.from_dict` (generic
   `last_updated` falls back to now — must never source acquisition time).
@@ -24,7 +24,7 @@ Pins exact current interfaces (base `46e4192`); implementation is not authorized
    `nonce <= 5`, i.e. `B = 6`). Explicit `fresh_transaction_boundary=B` alone → `B`.
    Both supplied → reject unless `B == N + 1`, then warn and use `B`. Supported runtime
    evaluates only `nonce < B`. Current code pins: `detector/fresh_wallet.py:56-63`
-   (`max_nonce: int = DEFAULT_MAX_NONCE = 5`, `profile.nonce > self._max_nonce` reject) and
+   (`max_nonce: int = DEFAULT_MAX_NONCE = 5`, `profile.nonce > self._max_nonce` reject at `:153`) and
    `profiler/analyzer.py:24,225` (`DEFAULT_FRESH_THRESHOLD = 5`, `nonce >= threshold`
    reject). No external non-use is asserted: additive keyword, alias retained.
 2. New additive evaluation entry point returns immutable wallet/market evaluation evidence
@@ -32,8 +32,8 @@ Pins exact current interfaces (base `46e4192`); implementation is not authorized
    fetch). Existing signal-returning wrappers preserved.
 3. Impact migration (explicit type/semantic change, additive/versioned — Phase 1 choice
    now closed): current `SizeAnomalySignal.volume_impact`/`book_impact` are required
-   `float`s (`detector/models.py:106-107`) emitted directly (`detector/models.py:148-149`)
-   with `0.0`-on-unknown docstrings (`:96-97`) — they do NOT “stay nullable” today.
+   `float`s (`detector/models.py:152-153`) emitted directly (`detector/models.py:172-173`)
+   with `0.0`-on-unknown docstrings (`:142-143`) — they do NOT “stay nullable” today.
    Proposed: keep the two required-float attributes and wire positions unchanged, and add
    authoritative nullable companions `volume_impact_measured: float | None` /
    `book_impact_measured: float | None`, where `None` + availability reason =

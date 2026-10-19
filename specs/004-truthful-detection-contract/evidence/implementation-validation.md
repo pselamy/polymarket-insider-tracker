@@ -99,7 +99,10 @@ operational acceptance.
 - Approve/reject the proposed 004.1 implementation contract (this packet's decision).
 - Reviewer-owned domain checklist (23 items, all unchecked).
 - Future implementation, full test/storage/pipeline evidence, and convergence.
-- Existing separate v2 migration validation request (untouched by this packet).
+- ~~Existing separate v2 migration validation request (untouched by this packet).~~ Superseded
+  2026-10-19: V2 is the live ingestion contract on main, no longer a separate pending request; its
+  effect on wallet identity and the journey suites is part of this slice (spec Dependencies, tasks
+  T021–T026, `evidence/revision-2026-10-19.md` F24).
 
 ## Traceability
 
@@ -111,3 +114,14 @@ FR-017/018 → T014; FR-019 → T002/T019; FR-020 → T006/T017/T020; FR-021 →
 12 acceptance scenarios → quickstart journeys 1–12. 002→001→003→004/Relentless
 obligations preserved (001 observation boundary, 003 schema/harness reuse, no second
 migration); this packet is not reduced to a CI or planning-only goal.
+
+## Addendum 2026-10-19 (appended; the text above is historical and was not rewritten)
+
+- Source pins refreshed to main `1bdccbc`: see `evidence/source-refresh-1bdccbc.md`; the check is
+  `python3 specs/004-truthful-detection-contract/evidence/check_source_hashes.py` (reports 3 of 7
+  recorded hashes drifting, all refactor-only).
+- The "scoring runtime unchanged" statement above still holds for `scorer.py` and `pipeline.py`
+  (byte-identical) and holds semantically for the three refactored detector files.
+- New V2 journey obligations: tasks T021–T026. The earlier statement that every FR/SC maps to a
+  task remains true; FR-016/FR-021/SC-006 now additionally map to T022 and T026.
+- This addendum is not approval, and the 23-item reviewer checklist is still entirely unchecked.

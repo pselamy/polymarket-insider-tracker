@@ -28,7 +28,7 @@ migration or harness. Implementation is not authorized.
 ### 2a. Canonical freshness rule (governs all surfaces)
 
 The proposed classification in §2 is the single authoritative meaning of “fresh” for
-signal JSON (`FreshWalletSignal.to_dict()['wallet_is_fresh']` at `detector/models.py:78`),
+signal JSON (`FreshWalletSignal.to_dict()['wallet_is_fresh']` at `detector/models.py:124`),
 assessment evidence, persisted wallet rows (`pipeline.py:671`
 `WalletProfileDTO.is_fresh`), cached profiles, and rendered output. Effective configuration
 provenance: the captured `DETECTOR_FRESH_TRANSACTION_BOUNDARY` value stored per assessment in

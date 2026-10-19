@@ -58,7 +58,9 @@ Each scenario names its implementation task(s), test obligation, and evidence re
 
 ```bash
 uv run pytest tests/detector/test_fresh_wallet.py tests/detector/test_size_anomaly.py tests/detector/test_scorer.py -q
-uv run pytest tests/integration/test_end_to_end.py -q
+uv run pytest tests/integration/test_end_to_end.py tests/integration/test_v2_journey.py \
+  tests/integration/test_v2_default_journey.py -q
+# real services (see 002 quickstart): test_v2_default_journey_services.py, test_postgres_journey.py
 uv run python scripts/verify.py --profile static
 ```
 

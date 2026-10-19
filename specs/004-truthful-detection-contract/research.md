@@ -2,10 +2,14 @@
 
 **Date**: 2026-10-16, R01 disposition appended 2026-10-17. **Status**: Phase0 complete;
 Phase1 design proposed. Implementation is not authorized.
-Current source is main `46e41921ca06b701fece7a17953a666f6873b7e1`. No product code changed.
+Current source was main `46e41921ca06b701fece7a17953a666f6873b7e1` when written; **refreshed
+2026-10-19 to main `1bdccbca1db93dea7045d6d9c0068b9d04d30455`** (see
+[evidence/revision-2026-10-19.md](evidence/revision-2026-10-19.md) and
+[evidence/source-refresh-1bdccbc.md](evidence/source-refresh-1bdccbc.md)). No product code changed.
 Prior Phase0 artifacts (corpus, replay, clarification) hydrated byte-identically from
 `polymarket-004-preparation-c64a73b`; scoring runtime verified unchanged between the replay
-base (`523b0a3`) and this base (no `src/` diff).
+base (`523b0a3`) and this base (no `src/` diff). Re-verified 2026-10-19 against `1bdccbc`: `scorer.py` and `pipeline.py` byte-identical,
+three detector files refactor-only (`evidence/source-refresh-1bdccbc.md`).
 
 ## R01 — Gamma volume units and freshness qualification
 
@@ -183,7 +187,7 @@ Unavailable impacts must never be serialized, persisted or rendered as measured 
 decided migration is additive/versioned nullable companions
 (`volume_impact_measured`/`book_impact_measured`), documented in
 [contracts/detector-api.md](contracts/detector-api.md) with exact current-interface pins
-(required floats at `detector/models.py:106-107`, direct emission at `:148-149`); retaining a numeric sentinel without an explicit non-measurement contract is not
+(required floats at `detector/models.py:152-153`, direct emission at `:172-173`); retaining a numeric sentinel without an explicit non-measurement contract is not
 a solution. Render the same quantized score and actual threshold on every output, identify unknown
 age and unavailable volume/book, and show niche as a size modifier. Keep research/non-accusatory
 wording; funding is enrichment, sniper is experimental and backtesting is deferred.

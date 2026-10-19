@@ -2,8 +2,8 @@
 
 **Date**: 2026-10-17. **Scope**: approval is for the reviewed implementation contract only —
 not a routine merge, production deployment, real notification, trading, or calibration proof.
-Tests and implementation remain future work. The existing separate v2 migration validation
-request is preserved and untouched.
+Tests and implementation remain future work. Data API V2 ingestion is now the live contract on main (see spec Dependencies); this
+packet is rewritten in full by the 2026-10-19 revision.
 
 ## Final behavior (if authorized)
 
