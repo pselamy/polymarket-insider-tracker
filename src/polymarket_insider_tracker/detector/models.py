@@ -6,7 +6,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Protocol
 
+from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
@@ -15,6 +17,72 @@ from polymarket_insider_tracker.profiler.models import WalletProfile
 # version column existed are backfilled as ``legacy-unversioned`` by migration
 # 003_safe_observable_operation because their exact configuration is unknowable.
 SCORING_ALGORITHM_VERSION = "003.1"
+
+# Confidence classification thresholds. The comparison is inclusive (>=) on
+# purpose; the pre-existing detector tests pin 0.70 as inclusive.
+HIGH_CONFIDENCE_THRESHOLD = 0.7
+VERY_HIGH_CONFIDENCE_THRESHOLD = 0.85
+
+
+class _ConfidenceBearing(Protocol):
+    """Anything that carries a confidence score."""
+
+    confidence: float
+
+
+class _TradeAnchored(Protocol):
+    """Anything that carries the originating trade event."""
+
+    trade_event: TradeEvent
+
+
+def is_high_confidence_score(confidence: float) -> bool:
+    """Return True when confidence reaches the high-confidence threshold."""
+    return confidence >= HIGH_CONFIDENCE_THRESHOLD
+
+
+def is_very_high_confidence_score(confidence: float) -> bool:
+    """Return True when confidence reaches the very-high-confidence threshold."""
+    return confidence >= VERY_HIGH_CONFIDENCE_THRESHOLD
+
+
+def serialized_trade_head(
+    trade_event: TradeEvent, wallet_address: str, market_id: str
+) -> dict[str, str]:
+    """Return the shared trade-head entries of a published record, in order."""
+    return {
+        "wallet_address": wallet_address,
+        "market_id": market_id,
+        "trade_id": trade_event.trade_id,
+        "trade_size": str(trade_event.notional_value),
+        "trade_side": trade_event.side,
+        "trade_price": str(trade_event.price),
+    }
+
+
+def _trade_wallet_address(self: _TradeAnchored) -> str:
+    """Return the wallet address from the trade event."""
+    return self.trade_event.wallet_address
+
+
+def _trade_market_id(self: _TradeAnchored) -> str:
+    """Return the market ID from the trade event."""
+    return self.trade_event.market_id
+
+
+def _trade_size_usdc(self: _TradeAnchored) -> Decimal:
+    """Return the trade size in USDC (notional value)."""
+    return self.trade_event.notional_value
+
+
+def _is_high_confidence(self: _ConfidenceBearing) -> bool:
+    """Return True if confidence exceeds 0.7."""
+    return is_high_confidence_score(self.confidence)
+
+
+def _is_very_high_confidence(self: _ConfidenceBearing) -> bool:
+    """Return True if confidence exceeds 0.85."""
+    return is_very_high_confidence_score(self.confidence)
 
 
 @dataclass(frozen=True)
@@ -39,40 +107,18 @@ class FreshWalletSignal:
     factors: dict[str, float]
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    @property
-    def wallet_address(self) -> str:
-        """Return the wallet address from the trade event."""
-        return self.trade_event.wallet_address
-
-    @property
-    def market_id(self) -> str:
-        """Return the market ID from the trade event."""
-        return self.trade_event.market_id
-
-    @property
-    def trade_size_usdc(self) -> Decimal:
-        """Return the trade size in USDC (notional value)."""
-        return self.trade_event.notional_value
-
-    @property
-    def is_high_confidence(self) -> bool:
-        """Return True if confidence exceeds 0.7."""
-        return self.confidence >= 0.7
-
-    @property
-    def is_very_high_confidence(self) -> bool:
-        """Return True if confidence exceeds 0.85."""
-        return self.confidence >= 0.85
+    # Identity and confidence properties have exactly one home in the module
+    # helpers above; every signal class reuses the same property objects.
+    wallet_address = property(_trade_wallet_address)
+    market_id = property(_trade_market_id)
+    trade_size_usdc = property(_trade_size_usdc)
+    is_high_confidence = property(_is_high_confidence)
+    is_very_high_confidence = property(_is_very_high_confidence)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to dictionary for Redis stream publishing."""
         return {
-            "wallet_address": self.wallet_address,
-            "market_id": self.market_id,
-            "trade_id": self.trade_event.trade_id,
-            "trade_size": str(self.trade_size_usdc),
-            "trade_side": self.trade_event.side,
-            "trade_price": str(self.trade_event.price),
+            **serialized_trade_head(self.trade_event, self.wallet_address, self.market_id),
             "wallet_nonce": self.wallet_profile.nonce,
             "wallet_age_hours": self.wallet_profile.age_hours,
             "wallet_is_fresh": self.wallet_profile.is_fresh,
@@ -110,40 +156,18 @@ class SizeAnomalySignal:
     factors: dict[str, float]
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    @property
-    def wallet_address(self) -> str:
-        """Return the wallet address from the trade event."""
-        return self.trade_event.wallet_address
-
-    @property
-    def market_id(self) -> str:
-        """Return the market ID from the trade event."""
-        return self.trade_event.market_id
-
-    @property
-    def trade_size_usdc(self) -> Decimal:
-        """Return the trade size in USDC (notional value)."""
-        return self.trade_event.notional_value
-
-    @property
-    def is_high_confidence(self) -> bool:
-        """Return True if confidence exceeds 0.7."""
-        return self.confidence >= 0.7
-
-    @property
-    def is_very_high_confidence(self) -> bool:
-        """Return True if confidence exceeds 0.85."""
-        return self.confidence >= 0.85
+    # Identity and confidence properties have exactly one home in the module
+    # helpers above; every signal class reuses the same property objects.
+    wallet_address = property(_trade_wallet_address)
+    market_id = property(_trade_market_id)
+    trade_size_usdc = property(_trade_size_usdc)
+    is_high_confidence = property(_is_high_confidence)
+    is_very_high_confidence = property(_is_very_high_confidence)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to dictionary for Redis stream publishing."""
         return {
-            "wallet_address": self.wallet_address,
-            "market_id": self.market_id,
-            "trade_id": self.trade_event.trade_id,
-            "trade_size": str(self.trade_size_usdc),
-            "trade_side": self.trade_event.side,
-            "trade_price": str(self.trade_event.price),
+            **serialized_trade_head(self.trade_event, self.wallet_address, self.market_id),
             "market_category": self.market_metadata.category,
             "volume_impact": self.volume_impact,
             "book_impact": self.book_impact,
@@ -179,15 +203,10 @@ class SniperClusterSignal:
     confidence: float
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    @property
-    def is_high_confidence(self) -> bool:
-        """Return True if confidence exceeds 0.7."""
-        return self.confidence >= 0.7
-
-    @property
-    def is_very_high_confidence(self) -> bool:
-        """Return True if confidence exceeds 0.85."""
-        return self.confidence >= 0.85
+    # The confidence classification has exactly one home in the module helpers
+    # above; every signal class reuses the same property objects.
+    is_high_confidence = property(_is_high_confidence)
+    is_very_high_confidence = property(_is_very_high_confidence)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to dictionary for Redis stream publishing."""
@@ -240,8 +259,10 @@ class RiskAssessment:
     assessment_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    # Slice 003 Safe Observable Operation fields
-    delivery_disposition: str = "unrecorded"
+    # Slice 003 Safe Observable Operation fields. The honest defaults — an
+    # unrecorded disposition, never a dry run, unknown observations — are shared
+    # with the persistence DTO through the dependency-free constants module.
+    delivery_disposition: str = UNRECORDED_DELIVERY_DISPOSITION
     delivery_channels: str | None = None
     dry_run: bool = False
     volume_available: bool | None = None
@@ -265,21 +286,15 @@ class RiskAssessment:
         """Return True if weighted score exceeds 0.85."""
         return self.weighted_score >= 0.85
 
-    @property
-    def trade_size_usdc(self) -> Decimal:
-        """Return the trade size in USDC (notional value)."""
-        return self.trade_event.notional_value
+    # The trade-identity accessor has exactly one home in the module helpers
+    # above; every trade-anchored record reuses the same property object.
+    trade_size_usdc = property(_trade_size_usdc)
 
     def to_dict(self) -> dict[str, object]:
         """Serialize to dictionary for Redis stream publishing."""
         return {
             "assessment_id": self.assessment_id,
-            "wallet_address": self.wallet_address,
-            "market_id": self.market_id,
-            "trade_id": self.trade_event.trade_id,
-            "trade_size": str(self.trade_size_usdc),
-            "trade_side": self.trade_event.side,
-            "trade_price": str(self.trade_event.price),
+            **serialized_trade_head(self.trade_event, self.wallet_address, self.market_id),
             "signals_triggered": self.signals_triggered,
             "weighted_score": self.weighted_score,
             "should_alert": self.should_alert,

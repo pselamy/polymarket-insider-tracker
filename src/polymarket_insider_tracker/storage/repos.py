@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
+from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
 from polymarket_insider_tracker.storage.models import (
     FundingTransferModel,
     RiskAssessmentModel,
@@ -571,7 +572,7 @@ class RiskAssessmentDTO:
     # backfill may produce 'legacy-unversioned'.
     scoring_algorithm_version: str
     scoring_config: str | None
-    delivery_disposition: str = "unrecorded"
+    delivery_disposition: str = UNRECORDED_DELIVERY_DISPOSITION
     delivery_channels: str | None = None
     dry_run: bool = False
     volume_available: bool | None = None

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from polymarket_insider_tracker.detector.models import SCORING_ALGORITHM_VERSION, RiskAssessment
 from polymarket_insider_tracker.storage.models import Base, RiskAssessmentModel
+from polymarket_insider_tracker.storage.repos import RiskAssessmentDTO
 
 
 def test_risk_assessment_model_has_slice003_columns() -> None:
@@ -69,6 +70,47 @@ def test_risk_assessment_domain_model_has_slice003_fields() -> None:
     assert assessment.wallet_age_known is None
     assert assessment.scoring_algorithm_version == SCORING_ALGORITHM_VERSION
     assert assessment.scoring_config is None
+
+
+def test_risk_assessment_dto_delivery_defaults_match_domain_record() -> None:
+    """A DTO built without delivery arguments carries the same unrecorded
+    delivery/observation defaults as the domain assessment record."""
+    dto = RiskAssessmentDTO(
+        assessment_id="assessment-1",
+        trade_id="trade-1",
+        wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        market_id="market-xyz",
+        asset_id=None,
+        side="BUY",
+        outcome=None,
+        outcome_index=None,
+        price=Decimal("0.55"),
+        size=Decimal("1000"),
+        notional_usdc=Decimal("550.00"),
+        trade_timestamp=datetime.now(UTC),
+        weighted_score=Decimal("0.700"),
+        signals_triggered=0,
+        fresh_wallet_confidence=None,
+        size_anomaly_confidence=None,
+        is_niche_market=None,
+        volume_impact=None,
+        book_impact=None,
+        wallet_age_hours=None,
+        should_alert=False,
+        threshold_at_eval=Decimal("0.700"),
+        scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
+        scoring_config=None,
+    )
+
+    assert dto.delivery_disposition == "unrecorded"
+    assert dto.delivery_channels is None
+    assert dto.dry_run is False
+    assert dto.volume_available is None
+    assert dto.market_daily_volume is None
+    assert dto.book_depth_available is None
+    assert dto.wallet_tx_count is None
+    assert dto.wallet_age_known is None
+    assert dto.created_at is None
 
 
 def test_delivery_disposition_default_never_claims_a_dry_run() -> None:
