@@ -10,6 +10,7 @@ import ipaddress as ipaddress
 import json
 import os
 import re as re
+import runpy
 import socket as socket
 import subprocess
 import sys
@@ -17,8 +18,6 @@ import uuid
 from collections.abc import Awaitable as Awaitable
 from collections.abc import Callable as Callable
 from collections.abc import Mapping, Sequence
-from importlib.machinery import ModuleSpec as _ModuleSpec
-from importlib.util import module_from_spec as _module_from_spec
 from pathlib import Path
 from typing import Protocol as Protocol
 from urllib.parse import SplitResult as SplitResult
@@ -42,15 +41,10 @@ from polymarket_insider_tracker.storage.database_url import (
 )
 
 # Bind extracted helpers to this entry point, even under cached foreign packages or aliases.
-_helper_name = f"_polymarket_services_{uuid.uuid4().hex}"
-_helper_package = _module_from_spec(_ModuleSpec(_helper_name, loader=None, is_package=True))
-_helper_package.__path__.append(str(Path(__file__).resolve().parent))
-sys.modules[_helper_name] = _helper_package
-_entry_package = __package__
-_entry_spec = __spec__
-try:
-    __package__ = _helper_name
-    __spec__ = _ModuleSpec(f"{_helper_name}.entry", loader=None)
+_sibling_imports = runpy.run_path(str(Path(__file__).with_name("_entry_bootstrap.py")))[
+    "sibling_imports"
+]
+with _sibling_imports(globals(), "_polymarket_services"):
     from ._service_models import BackendFactory as BackendFactory
     from ._service_models import MigrationBackend as MigrationBackend
     from ._service_models import MigrationRunner as MigrationRunner
@@ -64,9 +58,6 @@ try:
     from ._service_safety import validate_loopback_database_url as validate_loopback_database_url
     from ._service_safety import validate_loopback_redis_url as validate_loopback_redis_url
     from ._service_safety import validate_redis_url as validate_redis_url
-finally:
-    __package__ = _entry_package
-    __spec__ = _entry_spec
 
 # Preserve public classes/functions and private redaction serialization through this entry point.
 for _export in (

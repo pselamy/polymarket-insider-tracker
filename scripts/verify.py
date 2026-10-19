@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import re as re
+import runpy
 import shlex as shlex
 import subprocess
 import sys
@@ -14,24 +15,16 @@ import time
 from collections.abc import Callable as Callable
 from collections.abc import Mapping as Mapping
 from collections.abc import Sequence
-from importlib.machinery import ModuleSpec as _ModuleSpec
-from importlib.util import module_from_spec as _module_from_spec
 from pathlib import Path
 from typing import Literal, NoReturn, cast
 from typing import NamedTuple as NamedTuple
 from urllib.parse import unquote as unquote
-from uuid import uuid4 as _uuid4
 
 # Each entry-point load owns its sibling modules; cached packages cannot redirect policy.
-_helper_name = f"_polymarket_verifier_{_uuid4().hex}"
-_helper_package = _module_from_spec(_ModuleSpec(_helper_name, loader=None, is_package=True))
-_helper_package.__path__.append(str(Path(__file__).resolve().parent))
-sys.modules[_helper_name] = _helper_package
-_entry_package = __package__
-_entry_spec = __spec__
-try:
-    __package__ = _helper_name
-    __spec__ = _ModuleSpec(f"{_helper_name}.entry", loader=None)
+_sibling_imports = runpy.run_path(str(Path(__file__).with_name("_entry_bootstrap.py")))[
+    "sibling_imports"
+]
+with _sibling_imports(globals(), "_polymarket_verifier"):
     from ._verify_models import CommandExecution as CommandExecution
     from ._verify_models import Gate as Gate
     from ._verify_models import GateResult as GateResult
@@ -50,9 +43,6 @@ try:
     from ._verify_redaction import SECRET_VALUE_KEYS as SECRET_VALUE_KEYS
     from ._verify_redaction import SERVICE_URL_KEYS as SERVICE_URL_KEYS
     from ._verify_redaction import redact_text as redact_text
-finally:
-    __package__ = _entry_package
-    __spec__ = _entry_spec
 
 # Keep public values serializable through the original entry-point module.
 for _export in (Gate, CommandExecution, GateResult, VerificationResult, redact_text):
