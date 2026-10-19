@@ -26,13 +26,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# The honest disposition for an assessment whose delivery outcome has not been
-# recorded yet. This is the literal's single home: the published serialization
-# payload and the persisted-row default contract both consume it, and the
-# domain record in detector.models imports it. It lives beside the persistence
-# DTO because importing the detector package from storage would drag the whole
-# detector dependency tree into warning-strict entrypoint processes that only
-# need storage.
 UNRECORDED_DELIVERY_DISPOSITION = "unrecorded"
 
 
@@ -545,9 +538,7 @@ class RelationshipRepository:
 class RiskAssessmentDTO:
     """Data transfer object for a persisted risk assessment.
 
-    Captures everything a future backtest needs without going back to
-    public APIs: trade identity, score, per-signal confidences, and
-    whether the alert was actually delivered.
+    Captures trade identity, score, per-signal confidences, delivery outcome.
     """
 
     assessment_id: str
@@ -576,8 +567,9 @@ class RiskAssessmentDTO:
     # backfill may produce 'legacy-unversioned'.
     scoring_algorithm_version: str
     scoring_config: str | None
-    # Delivery/observation defaults mirror the domain record's Slice 003 fields;
-    # the unrecorded-disposition literal has its single home in detector.models.
+    # Defaults mirror the domain record's Slice 003 fields (detector.models);
+    # the disposition literal lives here (a detector -> storage import drags
+    # detector's dependency tree into warning-strict entrypoints).
     delivery_disposition: str = field(default=UNRECORDED_DELIVERY_DISPOSITION)
     delivery_channels: str | None = field(default=None)
     dry_run: bool = field(default=False)
