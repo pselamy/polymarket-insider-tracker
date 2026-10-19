@@ -1,4 +1,8 @@
-"""Repository pattern implementations for data access."""
+"""Repository pattern implementations for data access.
+
+This module provides clean data access abstractions for wallet profiles,
+funding transfers, and wallet relationships.
+"""
 
 from __future__ import annotations
 
@@ -537,7 +541,9 @@ class RelationshipRepository:
 class RiskAssessmentDTO:
     """Data transfer object for a persisted risk assessment.
 
-    Captures trade identity, score, per-signal confidences, delivery outcome.
+    Captures everything a future backtest needs without going back to
+    public APIs: trade identity, score, per-signal confidences, and
+    whether the alert was actually delivered.
     """
 
     assessment_id: str
