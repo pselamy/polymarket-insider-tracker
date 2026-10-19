@@ -9,14 +9,20 @@
     "--check",
     "src",
     "tests",
-    "quality"
+    "quality",
+    "scripts",
+    "alembic",
+    "conftest.py"
   ],
   [
     "ruff",
     "check",
     "src",
     "tests",
-    "quality"
+    "quality",
+    "scripts",
+    "alembic",
+    "conftest.py"
   ],
   [
     "pyright"
@@ -26,6 +32,9 @@
     "src",
     "tests",
     "quality",
+    "scripts",
+    "alembic",
+    "conftest.py",
     "--max-complexity-allowed",
     "5"
   ]

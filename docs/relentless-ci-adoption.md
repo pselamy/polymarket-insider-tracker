@@ -58,12 +58,12 @@ hooks; **unenrolled** = measured, documented, not yet enforced.
 | REF-CMD-14 | `python -m quality.build_constraints_main` | 1 | 1 | `FileNotFoundError: .quality-results/build-constraints.txt` (depends on REF-CMD-13) | unenrolled |
 | REF-CMD-15 | `python -m quality.package_main` | 1 | 1 | `CalledProcessError`: `uv build … --require-hashes` cannot resolve `setuptools>=61.0` (reference build-constraint policy) | unenrolled |
 | REF-CMD-16 | `python -m quality.duplication_main` | 1 | 1 | `ValueError: Python module is not snake_case: alembic/versions/20260104_0000_initial_schema.py` (native jscpd not provisioned) | unenrolled |
-| REF-CMD-17 | `black --check src tests quality` | 1 | 32 | `would reformat quality/build_constraints.py`, `package_build.py`, `commands.py`, `package_process.py`, `mutation_pool.py` | enrolled after formatting `quality/` at line length 100 |
-| REF-CMD-18 | `ruff check src tests quality` | 1 | 5 | `SIM105` (`commands.py`, `owned_process.py`), `SIM102` (`incomplete.py`), `ARG001` (`document_links.py`, `trusted_policy/github_read.py`) | enrolled after fixing the 5 vendored violations |
+| REF-CMD-17 | `black --check src tests quality` | 1 | 32 | `would reformat quality/build_constraints.py`, `package_build.py`, `commands.py`, `package_process.py`, `mutation_pool.py` | enrolled at the **full authored scope** after formatting `quality/` at line length 100 |
+| REF-CMD-18 | `ruff check src tests quality` | 1 | 5 | `SIM105` (`commands.py`, `owned_process.py`), `SIM102` (`incomplete.py`), `ARG001` (`document_links.py`, `trusted_policy/github_read.py`) | enrolled at the **full authored scope** after fixing the 5 vendored violations |
 | REF-CMD-19 | `mypy src tests quality` | 1 | 403 | `tests/tooling/test_traceability.py:86: error: Function is missing a return type annotation`; 403 `error:` lines across the full authored scope | unenrolled |
-| REF-CMD-20 | `pyright` | 0 | 0 | `0 errors, 0 warnings, 0 informations` | enrolled |
+| REF-CMD-20 | `pyright` | 0 | 0 | `0 errors, 0 warnings, 0 informations` | enrolled at the existing `src` scope only; full authored scope **unenrolled** — 1513 diagnostics (1505 `tests`, 8 `scripts`) |
 | REF-CMD-21 | `vulture src tests quality` | 3 | 7 | `quality/mutation_trial.py:8: unused function 'run_trial'`; 7 findings | unenrolled |
-| REF-CMD-22 | `complexipy src tests quality --max-complexity-allowed 5` | 0 | 0 | all functions and module control flow at cognitive complexity ≤ 5 | enrolled |
+| REF-CMD-22 | `complexipy src tests quality --max-complexity-allowed 5` | 0 | 0 | all functions and module control flow at cognitive complexity ≤ 5 | enrolled at the **full authored scope** |
 | REF-CMD-23 | `deptry src` | 1 | 16 | `DEP002 'psycopg' defined as a dependency but not used`; 16 findings | unenrolled |
 | REF-CMD-24 | `deptry src tests quality --non-dev-dependency-groups dev --ignore DEP002` | 1 | 154 | `DEP003 'grimp' imported but it is a transitive dependency`; 154 findings | unenrolled |
 | REF-CMD-25 | `python -m quality.architecture_main` | 1 | 1 | `ValueError: Python module is not snake_case: alembic/versions/20260104_0000_initial_schema.py` (fails in `verify_sources`) | unenrolled |
@@ -76,18 +76,32 @@ hooks; **unenrolled** = measured, documented, not yet enforced.
 | REF-HOOK-05 | `mutate` — full Cosmic Ray inventory, baseline and outcomes | 1 | 1 | `FileNotFoundError: 'cosmic-ray.toml'` (native mutation service not provisioned) | unenrolled |
 | REF-HOOK-06 | trusted policy + branch protection | n/a | n/a | not locally runnable; requires app-owned policy check and authenticated review | unenrolled |
 
-## Enrolled controls
+## Enrolled controls and their scope
 
-Six controls pass with zero suppressions and are enrolled in reference order:
+Six controls pass with zero suppressions and are enrolled in reference order. The
+authored Python scope is `src tests quality scripts alembic conftest.py`; the
+reference's `black`/`ruff`/`complexipy` commands were narrower (`src tests quality`),
+so where the wider scope also passes with zero suppressions the enrolled command is
+extended to it. Pyright is the one enrolled control whose full authored scope does
+**not** pass; it stays enrolled only at the existing `src` scope.
 
-1. `REF-CMD-01` `uv lock --check`
-2. `REF-CMD-17` `black --check src tests quality`
-3. `REF-CMD-18` `ruff check src tests quality`
-4. `REF-CMD-20` `pyright`
-5. `REF-CMD-22` `complexipy src tests quality --max-complexity-allowed 5`
-6. `REF-HOOK-02` `verify_tracked`
+| ID | Enrolled command | Scope |
+| --- | --- | --- |
+| `REF-CMD-01` | `uv lock --check` | whole-project lock (no path scope) |
+| `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
+| `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
+| `REF-CMD-20` | `pyright` | **narrow**: existing `src/polymarket_insider_tracker` only |
+| `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
+| `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
 
-`quality.checks.json` contains exactly the five command controls in reference order
+The full-authored-scope Pyright measurement is **1513 diagnostics** (1505 `tests`, 8
+`scripts`, 0 `src`, 0 `quality`) under `typeCheckingMode = strict`, so REF-CMD-20 is
+**not** enrolled at full scope. It is enrolled at the pre-existing narrow scope the
+repository's own strict type gate already enforces (`[tool.pyright].include =
+["src/polymarket_insider_tracker"]`); no suppression mechanism is used. Widening
+`include` to the full authored scope is deferred until those diagnostics are fixed.
+
+`quality/checks.json` contains exactly the five command controls in reference order
 (1, 17, 18, 20, 22). The `quality.verify` hook sequence runs `verify_tracked` and
 then the enrolled commands; every other hook stays unenrolled as documented above.
 

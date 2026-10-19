@@ -12,10 +12,10 @@ the enrolled tool set; the clean column is exactly the command from
 | Control | Clean command | Clean exit | Deliberate defect | Defect exit | First defect diagnostic |
 | --- | --- | --- | --- | --- | --- |
 | `REF-CMD-01` `uv lock --check` | `uv lock --check` | 0 | add `requests>=2.0.0` to `[project].dependencies` without re-locking | 1 | `The lockfile at uv.lock needs to be updated, but --check was provided` |
-| `REF-CMD-17` `black` | `uv run --locked --group dev black --check src tests quality` | 0 | `quality/_defect_probe.py` containing `x=1` | 1 | `would reformat quality/_defect_probe.py` |
-| `REF-CMD-18` `ruff` | `uv run --locked --group dev ruff check src tests quality` | 0 | `quality/_defect_probe.py` with `import os` and no use | 1 | `F401 'os' imported but unused` |
+| `REF-CMD-17` `black` | `uv run --locked --group dev black --check src tests quality scripts alembic conftest.py` | 0 | `quality/_defect_probe.py` containing `x=1` | 1 | `would reformat quality/_defect_probe.py` |
+| `REF-CMD-18` `ruff` | `uv run --locked --group dev ruff check src tests quality scripts alembic conftest.py` | 0 | `quality/_defect_probe.py` with `import os` and no use | 1 | `F401 'os' imported but unused` |
 | `REF-CMD-20` `pyright` | `uv run --locked --group dev pyright` | 0 | `src/polymarket_insider_tracker/_defect_probe.py` with `VALUE: int = "not-an-int"` | 1 | `Type "Literal['not-an-int']" is not assignable to declared type "int"` (`reportAssignmentType`) |
-| `REF-CMD-22` `complexipy` | `uv run --locked --group dev complexipy src tests quality --max-complexity-allowed 5` | 0 | `quality/_defect_probe.py` with a cognitive-complexity-6 function | 1 | `probe FAILED` |
+| `REF-CMD-22` `complexipy` | `uv run --locked --group dev complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | 0 | `quality/_defect_probe.py` with a cognitive-complexity-6 function | 1 | `probe FAILED` |
 | `REF-HOOK-02` `verify_tracked` | `uv run --locked --group dev python -m quality.verify` | 0 | stage `quality/_CaseProbe.py` and `quality/_caseprobe.py` (case-colliding tracked paths) | 1 | `ValueError: repository paths collide after Unicode/case normalization` |
 
 ## Notes
