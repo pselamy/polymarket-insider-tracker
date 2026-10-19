@@ -94,7 +94,7 @@ count.
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests/alerter tests/detector tests/fakes tests/ingestor tests/integration tests/profiler tests/quality tests/storage` | **non-test authored roots** plus `tests/alerter`, `tests/detector`, `tests/fakes`, `tests/ingestor`, `tests/integration`, `tests/profiler`, `tests/quality`, `tests/storage` |
-| `REF-CMD-20` | `pyright` | **narrow**: existing `src/polymarket_insider_tracker` only |
+| `REF-CMD-20` | `pyright` | **staged**: `src/polymarket_insider_tracker`, `scripts`, `quality`, `alembic`, `conftest.py`, `tests/quality` and four zero-diagnostic top-level test modules (see the REF-CMD-20 step 1 section); the rest of `tests` stays unenrolled |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
 
@@ -369,3 +369,49 @@ Defect-fails: appending `PLANTED: int = "a"` to `tests/detector/test_models.py` 
 mypy command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.
 Pinned jscpd clone delta (raw command above, tracked authored `.py` scope): `origin/main` 56 clones /
 672 duplicated lines over 258 files; this branch 56 / 672 over 258 (delta 0).
+
+## REF-CMD-20 step 1: per-root strict pyright measurement (2026-10-19)
+
+Strict pyright (`typeCheckingMode = "strict"`, pyright `1.1.411`, `enableTypeIgnoreComments =
+false`) was run once per authored root with the path passed explicitly. The enforced command
+is still the bare `pyright`; its scope is the `[tool.pyright].include` list in `pyproject.toml`,
+which may only grow.
+
+| Root | Before | After | State |
+| --- | ---: | ---: | --- |
+| `src/polymarket_insider_tracker` | 0 | 0 | enrolled |
+| `scripts` | 8 | 0 | **enrolled this step** |
+| `tests/quality` | 10 | 0 | **enrolled this step** |
+| `quality`, `alembic`, `conftest.py` | 0 | 0 | **enrolled this step** |
+| `tests/__init__.py`, `tests/test_harness_isolation.py`, `tests/test_sample_fixtures.py`, `tests/test_setup.py`, `tests/test_trades_v2_config.py` | 0 | 0 | **enrolled this step** |
+| `tests/storage` | 9 | 9 | unenrolled |
+| `tests/test_redaction_harness_characterization.py` | 1 | 1 | unenrolled |
+| `tests/conftest.py` | 2 | 2 | unenrolled |
+| `tests/test_persist_assessment.py` | 5 | 5 | unenrolled |
+| `tests/test_pipeline_persistence.py` | 9 | 9 | unenrolled |
+| `tests/alerter` | 30 | 30 | unenrolled |
+| `tests/test_config.py` | 12 | 12 | unenrolled |
+| `tests/test_shutdown.py` | 18 | 18 | unenrolled |
+| `tests/test_terminal_error_durable.py` | 37 | 37 | unenrolled |
+| `tests/fakes` | 49 | 49 | unenrolled |
+| `tests/detector` | 57 | 57 | unenrolled |
+| `tests/profiler` | 81 | 81 | unenrolled |
+| `tests/test_redaction.py` | 80 | 80 | unenrolled |
+| `tests/integration` | 86 | 86 | unenrolled |
+| `tests/test_pipeline.py` | 99 | 99 | unenrolled |
+| `tests/ingestor` | 143 | 143 | unenrolled |
+| `tests/test_main.py` | 199 | 199 | unenrolled |
+| `tests/tooling` | 268 | 268 | unenrolled |
+
+Unenrolled total: 1505 (unchanged `tests` count). Most of the remaining small roots
+(`tests/storage`, `tests/alerter`, `tests/detector`, `tests/fakes`) are dominated by
+`reportPrivateUsage` — tests that read or write private attributes and methods of the
+production classes. Clearing those honestly needs either a behavioural rewrite of each test
+or an approved public accessor in `src`; neither a suppression nor a `src` change is in
+scope for this step, so those roots stay visibly unenrolled.
+
+Typing fixes in this step use no suppression, cast, or `Any`: `TypeGuard` helpers for
+`isinstance(value, dict | list)` narrowing of untyped containers, and declared-return
+accessor functions plus small Protocols for the Redis and pytest constructors whose upstream
+`**kwargs` are untyped. The verify gate, its tests, and the README command moved from
+`pyright src/polymarket_insider_tracker` to the config-driven `pyright`.

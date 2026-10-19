@@ -115,9 +115,8 @@ def _pyright_prefix(module: ModuleType) -> tuple[str, ...]:
         "--python",
         "3.11",
         "pyright",
-        "src/polymarket_insider_tracker",
     )
-    return tuple(command[:-1])
+    return tuple(command)
 
 
 def test_negative_probes_reuse_verifier_gate_commands() -> None:

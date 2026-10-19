@@ -252,7 +252,7 @@ external boundaries (alert channels, the CLOB SDK, the Polygon RPC, webhook serv
 scope is the complete production package, configured for the lowest supported Python version:
 
 ```bash
-uv run --isolated --locked --all-extras --python 3.11 pyright src/polymarket_insider_tracker
+uv run --isolated --locked --all-extras --python 3.11 pyright
 ```
 
 `pyproject.toml` keeps that scope in strict mode with no exclusions or baseline. The local stubs under

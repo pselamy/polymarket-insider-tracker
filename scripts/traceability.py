@@ -10,7 +10,7 @@ import sys
 import tempfile
 from hashlib import sha256
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, TypeGuard
 
 BASELINE = "62f5b1e13aa88327b569acf99ff644c6c8e76c41"
 REQUIRED_KEYS = frozenset(
@@ -57,16 +57,27 @@ class LedgerContext(NamedTuple):
     expected_revision: str = ""
 
 
+def _is_object_dict(value: object) -> TypeGuard[dict[object, object]]:
+    return isinstance(value, dict)
+
+
+def _is_object_list(value: object) -> TypeGuard[list[object]]:
+    return isinstance(value, list)
+
+
 def object_map(value: object) -> dict[str, object]:
-    if not isinstance(value, dict):
+    if not _is_object_dict(value):
         raise ValueError("expected an object")
-    if not all(isinstance(key, str) for key in value):
-        raise ValueError("object keys must be strings")
-    return dict(value)
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise ValueError("object keys must be strings")
+        result[key] = item
+    return result
 
 
 def object_list(value: object) -> list[object]:
-    if not isinstance(value, list):
+    if not _is_object_list(value):
         raise ValueError("expected a list")
     return list(value)
 
@@ -199,7 +210,7 @@ def _artifact_digest(path: str, digest: object, context: LedgerContext) -> None:
 
 
 def _row(row: dict[str, object], context: LedgerContext) -> None:
-    if set(row) != REQUIRED_KEYS:
+    if frozenset(row) != REQUIRED_KEYS:
         raise ValueError("row keys differ from required keys")
     if not isinstance(row.get("state"), str) or row.get("state") not in STATES:
         raise ValueError("unknown state")

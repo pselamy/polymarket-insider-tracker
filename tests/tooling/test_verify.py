@@ -203,7 +203,6 @@ def test_pyright_gate_is_strict_and_covers_the_complete_first_party_package() ->
         "--python",
         "3.11",
         "pyright",
-        "src/polymarket_insider_tracker",
     )
 
 
@@ -456,8 +455,7 @@ def test_help_lists_every_direct_gate_command() -> None:
         "uv run black --check .",
         "uv run ruff check src tests scripts",
         "uv run --isolated --locked --all-extras --python 3.11 mypy",
-        "uv run --isolated --locked --all-extras --python 3.11 "
-        "pyright src/polymarket_insider_tracker",
+        "uv run --isolated --locked --all-extras --python 3.11 pyright",
         "uv run --isolated --locked --all-extras --python 3.11 vulture "
         "src tests scripts alembic conftest.py quality",
         "uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py "

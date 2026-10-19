@@ -115,7 +115,7 @@ class RealMigrationBackend:
         if head is None:
             raise ServiceVerificationError("Alembic has no current head revision")
         revision = script.get_revision(head)
-        if revision is None or not isinstance(revision.down_revision, str):
+        if not isinstance(revision.down_revision, str):
             raise ServiceVerificationError("Alembic head has no single previous revision")
         return head, revision.down_revision
 
@@ -165,6 +165,27 @@ class RealMigrationBackend:
             )
 
 
+class _RedisFactory(Protocol):
+    """Redis construction from a URL, typed without the client's untyped keyword arguments."""
+
+    @classmethod
+    def from_url(cls, url: str) -> Redis: ...
+
+
+class _RedisCommands(Protocol):
+    """The one Redis command the probe issues, typed without the client's untyped kwargs."""
+
+    async def execute_command(self, *args: str) -> object: ...
+
+
+def _redis_factory() -> type[_RedisFactory]:
+    return Redis
+
+
+def _redis_commands(client: Redis) -> _RedisCommands:
+    return client
+
+
 async def probe_services(database_url: str, redis_url: str) -> dict[str, object]:
     """Run a real async PostgreSQL query and Redis PING against local services.
 
@@ -178,13 +199,13 @@ async def probe_services(database_url: str, redis_url: str) -> dict[str, object]
         async with contextlib.AsyncExitStack() as cleanup:
             engine = create_async_db_engine(canonical)
             cleanup.push_async_callback(engine.dispose)
-            redis = Redis.from_url(validated_redis_url)
+            redis = _redis_factory().from_url(validated_redis_url)
             cleanup.push_async_callback(redis.aclose)
             async with engine.connect() as connection:
                 result = await connection.execute(text("SELECT 1"))
                 if result.scalar_one() != 1:
                     raise ServiceVerificationError("PostgreSQL probe returned an unexpected value")
-            if await redis.ping() is not True:
+            if await _redis_commands(redis).execute_command("PING") is not True:
                 raise ServiceVerificationError("Redis PING did not return PONG")
     except ServiceVerificationError:
         raise

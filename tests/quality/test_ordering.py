@@ -1,5 +1,7 @@
 """Reproducible ordering witnesses used by the vendored quality package."""
 
+from typing import Protocol
+
 import pytest
 from quality.test_order import pytest_collection_modifyitems, shuffled
 
@@ -13,8 +15,19 @@ class _Case(pytest.Item):
         raise NotImplementedError("collection witnesses are never executed")
 
 
+class _ItemFactory(Protocol):
+    """pytest's public item constructor, typed without its untyped keyword arguments."""
+
+    def from_parent(self, parent: pytest.Session, **_kw: str) -> pytest.Item: ...
+
+
+def _factory() -> _ItemFactory:
+    return _Case
+
+
 def _cases(session: pytest.Session, count: int) -> list[pytest.Item]:
-    return [_Case.from_parent(session, name=f"case{index}") for index in range(count)]
+    factory = _factory()
+    return [factory.from_parent(session, name=f"case{index}") for index in range(count)]
 
 
 def test_collection_witness_refuses_to_run(request: pytest.FixtureRequest) -> None:

@@ -133,7 +133,19 @@ ignore_missing_imports = true
 
 [tool.pyright]
 enableTypeIgnoreComments = false
-include = ["src/polymarket_insider_tracker"]
+include = [
+    "src/polymarket_insider_tracker",
+    "scripts",
+    "quality",
+    "alembic",
+    "conftest.py",
+    "tests/__init__.py",
+    "tests/quality",
+    "tests/test_harness_isolation.py",
+    "tests/test_sample_fixtures.py",
+    "tests/test_setup.py",
+    "tests/test_trades_v2_config.py",
+]
 pythonVersion = "3.11"
 stubPath = "typings"
 typeCheckingMode = "strict"
