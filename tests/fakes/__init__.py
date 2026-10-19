@@ -30,6 +30,7 @@ from tests.fakes.trades import (
     timeout,
     trade_row,
 )
+from tests.fakes.v2_walk import CountingBudget, FakeCursorFeed, v2_envelope, v2_row
 from tests.fakes.web3 import FakeAsyncWeb3, FakeEth, TransferLogIndex, transfer_log
 
 __all__ = [
@@ -39,11 +40,13 @@ __all__ = [
     "FakeAsyncWeb3",
     "FakeBaseClobClient",
     "FakeClock",
+    "FakeCursorFeed",
     "FakeEth",
     "FakeGammaClient",
     "FakeMetadataSync",
     "FakeTradesServer",
     "FakeWebhookServer",
+    "CountingBudget",
     "TransferLogIndex",
     "invalid_json",
     "make_test_settings",
@@ -57,5 +60,7 @@ __all__ = [
     "timeout",
     "trade_row",
     "transfer_log",
+    "v2_envelope",
+    "v2_row",
     "wire_pipeline",
 ]

@@ -24,15 +24,20 @@ from urllib.parse import urlsplit
 import httpx
 
 from polymarket_insider_tracker import __version__
+from polymarket_insider_tracker.ingestor._retry import BACKOFF_CAP_SECONDS as BACKOFF_CAP_SECONDS
+from polymarket_insider_tracker.ingestor._retry import (
+    MAX_RETRIES,
+    RandomSource,
+    RetryPolicy,
+)
+from polymarket_insider_tracker.ingestor._retry import (
+    RETRY_AFTER_CAP_SECONDS as RETRY_AFTER_CAP_SECONDS,
+)
 from polymarket_insider_tracker.redaction import redact_url as _redact_url
 
 PAGE_LIMIT = 10_000
 RECOVERY_OFFSET = 10_000
 REQUEST_TIMEOUT_SECONDS = 15.0
-MAX_RETRIES = 4
-BACKOFF_BASE_SECONDS = 1.0
-BACKOFF_CAP_SECONDS = 30.0
-RETRY_AFTER_CAP_SECONDS = 60.0
 BUDGET_WINDOW_SECONDS = 10.0
 TRANSIENT_STATUSES = frozenset({408, 425, 429})
 USER_AGENT = f"polymarket-insider-tracker/{__version__}"
@@ -43,7 +48,6 @@ TerminalReason = Literal["http-status", "incompatible-schema"]
 
 Clock = Callable[[], float]
 Sleeper = Callable[[float], Awaitable[None]]
-RandomSource = Callable[[], float]
 
 
 class TradesSourceError(Exception):
@@ -199,8 +203,7 @@ class TradesSourceClient:
         self._taker_only = coverage == "taker-only"
         self._clock = clock
         self._sleeper = sleeper
-        self._random = random_source
-        self._max_retries = max_retries
+        self._retry = RetryPolicy(max_retries=max_retries, random_source=random_source)
         self._on_attempt = on_attempt
         self._last_end: int | None = None
         self._attempts: list[RequestAttempt] = []
@@ -253,18 +256,15 @@ class TradesSourceClient:
         return end
 
     async def _fetch(self, request: TradesRequest) -> TradesPage:
-        for attempt in range(self._max_retries + 1):
+        for attempt in range(self._retry.attempt_limit()):
             outcome = await self._attempt(request, attempt)
             if isinstance(outcome, TradesPage):
                 return outcome
-            if attempt == self._max_retries:
+            if attempt == self._retry.max_retries:
                 raise self._exhausted(outcome)
-            await self._sleeper(self._delay(attempt, outcome))
+            retry_after = outcome.retry_after_seconds
+            await self._sleeper(self._retry.delay_seconds(attempt, retry_after_seconds=retry_after))
         raise AssertionError("retry loop always returns or raises")
-
-    def _delay(self, attempt: int, error: TradesTransientError) -> float:
-        backoff = min(BACKOFF_CAP_SECONDS, BACKOFF_BASE_SECONDS * (1 << attempt)) * self._random()
-        return backoff + min(error.retry_after_seconds, RETRY_AFTER_CAP_SECONDS)
 
     def _exhausted(self, error: TradesTransientError) -> TradesSourceError:
         if error.kind == "unparseable":
