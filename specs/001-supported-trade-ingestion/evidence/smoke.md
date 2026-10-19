@@ -216,3 +216,54 @@ driver's `finally` block.
 All six product stop-gate conditions held on the rerun. In particular, condition 3 converged: no
 cycle entered `possible-data-loss`, confirming that the approved stable identity removes the false
 continuity gaps without weakening the reach-plus-continuity proof. T024 is complete.
+
+## V2-default live smoke (2026-10-19)
+
+**Recorded**: 2026-10-19T06:11:29Z
+
+**Requirement**: FR-013, SC-005; acceptance for the shipped v2 default (Data API v2 endpoint)
+
+**Operator**: `ralph/iter-007-v2-acceptance` on `dev@selamy-core`, acting for `pselamy`
+
+**Command** (one invocation, two anonymous requests — one per coverage mode):
+
+```bash
+uv run python scripts/trades_smoke.py --live --coverage both --window-seconds 5 --json
+```
+
+`POLYMARKET_TRADES_URL` unset, so `scripts/trades_smoke.py` used its documented v2 default
+(`OFFICIAL_V2_TRADES_URL`). Exit status `0`.
+
+**Method status**: anonymous, read-only, aggregate-only. No wallet, name, pseudonym, profile value,
+raw row, cursor value, or response body is retained here; the body was hashed and discarded. No
+Redis or PostgreSQL connection was opened; no credential was sent; no alert was sent.
+
+### Aggregate results
+
+| Coverage | Case | Verdict | HTTP | Rows | Valid | Invalid | In-window | Provider lag (s) | Newest timestamp |
+|---|---|---|---|---|---|---|---|---|---|
+| `all` | `valid-wallet-bearing` | passed | 200 | 1000 | 1000 | 0 | 147 | 2.769 | 1792390287 |
+| `taker-only` | `valid-wallet-bearing` | passed | 200 | 1000 | 1000 | 0 | 56 | 2.936 | 1792390287 |
+
+Both coverage modes reached the real endpoint, returned HTTP 200 with the v2 `{data, pagination}`
+envelope, classified as `valid-wallet-bearing`, and passed. The page limit for v2 is 1,000 rows, so
+both pages are `page_saturated: true`; newest-row timestamp lag is under three seconds and the two
+modes agree on the newest timestamp. No invalid rows and no missing required fields.
+
+### Records (verbatim, aggregate-only)
+
+```json
+{"age": null, "cache_control": "public, max-age=300", "captured_at": "2026-10-19T06:11:29.561090+00:00", "case": "valid-wallet-bearing", "cf_cache_status": "DYNAMIC", "coverage": "all", "endpoint": "https://data-api.polymarket.com/***path***", "error": null, "http_status": 200, "in_window_rows": 147, "invalid_rows": 0, "missing_required_fields": {}, "newest_timestamp": 1792390287, "oldest_timestamp": 1792390257, "page_saturated": true, "passed": true, "provider_lag_seconds": 2.7691404819488525, "reachable": true, "response_sha256": "4c9bf0e94eaa7be2235a8a109e1b2d09516608156eed30f04ca7bfadc7d9fcf4", "retained_wallet_identifiers": false, "retry_after_honoured": true, "row_count": 1000, "timeout": false, "transient": false, "valid_rows": 1000, "warning": null, "window_seconds": 5}
+{"age": null, "cache_control": "public, max-age=300", "captured_at": "2026-10-19T06:11:29.776754+00:00", "case": "valid-wallet-bearing", "cf_cache_status": "DYNAMIC", "coverage": "taker-only", "endpoint": "https://data-api.polymarket.com/***path***", "error": null, "http_status": 200, "in_window_rows": 56, "invalid_rows": 0, "missing_required_fields": {}, "newest_timestamp": 1792390287, "oldest_timestamp": 1792390209, "page_saturated": true, "passed": true, "provider_lag_seconds": 2.9359471797943115, "reachable": true, "response_sha256": "a8e1999212482e4cb3afb1c564b8588ec1faefce27598b5ac824a42e0c9cb21a", "retained_wallet_identifiers": false, "retry_after_honoured": true, "row_count": 1000, "timeout": false, "transient": false, "valid_rows": 1000, "warning": null, "window_seconds": 5}
+```
+
+### Verdict
+
+Both coverage modes classified as the success case (`valid-wallet-bearing`) and passed, so the
+bounded public smoke against the real v2 default is a success. No failure to record.
+
+### Privacy check
+
+Every record above was grep-checked for 40-hex-character addresses and for the raw path/cursor
+before commit (zero matches); the response bodies were hashed and discarded. The only endpoint
+string retained is the redacted `https://data-api.polymarket.com/***path***`.
