@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from pydantic import AfterValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL
 from polymarket_insider_tracker.redaction import is_scannable_url_text, redact_url
 from polymarket_insider_tracker.storage.database_url import normalize_database_url
 
@@ -235,7 +236,7 @@ class PolymarketSettings(BaseSettings):
     )
 
     trades_url: HttpEndpointUrl = Field(
-        default="https://data-api.polymarket.com/trades",
+        default=OFFICIAL_V1_TRADES_URL,
         alias="POLYMARKET_TRADES_URL",
         description="Documented anonymous public trades query",
     )

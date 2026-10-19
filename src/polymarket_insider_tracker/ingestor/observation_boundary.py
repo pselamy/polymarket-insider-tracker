@@ -1,7 +1,7 @@
 """Durable complete-through boundary, identity window, and loss events in Redis.
 
 All keys share ``polymarket:ingest:<source-id>:`` where the source id derives from the trades URL
-and coverage mode, so changing either starts a fresh boundary. The identity window is mirrored in
+and coverage mode, so changing either starts a fresh boundary (except the official v1/v2 pair). The identity window is mirrored in
 memory for duplicate checks and reloaded on start; every boundary advance writes the checkpoint,
 new identities, the trim, and any loss events in one ``MULTI``/``EXEC`` pipeline so a failed write
 leaves the previous checkpoint intact. See ``contracts/observation-boundary.md``.
@@ -18,6 +18,8 @@ from enum import StrEnum
 from typing import Any, Protocol, cast
 
 from redis.asyncio import Redis
+
+from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL, OFFICIAL_V2_TRADES_URL
 
 SCHEMA_VERSION = 2
 LOSS_EVENT_RETENTION = 50
@@ -191,8 +193,14 @@ class ProofResult:
 
 
 def source_id(trades_url: str, coverage: str) -> str:
-    """First 12 hex characters of ``sha256("<trades_url>|<coverage>")``."""
-    return hashlib.sha256(f"{trades_url}|{coverage}".encode()).hexdigest()[:12]
+    """First 12 hex characters of ``sha256("<logical source url>|<coverage>")``.
+
+    The exact official v1/v2 default endpoint pair with the same coverage mode shares the
+    existing v1 namespace so a saved checkpoint and identity window survive the upgrade;
+    every other URL keeps its own identity. See contract item 4.
+    """
+    logical = OFFICIAL_V1_TRADES_URL if trades_url == OFFICIAL_V2_TRADES_URL else trades_url
+    return hashlib.sha256(f"{logical}|{coverage}".encode()).hexdigest()[:12]
 
 
 class ObservationBoundary:
