@@ -6,11 +6,11 @@ from fresh wallets and generates alert signals with confidence scores.
 
 import logging
 from decimal import Decimal
+from typing import Protocol
 
 from polymarket_insider_tracker.detector._batch import gather_signals
 from polymarket_insider_tracker.detector.models import FreshWalletSignal
 from polymarket_insider_tracker.ingestor.models import TradeEvent
-from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,12 @@ BRAND_NEW_BONUS = 0.2  # nonce == 0
 VERY_YOUNG_BONUS = 0.1  # age < 2 hours
 LARGE_TRADE_BONUS = 0.1  # trade size > $10,000
 LARGE_TRADE_THRESHOLD = Decimal("10000")
+
+
+class WalletProfiler(Protocol):
+    """Wallet profiling the detector needs (satisfied structurally by ``WalletAnalyzer``)."""
+
+    async def analyze(self, address: str, /) -> WalletProfile: ...
 
 
 class FreshWalletDetector:
@@ -55,7 +61,7 @@ class FreshWalletDetector:
 
     def __init__(
         self,
-        wallet_analyzer: WalletAnalyzer,
+        wallet_analyzer: WalletProfiler,
         *,
         min_trade_size: Decimal = DEFAULT_MIN_TRADE_SIZE,
         max_nonce: int = DEFAULT_MAX_NONCE,
@@ -64,7 +70,7 @@ class FreshWalletDetector:
         """Initialize the fresh wallet detector.
 
         Args:
-            wallet_analyzer: WalletAnalyzer instance for wallet profiling.
+            wallet_analyzer: Wallet profiler (normally a WalletAnalyzer).
             min_trade_size: Minimum trade size to analyze (default $1,000).
             max_nonce: Maximum nonce to consider wallet fresh (default 5).
             max_age_hours: Maximum age in hours to consider fresh (default 48).

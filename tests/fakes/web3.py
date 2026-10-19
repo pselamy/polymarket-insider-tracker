@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Generator
+from dataclasses import dataclass
 from typing import Any
 
 from eth_typing import ChecksumAddress
@@ -41,6 +42,36 @@ def _block(identifier: object) -> int:
     return identifier
 
 
+@dataclass(frozen=True)
+class LogQuery:
+    """One ``eth_getLogs`` request as the provider saw it, with every field narrowed."""
+
+    address: str
+    topics: tuple[str | None, ...]
+    from_block: int
+    to_block: int
+
+    def required_topic(self, index: int) -> str:
+        """Return the topic at ``index``, which the request must have filtered on."""
+        topic = self.topics[index]
+        assert topic is not None, f"eth_getLogs topic {index} was a wildcard"
+        return topic
+
+
+def _narrow_topic(topic: object) -> str | None:
+    return None if topic is None else _topic_hex(topic)
+
+
+def _record(filter_params: FilterParams) -> LogQuery:
+    topics = filter_params["topics"]
+    return LogQuery(
+        address=str(filter_params["address"]),
+        topics=tuple(_narrow_topic(topic) for topic in topics),
+        from_block=_block(filter_params["fromBlock"]),
+        to_block=_block(filter_params["toBlock"]),
+    )
+
+
 class TransferLogIndex:
     """The chain's ERC-20 ``Transfer`` log index as ``eth_getLogs`` exposes it.
 
@@ -54,7 +85,7 @@ class TransferLogIndex:
     def __init__(self) -> None:
         self._transfers: dict[tuple[str, str], list[dict[str, Any]]] = {}
         self._faults: dict[int, Exception] = {}
-        self.queries: list[FilterParams] = []
+        self.queries: list[LogQuery] = []
 
     def add_transfer(self, token: str, log: dict[str, Any]) -> None:
         key = (token.lower(), _topic_hex(log["topics"][2]))
@@ -64,13 +95,13 @@ class TransferLogIndex:
         self._faults[from_block] = error
 
     async def __call__(self, filter_params: FilterParams) -> list[dict[str, Any]]:
-        self.queries.append(filter_params)
-        from_block = _block(filter_params["fromBlock"])
-        to_block = _block(filter_params["toBlock"])
+        query = _record(filter_params)
+        self.queries.append(query)
+        from_block, to_block = query.from_block, query.to_block
         fault = self._faults.get(from_block)
         if fault is not None:
             raise fault
-        key = (str(filter_params["address"]).lower(), _topic_hex(filter_params["topics"][2]))
+        key = (query.address.lower(), query.required_topic(2))
         return [
             log
             for log in self._transfers.get(key, [])

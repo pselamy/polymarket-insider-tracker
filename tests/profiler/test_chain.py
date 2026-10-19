@@ -3,6 +3,7 @@
 import asyncio
 import inspect
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -10,6 +11,7 @@ from redis.asyncio import Redis
 from web3 import AsyncWeb3
 from web3.eth import AsyncEth
 from web3.providers import AsyncBaseProvider
+from web3.types import RPCEndpoint, RPCResponse
 
 from polymarket_insider_tracker.profiler.chain import (
     DEFAULT_CACHE_TTL_SECONDS,
@@ -41,7 +43,7 @@ class RecordingRateLimiter(RateLimiter):
 class BlockNumberProvider(AsyncBaseProvider):
     """A JSON-RPC boundary that lets real Web3 dispatch and decode block numbers."""
 
-    async def make_request(self, method, params):
+    async def make_request(self, method: RPCEndpoint, params: Any) -> RPCResponse:
         assert method == "eth_blockNumber"
         assert params == () or params == []
         return {"jsonrpc": "2.0", "id": 1, "result": "0x2faf080"}
@@ -55,7 +57,7 @@ async def test_health_check_uses_real_web3_rpc_method(fake_redis: FakeAsyncRedis
 
 
 async def test_block_number_provider_returns_json_rpc_wire_value() -> None:
-    response = await BlockNumberProvider().make_request("eth_blockNumber", [])
+    response = await BlockNumberProvider().make_request(RPCEndpoint("eth_blockNumber"), [])
 
     assert response == {"jsonrpc": "2.0", "id": 1, "result": "0x2faf080"}
 

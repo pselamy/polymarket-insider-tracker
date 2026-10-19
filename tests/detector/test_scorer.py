@@ -9,6 +9,7 @@ import pytest
 from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.detector.models import (
+    SCORING_ALGORITHM_VERSION,
     FreshWalletSignal,
     RiskAssessment,
     SizeAnomalySignal,
@@ -17,7 +18,6 @@ from polymarket_insider_tracker.detector.scorer import (
     DEFAULT_ALERT_THRESHOLD,
     DEFAULT_WEIGHTS,
     MULTI_SIGNAL_BONUS_2,
-    SCORING_ALGORITHM_VERSION,
     RiskScorer,
     SignalBundle,
     quantize_score_value,

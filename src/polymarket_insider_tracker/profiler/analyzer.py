@@ -8,11 +8,11 @@ import json
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Protocol
 
 from redis.asyncio import Redis
 
-from polymarket_insider_tracker.profiler.chain import PolygonClient
-from polymarket_insider_tracker.profiler.models import WalletProfile
+from polymarket_insider_tracker.profiler.models import WalletInfo, WalletProfile
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,14 @@ USDC_POLYGON_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 # Default configuration
 DEFAULT_FRESH_THRESHOLD = 5  # Max nonce to be considered fresh
 DEFAULT_PROFILE_CACHE_TTL = 300  # 5 minutes
+
+
+class WalletChainReader(Protocol):
+    """The chain queries the analyzer needs (satisfied structurally by ``PolygonClient``)."""
+
+    async def get_wallet_info(self, address: str, /) -> WalletInfo: ...
+
+    async def get_token_balance(self, address: str, token_address: str, /) -> Decimal: ...
 
 
 class WalletAnalyzer:
@@ -50,7 +58,7 @@ class WalletAnalyzer:
 
     def __init__(
         self,
-        polygon_client: PolygonClient,
+        polygon_client: WalletChainReader,
         *,
         redis: Redis | None = None,
         fresh_threshold: int = DEFAULT_FRESH_THRESHOLD,
@@ -60,7 +68,7 @@ class WalletAnalyzer:
         """Initialize the wallet analyzer.
 
         Args:
-            polygon_client: PolygonClient for blockchain queries.
+            polygon_client: Chain reader (normally a PolygonClient) for blockchain queries.
             redis: Optional Redis client for caching profiles.
             fresh_threshold: Maximum nonce to be considered fresh.
             cache_ttl_seconds: How long to cache analysis results.

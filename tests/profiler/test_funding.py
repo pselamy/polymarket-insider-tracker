@@ -72,14 +72,31 @@ def _transfer_to(
     )
 
 
-def _tracer_for_path(wallets: list[str]) -> FundingTracer:
+def _path_logs(wallets: list[str]) -> TransferLogIndex:
     logs = TransferLogIndex()
     for index, (target, source) in enumerate(zip(wallets, wallets[1:], strict=False)):
         logs.add_transfer(
             USDC_BRIDGED,
             _transfer_to(target, source, block_number=CHAIN_HEAD - index, seed=index),
         )
-    return _tracer(logs)
+    return logs
+
+
+def _tracer_for_path(wallets: list[str]) -> FundingTracer:
+    return _tracer(_path_logs(wallets))
+
+
+class _TraceFailingTracer(FundingTracer):
+    """A tracer whose ``trace`` raises for one address and defers to the real trace otherwise."""
+
+    def __init__(self, polygon_client: PolygonClient, failing_address: str) -> None:
+        super().__init__(polygon_client)
+        self._failing_address = failing_address
+
+    async def trace(self, address: str, max_hops: int | None = None) -> FundingChain:
+        if address == self._failing_address:
+            raise ValueError("Test error")
+        return await super().trace(address, max_hops=max_hops)
 
 
 @pytest.fixture
@@ -242,8 +259,8 @@ class TestGetFirstUsdcTransfer:
 
         assert result is not None
         assert result.token == "USDC"
-        assert [query["address"].lower() for query in logs.queries][0] == USDC_BRIDGED.lower()
-        assert USDC_NATIVE.lower() in {query["address"].lower() for query in logs.queries}
+        assert [query.address.lower() for query in logs.queries][0] == USDC_BRIDGED.lower()
+        assert USDC_NATIVE.lower() in {query.address.lower() for query in logs.queries}
 
     async def test_get_first_usdc_transfer_none_found(self, funding_tracer: FundingTracer) -> None:
         """Test returns None when no USDC transfers found."""
@@ -268,13 +285,13 @@ class TestGetTransferLogs:
 
         assert len(logs.queries) == 1
         call_args = logs.queries[0]
-        assert len(call_args["topics"]) == 3
-        assert call_args["topics"][0] == "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
-        assert call_args["topics"][0].startswith("0x")
-        assert call_args["topics"][1] is None
-        assert call_args["topics"][2].endswith(TEST_WALLET.lower().replace("0x", ""))
-        assert call_args["fromBlock"] == 1
-        assert call_args["toBlock"] == 8_000
+        assert len(call_args.topics) == 3
+        assert call_args.topics[0] == "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
+        assert call_args.required_topic(0).startswith("0x")
+        assert call_args.topics[1] is None
+        assert call_args.required_topic(2).endswith(TEST_WALLET.lower().replace("0x", ""))
+        assert call_args.from_block == 1
+        assert call_args.to_block == 8_000
 
     async def test_get_transfer_logs_respects_limit(self) -> None:
         """Test that limit parameter works correctly."""
@@ -326,7 +343,7 @@ class TestGetTransferLogs:
             to_block=1_025_000,
         )
 
-        windows = [(query["fromBlock"], query["toBlock"]) for query in logs.queries]
+        windows = [(query.from_block, query.to_block) for query in logs.queries]
         assert windows == [
             (1_000_000, 1_008_999),
             (1_009_000, 1_017_999),
@@ -381,7 +398,7 @@ class TestGetTransferLogs:
 
         await tracer._get_transfer_logs(to_address=TEST_WALLET, token_address=USDC_BRIDGED)
 
-        assert [(query["fromBlock"], query["toBlock"]) for query in logs.queries] == [(0, 5_000)]
+        assert [(query.from_block, query.to_block) for query in logs.queries] == [(0, 5_000)]
 
     async def test_get_transfer_logs_breaks_on_pruned_history(self) -> None:
         """A pruned-history error must short-circuit the whole walk."""
@@ -420,10 +437,10 @@ class TestGetTransferLogs:
             to_block=8_000,
         )
 
-        topics = logs.queries[0]["topics"]
-        assert topics[0].startswith("0x")
-        assert len(topics[0]) == 2 + 64
-        assert topics[2].startswith("0x")
+        query = logs.queries[0]
+        assert query.required_topic(0).startswith("0x")
+        assert len(query.required_topic(0)) == 2 + 64
+        assert query.required_topic(2).startswith("0x")
 
 
 class TestLogToFundingTransfer:
@@ -490,19 +507,10 @@ class TestGetFundingChainsBatch:
         self,
     ) -> None:
         """Test batch handles exceptions gracefully."""
-        tracer = _tracer_for_path([TEST_SOURCE, BINANCE_HOT_WALLET])
-        real_trace = tracer.trace
-
-        async def fail_for_one_address(
-            addr: str,
-            *,
-            max_hops: int | None = None,
-        ) -> FundingChain:
-            if addr == TEST_WALLET:
-                raise ValueError("Test error")
-            return await real_trace(addr, max_hops=max_hops)
-
-        tracer.trace = fail_for_one_address
+        logs = _path_logs([TEST_SOURCE, BINANCE_HOT_WALLET])
+        tracer = _TraceFailingTracer(
+            _polygon_client(FakeEth(block_number=CHAIN_HEAD, logs=logs)), TEST_WALLET
+        )
 
         results = await tracer.get_funding_chains_batch([TEST_SOURCE, TEST_WALLET])
 
