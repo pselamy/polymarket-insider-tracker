@@ -2,19 +2,15 @@
 
 The same pipeline, fakes, and assertions as the existing dry-run journey, but with
 ``POLYMARKET_TRADES_URL`` left unset so the approved default — the official Data API v2 endpoint —
-is what the poller actually runs. It proves the default path end to end at the dry-run boundary:
-exactly one stored explainable assessment, zero channel deliveries, and zero successful-delivery
-dedup keys.
-
-The v2 acquisition wiring itself lands with PR #151 (``ingestor.acquisition``); until that branch
-is the base, this test skips through a runtime check that the wiring module exists — never an
-unconditional skip. Once #151 is on the base branch the journey runs for real, with no test edited.
+is what the poller actually runs, through the real acquisition wiring (``ingestor.acquisition``).
+It proves the default path end to end at the dry-run boundary: exactly one stored explainable
+assessment, zero channel deliveries, and zero successful-delivery dedup keys. No guard, no skip:
+the wiring is merged.
 """
 
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -23,21 +19,22 @@ import pytest
 from fakeredis import FakeAsyncRedis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
-from tests.fakes import FakeAlertChannel, FakeClock, FakeEth
+from tests.fakes import (
+    FakeAlertChannel,
+    FakeClock,
+    FakeEth,
+    FakeV2TradesServer,
+    make_test_settings,
+    trade_row,
+    v2_row,
+    wire_pipeline,
+)
 
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import RiskAssessmentModel
 
 POLL_START = 1_788_983_720.0
-
-requires_v2_wiring = pytest.mark.skipif(
-    importlib.util.find_spec("polymarket_insider_tracker.ingestor.acquisition") is None,
-    reason=(
-        "the v2 acquisition wiring (PR #151, ingestor.acquisition) is not on the base branch; "
-        "the default-URL journey runs the approved default through that real path"
-    ),
-)
 
 
 @pytest.fixture
@@ -76,8 +73,6 @@ def niche_market(sample_trade_event: TradeEvent) -> MarketMetadata:
 
 
 def _pipeline_row(sample_trade: TradeEvent, clock: FakeClock, tx_num: int = 9) -> dict[str, object]:
-    from tests.fakes import trade_row, v2_row
-
     row = trade_row(
         timestamp=int(clock.now) + 1,
         transaction=tx_num,
@@ -104,7 +99,6 @@ async def _persisted_assessments(engine: AsyncEngine) -> list[RiskAssessmentMode
         return list((await session.execute(select(RiskAssessmentModel))).scalars().all())
 
 
-@requires_v2_wiring
 @pytest.mark.asyncio
 async def test_end_to_end_dry_run_pipeline_through_the_default_url(
     unused_tcp_port: int,
@@ -116,19 +110,11 @@ async def test_end_to_end_dry_run_pipeline_through_the_default_url(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Dry run with POLYMARKET_TRADES_URL unset: one assessment, zero deliveries, zero dedup keys."""
-    from tests.fakes import (
-        FakeV2TradesServer,
-        make_test_settings,
-        v2_row,
-        wire_pipeline,
-    )
-
     monkeypatch.delenv("POLYMARKET_TRADES_URL", raising=False)
-    from tests.fakes import trade_row
-
     clock = FakeClock(POLL_START)
     server = FakeV2TradesServer(clock=clock, page_size=1)
     server.publish(v2_row(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1)))
+    server.publish(v2_row(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2)))
     discord = FakeAlertChannel("discord")
     telegram = FakeAlertChannel("telegram")
 
@@ -153,11 +139,12 @@ async def test_end_to_end_dry_run_pipeline_through_the_default_url(
 
     try:
         await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
-        await _run_until(lambda: len(server.requests) >= 1)
+        # A proof spanning the seeded two-row history forces more than one cursor page.
+        await _run_until(lambda: len(server.requests) >= 3)
 
         server.publish(_pipeline_row(sample_trade_event, clock))
         await _run_until(lambda: pipeline.stats.trades_processed >= 1)
-        await _run_until(lambda: len(server.requests) >= 4)
+        await _run_until(lambda: len(server.requests) >= 6)
     finally:
         await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
 

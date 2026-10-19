@@ -37,7 +37,7 @@ from polymarket_insider_tracker.ingestor.trades_source import (
     TradesTransientError,
     redacted_url,
 )
-from polymarket_insider_tracker.ingestor.v2_smoke import RowParser, make_smoke_source
+from polymarket_insider_tracker.ingestor.v2_smoke import make_smoke_source
 
 DEFAULT_TRADES_URL = OFFICIAL_V2_TRADES_URL
 COVERAGE_MODES = ("all", "taker-only")
@@ -127,13 +127,11 @@ class _Aggregate:
         return sum(self.missing.values())
 
 
-def _aggregate(
-    page: TradesPage, *, window_start: int, parse_row: RowParser = parse_trade_row
-) -> _Aggregate:
+def _aggregate(page: TradesPage, *, window_start: int) -> _Aggregate:
     aggregate = _Aggregate()
     now = int(page.received_at)
     for raw in page.rows:
-        aggregate.add(parse_row(raw, now=now), window_start=window_start)
+        aggregate.add(parse_trade_row(raw, now=now), window_start=window_start)
     return aggregate
 
 
@@ -169,10 +167,8 @@ class _Probe:
     captured_at: str
 
 
-def _page_record(
-    probe: _Probe, page: TradesPage, *, parse_row: RowParser = parse_trade_row, page_limit: int
-) -> SmokeRecord:
-    aggregate = _aggregate(page, window_start=probe.window_start, parse_row=parse_row)
+def _page_record(probe: _Probe, page: TradesPage, *, page_limit: int) -> SmokeRecord:
+    aggregate = _aggregate(page, window_start=probe.window_start)
     row_count = len(page.rows)
     case = _classify_page(aggregate, row_count, probe.window_start, page_limit)
     lag = None if aggregate.newest is None else page.received_at - aggregate.newest
@@ -293,7 +289,7 @@ async def _probe(
         delays.append(seconds)
         await sleeper(seconds)
 
-    source, parse_row, page_limit = make_smoke_source(
+    source, page_limit = make_smoke_source(
         client,
         url=url,
         coverage=probe.coverage,
@@ -310,7 +306,7 @@ async def _probe(
         return _transient_record(probe, exc, delays)
     except TradesTerminalError as exc:
         return _terminal_record(probe, exc)
-    return _page_record(probe, page, parse_row=parse_row, page_limit=page_limit)
+    return _page_record(probe, page, page_limit=page_limit)
 
 
 async def run_smoke(

@@ -1,34 +1,32 @@
 """The documented v2 page fetch backing the live-safe smoke check.
 
 The smoke contract is one bounded request per coverage mode, classified into the same seven named
-cases the v1 smoke uses. This module subclasses the v1 page client so the retry classification,
-the strictly increasing clock-safe ``end`` cutoff, and the request bookkeeping stay one
-implementation; only the documented differences are overridden — the v2 query parameters
-(``limit``/``taker_only``/``start``/``end``, sent by the shared :class:`V2PageRequest`) and the
-``{data, pagination}`` envelope, read by the shared :func:`parse_v2_page`. Envelope and pagination
-failures are terminal: they never prove continuity. Rows stay raw; the caller decodes them through
-``trade_row_v2.parse_v2_trade_row`` so no parsing is duplicated here.
+cases the v1 smoke uses. :class:`V2SmokeSource` subclasses the merged page client so the shared
+:class:`~polymarket_insider_tracker.ingestor._http_attempt.HttpAttempts` executor, the retry
+classification, and the strictly increasing clock-safe ``end`` cutoff stay one implementation; the
+smoke owns no HTTP or parsing code of its own. Only the documented differences are overridden —
+the v2 first-page parameters, built by the shared :class:`V2PageRequest`, and the
+``{data, pagination}`` envelope, read by the shared :func:`parse_v2_page` with rows translated to
+the v1 shape by ``trade_row_v2.translate_v2_row``. Envelope and pagination failures are terminal:
+they never prove continuity. Selection mirrors the production seam exactly
+(:func:`acquisition.uses_v2_envelope`). See ``contracts/live-smoke.md``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import random
 import time
-from collections.abc import Callable
 
 import httpx
 
-from polymarket_insider_tracker.endpoints import is_v2_trades_url
+from polymarket_insider_tracker.ingestor._http_attempt import AttemptResponse
 from polymarket_insider_tracker.ingestor._retry import MAX_RETRIES, RandomSource
-from polymarket_insider_tracker.ingestor.trade_row_v2 import parse_v2_trade_row
-from polymarket_insider_tracker.ingestor.trade_rows import parse_trade_row
+from polymarket_insider_tracker.ingestor.acquisition import uses_v2_envelope
+from polymarket_insider_tracker.ingestor.trade_row_v2 import translate_v2_row
 from polymarket_insider_tracker.ingestor.trades_source import (
     PAGE_LIMIT,
-    REQUEST_TIMEOUT_SECONDS,
-    USER_AGENT,
     Clock,
     ResponseHeaders,
     Sleeper,
@@ -36,8 +34,8 @@ from polymarket_insider_tracker.ingestor.trades_source import (
     TradesRequest,
     TradesSourceClient,
     TradesTerminalError,
-    TradesTransientError,
     redacted_url,
+    start_for,
 )
 from polymarket_insider_tracker.ingestor.v2_page import (
     V2_PAGE_LIMIT,
@@ -48,55 +46,60 @@ from polymarket_insider_tracker.ingestor.v2_page import (
 
 __all__ = ["V2SmokeSource", "make_smoke_source"]
 
-RowParser = Callable[..., object]
+
+class _V2WindowRequest(TradesRequest):
+    """The cycle window whose ``params`` are the documented v2 first-page parameters."""
+
+    def params(self) -> dict[str, str]:
+        return V2PageRequest(taker_only=self.taker_only, start=self.start, end=self.end).params()
 
 
 class V2SmokeSource(TradesSourceClient):
-    """The v1 page client speaking the documented v2 envelope (one page per call)."""
+    """The merged page client speaking the documented v2 envelope (one page per call)."""
 
-    def _build_request(self, request: TradesRequest) -> httpx.Request:
-        v2_request = V2PageRequest(
-            taker_only=request.taker_only, start=request.start, end=request.end
-        )
-        return httpx.Request(
-            "GET",
-            self._url,
-            params=v2_request.params(),
-            headers={"Accept": "application/json", "User-Agent": USER_AGENT},
-            extensions={"timeout": httpx.Timeout(REQUEST_TIMEOUT_SECONDS).as_dict()},
+    async def fetch_primary(
+        self, *, boundary_time: int | None, horizon_seconds: int, proof: object | None = None
+    ) -> TradesPage:
+        """One documented v2 first page; ``proof`` keeps one call signature across both paths."""
+        _ = proof
+        end = await self._cutoff.next()
+        return await self._fetch(
+            _V2WindowRequest(
+                offset=0,
+                taker_only=self._taker_only,
+                start=start_for(boundary_time, horizon_seconds),
+                end=end,
+            )
         )
 
-    def _parse_success(
-        self, response: httpx.Response, request: TradesRequest, started: float, attempt: int
-    ) -> TradesPage | TradesTransientError:
-        try:
-            body: object = json.loads(response.content)
-        except ValueError:
-            return self._transient(started, attempt, 200, "unparseable", "unparseable body")
+    def _parse_success(self, result: AttemptResponse, request: TradesRequest) -> TradesPage:
+        body = self._http.decode(
+            self._url, result.response, started=result.started, index=result.index
+        )
         v2_request = V2PageRequest(
             taker_only=request.taker_only, start=request.start, end=request.end
         )
         try:
             page = parse_v2_page(v2_request, body, received_at=self._clock())
         except V2SourceError as exc:
-            self._record(started, attempt, "terminal", 200)
+            self._http.record(result.started, result.index, "terminal", 200)
             raise TradesTerminalError(
                 f"incompatible-schema: {exc} from {redacted_url(self._url)}",
                 status=200,
                 reason="incompatible-schema",
             ) from None
-        self._record(started, attempt, "success", 200)
+        self._http.record(result.started, result.index, "success", 200)
         return TradesPage(
             request=request,
-            rows=page.rows,
+            rows=tuple(translate_v2_row(row) for row in page.rows),
             received_at=self._clock(),
-            attempts=attempt + 1,
+            attempts=result.index + 1,
             http_status=200,
-            body_sha256=hashlib.sha256(response.content).hexdigest(),
+            body_sha256=hashlib.sha256(result.response.content).hexdigest(),
             headers=ResponseHeaders(
-                cache_control=response.headers.get("cache-control"),
-                cf_cache_status=response.headers.get("cf-cache-status"),
-                age=response.headers.get("age"),
+                cache_control=result.response.headers.get("cache-control"),
+                cf_cache_status=result.response.headers.get("cf-cache-status"),
+                age=result.response.headers.get("age"),
             ),
         )
 
@@ -110,15 +113,29 @@ def make_smoke_source(
     sleeper: Sleeper = asyncio.sleep,
     random_source: RandomSource = random.random,
     max_retries: int = MAX_RETRIES,
-) -> tuple[TradesSourceClient, RowParser, int]:
-    """The smoke's acquisition client, row decoder, and page limit for ``url``.
+) -> tuple[TradesSourceClient, int]:
+    """The smoke's acquisition client and page limit for ``url``.
 
-    The official v2 endpoint speaks the documented v2 envelope; every other URL keeps the v1
-    list-body client unchanged. Returns ``(source, row_parser, page_limit)`` so the smoke's
-    classification machinery works for either path without branching again.
+    Selection mirrors the production seam exactly (:func:`acquisition.uses_v2_envelope`): the
+    documented v2 route speaks the v2 envelope through :class:`V2SmokeSource`; every other URL
+    keeps the v1 list-body client unchanged. Returns ``(source, page_limit)`` so the smoke's
+    saturation case uses the documented limit of whichever envelope the URL speaks.
     """
-    if is_v2_trades_url(url):
-        source: TradesSourceClient = V2SmokeSource(
+    if uses_v2_envelope(url):
+        return (
+            V2SmokeSource(
+                client,
+                url=url,
+                coverage=coverage,
+                clock=clock,
+                sleeper=sleeper,
+                random_source=random_source,
+                max_retries=max_retries,
+            ),
+            V2_PAGE_LIMIT,
+        )
+    return (
+        TradesSourceClient(
             client,
             url=url,
             coverage=coverage,
@@ -126,15 +143,6 @@ def make_smoke_source(
             sleeper=sleeper,
             random_source=random_source,
             max_retries=max_retries,
-        )
-        return source, parse_v2_trade_row, V2_PAGE_LIMIT
-    source = TradesSourceClient(
-        client,
-        url=url,
-        coverage=coverage,
-        clock=clock,
-        sleeper=sleeper,
-        random_source=random_source,
-        max_retries=max_retries,
+        ),
+        PAGE_LIMIT,
     )
-    return source, parse_trade_row, PAGE_LIMIT
