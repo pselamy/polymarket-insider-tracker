@@ -326,7 +326,8 @@ measured from `origin/main` at `1bdccbc`, smallest first (counts are for the dir
 | root `tests/test_*.py` | 94 | 7 | unenrolled |
 | `tests/tooling` | 119 | 6 | unenrolled |
 
-Cleaned and enrolled: 110 errors, no suppressions, casts, ignores (three stale `type: ignore`
+Cleaned and enrolled: 110 errors (plus 9 reached through imports of root `tests/test_pipeline.py` and
+`tests/test_persist_assessment.py` by the #163 characterization module), no suppressions, casts, ignores (three stale `type: ignore`
 comments were removed) or relaxed flags. Fixes are typing-only: `tests/fakes/redis_await.py`
 (`settled`, `as_bytes`) awaits the `Awaitable[T] | T` results redis-py declares; fakes and
 harnesses accept `redis.asyncio.Redis`; `FakeClobClient` subclasses `ClobClient`; the codec tests
@@ -339,6 +340,6 @@ root-level `tests/test_*.py` files.
 
 Defect-fails: appending `PLANTED: int = "a"` to `tests/ingestor/test_gamma_client.py` makes the
 enrolled mypy command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.
-Pinned jscpd clone delta against `origin/main`: 84 clones / 1031 duplicated lines before and
-after (delta 0). Six test files already above 399 lines grew by 1-12 lines each because annotating the
+Pinned jscpd clone delta against `origin/main`: 74 clones / 909 duplicated lines before and
+after, measured at `origin/main` 370e77b (delta 0). Six test files already above 399 lines grew by 1-12 lines each because annotating the
 awaits and fakes needs real lines (disclosed as a conflict with the no-growth guidance).
