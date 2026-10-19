@@ -712,9 +712,13 @@ size-anomaly `sample_trade` fixtures likewise differ in value and stay local.
 
 ## Cluster 4 resolution update (2026-10-19, PR #166)
 
-Re-scanned with the identical pinned jscpd method over the 289 tracked Python
-files: **74 clone groups before, 65 after**; all nine `test_dispatcher.py`
-self-clones are gone and no new group appeared. Redaction cases whose provider
-response bodies genuinely differ stay as separate Discord/Telegram functions
-(they share only the assertion helper). Totals in the header reflect the
-authored-scope measurement and are reduced by these nine groups.
+Measured with the pinned jscpd 5.3.3 through the vendored
+`quality.duplication.scan(..., minimum=50)` over `quality.source_scope.discover`
+(size check skipped, as for cluster 1), whole tree, 295 sources at both ends.
+Baseline is `origin/main` at `430c9af` (after #164): **72 groups, 858 duplicated
+lines, 1.40%**. This card rebased onto it: **63 groups, 766 duplicated lines,
+1.25%**. Compared as a multiset of (file pair, token count), exactly nine
+`test_dispatcher.py` self-clones were removed and no group was added or grew.
+Redaction cases whose provider response bodies genuinely differ stay as separate
+Discord/Telegram functions (they share only the assertion helper). The earlier
+74 -> 65 figures covered a narrower file set and are superseded by these.
