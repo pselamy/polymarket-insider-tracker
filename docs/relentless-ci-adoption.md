@@ -467,3 +467,89 @@ individually but fail together, as happened with 7332dd0. `ci.yml` keeps
 entries never cancel each other. `tests/tooling/test_merge_group_workflows.py` fails if a
 workflow loses the trigger. Enabling the queue itself is a repository setting made by the
 owner, not by this change.
+
+
+## Coverage step 1: per-module line+branch measurement (2026-10-19)
+
+`coverage run -m pytest tests --ignore=tests/tooling` (Python 3.13 locked resolution,
+`[tool.coverage.run] branch = true`, source `src`) over the whole suite: 1934 passed, 11 skipped.
+`tests/tooling` is the gate meta-suite (it re-runs the verify profiles) and is not part of the
+measured run. Total: 7238 statements, 351 missing; 1480 branches, 194 partially covered (94%).
+24 of 67 measured modules were already at 100% line and branch.
+
+| Module | Statements | Missing lines | Branches | Missing branches |
+| --- | ---: | ---: | ---: | ---: |
+| `__init__.py` | 1 | 0 | 0 | 0 |
+| `__main__.py` | 323 | 18 | 92 | 13 |
+| `alerter/__init__.py` | 7 | 0 | 0 | 0 |
+| `alerter/_channel_delivery.py` | 62 | 0 | 12 | 2 |
+| `alerter/_history_records.py` | 38 | 0 | 10 | 2 |
+| `alerter/channels/__init__.py` | 3 | 0 | 0 | 0 |
+| `alerter/channels/discord.py` | 58 | 1 | 12 | 1 |
+| `alerter/channels/pacing.py` | 24 | 0 | 6 | 1 |
+| `alerter/channels/response_values.py` | 30 | 1 | 8 | 1 |
+| `alerter/channels/telegram.py` | 67 | 2 | 14 | 1 |
+| `alerter/dispatcher.py` | 303 | 21 | 88 | 11 |
+| `alerter/formatter.py` | 162 | 0 | 60 | 3 |
+| `alerter/history.py` | 144 | 1 | 24 | 1 |
+| `alerter/models.py` | 10 | 0 | 0 | 0 |
+| `config.py` | 142 | 2 | 20 | 3 |
+| `constants.py` | 2 | 0 | 0 | 0 |
+| `detector/__init__.py` | 6 | 0 | 0 | 0 |
+| `detector/_batch.py` | 16 | 0 | 6 | 0 |
+| `detector/fresh_wallet.py` | 56 | 0 | 14 | 1 |
+| `detector/models.py` | 107 | 0 | 0 | 0 |
+| `detector/scorer.py` | 119 | 1 | 18 | 1 |
+| `detector/size_anomaly.py` | 106 | 2 | 28 | 3 |
+| `detector/sniper.py` | 161 | 4 | 38 | 5 |
+| `endpoints.py` | 21 | 0 | 2 | 0 |
+| `ingestor/__init__.py` | 11 | 0 | 0 | 0 |
+| `ingestor/_attempt_budget.py` | 73 | 2 | 14 | 1 |
+| `ingestor/_cycle_cutoff.py` | 21 | 0 | 2 | 0 |
+| `ingestor/_http_attempt.py` | 124 | 0 | 14 | 0 |
+| `ingestor/_publisher_codec.py` | 26 | 0 | 2 | 0 |
+| `ingestor/_retry.py` | 22 | 0 | 0 | 0 |
+| `ingestor/acquisition.py` | 129 | 10 | 6 | 1 |
+| `ingestor/clob_client.py` | 170 | 17 | 18 | 2 |
+| `ingestor/gamma_client.py` | 111 | 1 | 22 | 1 |
+| `ingestor/health.py` | 378 | 8 | 68 | 6 |
+| `ingestor/metadata_sync.py` | 247 | 32 | 40 | 12 |
+| `ingestor/models.py` | 177 | 7 | 30 | 9 |
+| `ingestor/observation_boundary.py` | 201 | 3 | 54 | 18 |
+| `ingestor/page_analysis.py` | 53 | 1 | 14 | 1 |
+| `ingestor/publisher.py` | 124 | 2 | 20 | 2 |
+| `ingestor/readiness.py` | 24 | 0 | 6 | 0 |
+| `ingestor/trade_poller.py` | 507 | 9 | 104 | 10 |
+| `ingestor/trade_row_v2.py` | 16 | 0 | 6 | 0 |
+| `ingestor/trade_rows.py` | 166 | 0 | 46 | 0 |
+| `ingestor/trades_source.py` | 123 | 1 | 12 | 1 |
+| `ingestor/v2_cursor_walk.py` | 134 | 1 | 24 | 1 |
+| `ingestor/v2_page.py` | 64 | 0 | 14 | 1 |
+| `ingestor/v2_smoke.py` | 35 | 35 | 2 | 2 |
+| `ingestor/websocket.py` | 194 | 28 | 38 | 11 |
+| `pipeline.py` | 484 | 66 | 108 | 24 |
+| `pipeline_lifecycle.py` | 6 | 0 | 0 | 0 |
+| `profiler/__init__.py` | 7 | 0 | 0 | 0 |
+| `profiler/_funding_rpc.py` | 77 | 1 | 20 | 1 |
+| `profiler/analyzer.py` | 92 | 0 | 22 | 2 |
+| `profiler/chain.py` | 240 | 14 | 60 | 10 |
+| `profiler/entities.py` | 51 | 0 | 8 | 0 |
+| `profiler/entity_data.py` | 41 | 0 | 4 | 0 |
+| `profiler/funding.py` | 112 | 3 | 30 | 0 |
+| `profiler/models.py` | 110 | 0 | 8 | 0 |
+| `profiler/rpc_handle.py` | 18 | 0 | 8 | 4 |
+| `redaction.py` | 222 | 15 | 78 | 13 |
+| `shutdown.py` | 149 | 19 | 44 | 12 |
+| `storage/__init__.py` | 4 | 0 | 0 | 0 |
+| `storage/database.py` | 73 | 5 | 12 | 5 |
+| `storage/database_url.py` | 47 | 2 | 16 | 0 |
+| `storage/models.py` | 87 | 0 | 0 | 0 |
+| `storage/repos.py` | 213 | 5 | 14 | 2 |
+| `terminal_errors.py` | 107 | 11 | 40 | 13 |
+
+Closest to 100% and chosen for step 1 (staged enrollment): the 24 modules already complete plus
+`alerter/_channel_delivery.py`, `alerter/_history_records.py`, `alerter/history.py`,
+`alerter/formatter.py`, `detector/fresh_wallet.py`, `detector/scorer.py`, `profiler/analyzer.py`,
+`profiler/rpc_handle.py` and `profiler/funding.py`. Their gaps are one-line `Protocol` stubs
+(`->exit` branches, closed by a docstring-only body rather than any exclusion) and a few
+behaviours without a test.
