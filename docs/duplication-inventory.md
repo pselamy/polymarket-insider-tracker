@@ -162,7 +162,7 @@ knowledge).
 | 3 | 0 | 0 | test_redaction.py | **Resolved**: the primed-poller, idle-pipeline, failing-Redis `run_pipeline`, failed metadata-start and production-console-capture harnesses now each have one helper in `tests/test_redaction.py` | resolved (PR #168) |
 | 4 | 0 | 0 | test_dispatcher.py | **Resolved**: channel-to-fake-server wiring (`wired_channel`) and the failed-send redaction assertion (`assert_failure_logged_without`) have one home; the paired success, failure, rate-limit, read-timeout and retry-after cases are parametrized over the channel | resolved (PR #166) |
 | 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
-| 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
+| 6 | 0 | 0 | test_trade_poller.py | **Resolved**: the anchored-poller first-cycle setup (`_anchored` and the `anchored` fixture), the saturated unproven-page setup (`_saturated`), the cached Yes/No repair metadata (`_yes_no`) and the missing-outcome row (`_publish_missing_outcome`) now each have one home in the module | resolved (this card; PR #171) |
 | 7 | 2 | 24 | detector/models.py, storage/repos.py | **Resolved**: confidence thresholds/classification, trade-identity property accessors and the trade-head serialization now have one home (`serialized_trade_head`, `is_high_confidence_score`, shared property objects, `UNRECORDED_DELIVERY_DISPOSITION`). Two residual groups remain visible on purpose: the `FreshWalletSignal`/`SizeAnomalySignal` declaration block (96 tokens) and the `RiskAssessment`/`RiskAssessmentDTO` field-default mirror (52 tokens, intentional persistence/domain layer boundary) | resolved; residual incidental (see the round-3 review correction below) |
 | 8 | 0 | 0 | test_health_server.py | **Resolved**: component checker wiring (`wire_components`) and the serve/GET/stop probe (`probe`) have one home each in `tests/ingestor/test_health_server.py` | resolved (PR #169) |
 | 9 | 3 | 44 | discord.py, telegram.py | Duplicated rate-limit wait, `_backoff`, and failure-redaction channel logic | real; resolved, see the 2026-10-19 resolution update below |
@@ -218,11 +218,9 @@ resolution sections at the end for each card's own measurements.
 | 88 | 17 | tests/test_terminal_error_durable.py:84-100 | tests/test_terminal_error_durable.py:153-169 |
 | 84 | 24 | tests/alerter/test_formatter.py:20-43 | tests/alerter/test_history.py:16-39 |
 | 84 | 10 | tests/test_redaction.py:1152-1161 | tests/test_redaction.py:1915-1924 |
-| 82 | 18 | tests/ingestor/test_trade_poller.py:288-305 | tests/ingestor/test_trade_poller.py:843-860 |
 | 81 | 15 | tests/integration/test_end_to_end.py:71-85 | tests/integration/test_postgres_journey.py:147-161 |
 | 80 | 19 | tests/profiler/test_funding.py:37-55 | tests/profiler/test_funding_rpc.py:48-66 |
 | 80 | 18 | tests/integration/test_end_to_end.py:72-89 | tests/test_pipeline.py:53-70 |
-| 78 | 9 | tests/ingestor/test_trade_poller.py:306-314 | tests/ingestor/test_trade_poller.py:862-867 |
 | 77 | 17 | tests/profiler/test_analyzer.py:336-352 | tests/profiler/test_analyzer.py:382-398 |
 | 77 | 10 | tests/test_redaction.py:971-980 | tests/test_redaction.py:1152-1161 |
 | 76 | 9 | tests/test_redaction.py:972-980 | tests/test_redaction.py:1054-1062 |
@@ -241,9 +239,7 @@ resolution sections at the end for each card's own measurements.
 | 66 | 8 | tests/ingestor/test_endpoint_switch_resume.py:69-76 | tests/ingestor/test_endpoint_switch_resume.py:100-107 |
 | 65 | 8 | tests/tooling/test_service_entrypoint.py:148-155 | tests/tooling/test_service_entrypoint.py:176-183 |
 | 64 | 17 | tests/test_redaction.py:2024-2040 | tests/test_redaction.py:2077-2093 |
-| 64 | 13 | tests/ingestor/test_trade_poller.py:521-533 | tests/ingestor/test_trade_poller.py:583-595 |
 | 62 | 16 | tests/integration/test_end_to_end.py:74-89 | tests/test_pipeline_persistence.py:47-62 |
-| 62 | 12 | tests/ingestor/test_trade_poller.py:233-244 | tests/ingestor/test_trade_poller.py:261-272 |
 | 62 | 12 | tests/test_terminal_error_durable.py:38-49 | tests/test_terminal_error_durable.py:152-163 |
 | 61 | 13 | tests/profiler/test_funding.py:60-72 | tests/profiler/test_funding_rpc.py:70-82 |
 | 61 | 13 | tests/profiler/test_models.py:204-216 | tests/profiler/test_models.py:229-241 |
@@ -260,7 +256,6 @@ resolution sections at the end for each card's own measurements.
 | 57 | 12 | tests/detector/test_scorer.py:620-631 | tests/detector/test_size_anomaly.py:858-869 |
 | 57 | 10 | tests/ingestor/test_trade_row_v2_properties.py:95-104 | tests/ingestor/test_trade_row_v2_properties.py:114-123 |
 | 57 | 8 | tests/alerter/test_cas_characterization.py:179-186 | tests/alerter/test_cas_characterization.py:238-245 |
-| 57 | 6 | tests/ingestor/test_trade_poller.py:912-917 | tests/ingestor/test_trade_poller.py:977-981 |
 | 56 | 9 | tests/ingestor/test_publisher.py:247-255 | tests/ingestor/test_publisher.py:272-280 |
 | 55 | 17 | tests/alerter/test_formatter.py:88-104 | tests/alerter/test_history.py:83-99 |
 | 55 | 9 | tests/tooling/test_service_entrypoint.py:14-22 | tests/tooling/test_verifier_standalone.py:43-51 |
@@ -274,7 +269,6 @@ resolution sections at the end for each card's own measurements.
 | 52 | 15 | alembic/versions/rev_20260522_1130_risk_assessments.py:19-33 | alembic/versions/rev_20260920_0000_terminal_errors.py:19-33 |
 | 52 | 11 | tests/ingestor/test_trade_row_v2.py:134-144 | tests/ingestor/test_trade_rows.py:117-127 |
 | 52 | 8 | src/.../detector/models.py:265-272 | src/.../storage/repos.py:575-582 |
-| 52 | 6 | tests/ingestor/test_trade_poller.py:339-344 | tests/ingestor/test_trade_poller.py:417-422 |
 | 51 | 12 | tests/ingestor/test_clob_client.py:176-187 | tests/ingestor/test_clob_client.py:192-203 |
 | 51 | 9 | tests/tooling/test_complexipy.py:105-113 | tests/tooling/test_policy_snapshot.py:77-85 |
 | 51 | 6 | tests/detector/test_scorer.py:548-553 | tests/detector/test_scorer.py:796-802 |
@@ -757,3 +751,13 @@ the tracked `src tests scripts alembic quality` Python files plus `conftest.py`
 (292 files; not the discovered authored scope above, so totals are not comparable to
 the figures above): 56 clone groups before, 52 after, none in `test_health_server.py`
 and none added. All assertions are unchanged.
+
+## Cluster 6 resolution (trade-poller cycle setups and repair assertions)
+
+Measured with the identical pinned method (jscpd 5.3.3, `SCAN_POLICY` at the 50-token
+tier, empty config, no ignores) over the 292 authored Python files enumerated by
+`quality.source_scope.discover`: `origin/main` at `b0f37b6` (after #169) reports **52 clone groups,
+625 duplicated lines, 1.02%**; this tree reports **46 groups, 561 lines, 0.92%**. The six
+`test_trade_poller.py` self-pairs (12, 18, 9, 6, 13 and 6 lines) are absent and the
+file-pair set difference is empty, so no new clone group was introduced. Other
+clusters' rows above are historical receipts from their own trees.
