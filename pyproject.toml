@@ -100,7 +100,7 @@ known-first-party = ["polymarket_insider_tracker"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["src", "scripts"]
+files = ["src", "scripts", "quality", "alembic", "conftest.py"]
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

@@ -25,6 +25,21 @@
     "conftest.py"
   ],
   [
+    "uv",
+    "run",
+    "--isolated",
+    "--locked",
+    "--all-extras",
+    "--python",
+    "3.11",
+    "mypy",
+    "src",
+    "scripts",
+    "quality",
+    "alembic",
+    "conftest.py"
+  ],
+  [
     "pyright"
   ],
   [

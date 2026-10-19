@@ -60,7 +60,7 @@ hooks; **unenrolled** = measured, documented, not yet enforced.
 | REF-CMD-16 | `python -m quality.duplication_main` | 1 | 92 | `ValueError: scripts/traceability.py: 447 physical lines exceeds 399` (fails in `verify_sources` before scanning; the pinned native scanner itself runs — measured directly, see the review-round-1 update below) | unenrolled |
 | REF-CMD-17 | `black --check src tests quality` | 1 | 32 | `would reformat quality/build_constraints.py`, `package_build.py`, `commands.py`, `package_process.py`, `mutation_pool.py` | enrolled at the **full authored scope** after formatting `quality/` at line length 100 |
 | REF-CMD-18 | `ruff check src tests quality` | 1 | 5 | `SIM105` (`commands.py`, `owned_process.py`), `SIM102` (`incomplete.py`), `ARG001` (`document_links.py`, `trusted_policy/github_read.py`) | enrolled at the **full authored scope** after fixing the 5 vendored violations |
-| REF-CMD-19 | `mypy src tests quality` | 1 | 403 | `tests/tooling/test_traceability.py:86: error: Function is missing a return type annotation`; 403 `error:` lines across the full authored scope | unenrolled |
+| REF-CMD-19 | `mypy src tests quality` | 1 | 520 | `tests/tooling/test_traceability.py:86: error: Function is missing a return type annotation`; 520 `error:` lines across the full authored scope (2026-10-19), all inside `tests/` | enrolled at the **non-test authored roots** (`src scripts quality alembic conftest.py`); `tests/` (520 errors) stays unenrolled until a later card fixes it |
 | REF-CMD-20 | `pyright` | 0 | 0 | `0 errors, 0 warnings, 0 informations` | enrolled at the existing `src` scope only; full authored scope **unenrolled** — 1513 diagnostics (1505 `tests`, 8 `scripts`) |
 | REF-CMD-21 | `vulture src tests quality` | 3 | 7 | `quality/mutation_trial.py:8: unused function 'run_trial'`; 7 findings | unenrolled |
 | REF-CMD-22 | `complexipy src tests quality --max-complexity-allowed 5` | 0 | 0 | all functions and module control flow at cognitive complexity ≤ 5 | enrolled at the **full authored scope** |
@@ -78,18 +78,22 @@ hooks; **unenrolled** = measured, documented, not yet enforced.
 
 ## Enrolled controls and their scope
 
-Six controls pass with zero suppressions and are enrolled in reference order. The
+Seven controls pass with zero suppressions and are enrolled in reference order. The
 authored Python scope is `src tests quality scripts alembic conftest.py`; the
 reference's `black`/`ruff`/`complexipy` commands were narrower (`src tests quality`),
 so where the wider scope also passes with zero suppressions the enrolled command is
 extended to it. Pyright is the one enrolled control whose full authored scope does
-**not** pass; it stays enrolled only at the existing `src` scope.
+**not** pass; it stays enrolled only at the existing `src` scope. REF-CMD-19 mypy is
+enrolled at the non-test authored roots (see the REF-CMD-19 step-1 update below);
+the reference's `tests/` arguments stay visibly unenrolled with their measured
+count.
 
 | ID | Enrolled command | Scope |
 | --- | --- | --- |
 | `REF-CMD-01` | `uv lock --check` | whole-project lock (no path scope) |
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
+| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py` | **non-test authored roots**: `src`, `scripts`, `quality`, `alembic`, `conftest.py` |
 | `REF-CMD-20` | `pyright` | **narrow**: existing `src/polymarket_insider_tracker` only |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
@@ -101,8 +105,8 @@ repository's own strict type gate already enforces (`[tool.pyright].include =
 ["src/polymarket_insider_tracker"]`); no suppression mechanism is used. Widening
 `include` to the full authored scope is deferred until those diagnostics are fixed.
 
-`quality/checks.json` contains exactly the five command controls in reference order
-(1, 17, 18, 20, 22). The `quality.verify` hook sequence runs `verify_tracked` and
+`quality/checks.json` contains exactly the six command controls in reference order
+(1, 17, 18, 19, 20, 22). The `quality.verify` hook sequence runs `verify_tracked` and
 then the enrolled commands; every other hook stays unenrolled as documented above.
 
 Defect-fails / clean-passes evidence for each enrolled control is recorded in
@@ -157,6 +161,44 @@ are refreshed in the enrollment update below. Today's full-scope run
 them inside `tests/` (the reference example diagnostic
 `tests/tooling/test_traceability.py:86: error: Function is missing a return type
 annotation [no-untyped-def]` still reproduces as the first line).
+
+## REF-CMD-19 step 1 enrollment: strict mypy over the non-test authored roots
+
+With `quality/`, `alembic/` and `conftest.py` strict-mypy clean (update above), the
+control is now enforced with zero suppressions:
+
+- `[tool.mypy].files` is extended from `["src", "scripts"]` to
+  `["src", "scripts", "quality", "alembic", "conftest.py"]`, so the repository's own
+  `strict-types` static gate (which runs bare `mypy` from the checked-in
+  configuration) now covers every non-test authored root. No per-module override,
+  exclusion, error-code disable or ignore was added.
+- REF-CMD-19 is enrolled in `quality/checks.json` in reference order (after
+  REF-CMD-18, before REF-CMD-20) with the measured clean scope, mirroring the
+  repository's own `strict-types` gate command shape:
+  `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality
+  alembic conftest.py`. The minimum-supported single resolution matters for
+  determinism: mypy's configured `python_version = "3.11"` is the minimum supported
+  minor, and running mypy against a 3.12/3.13 interpreter environment makes it
+  parse dependency stubs that use 3.12+-only `type` syntax against the 3.11 target
+  (numpy's shipped stubs), which is why bare `mypy` in the host matrix environment
+  is not the enrolled command. This keeps the enforced tool, configuration and
+  resolution identical to the existing static profile gate.
+
+Evidence (kept in `docs/relentless-ci-defect-evidence.md`):
+
+- Clean pass: the enrolled command exits `0` with
+  `Success: no issues found in 174 source files`; the full enrolled sequence
+  `uv run --locked --group dev python -m quality.verify` exits `0`.
+- Defect fail: a planted `quality/_defect_probe.py` containing
+  `VALUE: int = "not-an-int"` makes the same enrolled command exit `1` with
+  `quality/_defect_probe.py:3: error: Incompatible types in assignment (expression
+  has type "str", variable has type "int") [assignment]`; the probe is deleted
+  after the run.
+
+Remaining gap: `tests/` keeps the reference arguments unenrolled — currently **520
+errors in 46 files** under this strict configuration (`attr-defined` 163,
+`arg-type` 147, `no-untyped-def` 93, `assignment` 41, `misc` 33 and others). That
+is the later card; nothing in `tests/` was silenced to enroll this scope.
 
 ## REF-CMD-16 update: jscpd provisioned, scanner runs, enrollment still blocked
 
