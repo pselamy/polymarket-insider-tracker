@@ -7,10 +7,10 @@ with unusually large position sizes relative to market liquidity.
 import logging
 from collections.abc import Awaitable, Sequence
 from decimal import Decimal
+from typing import Protocol
 
 from polymarket_insider_tracker.detector._batch import gather_signals
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
-from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.redaction import redact_exception_message
 
@@ -27,6 +27,12 @@ DEFAULT_NICHE_MIN_TRADE_SIZE = Decimal("500")  # USDC notional
 # Niche market categories - markets in these categories with low specificity
 # are more likely to have insider information value
 NICHE_PRONE_CATEGORIES = frozenset({"science", "tech", "finance", "other"})
+
+
+class MarketMetadataSource(Protocol):
+    """Market lookup the detector needs (satisfied structurally by ``MarketMetadataSync``)."""
+
+    async def get_market(self, condition_id: str, /) -> MarketMetadata | None: ...
 
 
 class SizeAnomalyDetector:
@@ -60,7 +66,7 @@ class SizeAnomalyDetector:
 
     def __init__(
         self,
-        metadata_sync: MarketMetadataSync,
+        metadata_sync: MarketMetadataSource,
         *,
         volume_threshold: float = DEFAULT_VOLUME_THRESHOLD,
         book_threshold: float = DEFAULT_BOOK_THRESHOLD,
@@ -70,7 +76,7 @@ class SizeAnomalyDetector:
         """Initialize the size anomaly detector.
 
         Args:
-            metadata_sync: MarketMetadataSync for fetching market metadata.
+            metadata_sync: Market metadata source (normally a MarketMetadataSync).
             volume_threshold: Threshold for volume impact (default 0.02 = 2%).
             book_threshold: Threshold for book impact (default 0.05 = 5%).
             niche_volume_threshold: Volume below which market is niche ($50k).

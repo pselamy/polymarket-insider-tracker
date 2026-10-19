@@ -93,7 +93,7 @@ count.
 | `REF-CMD-01` | `uv lock --check` | whole-project lock (no path scope) |
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
-| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests/alerter tests/fakes tests/ingestor tests/integration tests/quality tests/storage` | **non-test authored roots** plus `tests/alerter`, `tests/fakes`, `tests/ingestor`, `tests/integration`, `tests/quality`, `tests/storage` |
+| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests/alerter tests/detector tests/fakes tests/ingestor tests/integration tests/profiler tests/quality tests/storage` | **non-test authored roots** plus `tests/alerter`, `tests/detector`, `tests/fakes`, `tests/ingestor`, `tests/integration`, `tests/profiler`, `tests/quality`, `tests/storage` |
 | `REF-CMD-20` | `pyright` | **narrow**: existing `src/polymarket_insider_tracker` only |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
@@ -341,3 +341,31 @@ enrolled mypy command exit 1 (`error: Incompatible types in assignment`); the cl
 Pinned jscpd clone delta against `origin/main`: 74 clones / 909 duplicated lines before and
 after, measured at `origin/main` 370e77b (delta 0). Re-measured after the rebase onto `f2e2167` (raw pinned jscpd, same flags, authored `.py` scope): `origin/main` 63 clones / 766 duplicated lines over 256 files; this branch 63 / 766 over 257 files (delta 0). Six test files already above 399 lines grew by 1-12 lines each because annotating the
 awaits and fakes needs real lines (disclosed as a conflict with the no-growth guidance).
+
+## REF-CMD-19 step 4: strict mypy over `tests/profiler` and `tests/detector` (2026-10-19)
+
+Per-directory strict mypy measured from `origin/main` at `a8d58c6` (Python 3.11 locked resolution):
+
+| root | errors | files | step 4 |
+|---|---|---|---|
+| `tests/profiler` | 75 | 4 | cleaned and enrolled |
+| `tests/detector` | 82 | 4 | cleaned and enrolled |
+| root `tests/test_*.py` | 58 | 4 | unenrolled |
+| `tests/tooling` | 119 | 6 | unenrolled |
+
+Cleaned and enrolled: 157 errors, with no new suppressions, casts, ignores or relaxed flags. No `type: ignore` remains in the newly enrolled roots: the frozen-object mutation tests call `__setattr__` inside `pytest.raises(AttributeError)`, and the read-only-weights test asserts `DEFAULT_WEIGHTS` is not a `MutableMapping` and has no `__setitem__`. The `src/` touches
+are annotation-only structural Protocols so the existing fakes satisfy real types:
+`profiler.analyzer.WalletChainReader` (`WalletAnalyzer`'s client), `detector.fresh_wallet.WalletProfiler`
+and `detector.size_anomaly.MarketMetadataSource`; `PolygonClient`, `WalletAnalyzer` and
+`MarketMetadataSync` satisfy them structurally (parameters are positional-only so fake parameter names need not match). `tests/fakes/web3.py` `TransferLogIndex.queries`
+now records narrowed `LogQuery` values instead of raw `FilterParams` TypedDicts; the funding tests
+trace through a `FundingTracer` subclass instead of assigning over a method; the historical private
+`funding._is_pruned_history_error` is read through `vars(funding)` with a typed `Callable`.
+
+Remaining unenrolled `tests/` roots: `tests/tooling` and 4 root-level `tests/test_*.py` files
+(`test_main.py`, `test_redaction.py`, `test_shutdown.py`, `test_terminal_error_durable.py`).
+
+Defect-fails: appending `PLANTED: int = "a"` to `tests/detector/test_models.py` makes the enrolled
+mypy command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.
+Pinned jscpd clone delta (raw command above, tracked authored `.py` scope): `origin/main` 56 clones /
+672 duplicated lines over 258 files; this branch 56 / 672 over 258 (delta 0).

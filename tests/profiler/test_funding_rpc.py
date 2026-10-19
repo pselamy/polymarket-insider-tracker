@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import inspect
 import pickle
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -37,6 +38,13 @@ PRUNED_HISTORY_ERROR = RuntimeError(
     "{'code': -32701, 'message': 'History has been pruned for this block. To remove "
     "restrictions, order a dedicated full node here: https://www.allnodes.com/pol/host'}"
 )
+
+
+def _legacy_classifier() -> Callable[[BaseException], bool]:
+    """The classifier under its historical private ``funding`` name (not a public re-export)."""
+    classifier: Callable[[BaseException], bool] = vars(funding)["_is_pruned_history_error"]
+    return classifier
+
 
 RE_EXPORTED_NAMES = (
     "USDC_BRIDGED",
@@ -90,15 +98,15 @@ class TestReExportIdentity:
         assert getattr(funding, name) is getattr(rpc, name)
 
     def test_classifier_object_is_shared(self) -> None:
-        assert funding._is_pruned_history_error is rpc.is_pruned_history_error
+        assert _legacy_classifier() is rpc.is_pruned_history_error
 
     def test_classifier_historical_module_identity(self) -> None:
-        func = funding._is_pruned_history_error
+        func = _legacy_classifier()
         assert func.__module__ == funding.__name__
         assert func.__qualname__ == "_is_pruned_history_error"
 
     def test_classifier_pickle_round_trip_by_reference(self) -> None:
-        restored = pickle.loads(pickle.dumps(funding._is_pruned_history_error))
+        restored = pickle.loads(pickle.dumps(_legacy_classifier()))
         assert restored is rpc.is_pruned_history_error
 
     def test_transfer_topic_is_0x_prefixed_signature(self) -> None:
@@ -168,10 +176,10 @@ class TestTransferLogScanner:
         )
 
         query = logs.queries[0]
-        assert query["topics"][0] == funding.TRANSFER_EVENT_TOPIC
-        assert query["topics"][1] is None
-        assert query["topics"][2].endswith(TEST_WALLET.lower().replace("0x", ""))
-        assert query["address"] == funding.USDC_BRIDGED
+        assert query.topics[0] == funding.TRANSFER_EVENT_TOPIC
+        assert query.topics[1] is None
+        assert query.required_topic(2).endswith(TEST_WALLET.lower().replace("0x", ""))
+        assert query.address == funding.USDC_BRIDGED
 
     async def test_chunks_large_ranges(self) -> None:
         logs = TransferLogIndex()
@@ -184,7 +192,7 @@ class TestTransferLogScanner:
             to_block=1_025_000,
         )
 
-        assert [(q["fromBlock"], q["toBlock"]) for q in logs.queries] == [
+        assert [(q.from_block, q.to_block) for q in logs.queries] == [
             (1_000_000, 1_008_999),
             (1_009_000, 1_017_999),
             (1_018_000, 1_025_000),
@@ -201,7 +209,7 @@ class TestTransferLogScanner:
             to_block=1_999,
         )
 
-        assert [(q["fromBlock"], q["toBlock"]) for q in logs.queries] == [
+        assert [(q.from_block, q.to_block) for q in logs.queries] == [
             (1_000, 1_499),
             (1_500, 1_999),
         ]
@@ -270,7 +278,7 @@ class TestTransferLogScanner:
 
         await scanner.get_transfer_logs(to_address=TEST_WALLET, token_address=funding.USDC_BRIDGED)
 
-        assert [(q["fromBlock"], q["toBlock"]) for q in logs.queries] == [(0, 5_000)]
+        assert [(q.from_block, q.to_block) for q in logs.queries] == [(0, 5_000)]
 
     async def test_uses_fallback_provider_after_failover(self) -> None:
         primary_logs, fallback_logs = TransferLogIndex(), TransferLogIndex()

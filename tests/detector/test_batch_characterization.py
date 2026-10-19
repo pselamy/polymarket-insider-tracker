@@ -109,7 +109,9 @@ class TestFreshWalletBatchContract:
             (("10000", "100", "10000"), ["t1", "t3"]),
         ],
     )
-    async def test_keeps_input_order_and_drops_none(self, sizes, expected) -> None:
+    async def test_keeps_input_order_and_drops_none(
+        self, sizes: tuple[str, ...], expected: list[str]
+    ) -> None:
         analyzer = FakeWalletAnalyzer()
         trades = [make_trade(f"t{i}", size=size) for i, size in enumerate(sizes, start=1)]
         analyzer.register_all(trades)
@@ -118,7 +120,9 @@ class TestFreshWalletBatchContract:
 
         assert [signal.trade_event.trade_id for signal in signals] == expected
 
-    async def test_failed_trade_is_dropped_and_logged(self, caplog) -> None:
+    async def test_failed_trade_is_dropped_and_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         analyzer = FakeWalletAnalyzer()
         analyzer.profiles["0xgood"] = fresh_profile("0xgood")
         analyzer.failures["0xbad"] = RuntimeError("rpc https://secret.internal?k=abc123")
@@ -164,7 +168,9 @@ class TestSizeAnomalyBatchContract:
 
         assert signals == []
 
-    async def test_failed_trade_is_dropped_and_logged(self, caplog) -> None:
+    async def test_failed_trade_is_dropped_and_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         sync = AbortingMetadataSync("market_bad")
         trades = [make_trade("good", market="market_ok"), make_trade("bad", market="market_bad")]
 
