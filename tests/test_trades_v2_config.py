@@ -69,6 +69,7 @@ def test_explicit_official_v1_url_is_rejected_with_the_migration_message(
         f"http://data-api.polymarket.com/trades#{SECRET}",
         f"https://data-api.polymarket.com:443/trades#{SECRET}",
         f"http://data-api.polymarket.com:80/trades?x={SECRET}",
+        f"https://DATA-API.POLYMARKET.COM/trades?x={SECRET}",
     ],
     ids=[
         "credentials-and-query",
@@ -77,6 +78,7 @@ def test_explicit_official_v1_url_is_rejected_with_the_migration_message(
         "plain-http",
         "explicit-443",
         "explicit-80",
+        "upper-case-host",
     ],
 )
 def test_v1_route_variants_are_rejected_without_echoing_the_value(
