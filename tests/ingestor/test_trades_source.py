@@ -274,7 +274,7 @@ class TestResponses:
         page = await _client(server, clock).fetch_primary(boundary_time=None, horizon_seconds=600)
 
         assert isinstance(page, TradesPage)
-        assert [row["timestamp"] for row in page.rows] == [200, 100]
+        assert [row["timestamp"] for row in page.rows if isinstance(row, dict)] == [200, 100]
         assert page.http_status == 200
         assert page.attempts == 1
         assert page.received_at == NOW

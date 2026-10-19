@@ -7,7 +7,7 @@ import json
 import threading
 from collections.abc import Sequence
 
-from fakeredis import FakeAsyncRedis
+from redis.asyncio import Redis
 
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel, AlertDispatcher
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
@@ -117,7 +117,7 @@ def make_test_settings(
 async def wire_pipeline(
     settings: Settings,
     *,
-    redis: FakeAsyncRedis,
+    redis: Redis,
     eth: FakeEth,
     market: MarketMetadata | None = None,
     db_manager: DatabaseManager | None = None,
@@ -191,7 +191,7 @@ async def wire_pipeline(
 
 def _wire_poller(
     pipeline: Pipeline,
-    redis: FakeAsyncRedis,
+    redis: Redis,
     trades: TradesServer,
     poll_clock: FakeClock | None,
     log: list[str],

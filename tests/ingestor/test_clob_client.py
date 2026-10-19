@@ -249,7 +249,9 @@ class TestClobClient:
         assert len(orderbook.asks) == 1
 
     @pytest.mark.parametrize("token_ids", [["t1", "t2"], ["t2", "t1", "t2"], []])
-    def test_get_orderbooks(self, fake_base_client: FakeBaseClobClient, token_ids) -> None:
+    def test_get_orderbooks(
+        self, fake_base_client: FakeBaseClobClient, token_ids: list[str]
+    ) -> None:
         """Test fetching multiple orderbooks."""
         _ = fake_base_client
         client = ClobClient()

@@ -23,6 +23,7 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     source_id,
 )
 from tests.fakes import FakeClock
+from tests.fakes.redis_await import as_bytes, settled
 
 URL = "https://trades.invalid/trades"
 NOW = 1_788_983_720
@@ -105,7 +106,7 @@ class TestLoad:
             coverage="all",
             last_request_end=NOW + 1,
         )
-        assert await fake_redis.hgetall(boundary.checkpoint_key) == {
+        assert await settled(fake_redis.hgetall(boundary.checkpoint_key)) == {
             b"schema_version": str(SCHEMA_VERSION).encode(),
             b"boundary_time": str(NOW).encode(),
             b"emission_floor": str(NOW).encode(),
@@ -124,17 +125,19 @@ class TestLoad:
 
     async def test_coverage_mismatch_is_treated_as_absent(self, fake_redis: FakeAsyncRedis) -> None:
         boundary = _boundary(fake_redis)
-        await fake_redis.hset(
-            boundary.checkpoint_key,
-            mapping={
-                "schema_version": SCHEMA_VERSION,
-                "boundary_time": NOW,
-                "emission_floor": NOW,
-                "boundary_origin": "proven",
-                "written_at": NOW,
-                "coverage": "taker-only",
-                "last_request_end": NOW,
-            },
+        await settled(
+            fake_redis.hset(
+                boundary.checkpoint_key,
+                mapping={
+                    "schema_version": SCHEMA_VERSION,
+                    "boundary_time": NOW,
+                    "emission_floor": NOW,
+                    "boundary_origin": "proven",
+                    "written_at": NOW,
+                    "coverage": "taker-only",
+                    "last_request_end": NOW,
+                },
+            )
         )
         await fake_redis.zadd(boundary.identities_key, {"stale": NOW})
 
@@ -162,7 +165,7 @@ class TestLoad:
         self, fake_redis: FakeAsyncRedis, mapping: dict[str, object]
     ) -> None:
         boundary = _boundary(fake_redis)
-        await fake_redis.hset(boundary.checkpoint_key, mapping=mapping)
+        await settled(fake_redis.hset(boundary.checkpoint_key, mapping=mapping))
 
         with pytest.raises(BoundarySchemaError):
             await boundary.load()
@@ -373,8 +376,10 @@ class TestWrites:
         assert boundary.checkpoint.boundary_time == 1_000
         assert boundary.checkpoint.boundary_origin is BoundaryOrigin.PROVEN
         assert boundary.checkpoint.last_request_end == 1_500
-        assert await fake_redis.hget(boundary.checkpoint_key, "boundary_time") == b"1000"
-        assert await fake_redis.hget(boundary.checkpoint_key, "last_request_end") == b"1500"
+        assert await as_bytes(fake_redis.hget(boundary.checkpoint_key, "boundary_time")) == b"1000"
+        assert (
+            await as_bytes(fake_redis.hget(boundary.checkpoint_key, "last_request_end")) == b"1500"
+        )
         assert dict(boundary.window) == {"anchor": 1_000, "gap-side": 1_500}
         assert dict(boundary.window) == await _zset(fake_redis, boundary.identities_key)
 
@@ -411,7 +416,7 @@ class TestWrites:
             loss_events=[_event(n) for n in range(LOSS_EVENT_RETENTION + 10)],
         )
 
-        stored = await fake_redis.lrange(boundary.loss_events_key, 0, -1)
+        stored = await settled(fake_redis.lrange(boundary.loss_events_key, 0, -1))
         assert len(stored) == LOSS_EVENT_RETENTION
         assert LossEvent.from_json(stored[0]).from_time == LOSS_EVENT_RETENTION + 9
         assert len(boundary.loss_events) == LOSS_EVENT_RETENTION
@@ -450,4 +455,4 @@ class TestWrites:
 
         assert boundary.checkpoint == boundary_state.checkpoint
         assert dict(boundary.window) == {"kept": 1_000}
-        assert await fake_redis.hget(seeded.checkpoint_key, "boundary_time") == b"1000"
+        assert await as_bytes(fake_redis.hget(seeded.checkpoint_key, "boundary_time")) == b"1000"

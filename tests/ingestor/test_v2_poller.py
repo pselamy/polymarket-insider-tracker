@@ -29,6 +29,7 @@ from tests.fakes import (
     trade_row,
     v2_row,
 )
+from tests.fakes.redis_await import as_bytes
 from tests.ingestor._poller_harness import (
     RecordingTradeCallback,
 )
@@ -91,7 +92,7 @@ class TestV2BoundaryOutcomes:
         assert frozen.boundary_origin is BoundaryOrigin.FIRST_START
         assert frozen.loss_events == ()
         assert (
-            await fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time")
+            await as_bytes(fake_redis.hget(poller.boundary.checkpoint_key, "boundary_time"))
             == str(T0 - 1).encode()
         )
 

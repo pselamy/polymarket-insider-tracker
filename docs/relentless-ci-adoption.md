@@ -93,7 +93,7 @@ count.
 | `REF-CMD-01` | `uv lock --check` | whole-project lock (no path scope) |
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
-| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests/alerter tests/fakes tests/quality tests/storage` | **non-test authored roots** plus `tests/alerter`, `tests/fakes`, `tests/quality`, `tests/storage` |
+| `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests/alerter tests/fakes tests/ingestor tests/integration tests/quality tests/storage` | **non-test authored roots** plus `tests/alerter`, `tests/fakes`, `tests/ingestor`, `tests/integration`, `tests/quality`, `tests/storage` |
 | `REF-CMD-20` | `pyright` | **narrow**: existing `src/polymarket_insider_tracker` only |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
@@ -311,3 +311,33 @@ is unchanged. Remaining unenrolled: `tests/detector`, `tests/ingestor`, `tests/i
 
 Defect-fails: appending `x: int = "a"` to `tests/storage/test_repos.py` makes the enrolled mypy
 command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.
+
+## REF-CMD-19 step 3: strict mypy over `tests/integration` and `tests/ingestor` (2026-10-19)
+
+Per-directory strict mypy (`uv run --isolated --locked --all-extras --python 3.11 mypy <dir>`)
+measured from `origin/main` at `1bdccbc`, smallest first (counts are for the directory alone):
+
+| root | errors | files | step 3 |
+|---|---|---|---|
+| `tests/integration` | 38 | 3 | cleaned and enrolled |
+| `tests/ingestor` | 72 | 13 | cleaned and enrolled |
+| `tests/profiler` | 75 | 4 | unenrolled |
+| `tests/detector` | 82 | 4 | unenrolled |
+| root `tests/test_*.py` | 94 | 7 | unenrolled |
+| `tests/tooling` | 119 | 6 | unenrolled |
+
+Cleaned and enrolled: 110 errors (plus 9 reached through imports of root `tests/test_pipeline.py` and
+`tests/test_persist_assessment.py` by the #163 characterization module), no suppressions, casts, ignores (three stale `type: ignore`
+comments were removed) or relaxed flags. Fixes are typing-only: `tests/fakes/redis_await.py`
+(`settled`, `as_bytes`) awaits the `Awaitable[T] | T` results redis-py declares; fakes and
+harnesses accept `redis.asyncio.Redis`; `FakeClobClient` subclasses `ClobClient`; the codec tests
+import `_publisher_codec` directly instead of private re-exports. The `src/` touches are annotation-only: `TradeStreamHandler` reconnect-delay parameters widen `int` to `float` (seconds; tests pass `0.01`); a `SignalDetector[S]` Protocol types the pipeline's two detector attributes and a `StreamConnection` Protocol types the handler's `_ws`, so fakes are assigned directly with no `monkeypatch.setattr` or `id()` workarounds.
+
+Remaining unenrolled `tests/` roots: `tests/detector`, `tests/profiler`, `tests/tooling` and 7
+root-level `tests/test_*.py` files.
+
+Defect-fails: appending `PLANTED: int = "a"` to `tests/ingestor/test_gamma_client.py` makes the
+enrolled mypy command exit 1 (`error: Incompatible types in assignment`); the clean tree exits 0.
+Pinned jscpd clone delta against `origin/main`: 74 clones / 909 duplicated lines before and
+after, measured at `origin/main` 370e77b (delta 0). Re-measured after the rebase onto `f2e2167` (raw pinned jscpd, same flags, authored `.py` scope): `origin/main` 63 clones / 766 duplicated lines over 256 files; this branch 63 / 766 over 257 files (delta 0). Six test files already above 399 lines grew by 1-12 lines each because annotating the
+awaits and fakes needs real lines (disclosed as a conflict with the no-growth guidance).

@@ -15,7 +15,7 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol, TypeVar, cast
 
 from redis.asyncio import Redis
 
@@ -66,6 +66,15 @@ if TYPE_CHECKING:
     from polymarket_insider_tracker.ingestor.models import TradeEvent
 
 logger = logging.getLogger(__name__)
+
+
+_SignalT = TypeVar("_SignalT", covariant=True)
+
+
+class SignalDetector(Protocol[_SignalT]):
+    """A detector the pipeline can run on a trade (satisfied structurally by the real detectors)."""
+
+    async def analyze(self, trade: TradeEvent) -> _SignalT | None: ...
 
 
 class RedisFactory(Protocol):
@@ -155,8 +164,8 @@ class Pipeline:
         self._clob_client: ClobClient | None = None
         self._metadata_sync: MarketMetadataSync | None = None
         self._wallet_analyzer: WalletAnalyzer | None = None
-        self._fresh_wallet_detector: FreshWalletDetector | None = None
-        self._size_anomaly_detector: SizeAnomalyDetector | None = None
+        self._fresh_wallet_detector: SignalDetector[FreshWalletSignal] | None = None
+        self._size_anomaly_detector: SignalDetector[SizeAnomalySignal] | None = None
         self._risk_scorer: RiskScorer | None = None
         self._alert_formatter: AlertFormatter | None = None
         self._alert_history: AlertHistory | None = None

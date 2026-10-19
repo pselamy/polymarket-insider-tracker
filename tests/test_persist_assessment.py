@@ -125,6 +125,7 @@ class TestPersistAssessment:
         assert row.wallet_address == sample_trade.wallet_address.lower()
         assert row.should_alert is False
         assert float(row.weighted_score) == pytest.approx(0.28, abs=1e-3)
+        assert row.fresh_wallet_confidence is not None
         assert float(row.fresh_wallet_confidence) == pytest.approx(0.7, abs=1e-3)
         assert float(row.threshold_at_eval) == pytest.approx(0.8, abs=1e-3)
         assert channel.deliveries == []

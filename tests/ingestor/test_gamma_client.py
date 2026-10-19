@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
 import httpx
 import pytest
 
-from polymarket_insider_tracker.ingestor import gamma_client as gamma_module
 from polymarket_insider_tracker.ingestor.gamma_client import (
     GammaClient,
     GammaClientError,
@@ -19,7 +19,7 @@ from polymarket_insider_tracker.ingestor.gamma_client import (
 
 class TestParseMarket:
     def test_parses_full_payload(self) -> None:
-        raw = {
+        raw: dict[str, object] = {
             "conditionId": "0xabc",
             "volume24hr": "12345.67",
             "volume1wk": "100000",
@@ -37,7 +37,7 @@ class TestParseMarket:
         assert stats.liquidity == Decimal("42000")
 
     def test_falls_back_to_alternative_keys(self) -> None:
-        raw = {
+        raw: dict[str, object] = {
             "conditionId": "0x1",
             "volume24hr": "1",
             "volume": "777",
@@ -65,7 +65,7 @@ class TestParseMarket:
     def test_rejects_missing_condition_id(self) -> None:
         assert _parse_market({"volume24hr": "1"}) is None
         assert _parse_market({"conditionId": ""}) is None
-        assert _parse_market({"conditionId": 123}) is None  # type: ignore[arg-type]
+        assert _parse_market({"conditionId": 123}) is None
 
 
 def _make_client(
@@ -91,24 +91,26 @@ def _make_client(
     )
 
 
+PatchAsyncClient = Callable[[httpx.MockTransport], None]
+
+
 @pytest.fixture
-def patch_async_client(monkeypatch: pytest.MonkeyPatch):
+def patch_async_client(monkeypatch: pytest.MonkeyPatch) -> PatchAsyncClient:
     """Replace the AsyncClient used by gamma_client with one bound to a MockTransport."""
 
     def _apply(handler: httpx.MockTransport) -> None:
-        original = gamma_module.httpx.AsyncClient
+        original = httpx.AsyncClient
 
-        def factory(*args: object, **kwargs: object) -> httpx.AsyncClient:
-            kwargs["transport"] = handler  # type: ignore[index]
-            return original(*args, **kwargs)  # type: ignore[arg-type]
+        def factory(*, base_url: str, timeout: float, headers: dict[str, str]) -> httpx.AsyncClient:
+            return original(base_url=base_url, timeout=timeout, headers=headers, transport=handler)
 
-        monkeypatch.setattr(gamma_module.httpx, "AsyncClient", factory)
+        monkeypatch.setattr(httpx, "AsyncClient", factory)
 
     return _apply
 
 
 @pytest.mark.asyncio
-async def test_get_active_market_stats_single_page(patch_async_client) -> None:
+async def test_get_active_market_stats_single_page(patch_async_client: PatchAsyncClient) -> None:
     page_one = [
         {"conditionId": "0xa", "volume24hr": "100", "liquidityNum": "10"},
         {"conditionId": "0xb", "volume24hr": "200", "liquidityNum": "20"},
@@ -137,7 +139,9 @@ async def test_get_active_market_stats_single_page(patch_async_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_active_market_stats_short_page_stops(patch_async_client) -> None:
+async def test_get_active_market_stats_short_page_stops(
+    patch_async_client: PatchAsyncClient,
+) -> None:
     """A page shorter than page_limit signals end-of-data after a small empty streak."""
     page_zero = [{"conditionId": f"0x{i}", "volume24hr": str(i)} for i in range(5)]
     page_one_short = [{"conditionId": "0xshort", "volume24hr": "1"}]
@@ -162,7 +166,7 @@ async def test_get_active_market_stats_short_page_stops(patch_async_client) -> N
 
 @pytest.mark.asyncio
 async def test_get_active_market_stats_offset_cap_clean_stop(
-    patch_async_client,
+    patch_async_client: PatchAsyncClient,
 ) -> None:
     """Gamma rejects offsets past its hard cap; that error is swallowed cleanly."""
 
@@ -182,7 +186,7 @@ async def test_get_active_market_stats_offset_cap_clean_stop(
 
 @pytest.mark.asyncio
 async def test_get_with_retry_recovers_after_transient_error(
-    patch_async_client,
+    patch_async_client: PatchAsyncClient,
 ) -> None:
     """Transient HTTP errors retry up to max_retries before giving up."""
     state = {"attempts": 0}
@@ -206,7 +210,7 @@ async def test_get_with_retry_recovers_after_transient_error(
 
 
 @pytest.mark.asyncio
-async def test_unexpected_response_shape_is_handled(patch_async_client) -> None:
+async def test_unexpected_response_shape_is_handled(patch_async_client: PatchAsyncClient) -> None:
     """A non-list payload becomes a clean stop, not a crash."""
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -221,7 +225,7 @@ async def test_unexpected_response_shape_is_handled(patch_async_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_skips_non_dict_entries(patch_async_client) -> None:
+async def test_skips_non_dict_entries(patch_async_client: PatchAsyncClient) -> None:
     """Defensive: server returning mixed-type list items shouldn't crash."""
 
     def handler(request: httpx.Request) -> httpx.Response:

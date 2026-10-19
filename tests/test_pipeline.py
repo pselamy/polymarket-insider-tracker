@@ -8,6 +8,7 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -140,7 +141,9 @@ class TestPipelineInitialization:
         assert settings.detector.alert_threshold == 0.4
         assert settings.detector.persist_assessments is False
 
-    def test_settings_helper_ignores_environment_and_dotenv(self, monkeypatch, tmp_path) -> None:
+    def test_settings_helper_ignores_environment_and_dotenv(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         expected = make_test_settings().model_dump()
         overrides = {
             "DATABASE_URL": "postgresql+psycopg://other:synthetic@untrusted.invalid/db",

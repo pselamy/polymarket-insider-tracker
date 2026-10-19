@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 from fakeredis import FakeAsyncRedis
 
+from polymarket_insider_tracker.ingestor import _publisher_codec as codec
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.publisher import (
     DEFAULT_MAX_LEN,
@@ -13,9 +14,7 @@ from polymarket_insider_tracker.ingestor.publisher import (
     ConsumerGroupExistsError,
     EventPublisher,
     StreamEntry,
-    _deserialize_trade_event,
     _parse_stream_results,
-    _serialize_trade_event,
 )
 
 
@@ -47,7 +46,7 @@ class TestSerializationFunctions:
 
     def test_serialize_trade_event(self, sample_trade_event: TradeEvent) -> None:
         """Test serializing a trade event."""
-        data = _serialize_trade_event(sample_trade_event)
+        data = codec.serialize_trade_event(sample_trade_event)
 
         assert data["market_id"] == "0xmarket123"
         assert data["trade_id"] == "0xtx456"
@@ -64,7 +63,7 @@ class TestSerializationFunctions:
 
     def test_serialize_all_values_are_strings(self, sample_trade_event: TradeEvent) -> None:
         """Test that all serialized values are strings."""
-        data = _serialize_trade_event(sample_trade_event)
+        data = codec.serialize_trade_event(sample_trade_event)
 
         for key, value in data.items():
             assert isinstance(key, str), f"Key {key} is not a string"
@@ -72,8 +71,10 @@ class TestSerializationFunctions:
 
     def test_deserialize_trade_event(self, sample_trade_event: TradeEvent) -> None:
         """Test deserializing a trade event."""
-        data = _serialize_trade_event(sample_trade_event)
-        restored = _deserialize_trade_event(data)
+        data: dict[bytes | str, bytes | str] = dict(
+            codec.serialize_trade_event(sample_trade_event).items()
+        )
+        restored = codec.deserialize_trade_event(data)
 
         assert restored.market_id == sample_trade_event.market_id
         assert restored.trade_id == sample_trade_event.trade_id
@@ -88,18 +89,20 @@ class TestSerializationFunctions:
 
     def test_deserialize_with_bytes_keys(self, sample_trade_event: TradeEvent) -> None:
         """Test deserializing with bytes keys/values (as returned by Redis)."""
-        data = _serialize_trade_event(sample_trade_event)
+        data = codec.serialize_trade_event(sample_trade_event)
         # Convert to bytes like Redis returns
-        bytes_data = {k.encode(): v.encode() for k, v in data.items()}
+        bytes_data: dict[bytes | str, bytes | str] = {
+            k.encode(): v.encode() for k, v in data.items()
+        }
 
-        restored = _deserialize_trade_event(bytes_data)
+        restored = codec.deserialize_trade_event(bytes_data)
 
         assert restored.market_id == sample_trade_event.market_id
         assert restored.side == sample_trade_event.side
 
     def test_deserialize_with_invalid_timestamp(self) -> None:
         """Test deserializing with invalid timestamp falls back to now."""
-        data = {
+        data: dict[bytes | str, bytes | str] = {
             "market_id": "0x123",
             "timestamp": "not-a-timestamp",
             "side": "BUY",
@@ -107,7 +110,7 @@ class TestSerializationFunctions:
             "size": "100",
         }
 
-        event = _deserialize_trade_event(data)
+        event = codec.deserialize_trade_event(data)
 
         assert event.market_id == "0x123"
         # Timestamp should be recent (within last minute)
@@ -115,12 +118,12 @@ class TestSerializationFunctions:
 
     def test_deserialize_with_missing_fields(self) -> None:
         """Test deserializing with missing fields uses defaults."""
-        data = {
+        data: dict[bytes | str, bytes | str] = {
             "market_id": "0x123",
             "side": "SELL",
         }
 
-        event = _deserialize_trade_event(data)
+        event = codec.deserialize_trade_event(data)
 
         assert event.market_id == "0x123"
         assert event.side == "SELL"
@@ -406,7 +409,9 @@ class TestEmptyEntryHandling:
 
     def test_read_events_keeps_entries_with_empty_data(self) -> None:
         """New-entry reads never skip: an empty record still yields a defaulted entry."""
-        results = [("trades", [("1704369600000-0", {})])]
+        results: list[tuple[str, list[tuple[str, dict[str, str]]]]] = [
+            ("trades", [("1704369600000-0", {})])
+        ]
 
         entries = _parse_stream_results(results, context="entry", skip_empty=False)
 
@@ -417,7 +422,7 @@ class TestEmptyEntryHandling:
         self, sample_trade_event: TradeEvent
     ) -> None:
         """A malformed record with no field mapping is dropped without losing its siblings."""
-        serialized = _serialize_trade_event(sample_trade_event)
+        serialized = codec.serialize_trade_event(sample_trade_event)
         results = [("trades", [("1704369600000-0", None), (b"1704369600000-1", serialized)])]
 
         entries = _parse_stream_results(results, context="entry", skip_empty=False)

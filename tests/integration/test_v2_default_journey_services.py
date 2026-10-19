@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Awaitable, Callable
 
 import pytest
 from redis.asyncio import Redis
@@ -35,6 +36,7 @@ from tests.fakes import (
     v2_row,
     wire_pipeline,
 )
+from tests.fakes.redis_await import settled
 from tests.integration._journey_harness import (
     POLL_START,
     JourneyEnvironment,
@@ -71,9 +73,9 @@ def _required_redis_url() -> str:
 
 
 async def _connect_redis(url: str) -> Redis:
-    client = Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
+    client: Redis = Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
     try:
-        assert await client.ping() is True
+        assert await settled(client.ping()) is True
     except BaseException:
         await client.aclose()
         raise
@@ -92,7 +94,7 @@ async def _scan_keys(redis: Redis) -> set[bytes]:
 
 async def _assert_boundary_checkpoint(redis: Redis, coverage: str) -> None:
     """The durable checkpoint is present and decodes under the official namespace."""
-    raw = await redis.hgetall(_boundary_keys(coverage)[0])
+    raw = await settled(redis.hgetall(_boundary_keys(coverage)[0]))
     assert raw, "the observation boundary checkpoint was not written to real Redis"
     assert Checkpoint.from_mapping(raw).coverage == coverage
 
@@ -167,7 +169,7 @@ async def _wired_pipeline(
     )
 
 
-async def _run_until_stopped(pipeline: Pipeline, action) -> None:
+async def _run_until_stopped(pipeline: Pipeline, action: Callable[[], Awaitable[None]]) -> None:
     """Start the pipeline, run ``action``, and always stop the background services."""
     try:
         await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)

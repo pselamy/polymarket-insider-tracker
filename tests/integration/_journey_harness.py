@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from fakeredis import FakeAsyncRedis
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 from tests.fakes import (
@@ -48,7 +48,7 @@ class JourneyEnvironment:
     """The standard per-test journey fixtures, bound once."""
 
     health_port: int
-    redis: FakeAsyncRedis
+    redis: Redis
     db_manager: DatabaseManager
     engine: AsyncEngine
 
@@ -133,7 +133,7 @@ async def persisted_assessments(engine: AsyncEngine) -> list[RiskAssessmentModel
 async def wire_journey_pipeline(
     settings: Settings,
     *,
-    redis: FakeAsyncRedis,
+    redis: Redis,
     market: MarketMetadata,
     db_manager: DatabaseManager,
     channels: Sequence[AlertChannel],

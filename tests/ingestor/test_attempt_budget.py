@@ -11,6 +11,7 @@ wired into the HTTP client, retries, or poller in this card.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 
 import pytest
 
@@ -61,8 +62,9 @@ class TestInvalidParameters:
         ],
     )
     def test_invalid_parameters_rejected(self, max_attempts: object, window_seconds: float) -> None:
+        build: Callable[..., AttemptBudget] = AttemptBudget  # deliberately ill-typed input
         with pytest.raises(ValueError):
-            AttemptBudget(max_attempts=max_attempts, window_seconds=window_seconds)
+            build(max_attempts=max_attempts, window_seconds=window_seconds)
 
 
 class TestRollingWindow:

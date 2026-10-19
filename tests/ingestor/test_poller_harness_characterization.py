@@ -8,21 +8,27 @@ to integer epoch seconds.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 
-from tests.ingestor.test_endpoint_switch_resume import RecordingTradeCallback
-
-
-@dataclass
-class _StubTrade:
-    """The only surface ``timestamps`` touches; avoids duplicating a TradeEvent literal."""
-
-    timestamp: datetime
+from polymarket_insider_tracker.ingestor.models import TradeEvent
+from tests.ingestor._poller_harness import RecordingTradeCallback
 
 
-def _at(epoch: float) -> _StubTrade:
-    return _StubTrade(timestamp=datetime.fromtimestamp(epoch, UTC))
+def _at(epoch: float) -> TradeEvent:
+    """A minimal real trade; only its timestamp matters to the callback under test."""
+    return TradeEvent(
+        market_id="market",
+        trade_id="trade",
+        wallet_address="0x" + "0" * 40,
+        side="BUY",
+        outcome="Yes",
+        outcome_index=0,
+        price=Decimal("0.5"),
+        size=Decimal("1"),
+        timestamp=datetime.fromtimestamp(epoch, UTC),
+        asset_id="asset",
+    )
 
 
 async def test_recording_trade_callback_keeps_deliveries_in_order() -> None:

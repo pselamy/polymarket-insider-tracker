@@ -9,12 +9,11 @@ import json
 import logging
 import time
 import warnings
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
-from websockets.asyncio.client import ClientConnection
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
@@ -62,6 +61,16 @@ TradeCallback = Callable[[TradeEvent], Awaitable[None]]
 StateCallback = Callable[[ConnectionState], Awaitable[None]]
 
 
+class StreamConnection(Protocol):
+    """The slice of a WebSocket connection the handler uses (satisfied by websockets' client)."""
+
+    async def send(self, message: str) -> None: ...
+
+    async def close(self) -> None: ...
+
+    def __aiter__(self) -> AsyncIterator[Any]: ...
+
+
 class TradeStreamHandler:
     """WebSocket client for streaming Polymarket trade events.
 
@@ -88,8 +97,8 @@ class TradeStreamHandler:
         host: str = DEFAULT_WS_HOST,
         on_state_change: StateCallback | None = None,
         ping_interval: int = DEFAULT_PING_INTERVAL,
-        max_reconnect_delay: int = DEFAULT_MAX_RECONNECT_DELAY,
-        initial_reconnect_delay: int = DEFAULT_INITIAL_RECONNECT_DELAY,
+        max_reconnect_delay: float = DEFAULT_MAX_RECONNECT_DELAY,
+        initial_reconnect_delay: float = DEFAULT_INITIAL_RECONNECT_DELAY,
         event_filter: str | None = None,
         market_filter: str | None = None,
     ) -> None:
@@ -121,7 +130,7 @@ class TradeStreamHandler:
 
         self._state = ConnectionState.DISCONNECTED
         self._stats = StreamStats()
-        self._ws: ClientConnection | None = None
+        self._ws: StreamConnection | None = None
         self._running = False
         self._stop_event: asyncio.Event | None = None
 
@@ -167,7 +176,7 @@ class TradeStreamHandler:
 
         return {"action": "subscribe", "subscriptions": [subscription]}
 
-    async def _connect(self) -> ClientConnection:
+    async def _connect(self) -> StreamConnection:
         """Establish WebSocket connection."""
         await self._set_state(ConnectionState.CONNECTING)
 
@@ -235,7 +244,7 @@ class TradeStreamHandler:
         else:
             logger.debug("Received binary message (%d bytes)", len(message))
 
-    async def _listen(self, ws: ClientConnection) -> None:
+    async def _listen(self, ws: StreamConnection) -> None:
         """Listen for messages on the WebSocket."""
         try:
             async for message in ws:
