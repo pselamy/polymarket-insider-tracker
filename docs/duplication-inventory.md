@@ -19,8 +19,10 @@ tokenized after skipping ones smaller than the clone minimums). The
 cluster-28 resolution recorded at the end of this document was measured on a
 tree that did not yet contain cluster 25 (85 -> **84 groups, 1080 -> 1071
 duplicated lines, 1.80% -> 1.78%**, 282 -> 284 authored files, the two additions
-being `scripts/_entry_bootstrap.py` and its characterization test); its
-re-measurement on top of cluster 25 is recorded in that section. The
+being `scripts/_entry_bootstrap.py` and its characterization test); on
+top of cluster 25 the rebased tree measures **87 groups, 1107 duplicated lines,
+1.83%** over 285 authored files (252 sources tokenized), recorded in that
+section. The
 pre-resolution tree at cluster 22's parent
 `bfc1a10` measured **86 groups, 1092 duplicated lines, 1.83%** over 280 files with
 the identical enumeration. For comparison, `origin/main` at `cdaf230` (after #152
@@ -467,6 +469,12 @@ size hook not applied) and staging with `quality.duplication_inputs.stage_inputs
   `scripts/_entry_bootstrap.py` and
   `tests/tooling/test_entry_bootstrap_characterization.py`): **84 clone groups,
   1071 duplicated lines, 1.78%**.
+
+Rebased onto main after #157 (cluster 25, 283 files: 88 groups, 1116 lines,
+1.85%), the identical method measures **87 clone groups, 1107 duplicated lines,
+1.83%** over 285 authored files (252 sources tokenized, 0 clone groups touching
+`scripts/_entry_bootstrap.py`, `scripts/runtime_services.py` or
+`scripts/verify.py`): −1 group and −9 lines, exactly the cluster-28 clone.
 
 Set-difference of the raw clone lists: exactly the cluster-28 clone
 (`scripts/runtime_services.py:46-54 <-> scripts/verify.py:27-35`, 69 tokens / 9
