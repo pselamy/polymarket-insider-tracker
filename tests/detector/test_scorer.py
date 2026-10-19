@@ -1,6 +1,7 @@
 """Tests for composite risk scorer."""
 
 import json
+from collections.abc import MutableMapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -630,8 +631,8 @@ class TestScoringIdentityAndCompatibility:
     stays functional for one deprecation window (Patrick's 2026-09-11 decision)."""
 
     def test_default_weights_are_immutable(self) -> None:
-        with pytest.raises(TypeError):
-            DEFAULT_WEIGHTS["fresh_wallet"] = 0.99  # type: ignore[index]
+        assert not isinstance(DEFAULT_WEIGHTS, MutableMapping)
+        assert not hasattr(DEFAULT_WEIGHTS, "__setitem__")
 
     def test_get_weights_returns_defensive_copy(self, fake_redis: FakeAsyncRedis) -> None:
         scorer = RiskScorer(fake_redis)

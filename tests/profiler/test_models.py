@@ -65,7 +65,7 @@ class TestTransaction:
     def test_transaction_frozen(self, sample_transaction: Transaction) -> None:
         """Test that transaction is immutable."""
         with pytest.raises(AttributeError):
-            sample_transaction.hash = "0xnew"  # type: ignore[misc]
+            sample_transaction.__setattr__("hash", "0xnew")
 
     def test_transaction_no_recipient(self) -> None:
         """Test transaction with no recipient (contract creation)."""
@@ -171,7 +171,7 @@ class TestWalletInfo:
     def test_wallet_frozen(self, sample_wallet: WalletInfo) -> None:
         """Test that wallet info is immutable."""
         with pytest.raises(AttributeError):
-            sample_wallet.address = "0xnew"  # type: ignore[misc]
+            sample_wallet.__setattr__("address", "0xnew")
 
     def test_wallet_zero_balance(self) -> None:
         """Test wallet with zero balance."""
@@ -405,7 +405,7 @@ class TestWalletProfile:
     def test_profile_frozen(self, fresh_profile: WalletProfile) -> None:
         """Test that wallet profile is immutable."""
         with pytest.raises(AttributeError):
-            fresh_profile.nonce = 100  # type: ignore[misc]
+            fresh_profile.__setattr__("nonce", 100)
 
     def test_analyzed_at_default(self) -> None:
         """Test that analyzed_at has a default."""

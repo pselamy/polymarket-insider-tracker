@@ -353,7 +353,7 @@ Per-directory strict mypy measured from `origin/main` at `a8d58c6` (Python 3.11 
 | root `tests/test_*.py` | 58 | 4 | unenrolled |
 | `tests/tooling` | 119 | 6 | unenrolled |
 
-Cleaned and enrolled: 157 errors, with no new suppressions, casts, ignores or relaxed flags. Four pre-existing `# type: ignore[index|misc]` comments remain in the newly enrolled roots (`tests/detector/test_scorer.py:634`, `tests/profiler/test_models.py:68,174,408`); each guards a frozen-object/read-only-mapping mutation test, and every typed alternative (`setattr`, `object.__setattr__`) is a forbidden escape, so they are disclosed rather than removed. The `src/` touches
+Cleaned and enrolled: 157 errors, with no new suppressions, casts, ignores or relaxed flags. No `type: ignore` remains in the newly enrolled roots: the frozen-object mutation tests call `__setattr__` inside `pytest.raises(AttributeError)`, and the read-only-weights test asserts `DEFAULT_WEIGHTS` is not a `MutableMapping` and has no `__setitem__`. The `src/` touches
 are annotation-only structural Protocols so the existing fakes satisfy real types:
 `profiler.analyzer.WalletChainReader` (`WalletAnalyzer`'s client), `detector.fresh_wallet.WalletProfiler`
 and `detector.size_anomaly.MarketMetadataSource`; `PolygonClient`, `WalletAnalyzer` and
