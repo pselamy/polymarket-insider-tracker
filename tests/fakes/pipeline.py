@@ -42,7 +42,10 @@ from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.fakes.clob import FakeBaseClobClient
 from tests.fakes.gamma import FakeGammaClient
 from tests.fakes.trades import FakeClock, FakeTradesServer
+from tests.fakes.trades_v2 import FakeV2TradesServer
 from tests.fakes.web3 import FakeAsyncWeb3, FakeEth
+
+TradesServer = FakeTradesServer | FakeV2TradesServer
 
 
 def make_test_settings(
@@ -113,7 +116,7 @@ async def wire_pipeline(
     market: MarketMetadata | None = None,
     db_manager: DatabaseManager | None = None,
     channels: Sequence[AlertChannel] = (),
-    trades: FakeTradesServer | None = None,
+    trades: TradesServer | None = None,
     poll_clock: FakeClock | None = None,
     crawl_gate: threading.Event | None = None,
     state_log: list[str] | None = None,
@@ -183,7 +186,7 @@ async def wire_pipeline(
 def _wire_poller(
     pipeline: Pipeline,
     redis: FakeAsyncRedis,
-    trades: FakeTradesServer,
+    trades: TradesServer,
     poll_clock: FakeClock | None,
     log: list[str],
 ) -> TradePoller:
