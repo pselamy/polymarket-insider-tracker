@@ -5,8 +5,15 @@ so that knowledge lives here exactly once: a sliding one-minute send window
 that holds each channel's own request history, and the exponential backoff
 slept between retry attempts. The channels keep their genuinely different
 protocol handling (success criterion, retry-after shape, rejection labels,
-credential components) in their own modules and only the channel name used
-in the rate-limit log line is supplied per channel.
+        credential components) in their own modules and only the channel name used
+        in the rate-limit log line is supplied per channel.
+
+        The backoff here is deliberately separate from
+        ``ingestor/_retry.retry_delay_seconds``: that policy is full-jitter
+        exponential backoff capped at 30s plus a capped Retry-After term for the
+        acquisition clients, while delivery retries need the deterministic
+        ``retry_delay * 2**attempt`` delay with no jitter, cap or Retry-After
+        term; reusing it would change channel timing behaviour.
 """
 
 from __future__ import annotations
