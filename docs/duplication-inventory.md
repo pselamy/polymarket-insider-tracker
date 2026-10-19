@@ -11,15 +11,16 @@ and `tests/tooling/test_url_redaction.py`. Vendored `SCAN_POLICY` at the
 --threshold 0 --no-gitignore --workers 1`, empty config, no ignore lists, no
 exclusions.
 
-Totals: **99 clone groups, 1271 duplicated lines, 2.18% duplication** (the
-scanner's own statistics report 235 sources: files it actually tokenized after
-skipping ones smaller than the clone minimums).
+Totals after the cluster "introduced by #151" card (resolution below):
+**90 clone groups, 1142 duplicated lines, 1.95% duplication** over **273
+authored Python files** (the scanner's own statistics report 240 sources: files
+it actually tokenized after skipping ones smaller than the clone minimums).
 
 The first measurement recorded here (92 groups, 1230 lines, 2.16% over 258
 files) predated the v1->v2 endpoint merges now on main, so a fresh baseline was
-taken on this card's parent commit `233c24f`: **101 groups, 1347 lines, 2.31%
+taken on cluster 5's parent commit `233c24f`: **101 groups, 1347 lines, 2.31%
 over 266 files**. Cluster 5 then removed exactly its two clones and introduced
-none, giving the 99 groups above.
+none, giving the 99 groups recorded below.
 
 ### Cluster 5 resolution (2026-10-19)
 
@@ -33,6 +34,47 @@ and is a different, broader policy (path masking, query-key preservation,
 lone-userinfo masking), so it was not adopted. Before/after on the same tree:
 101 -> 99 clone groups, 1347 -> 1271 duplicated lines; the only differences are
 the two removed cluster-5 clones. Resolved by PR #153.
+
+### Cluster "introduced by #151" resolution (2026-10-19)
+
+PR #151 (bounded v2 cursor acquisition wired into the poller) introduced exactly
+**8 clone groups**, all test-side (its production modules `acquisition.py`,
+`_http_attempt.py`, `page_analysis.py`, `_cycle_cutoff.py` and
+`test_v2_acquisition.py` introduce none; #151's refactor actually removed
+duplication in `trades_source.py`). The groups were pinned by scanning
+`fcc9cc3` (main before #151: 92 groups) and `233c24f` (main after #151: 101
+groups) and diffing the group sets; the only other difference was a pure rename
+of the Alembic revisions. The eight:
+
+| tokens | lines | A | B |
+| --- | --- | --- | --- |
+| 150 | 24 | tests/fakes/trades.py | tests/fakes/trades_v2.py |
+| 103 | 21 | tests/integration/test_end_to_end.py | tests/integration/test_v2_journey.py |
+| 96 | 18 | tests/integration/test_end_to_end.py | tests/integration/test_v2_journey.py |
+| 73 | 8 | tests/ingestor/test_endpoint_switch_resume.py | tests/ingestor/test_v2_poller.py |
+| 64 | 16 | tests/integration/test_end_to_end.py | tests/integration/test_v2_journey.py |
+| 59 | 10 | tests/integration/test_end_to_end.py | tests/integration/test_v2_journey.py |
+| 57 | 6 | tests/integration/test_end_to_end.py | tests/integration/test_v2_journey.py |
+| 53 | 7 | tests/integration/test_end_to_end.py | tests/integration/test_v2_journey.py |
+
+They are three families of duplicated knowledge with a single home each now:
+request recording in `tests/fakes/trades.py` (`recorded_request`, `ProviderHttp`)
+shared by both provider fakes; `RecordingTradeCallback` and the poller wiring
+recipe in `tests/ingestor/_poller_harness.py`; and the journey harness —
+fixtures/factories re-exported through `tests/integration/conftest.py`, the
+existing `test_end_to_end` helpers imported by `test_v2_journey`, and the new
+`tests/integration/_journey_harness.py` (`wire_journey_pipeline`,
+`running_pipeline`, `dry_run_assessment`). Behaviour is identical; every existing
+test passes unchanged and the US-001 characterization tests still pass. Before
+and after on the same tree: **99 -> 90 clone groups, 1271 -> 1142 duplicated
+lines, 2.17% -> 1.95%**; no new clone group (file pair) was introduced, and the
+only removed pairs are the three cluster pairs plus one pre-existing
+`test_end_to_end` self-scaffold clone that disappeared once the dry-run journey
+reused `wire_journey_pipeline`. The scope gained five authored files
+(`tests/integration/conftest.py`, `tests/integration/_journey_harness.py`,
+`tests/ingestor/_poller_harness.py`, `tests/integration/test_journey_fakes_contract.py`,
+`tests/ingestor/test_poller_harness_characterization.py`), so the authored file
+count is now 273. Resolved by the `ralph/dedup-v2-wiring` PR.
 
 Reproduce: enumerate the authored scope, stage it, then call the vendored
 `quality.duplication.scan(root, config, staged, output, minimum=50, deadline)`
@@ -93,11 +135,9 @@ Real knowledge dominates: most clusters are duplicated maintenance surfaces —
 fixture blocks, wiring scaffolds, parallel Discord/Telegram knowledge, and
 Redis CAS logic. The three incidental clusters are convention-mandated
 scaffolding (Alembic revisions, SQLAlchemy column defaults) and parallel API
-docstrings. The cluster table above is the original knowledge grouping with
-cluster 5 now resolved; its Clones column therefore sums to 90 of the current
-99 groups — the remaining 9 are v1->v2 endpoint-test clones merged to main
-after that grouping and appear only in the per-clone list below, which is
-regenerated from the current pinned scan.
+docstrings. The cluster table above is the original knowledge grouping; with
+cluster 5 and the "introduced by #151" cluster now resolved, the current total is
+the 90 groups regenerated in the per-clone list below from the pinned scan.
 
 ## Every clone (scanner output, ordered by tokens)
 
@@ -107,23 +147,19 @@ regenerated from the current pinned scan.
 | tok | ln | A | B |
 | --- | --- | --- | --- |
 | 197 | 38 | src/.../detector/models.py:38-75 | src/.../detector/models.py:109-146 |
-| 150 | 24 | tests/fakes/trades.py:209-232 | tests/fakes/trades_v2.py:56-79 |
 | 131 | 34 | tests/alerter/test_history.py:24-57 | tests/detector/test_scorer.py:28-61 |
 | 120 | 20 | tests/test_redaction.py:1787-1806 | tests/test_redaction.py:1845-1864 |
 | 118 | 31 | tests/alerter/test_formatter.py:75-105 | tests/detector/test_scorer.py:74-104 |
 | 110 | 18 | src/.../alerter/channels/discord.py:76-93 | src/.../alerter/channels/telegram.py:96-113 |
-| 103 | 21 | tests/integration/test_end_to_end.py:59-79 | tests/integration/test_v2_journey.py:39-59 |
 | 102 | 20 | tests/ingestor/test_publisher.py:23-42 | tests/ingestor/test_publisher_codec.py:50-69 |
 | 96 | 20 | tests/detector/test_sniper.py:278-297 | tests/detector/test_sniper.py:314-333 |
-| 96 | 18 | tests/integration/test_end_to_end.py:90-107 | tests/integration/test_v2_journey.py:78-95 |
 | 88 | 17 | tests/test_terminal_error_durable.py:84-100 | tests/test_terminal_error_durable.py:153-169 |
-| 87 | 19 | tests/integration/test_end_to_end.py:175-193 | tests/integration/test_end_to_end.py:268-286 |
 | 84 | 24 | tests/alerter/test_formatter.py:20-43 | tests/alerter/test_history.py:16-39 |
 | 84 | 10 | tests/test_redaction.py:1152-1161 | tests/test_redaction.py:1915-1924 |
 | 82 | 18 | tests/ingestor/test_trade_poller.py:288-305 | tests/ingestor/test_trade_poller.py:843-860 |
-| 81 | 15 | tests/integration/test_end_to_end.py:60-74 | tests/integration/test_postgres_journey.py:147-161 |
+| 81 | 15 | tests/integration/test_end_to_end.py:66-80 | tests/integration/test_postgres_journey.py:147-161 |
 | 80 | 12 | src/.../alerter/channels/discord.py:157-168 | src/.../alerter/channels/telegram.py:181-192 |
-| 80 | 18 | tests/integration/test_end_to_end.py:61-78 | tests/test_pipeline.py:53-70 |
+| 80 | 18 | tests/integration/test_end_to_end.py:67-84 | tests/test_pipeline.py:53-70 |
 | 80 | 19 | tests/profiler/test_funding.py:37-55 | tests/profiler/test_funding_rpc.py:48-66 |
 | 78 | 9 | tests/ingestor/test_trade_poller.py:306-314 | tests/ingestor/test_trade_poller.py:862-867 |
 | 77 | 17 | tests/profiler/test_analyzer.py:336-352 | tests/profiler/test_analyzer.py:382-398 |
@@ -134,44 +170,40 @@ regenerated from the current pinned scan.
 | 74 | 12 | tests/test_main.py:304-315 | tests/test_main.py:362-373 |
 | 73 | 10 | src/.../alerter/_channel_delivery.py:100-109 | src/.../alerter/_channel_delivery.py:132-141 |
 | 73 | 14 | tests/alerter/test_dispatcher.py:421-434 | tests/alerter/test_dispatcher.py:545-559 |
-| 73 | 8 | tests/ingestor/test_endpoint_switch_resume.py:37-44 | tests/ingestor/test_v2_poller.py:40-47 |
 | 72 | 13 | tests/alerter/test_dispatcher.py:403-415 | tests/alerter/test_dispatcher.py:523-535 |
 | 71 | 21 | tests/alerter/test_formatter.py:23-43 | tests/detector/test_scorer.py:23-43 |
 | 70 | 11 | tests/integration/test_redis_contract.py:481-491 | tests/integration/test_redis_contract.py:526-536 |
 | 69 | 9 | scripts/runtime_services.py:46-54 | scripts/verify.py:27-35 |
 | 69 | 11 | tests/ingestor/test_health_server.py:104-114 | tests/ingestor/test_health_server.py:140-150 |
-| 69 | 15 | tests/integration/test_end_to_end.py:46-60 | tests/test_pipeline.py:82-96 |
+| 69 | 15 | tests/integration/test_end_to_end.py:52-66 | tests/test_pipeline.py:82-96 |
 | 68 | 14 | src/.../alerter/channels/discord.py:93-106 | src/.../alerter/channels/telegram.py:113-126 |
 | 68 | 12 | tests/alerter/test_formatter.py:502-513 | tests/alerter/test_formatter.py:680-691 |
 | 68 | 14 | tests/test_terminal_error_durable.py:36-49 | tests/test_terminal_error_durable.py:81-94 |
 | 67 | 14 | src/.../detector/models.py:57-70 | src/.../detector/models.py:182-195 |
-| 67 | 8 | tests/ingestor/test_endpoint_switch_resume.py:89-96 | tests/ingestor/test_endpoint_switch_resume.py:120-127 |
+| 67 | 8 | tests/ingestor/test_endpoint_switch_resume.py:60-67 | tests/ingestor/test_endpoint_switch_resume.py:91-98 |
 | 67 | 11 | tests/ingestor/test_health_server.py:65-75 | tests/ingestor/test_health_server.py:276-286 |
 | 67 | 10 | tests/test_main.py:305-314 | tests/test_main.py:572-581 |
 | 66 | 15 | tests/ingestor/test_trade_row_v2.py:50-64 | tests/ingestor/test_trade_rows.py:37-51 |
 | 65 | 8 | tests/tooling/test_service_entrypoint.py:148-155 | tests/tooling/test_service_entrypoint.py:176-183 |
 | 64 | 13 | tests/ingestor/test_trade_poller.py:521-533 | tests/ingestor/test_trade_poller.py:583-595 |
-| 64 | 16 | tests/integration/test_end_to_end.py:177-192 | tests/integration/test_v2_journey.py:128-142 |
 | 64 | 17 | tests/test_redaction.py:2024-2040 | tests/test_redaction.py:2077-2093 |
 | 62 | 12 | tests/ingestor/test_trade_poller.py:233-244 | tests/ingestor/test_trade_poller.py:261-272 |
-| 62 | 16 | tests/integration/test_end_to_end.py:63-78 | tests/test_pipeline_persistence.py:47-62 |
+| 62 | 16 | tests/integration/test_end_to_end.py:69-84 | tests/test_pipeline_persistence.py:47-62 |
 | 62 | 12 | tests/test_terminal_error_durable.py:38-49 | tests/test_terminal_error_durable.py:152-163 |
 | 61 | 6 | src/.../storage/models.py:51-56 | src/.../storage/models.py:212-217 |
-| 61 | 11 | tests/integration/test_end_to_end.py:345-355 | tests/test_pipeline.py:619-628 |
-| 61 | 7 | tests/integration/test_end_to_end.py:88-94 | tests/test_pipeline.py:536-542 |
+| 61 | 11 | tests/integration/test_end_to_end.py:342-352 | tests/test_pipeline.py:619-628 |
+| 61 | 7 | tests/integration/test_end_to_end.py:94-100 | tests/test_pipeline.py:536-542 |
 | 61 | 13 | tests/profiler/test_funding.py:60-72 | tests/profiler/test_funding_rpc.py:70-82 |
 | 61 | 13 | tests/profiler/test_models.py:204-216 | tests/profiler/test_models.py:229-241 |
 | 60 | 10 | tests/ingestor/test_models.py:218-227 | tests/ingestor/test_models.py:242-251 |
 | 60 | 15 | tests/test_redaction.py:2257-2271 | tests/test_redaction.py:2374-2388 |
 | 59 | 17 | tests/alerter/test_formatter.py:92-108 | tests/detector/test_scorer.py:91-107 |
 | 59 | 11 | tests/ingestor/test_health_server.py:54-64 | tests/ingestor/test_health_server.py:93-103 |
-| 59 | 10 | tests/integration/test_end_to_end.py:107-116 | tests/integration/test_v2_journey.py:95-104 |
 | 58 | 6 | tests/ingestor/test_gamma_client.py:167-172 | tests/ingestor/test_gamma_client.py:225-233 |
 | 57 | 12 | tests/detector/test_scorer.py:620-631 | tests/detector/test_size_anomaly.py:858-869 |
 | 57 | 6 | tests/ingestor/test_trade_poller.py:912-917 | tests/ingestor/test_trade_poller.py:977-981 |
 | 57 | 10 | tests/ingestor/test_trade_row_v2_properties.py:95-104 | tests/ingestor/test_trade_row_v2_properties.py:114-123 |
-| 57 | 6 | tests/integration/test_end_to_end.py:79-84 | tests/integration/test_v2_journey.py:101-106 |
-| 57 | 6 | tests/integration/test_end_to_end.py:79-84 | tests/test_pipeline.py:104-109 |
+| 57 | 6 | tests/integration/test_end_to_end.py:85-90 | tests/test_pipeline.py:104-109 |
 | 57 | 13 | tests/test_redaction.py:1547-1559 | tests/test_redaction.py:1886-1897 |
 | 56 | 9 | tests/ingestor/test_publisher.py:247-255 | tests/ingestor/test_publisher.py:272-280 |
 | 55 | 12 | src/.../detector/fresh_wallet.py:223-234 | src/.../detector/size_anomaly.py:386-397 |
@@ -180,8 +212,7 @@ regenerated from the current pinned scan.
 | 55 | 10 | tests/alerter/test_dispatcher.py:888-897 | tests/alerter/test_dispatcher.py:915-925 |
 | 55 | 17 | tests/alerter/test_formatter.py:88-104 | tests/alerter/test_history.py:83-99 |
 | 55 | 9 | tests/tooling/test_service_entrypoint.py:14-22 | tests/tooling/test_verifier_standalone.py:43-51 |
-| 53 | 7 | tests/ingestor/test_endpoint_switch_resume.py:100-106 | tests/ingestor/test_endpoint_switch_resume.py:127-133 |
-| 53 | 7 | tests/integration/test_end_to_end.py:236-242 | tests/integration/test_v2_journey.py:160-166 |
+| 53 | 7 | tests/ingestor/test_endpoint_switch_resume.py:71-77 | tests/ingestor/test_endpoint_switch_resume.py:98-104 |
 | 53 | 10 | tests/profiler/test_models.py:205-214 | tests/profiler/test_models.py:215-224 |
 | 53 | 10 | tests/profiler/test_models.py:205-214 | tests/profiler/test_models.py:255-264 |
 | 53 | 16 | tests/test_persist_assessment.py:4-19 | tests/test_pipeline_persistence.py:5-20 |
@@ -202,8 +233,8 @@ regenerated from the current pinned scan.
 | 50 | 15 | tests/alerter/test_formatter.py:74-88 | tests/alerter/test_history.py:69-83 |
 | 50 | 7 | tests/alerter/test_history.py:549-555 | tests/alerter/test_history.py:567-573 |
 | 50 | 8 | tests/ingestor/_v2_walk_harness.py:52-59 | tests/ingestor/test_v2_cursor_walk.py:301-308 |
-| 50 | 9 | tests/integration/test_end_to_end.py:185-193 | tests/integration/test_postgres_journey.py:238-246 |
-| 50 | 9 | tests/integration/test_end_to_end.py:347-355 | tests/test_pipeline.py:578-585 |
+| 50 | 9 | tests/integration/test_end_to_end.py:275-283 | tests/integration/test_postgres_journey.py:238-246 |
+| 50 | 9 | tests/integration/test_end_to_end.py:344-352 | tests/test_pipeline.py:578-585 |
 | 50 | 6 | tests/test_persist_assessment.py:96-101 | tests/test_pipeline.py:107-112 |
 
 inventory only; the cluster-5 resolution above is the only product change
@@ -259,3 +290,8 @@ method:
 
 Set-difference against the rebased main scan: exactly the three cluster-9
 clones disappeared and **no new clone group appeared anywhere**.
+`src/...` abbreviates `src/polymarket_insider_tracker`. This document is
+inventory only; the cluster-5, cluster-9, and "introduced by #151" resolutions
+above are the only product changes reflected here. Deduplication decisions for
+the remaining clusters belong to later, separately authorized cards.
+
