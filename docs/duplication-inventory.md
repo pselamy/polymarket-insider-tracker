@@ -690,11 +690,10 @@ Measured with the pinned jscpd 5.3.3 through the vendored
 `quality.duplication.scan(..., minimum=50)` over `quality.source_scope.discover`
 (the size check is skipped because `scripts/traceability.py` already exceeds 399
 lines), on identical enumeration at both ends. Baseline is `origin/main` at
-`1bdccbc` (after #161 and #162, so it differs from the older receipts above):
-**84 groups, 1031 duplicated lines, 1.69%**, 257 sources tokenized, 293 discovered
-files. This card's head: **82 groups, 980 duplicated lines, 1.60%**, 258 sources,
-294 discovered files. No new group appeared: matched by token count, line count
-and file pair, every head group exists at the baseline (only line offsets moved).
+`370e77b` (after #163): **74 groups, 909 duplicated lines, 1.49%**, 258 sources
+tokenized. This card rebased onto it: **72 groups, 858 duplicated lines, 1.40%**,
+259 sources. No new group appeared: matched by token count, line count and file
+pair, the only differences are the two removed groups below.
 
 Removed groups: the identical `sample_trade`/`sample_wallet_profile` pair that
 `test_history.py` and `test_scorer.py` each carried (153 tokens, 39 lines) now has
