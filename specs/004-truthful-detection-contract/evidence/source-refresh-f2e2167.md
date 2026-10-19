@@ -31,6 +31,16 @@ comparison, serialized key or runtime behavior changed. Consequences:
 - The immutable "Line pins refreshed" table above describes `f2e2167` and is not rewritten.
 - `reachability`, `replay_live`, `check_envelope` re-run unchanged.
 
+## Fourth refresh: 112a733 → 0ddee0b (2026-10-20, review round 3)
+
+`git diff 112a733 0ddee0b -- src` touches `pipeline.py` (the trade callback `Pipeline._on_trade` is
+renamed `Pipeline.process_trade`, `pipeline.py:431,581`; no line count changes) and
+`storage/database.py` (a new helper outside the scored path). No weight, constant, threshold,
+comparison, serialized key or scoring behavior changed, and no line pin cited by this slice moved.
+`evidence/source-hashes.json` is regenerated for `pipeline.py` (`base_commit` 0ddee0b);
+`check_source_hashes` exits 0. No 004 artifact referred to `_on_trade`. `replay/summary.json` stays
+the immutable receipt.
+
 ## Hash comparison
 
 Command (stdlib only, no `src/` import; exit 1 when any recorded hash drifts):

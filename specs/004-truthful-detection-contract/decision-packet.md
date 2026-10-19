@@ -104,8 +104,9 @@ replay (45 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); po
 | **R5** defer an alert-capable release: ship 004 as **assessment-only** | assessments are recorded and inspectable; README, configuration summary and FR-022a state that no alert can be produced in this release | same until a qualified evidence class can reach the threshold under a later approved spec | truthful about what ships; no deliverable alerts, stated as such rather than discovered |
 
 **Recommended default: R5, an assessment-only release** (configuration as in R0, threshold 0.80
-retained and recorded), together with FR-022a/T029 so startup and the operator status surface report
-`default alert path unreachable`. It adds no unvalidated claim and does not describe an alert path that
+retained and recorded), together with FR-022a/T029 so the startup log, the `Alert Path:` configuration-summary line and the
+`/health` `alert_path` field report `default alert path unreachable` (evaluated over the classes the
+configured live sources can produce, so it fires on the shipped configuration). It adds no unvalidated claim and does not describe an alert path that
 cannot fire. You should decide knowingly that the default configuration produces no deliverable alert
 in this slice.
 

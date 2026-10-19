@@ -198,10 +198,39 @@ persisted assessment fields, sample output, README, example environment, and the
   ceilings from the real scorer so that a weight, cap, bonus or threshold change cannot silently change
   what is reachable. In the default pre-T027 posture the ceiling is **0.450** for every evidence class
   (size group only, no bonus); in the post-T027 posture with unknown age it is 0.780 for every trade size.
-- **FR-022a** *(runtime visibility)*: Whenever the effective configuration makes the alert threshold
-  unreachable by every evidence class, startup logging and the operator status surface MUST report
-  `default alert path unreachable` with the configured threshold and the highest reachable ceiling, so a
-  silent-by-construction monitor is never mistaken for a quiet market. (T029)
+- **FR-022a** *(runtime visibility)*: The trigger is evaluated over the evidence classes the **configured
+  live sources can produce**, not over every class the scoring rules define. Those classes follow from a
+  declared, typed *live evidence capability* value built from code constants and effective settings:
+  (1) `wallet_group_status` (`unqualified_pre_T027` | `qualified`), the same value the 004.1 envelope
+  writes as `wallet.group_status`; it is a code constant changed only by the reviewed change citing the
+  T027 receipt (FR-007c), never an environment variable; (2) `wallet_age_source` (`none` | the source
+  chosen in DECISION D1a), `none` on main because no live source produces a known first-seen time; it is
+  likewise a code constant set by the change that makes an age source operational; (3) book depth
+  `non_operational` (FR-006); market volume available or unavailable and every trade size are always
+  treated as producible. The producible wallet classes are: "any, non-scoring" when the group is
+  `unqualified_pre_T027`; "unknown age" when `qualified` with age source `none`; "unknown age" and the
+  known-age classes when `qualified` with an operational age source. The runtime ceiling is the maximum,
+  over the producible classes, of each class's best-case score computed by the real scorer combination
+  (weights, bonus, 0.001 quantization) from the detector caps. It is one shared function, which the
+  T028 regression test also uses to regenerate `evidence/reachability.md`; the runtime never reads a test
+  table. The path is `unreachable` when that ceiling is below the quantized `DETECTOR_ALERT_THRESHOLD`,
+  using the scorer's own `>=` comparison (`detector/scorer.py:120`). Defaults: pre-T027 ceiling 0.450;
+  post-T027 with age source `none` 0.780; both are below 0.80, so the report fires on the shipped
+  configuration. The report MUST appear on three operator surfaces, so a silent-by-construction monitor
+  is never mistaken for a quiet market:
+  - **startup log**: next to the existing `RiskScorer threshold=...` line (`pipeline.py:407-412`) a
+    `WARNING` record `default alert path unreachable: threshold=<t> ceiling=<c>
+    wallet_group_status=<s> wallet_age_source=<a>` (an `INFO` `default alert path reachable` record with
+    the same fields otherwise);
+  - **startup console and `--config-check`**: an `Alert Path:` line in `print_config_summary`
+    (`__main__.py:173-189`, called at `__main__.py:346` for `--config-check` and `__main__.py:815` before
+    the run), computed from settings alone without network access;
+  - **`/health` body**: an additive `alert_path` object (`status` `reachable` | `unreachable`,
+    `threshold`, `ceiling`, `wallet_group_status`, `wallet_age_source`; decimal strings) in
+    `HealthMonitor._build_health_body` (`ingestor/health.py:658-679`), set once by the pipeline on the
+    monitor it creates (`pipeline.py:175`). It is informational: it MUST NOT change the overall health
+    status, the HTTP status code, `/ready`, `/live` or `/metrics`, because an assessment-only release
+    (DECISION D2 R5) is a deliberate posture, not a fault. (T029)
 
 ### Key Entities
 

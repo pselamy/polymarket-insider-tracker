@@ -134,12 +134,23 @@ Named files, entry points, dependency order:
   10,000-row offset cap, maker visibility). Until it exists the wallet group stays described as
   "low transaction count on the proxy address" (spec FR-007a/b). If the receipt shows the nonce does not
   track trading, the wallet group stays non-scoring and D1a/D1b must be re-decided. (F01, F02)
-- [ ] T029 [US3] Default-alert-path disclosure (FR-022a): when the effective configuration makes every
-  evidence class unable to reach `DETECTOR_ALERT_THRESHOLD` (ceilings from the T028 table), startup and
-  the operator status surface MUST report `default alert path unreachable` with the highest reachable
-  ceiling and the configured threshold; test asserts the report for the 0.80 default in the pre-T027
-  posture (ceiling 0.450) and its absence when the threshold is lowered to a reachable value (≤ 0.450).
-  Lands with T028.
+- [ ] T029 [US3] Default-alert-path disclosure (FR-022a). Add the typed live evidence capability value
+  (`wallet_group_status` and `wallet_age_source` as code constants, `unqualified_pre_T027` and `none` on
+  main; book depth `non_operational`) and one pure function that returns the alert-path report
+  (`status`, quantized `threshold`, `ceiling`, both capability fields) from that value plus
+  `DETECTOR_ALERT_THRESHOLD`, computing each producible class's best case through the real scorer
+  combination. T028 regenerates `evidence/reachability.md` with the same function. Wire the report to
+  the three surfaces of FR-022a: the startup `WARNING`/`INFO` record beside `pipeline.py:407-412`, the
+  `Alert Path:` line in `print_config_summary` (`__main__.py:173-189`, so `--config-check` shows it too),
+  and the additive `alert_path` object in `HealthMonitor._build_health_body` (`ingestor/health.py:658-679`),
+  set by the pipeline on the monitor created at `pipeline.py:175`. Tests (no mocks; `caplog`, the real
+  aiohttp test client used by the existing health tests, captured stdout) assert: (a) default 0.80,
+  pre-T027: `unreachable`, ceiling `0.450`, the `WARNING` record, the console line and the `/health`
+  field; (b) threshold `0.45`: `reachable` (the `>=` boundary), `INFO` only; (c) `qualified` with age
+  source `none`: ceiling `0.780`, `unreachable` at 0.80; (d) `qualified` with an operational age source:
+  ceiling `0.972`, `reachable`; (e) the `/health` overall status, HTTP code, `/ready`, `/live` and
+  `/metrics` are identical with and without an unreachable path; (f) `--config-check` prints the line
+  without network access. Lands with T028.
 - [ ] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
   `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md` for both
   wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:

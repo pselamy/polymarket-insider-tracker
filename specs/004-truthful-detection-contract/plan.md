@@ -3,7 +3,7 @@
 **Branch**: `dispatch/polymarket-004-full-plan-20261017-3ae1b398` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
 **Status**: Phase0 complete; Phase1 design proposed. Implementation is not authorized.
-**Baseline**: upstream main `f2e21672c9707c927befea8d82b1069171ae38f9`, re-checked against `112a733` (Protocol typing only; see source-refresh) (refreshed 2026-10-19; the
+**Baseline**: upstream main `f2e21672c9707c927befea8d82b1069171ae38f9`, re-checked against `112a733` (Protocol typing only) and `0ddee0b` (callback rename only; see source-refresh) (refreshed 2026-10-19; the
 original 2026-10-17 baseline was `46e41921ca06b701fece7a17953a666f6873b7e1`; scoring semantics are
 unchanged between them, see [evidence/source-refresh-f2e2167.md](evidence/source-refresh-f2e2167.md)).
 The existing A4 direction was approved; no new human answer or implementation approval is claimed.
@@ -81,6 +81,15 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   and `DETECTOR_SIZE_VOLUME_THRESHOLD` default 0.02 (strict `>`). Existing wallet minimum
   notional 1000, age ceiling 48h, niche volume 50000 / niche-only minimum 500, confidence
   constants, and weight rules stay fixed.
+- **Alert-path report (revised 2026-10-20, Claude round 3 B2)**: FR-022a is evaluated over the classes the
+  configured live sources can produce, from a typed capability value whose `wallet_group_status` and
+  `wallet_age_source` are code constants (`unqualified_pre_T027`, `none` on main), so it fires on the
+  shipped configuration (ceiling 0.450 < 0.80). One pure function computes the ceiling through the real
+  scorer combination; T028 regenerates `evidence/reachability.md` with it, so the runtime never reads a
+  test table. Surfaces: a startup log record beside `pipeline.py:407-412`, an `Alert Path:` line in
+  `print_config_summary` (`__main__.py:173-189`, also under `--config-check`), and an additive,
+  informational `alert_path` object in `/health` (`ingestor/health.py:658-679`) that does not change any
+  health verdict, status code or probe (T029).
 - **Wallet identity and age (revised 2026-10-19)**: the profiled address is the V2 `proxy_wallet`
   (FR-007a, nonce meaning unverified); live age is unknown until DECISION D1a selects a qualified
   source (FR-007b, research R09; recommended default O1); unknown age is exactly 0.50 everywhere.

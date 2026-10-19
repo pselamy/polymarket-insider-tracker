@@ -1,13 +1,13 @@
 {
-  "base_commit": "112a733",
-  "note": "Current-base hashes, regenerated on main 112a733 (src diff vs f2e2167 is Protocol-typing only; see source-refresh-f2e2167.md). replay/summary.json stays the immutable receipt of the replay execution checkout.",
+  "base_commit": "0ddee0b",
+  "note": "Current-base hashes, regenerated on main 0ddee0b (src diff vs 112a733 renames Pipeline._on_trade to process_trade and adds a database helper; vs f2e2167 Protocol-typing; see source-refresh-f2e2167.md). replay/summary.json stays the immutable receipt of the replay execution checkout.",
   "source_sha256": {
     "detector/fresh_wallet.py": "4a64907c5a728b054e6734954b4d84a19ccff38123e77597ac127878ff73cb97",
     "detector/models.py": "94901405d4f3322b7633a9029d6c483ec08d41a7ed34546e21d96f25bacd7eb0",
     "detector/scorer.py": "2fd151ee38dc7e44e55c2b309549cc14aea012e591d6451feb074b4571513904",
     "detector/size_anomaly.py": "5e5db60a43824bd58a890847fde3ba5770560dbc63d61a4635b163927ba514d5",
     "ingestor/models.py": "28bdadd9700b75e0e2fe01c6c5ed6c48bdd01a32447ce800fa2e8edb9e6d1c11",
-    "pipeline.py": "f8d5293cc64bd78e0125826a41499e714d7dda62bdc39c491b8a8c2a4ac38790",
+    "pipeline.py": "50602943d8e7d29cb4f6513bb90f8f353ec69ccfd4d2b120e2feba7b546886cf",
     "profiler/models.py": "a4a4a0e45b6076763b68592ccc70a0c1ca9e2df1d6c4adf597d12ae9fa95b5be"
   }
 }
