@@ -260,3 +260,72 @@ The unknown-age rule is identical under every option: exactly 0.50, factors `{ba
 proxy addresses, compare `eth_getTransactionCount` against the address's public trade count and record
 whether the nonce moves with trading. Until then every statement about proxy-address nonce meaning is
 labelled UNVERIFIED.
+
+## R10 — Threshold reachability under live evidence (added 2026-10-19; resolves F03, F04, F05)
+
+Every number below is recomputed by `python3 evidence/reachability.py` (stdlib only, no `src/`
+import; it re-reads the product source as text and fails if a copied constant drifted) and is committed
+as [evidence/reachability.md](evidence/reachability.md); `--check` proves the file is current. Weights,
+caps and bonuses are those of `detector/scorer.py` (0.40/0.35/0.25, ×1.2 for two groups),
+`detector/size_anomaly.py` (volume component ≤ 0.5, ×1.5 niche multiplier, niche-only 0.2) and
+`detector/fresh_wallet.py` (0.5 + 0.2 nonce 0 + 0.1 age < 2 h + 0.1 trade > $10k), plus the proposed
+004 rules (unknown age exactly 0.50; book depth non-operational; category fallback whenever volume is
+not `available`).
+
+### Maximum attainable score by evidence class (proposed 004 rules, threshold 0.80)
+
+| Wallet evidence | Market evidence | Max score | Reaches 0.80 |
+|---|---|---|---|
+| unknown age (everything live today) | volume available, niche (< $50k), ratio ≥ 0.06 | **0.780** (any trade size) | **no** |
+| unknown age | volume available, not niche (≥ $50k) | 0.450 | no |
+| unknown age | volume unavailable, niche-prone category | 0.384 | no |
+| unknown age | volume unavailable, other category | 0.200 | no |
+| known age, best case (nonce 0, < 2 h) | niche numeric | 0.924 (≤ $10k), 0.972 (> $10k) | yes |
+| known age, best case | not niche (≥ $50k) | 0.594 / 0.642 | no |
+| known age, typical (nonce 1–4, 2–48 h) | niche numeric | 0.780 (≤ $10k), 0.828 (> $10k) | only > $10k |
+| known age, typical | not niche, or volume unavailable | ≤ 0.498 | no |
+| *003.1 rules as wired on main today* (volume never passed, G-022) | category fallback only | 0.528 | no (`old_qualifies` is 0 of 99 default-runtime replay cases) |
+
+Findings (each is a reproducible consequence of the weights, not a judgment):
+
+1. **With age unknown, 0.80 is unreachable for every trade size.** The ceiling is
+   `(0.5·0.40 + 0.75·0.35 + 0.75·0.25)·1.2 = 0.780`. The smallest unknown-age confidence that would
+   reach it is 0.541 (script output). agy's "trades > $10k can alert" came from a 0.60 unknown-age
+   confidence that the contract does not grant (FR-008).
+2. **Without a qualified age source (D1 = O1) no live alert can fire at 0.80.** Current main cannot
+   produce a known age, so the checked-in replay's headline "0→15 qualifications" is entirely
+   known-age cases that the live runtime cannot produce (all 16 `low-activity-age-unknown` replay cases
+   peak at 0.780). That headline stays valid as a behavioural comparison and must not be read as live
+   alert volume.
+3. **Markets with ≥ $50k volume can never reach 0.80** even for a best-case known-age wallet (max 0.642):
+   the niche multiplier and the 0.25 niche weight apply only below $50k, and book depth is non-operational.
+4. **Even known-age wallets need boosts.** A known-age wallet with nonce 1–4 and age ≥ 2 h reaches 0.80
+   only with a trade above $10k in a niche numeric market.
+5. **Niche is double counted.** In a niche market the size confidence enters at 0.35 + 0.25 = 0.60
+   effective weight and already includes ×1.5, so the score is dominated by the market's volume, and a
+   low-volume market mechanically inflates the ratio (codex's false-positive concern, CONFIRMED by the
+   formulas, not by outcome data).
+6. **The 0.80 default has no reproducible evidence in this repository.** `detector/scorer.py:25-31`
+   explains the lift from 0.6 to 0.80 by a "cost-adjusted backtest"; no backtest workflow or result
+   exists here (G-028), so that sentence is unverifiable history and MUST NOT be cited as calibration.
+
+### Recalibration options → DECISION D2 (for Patrick; none is settled)
+
+| Option | Effect (see `evidence/reachability.md`) | Trade-offs |
+|---|---|---|
+| **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings** (recommended default) | With O1: assessments are produced and persisted, none qualifies by default; alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: out of the box the live monitor delivers nothing |
+| **R1 lower the default to ≤ 0.78** | Unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 37 live replay cases at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
+| **R2 raise the unknown-age base to ≥ 0.541** | Keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
+| **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
+| **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
+
+**Recommended default: R0.** The hard consequence stays visible to Patrick in
+[decision-packet.md](decision-packet.md): with O1 + R0 the product records assessments but produces no
+deliverable alert at default settings.
+
+### Live-realistic replay
+
+The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
+adds 37 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
+by `evidence/replay_live.py`) using unknown age and every volume state, with the 003.1-as-wired score
+next to the proposed one. 0 of 37 qualify at 0.80; 7 at 0.78.

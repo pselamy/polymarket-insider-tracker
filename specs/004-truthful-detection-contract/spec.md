@@ -162,6 +162,11 @@ persisted assessment fields, sample output, README, example environment, and the
   adding detector evidence assertions without a second migration or competing pipeline harness.
 - **FR-021**: Every publicly returned participant observation selected by slice 001 MUST be evaluated as its
   own wallet-bearing trade. Multiple participants in one transaction MUST NOT be collapsed before profiling.
+- **FR-022** *(reachability disclosure)*: Every public description of the alert threshold MUST state which
+  evidence classes can reach it. The maximum attainable score per evidence class is published in
+  [research.md](research.md) R10 / `evidence/reachability.md`, and a regression test MUST recompute those
+  ceilings from the real scorer so that a weight, cap, bonus or threshold change cannot silently change
+  what is reachable. With unknown age the ceiling is 0.780 for every trade size.
 
 ### Key Entities
 
@@ -198,6 +203,9 @@ persisted assessment fields, sample output, README, example environment, and the
 - **SC-008**: The checked-in 32-or-more-case replay report records old and proposed score distributions,
   threshold-qualification counts, and per-case deltas; every delta is attributable to a named requirement,
   and any unanticipated change blocks implementation approval.
+- **SC-009**: The published maximum score of every evidence class equals the maximum the real scorer produces
+  over the reachability grid, and the live-realistic replay (unknown age, every volume state) is checked in
+  beside the original corpus with a reproducible command.
 
 ## Assumptions
 

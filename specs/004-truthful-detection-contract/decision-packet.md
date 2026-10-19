@@ -23,6 +23,25 @@ transaction for any wallet), and the profiled address is the V2 `proxy_wallet`, 
 receipt. If you pick O2 or O3 the spec already has the wording rules and the unknown-age fallback; the
 implementation then gains a source task. Until you choose, the contract is written for O1 and says so.
 
+### D2 — What the 0.80 threshold means when age is unknown (DECISION FOR PATRICK)
+
+Recomputed by `evidence/reachability.py` ([research.md](research.md) R10): with age unknown the
+highest attainable score is **0.780 for every trade size**; markets with ≥ $50k volume top out at
+0.45 (unknown age) or 0.642 (best-case known age); main today (003.1 rules, volume never passed) tops
+out at 0.528. The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases.
+Unknown-age live-realistic replay: 0 of 37 qualify at 0.80, 7 at 0.78.
+
+| Option | Consequence | Main trade-off |
+|---|---|---|
+| **R0** keep 0.80 and exact-0.50; publish the ceilings | with D1 = O1 the monitor records assessments but nothing qualifies by default; `DETECTOR_ALERT_THRESHOLD` remains the explicit, per-assessment-recorded override | no unsupported calibration claim; no deliverable alerts out of the box |
+| **R1** lower the default to ≤ 0.78 | saturated niche unknown-age cases alert | changes what an alert means with no outcome data; the scorer comment's "cost-adjusted backtest" justification has no reproducible evidence in the repo (G-028) |
+| **R2** unknown-age base ≥ 0.541 | keeps 0.80 reachable | unknown age would outscore a known 24 h wallet; breaks FR-008 |
+| **R3** two tiers (alert 0.80 + lower "research watch") | surfaces the 0.78 class without calling it an alert | new product surface; needs its own spec |
+| **R4** re-weight / remove niche double counting | changes every ceiling | model change needing calibration data |
+
+**Recommended default: R0.** It is the only option that adds no unvalidated claim, but you should
+decide knowingly that with D1 = O1 the default configuration produces no deliverable alert.
+
 ## Final behavior (if authorized)
 
 Two-group research core (fresh/low-activity wallet + size anomaly; niche as size modifier),

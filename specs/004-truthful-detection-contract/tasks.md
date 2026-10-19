@@ -97,6 +97,11 @@ Named files, entry points, dependency order:
   if DECISION D1 selects O2, also qualify the per-user trades query (ordering, `takerOnly`,
   10,000-row offset cap, maker visibility). Until it exists the wallet group stays described as
   "low transaction count on the proxy address" (spec FR-007a/b). (F01, F02)
+- [ ] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
+  `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md`
+  (unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
+  `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
+  SC-009). Also add the 37 `evidence/replay-live/cases.json` cases to the table-driven suite.
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 
@@ -160,7 +165,7 @@ Full per-requirement table with implementation task(s), named test/scenario obli
 future evidence receipt lives in `evidence/implementation-validation.md` §Traceability.
 Summary: FR-001–011 → T009a–d/T011/T012/T013/T015/T016; FR-012–014 → T013/T014;
 FR-015/016 → T009d/T010; FR-017/018 → T014; FR-019 → T002/T019; FR-020 → T006/T017/T020;
-FR-021 → T010; SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
+FR-021 → T010; FR-022/SC-009 → T028; SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
 (US1-1..4, US2-1..4, US3-1..4) → T009d/T010/T013/T014/T015/T017/T019 with journey
 scenarios 1–10 in `quickstart.md`. No FR/SC/scenario is covered by nominal reference —
 each names its task, test file, and evidence receipt.
