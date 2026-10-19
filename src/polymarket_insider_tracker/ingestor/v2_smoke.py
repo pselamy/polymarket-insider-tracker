@@ -15,7 +15,6 @@ they never prove continuity. Selection mirrors the production seam exactly
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import random
 import time
 
@@ -28,7 +27,6 @@ from polymarket_insider_tracker.ingestor.trade_row_v2 import translate_v2_row
 from polymarket_insider_tracker.ingestor.trades_source import (
     PAGE_LIMIT,
     Clock,
-    ResponseHeaders,
     Sleeper,
     TradesPage,
     TradesRequest,
@@ -89,19 +87,8 @@ class V2SmokeSource(TradesSourceClient):
                 reason="incompatible-schema",
             ) from None
         self._http.record(result.started, result.index, "success", 200)
-        return TradesPage(
-            request=request,
-            rows=tuple(translate_v2_row(row) for row in page.rows),
-            received_at=self._clock(),
-            attempts=result.index + 1,
-            http_status=200,
-            body_sha256=hashlib.sha256(result.response.content).hexdigest(),
-            headers=ResponseHeaders(
-                cache_control=result.response.headers.get("cache-control"),
-                cf_cache_status=result.response.headers.get("cf-cache-status"),
-                age=result.response.headers.get("age"),
-            ),
-        )
+        rows = tuple(translate_v2_row(row) for row in page.rows)
+        return self._success_page(result, request, rows)
 
 
 def make_smoke_source(

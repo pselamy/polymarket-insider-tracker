@@ -278,6 +278,24 @@ class TradesSourceClient:
     def _to_terminal(self, error: AttemptTerminalError) -> TradesTerminalError:
         return TradesTerminalError(str(error), status=error.status, reason=error.reason)
 
+    def _success_page(
+        self, result: AttemptResponse, request: TradesRequest, rows: tuple[object, ...]
+    ) -> TradesPage:
+        """Assemble the one success page both envelope parsers return."""
+        return TradesPage(
+            request=request,
+            rows=rows,
+            received_at=self._clock(),
+            attempts=result.index + 1,
+            http_status=200,
+            body_sha256=hashlib.sha256(result.response.content).hexdigest(),
+            headers=ResponseHeaders(
+                cache_control=result.response.headers.get("cache-control"),
+                cf_cache_status=result.response.headers.get("cf-cache-status"),
+                age=result.response.headers.get("age"),
+            ),
+        )
+
     def _parse_success(self, result: AttemptResponse, request: TradesRequest) -> TradesPage:
         body = self._http.decode(
             self._url, result.response, started=result.started, index=result.index
@@ -290,16 +308,4 @@ class TradesSourceClient:
                 reason="incompatible-schema",
             )
         self._http.record(result.started, result.index, "success", 200)
-        return TradesPage(
-            request=request,
-            rows=tuple(cast(list[object], body)),
-            received_at=self._clock(),
-            attempts=result.index + 1,
-            http_status=200,
-            body_sha256=hashlib.sha256(result.response.content).hexdigest(),
-            headers=ResponseHeaders(
-                cache_control=result.response.headers.get("cache-control"),
-                cf_cache_status=result.response.headers.get("cf-cache-status"),
-                age=result.response.headers.get("age"),
-            ),
-        )
+        return self._success_page(result, request, tuple(cast(list[object], body)))
