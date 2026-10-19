@@ -74,7 +74,7 @@ reused `wire_journey_pipeline`. The scope gained five authored files
 (`tests/integration/conftest.py`, `tests/integration/_journey_harness.py`,
 `tests/ingestor/_poller_harness.py`, `tests/integration/test_journey_fakes_contract.py`,
 `tests/ingestor/test_poller_harness_characterization.py`), so the authored file
-count is now 273. Resolved by the `ralph/dedup-v2-wiring` PR.
+count is now 273. Resolved by PR #155.
 
 Reproduce: enumerate the authored scope, stage it, then call the vendored
 `quality.duplication.scan(root, config, staged, output, minimum=50, deadline)`
