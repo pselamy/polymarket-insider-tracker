@@ -18,27 +18,14 @@ from polymarket_insider_tracker.ingestor.publisher import (
 )
 
 
-# Test fixtures
-@pytest.fixture
-def sample_trade_event() -> TradeEvent:
-    """Create a sample trade event."""
-    return TradeEvent(
-        market_id="0xmarket123",
-        trade_id="0xtx456",
-        wallet_address="0xwallet789",
-        side="BUY",
-        outcome="Yes",
-        outcome_index=0,
-        price=Decimal("0.65"),
-        size=Decimal("1000"),
-        timestamp=datetime(2026, 1, 4, 12, 0, 0, tzinfo=UTC),
-        asset_id="token123",
-        market_slug="will-it-rain",
-        event_slug="weather-markets",
-        event_title="Weather Predictions",
-        trader_name="Alice",
-        trader_pseudonym="AliceTrader",
-    )
+async def _publish_then_read(
+    client: FakeAsyncRedis, event: TradeEvent
+) -> tuple[str, list[StreamEntry]]:
+    """Publish one event to a fresh group and read it back as worker-1."""
+    publisher = EventPublisher(client)
+    await publisher.create_consumer_group("test-group", start_id="0")
+    entry_id = await publisher.publish(event)
+    return entry_id, await publisher.read_events("test-group", "worker-1")
 
 
 class TestSerializationFunctions:
@@ -248,11 +235,7 @@ class TestEventPublisher:
         self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Test reading events from stream."""
-        publisher = EventPublisher(fake_redis)
-        await publisher.create_consumer_group("test-group", start_id="0")
-        entry_id = await publisher.publish(sample_trade_event)
-
-        entries = await publisher.read_events("test-group", "worker-1")
+        entry_id, entries = await _publish_then_read(fake_redis, sample_trade_event)
 
         assert len(entries) == 1
         assert entries[0].entry_id == entry_id
@@ -273,11 +256,7 @@ class TestEventPublisher:
         self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Test reading events with bytes data (as from real Redis)."""
-        publisher = EventPublisher(fake_redis)
-        await publisher.create_consumer_group("test-group", start_id="0")
-        entry_id = await publisher.publish(sample_trade_event)
-
-        entries = await publisher.read_events("test-group", "worker-1")
+        entry_id, entries = await _publish_then_read(fake_redis, sample_trade_event)
 
         assert len(entries) == 1
         assert entries[0].entry_id == entry_id
