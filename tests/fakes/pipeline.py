@@ -45,7 +45,7 @@ from tests.fakes.clob import FakeBaseClobClient
 from tests.fakes.gamma import FakeGammaClient
 from tests.fakes.trades import FakeClock, FakeTradesServer
 from tests.fakes.trades_v2 import FakeV2TradesServer
-from tests.fakes.web3 import FakeAsyncWeb3, FakeEth, install_fake_w3
+from tests.fakes.web3 import FakeAsyncWeb3, FakeEth
 
 TradesServer = FakeTradesServer | FakeV2TradesServer
 
@@ -148,8 +148,8 @@ async def wire_pipeline(
         redis=redis,
         max_requests_per_second=10_000.0,
         retry_delay_seconds=0.0,
+        web3=FakeAsyncWeb3(eth),
     )
-    install_fake_w3(polygon_client, FakeAsyncWeb3(eth))
     wallet_analyzer = WalletAnalyzer(polygon_client, redis=redis)
     pipeline._funding_tracer = FundingTracer(polygon_client)
 

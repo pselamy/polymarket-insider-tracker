@@ -5,10 +5,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Generator
 from typing import Any
 
+from eth_typing import ChecksumAddress
 from web3 import AsyncWeb3
 from web3.exceptions import Web3Exception
 
-from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import TRANSFER_EVENT_SIGNATURE
 
 
@@ -70,23 +70,28 @@ class TransferLogIndex:
 
 
 class FakeContractFunction:
-    """Bound ERC-20 view call returning a fixed balance."""
+    """A bound ERC-20 view function returning a fixed balance."""
 
     def __init__(self, balance: int) -> None:
         self._balance = balance
+
+    def __call__(self, *args: Any, **kwargs: Any) -> FakeContractFunction:
+        _ = (args, kwargs)
+        return self
 
     async def call(self) -> int:
         return self._balance
 
 
 class FakeContractFunctions:
-    """The ``functions`` namespace of an ERC-20 contract."""
+    """The ``functions`` namespace of an ERC-20 contract: only ``balanceOf`` exists."""
 
     def __init__(self, balance: int) -> None:
         self._balance = balance
 
-    def balanceOf(self, address: str) -> FakeContractFunction:
-        _ = address
+    def __getattr__(self, function_name: str) -> FakeContractFunction:
+        if function_name != "balanceOf":
+            raise AttributeError(function_name)
         return FakeContractFunction(self._balance)
 
 
@@ -171,8 +176,8 @@ class FakeEth:
         self._count_call()
         return self._block_number
 
-    def contract(self, address: str, abi: Any) -> FakeContract:
-        _ = (address, abi)
+    def contract(self, address: ChecksumAddress, **kwargs: Any) -> FakeContract:
+        _ = (address, kwargs)
         return FakeContract(self._token_balance)
 
     async def get_logs(self, filter_params: dict[str, Any]) -> list[dict[str, Any]]:
@@ -191,8 +196,3 @@ class FakeAsyncWeb3:
     @staticmethod
     def to_checksum_address(value: str) -> str:
         return AsyncWeb3.to_checksum_address(value)
-
-
-def install_fake_w3(client: PolygonClient, w3: FakeAsyncWeb3) -> None:
-    """Swap ``client``'s primary RPC handle for ``w3`` (the one boundary the client owns)."""
-    object.__setattr__(client, "_w3", w3)

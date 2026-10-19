@@ -139,6 +139,16 @@ class TestPolygonClient:
         assert client._fallback_rpc_url is None
         assert client._cache_ttl == DEFAULT_CACHE_TTL_SECONDS
 
+    async def test_init_with_injected_web3_uses_it_for_rpc(self) -> None:
+        """An injected handle replaces the HTTP client built from the URL."""
+        client = PolygonClient(
+            "https://polygon-rpc.com",
+            web3=FakeAsyncWeb3(FakeEth(transaction_count=7)),
+            retry_delay_seconds=0.0,
+        )
+
+        assert await client.get_transaction_count(VALID_ADDRESS) == 7
+
     def test_init_with_fallback(self) -> None:
         """Test initialization with fallback RPC."""
         client = PolygonClient(

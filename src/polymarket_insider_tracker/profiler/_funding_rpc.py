@@ -15,12 +15,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from web3 import AsyncWeb3
-from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.profiler.chain import PolygonClient
+    from polymarket_insider_tracker.profiler.rpc_handle import Web3Handle
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +255,6 @@ class TransferLogScanner:
             }
         )
 
-    def _select_w3(self) -> AsyncWeb3[AsyncHTTPProvider]:
+    def _select_w3(self) -> Web3Handle:
         """Pick primary or fallback web3 instance based on health."""
         return self.polygon_client.select_web3()
