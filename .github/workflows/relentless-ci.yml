@@ -39,6 +39,12 @@ jobs:
           version: "0.11.26"
           enable-cache: false
           github-token: ""
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          version: "2026.9.16"
+          sha256: b6f8757201f6a2ee799f45f3f52ef7ca0b4071523637dc3b0b24264dd3333518
+          install_args: --locked
+          cache: false
       - name: Install Python
         run: uv python install ${{ matrix.python-version }}
       - name: Run the checked-in Relentless CI gates
