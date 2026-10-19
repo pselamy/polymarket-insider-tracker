@@ -121,12 +121,12 @@ runs for each supported minor. `uv run python scripts/verify.py --help` lists th
 actual underlying gate commands. The [runtime contract](specs/002-reproducible-runtime/contracts/runtime-verification.md)
 owns exact membership, exits, and service/migration safety.
 
-Vulture runs at default confidence over `src tests scripts alembic conftest.py`.
+Vulture runs at default confidence over `src tests scripts alembic conftest.py quality`.
 Complexipy checks functions **and module-level control flow** over that scope with
 maximum cognitive complexity **5**, using the fail-closed launcher:
 
 ```bash
-uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
+uv run --isolated --locked --all-extras --python 3.11 python scripts/complexipy_gate.py src tests scripts alembic conftest.py quality --max-complexity-allowed 5 --no-ignore --ignore-complexity=false --snapshot-ignore=true --snapshot-create=false --exclude=. --check-script=true
 ```
 
 Fix underlying issues. Do not introduce baselines, grandfathering, allowlists,
@@ -136,8 +136,24 @@ diff/staged checks or use snapshots, report-only success, or cwd configuration t
 evade the launcher. Low scores do not by themselves prove low cognitive load.
 
 The static profile separately enforces per-function cyclomatic complexity **10** with native Ruff
-C901 and missing-path E902 across the same owned scope. Its explicit isolated invocation disables
-inline suppression, Git ignores and path exclusions; use `verify.py --help` for the exact command.
+C901 and missing-path E902 across the source scope `src tests scripts alembic conftest.py`. Its
+explicit isolated invocation disables inline suppression, Git ignores and path exclusions; use
+`verify.py --help` for the exact command.
+
+The vendored Relentless CI gate definitions run from the same checked-in
+`quality/checks.json` locally and in the hosted "Relentless CI gate" job. Before
+proposing a merge, run:
+
+```bash
+uv run --locked --group dev python -m quality.verify
+```
+
+Enrollment is staged: `quality/checks.json` and the `quality.verify` hooks contain
+only controls that pass on the current tree with zero suppressions. Every other
+control is listed with its measured violation count in
+[docs/relentless-ci-adoption.md](docs/relentless-ci-adoption.md) and stays visibly
+unenrolled. `quality/checks.json` may only ever grow in later changes; never remove
+or reorder an enrolled control to hide a failure.
 
 ## Review and delivery
 
