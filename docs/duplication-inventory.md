@@ -683,3 +683,39 @@ Set-difference of the raw pair multisets (file pair, count): ten pairs disappear
 `test_pipeline_persistence`, `test_persist_assessment` <-> `test_pipeline`) and **no pair
 was added or increased**. The `test_terminal_error_durable.py` (cluster 10) and `test_main.py`
 (cluster 17) clones are other cards' scope and are untouched.
+
+## 2026-10-19 partial resolution update: cluster 1 (sample_trade/sample_wallet_profile fixtures)
+
+Measured with the pinned jscpd 5.3.3 through the vendored
+`quality.duplication.scan(..., minimum=50)` over `quality.source_scope.discover`
+(the size check is skipped because `scripts/traceability.py` already exceeds 399
+lines), on identical enumeration at both ends. Baseline is `origin/main` at
+`1bdccbc` (after #161 and #162, so it differs from the older receipts above):
+**84 groups, 1031 duplicated lines, 1.69%**, 257 sources tokenized, 293 discovered
+files. This card's head: **82 groups, 980 duplicated lines, 1.60%**, 258 sources,
+294 discovered files. No new group appeared: matched by token count, line count
+and file pair, every head group exists at the baseline (only line offsets moved).
+
+Removed groups: the identical `sample_trade`/`sample_wallet_profile` pair that
+`test_history.py` and `test_scorer.py` each carried (153 tokens, 39 lines) now has
+one home in `tests/conftest.py`, pinned by `tests/test_sample_fixtures.py`; and the
+formatter-internal `TradeEvent` field-by-field copy (68 tokens, 12 lines), now
+`dataclasses.replace`.
+
+Cluster 1 is **not fully resolved**. Seven cluster-1 groups remain on purpose
+(tokens/lines, pair):
+
+| tokens | lines | A | B |
+| --- | --- | --- | --- |
+| 118 | 31 | test_formatter.py | test_scorer.py |
+| 59 | 17 | test_formatter.py | test_scorer.py |
+| 55 | 17 | test_formatter.py | test_history.py |
+| 50 | 15 | test_formatter.py | test_history.py |
+| 57 | 12 | test_scorer.py | test_size_anomaly.py |
+| 51 | 6 | test_scorer.py | test_scorer.py |
+| 50 | 7 | test_history.py | test_history.py |
+
+They share a shape but encode different test knowledge (different `factors`,
+question text, prices, sizes and ages), so sharing them would change behaviour or
+need a parameterised factory that merely hides the difference. The formatter and
+size-anomaly `sample_trade` fixtures likewise differ in value and stay local.
