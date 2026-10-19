@@ -35,7 +35,6 @@ GATES: Mapping[str, Gate] = {
             "--python",
             "3.11",
             "pyright",
-            "src/polymarket_insider_tracker",
         ),
     ),
     "vulture": Gate(
@@ -172,8 +171,7 @@ DIRECT_GATE_COMMANDS: tuple[tuple[str, str], ...] = (
     ("strict-types", "uv run --isolated --locked --all-extras --python 3.11 mypy"),
     (
         "pyright",
-        "uv run --isolated --locked --all-extras --python 3.11 "
-        "pyright src/polymarket_insider_tracker",
+        "uv run --isolated --locked --all-extras --python 3.11 pyright",
     ),
     (
         "vulture",

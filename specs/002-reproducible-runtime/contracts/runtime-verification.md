@@ -23,7 +23,7 @@ listed by `--help`; the aggregate entry point does not hide their output.
 The independent `pyright` gate runs after `strict-types` (mypy) and before `vulture`:
 
 ```text
-uv run --isolated --locked --all-extras --python 3.11 pyright src/polymarket_insider_tracker
+uv run --isolated --locked --all-extras --python 3.11 pyright
 ```
 
 `pyproject.toml` configures Pyright `1.1.411` in strict mode for Python 3.11 and includes the complete
