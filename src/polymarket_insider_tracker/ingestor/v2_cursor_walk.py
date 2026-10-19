@@ -13,6 +13,12 @@ injected :class:`~polymarket_insider_tracker.ingestor._attempt_budget.AttemptBud
 typed and truthful about completeness: a nonempty walk that stops on documented exhaustion or the
 depth limit without proof exposes ``possible_data_loss`` so the caller can freeze the boundary. An
 empty terminal cycle is a successful quiet cycle, not a new gap.
+
+The optional ``proof`` callback is evaluated after each recorded page with the cumulative
+observations of the walk so far, in page order, so a proof that is only satisfiable by combining
+pages can succeed. This mirrors the v1 continuity proof in
+:mod:`polymarket_insider_tracker.ingestor.trade_poller` (``_prove``), which reasons over everything
+observed back to the durable boundary rather than the latest page alone.
 """
 
 from __future__ import annotations
@@ -205,23 +211,23 @@ class _WalkState:
 
         A page larger than the documented ``limit`` is a provider contract violation, so it raises
         rather than being silently dropped; ``MAX_WALK_ROWS`` then holds as an invariant over the
-        20-page, 1,000-row-per-page maximum.
+        20-page, 1,000-row-per-page maximum. The ``proof`` callback sees the cumulative
+        observations of the walk so far, in page order.
         """
         _require_documented_page_size(page)
-        page_observations = self._append(page, now=now)
+        self._append(page, now=now)
         assert self.raw_rows <= MAX_WALK_ROWS
-        if self.proof is not None and self.proof(page_observations):
+        if self.proof is not None and self.proof(tuple(self.observations)):
             self.proven = True
             return StopReason.PROOF
         return self._advance(page.pagination.next_cursor)
 
-    def _append(self, page: V2Page, *, now: int) -> tuple[TradeObservation, ...]:
+    def _append(self, page: V2Page, *, now: int) -> None:
         self.pages.append(page)
         self.raw_rows += len(page.rows)
         page_observations, page_invalid = _parse_rows(page.rows, now=now)
         self.observations.extend(page_observations)
         self.invalid_rows.extend(page_invalid)
-        return page_observations
 
     def _advance(self, next_cursor: str | None) -> StopReason | None:
         if next_cursor is None:

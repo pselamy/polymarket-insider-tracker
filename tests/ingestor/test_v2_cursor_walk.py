@@ -237,7 +237,35 @@ class TestProof:
         assert result.completeness_proven is True
         assert result.pages_fetched == 2
         assert len(harness.feed.requests) == 2
-        assert calls == [2, 2]
+        assert calls == [2, 4]
+
+    async def test_proof_can_combine_observations_from_multiple_pages(self) -> None:
+        first = v2_row(trade_row(timestamp=START + 1, transaction=1, wallet=1))
+        second = v2_row(trade_row(timestamp=START + 1, transaction=2, wallet=2))
+        feed = FakeCursorFeed(
+            {
+                None: v2_envelope([first], next_cursor="c0"),
+                "c0": v2_envelope([second], next_cursor="c1"),
+                "c1": v2_envelope(v2_rows(1, offset=5), next_cursor=None),
+            }
+        )
+        first_observation = parse_v2_trade_row(first, now=NOW)
+        second_observation = parse_v2_trade_row(second, now=NOW)
+        assert isinstance(first_observation, TradeObservation)
+        assert isinstance(second_observation, TradeObservation)
+        combined = tuple(sorted((first_observation.identity, second_observation.identity)))
+        seen: list[tuple[str, ...]] = []
+
+        def proof(observations: Sequence[TradeObservation]) -> bool:
+            seen.append(tuple(sorted(observation.identity for observation in observations)))
+            return len(observations) >= 2
+
+        result, harness = await run_walk(feed, proof=proof)
+
+        assert seen == [(first_observation.identity,), combined]
+        assert result.stop_reason is StopReason.PROOF
+        assert result.pages_fetched == 2
+        assert len(harness.feed.requests) == 2
 
 
 class TestAttemptBudget:
