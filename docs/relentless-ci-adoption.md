@@ -451,3 +451,19 @@ Honest fixes, no suppression: `DatabaseManager.is_sync_open` / `is_async_open` a
 `attach_async_engine` replace private-attribute reads and writes; `Pipeline._on_trade` became the
 public `Pipeline.process_trade` (the documented per-trade entry the poller and replay callers
 use); `wire_pipeline(trace_funding=False)` replaces assigning `_funding_tracer = None`.
+
+## Merge queue flow (2026-10-20)
+
+Every workflow (`ci.yml`, `relentless-ci.yml`, `mutation.yml`) also triggers on
+`merge_group` (`checks_requested`), so the required checks `Required checks`,
+`Complexipy complexity check` and the Relentless CI `Full analysis (Python 3.11)` /
+`Full analysis (Python 3.13)` jobs report under the same names for queue entries.
+
+Reviewed PRs are queued instead of merged directly. GitHub builds a temporary
+`gh-readonly-queue/...` branch containing current `main` plus the PR, runs the required checks
+on it, and only then lands the PR. This prevents semantic-conflict breaks, where two PRs pass
+individually but fail together, as happened with 7332dd0. `ci.yml` keeps
+`cancel-in-progress: false` for `merge_group` runs, and each queue entry has its own ref, so
+entries never cancel each other. `tests/tooling/test_merge_group_workflows.py` fails if a
+workflow loses the trigger. Enabling the queue itself is a repository setting made by the
+owner, not by this change.
