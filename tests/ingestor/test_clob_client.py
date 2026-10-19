@@ -1,6 +1,7 @@
 """Tests for ClobClient wrapper."""
 
 import time
+from typing import Any
 from collections.abc import Iterator
 
 import pytest
@@ -14,6 +15,19 @@ from polymarket_insider_tracker.ingestor.clob_client import (
 )
 from polymarket_insider_tracker.ingestor.models import Market, Orderbook
 from tests.fakes import FakeBaseClobClient
+
+
+def _open_and_closed_page() -> list[dict[str, Any]]:
+    """One last page holding an open market (0x1) and a closed one (0x2)."""
+    return [
+        {
+            "data": [
+                {"condition_id": "0x1", "closed": False},
+                {"condition_id": "0x2", "closed": True},
+            ],
+            "next_cursor": "LTE=",
+        }
+    ]
 
 
 class TestRateLimiter:
@@ -174,15 +188,7 @@ class TestClobClient:
 
     def test_get_markets_filters_closed(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test that closed markets are filtered when active_only=True."""
-        fake_base_client.pages = [
-            {
-                "data": [
-                    {"condition_id": "0x1", "closed": False},
-                    {"condition_id": "0x2", "closed": True},
-                ],
-                "next_cursor": "LTE=",
-            }
-        ]
+        fake_base_client.pages = _open_and_closed_page()
         client = ClobClient()
         markets = client.get_markets(active_only=True)
         assert len(markets) == 1
@@ -190,15 +196,7 @@ class TestClobClient:
 
     def test_get_markets_includes_closed(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test that closed markets are included when active_only=False."""
-        fake_base_client.pages = [
-            {
-                "data": [
-                    {"condition_id": "0x1", "closed": False},
-                    {"condition_id": "0x2", "closed": True},
-                ],
-                "next_cursor": "LTE=",
-            }
-        ]
+        fake_base_client.pages = _open_and_closed_page()
         client = ClobClient()
         markets = client.get_markets(active_only=False)
         assert len(markets) == 2
