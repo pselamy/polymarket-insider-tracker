@@ -26,6 +26,18 @@ from polymarket_insider_tracker.config import (
 from tests.fakes import resist_cancellation_for
 
 
+def _record_pipeline_runs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Settings, bool]]:
+    """Replace ``cli.run_pipeline`` with a successful stub; return its (settings, dry_run) calls."""
+    runs: list[tuple[Settings, bool]] = []
+
+    async def run_pipeline(settings: Settings, dry_run: bool) -> int:
+        runs.append((settings, dry_run))
+        return EXIT_SUCCESS
+
+    monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+    return runs
+
+
 class TestCreateParser:
     """Tests for argument parser creation."""
 
@@ -303,13 +315,7 @@ class TestMain:
     def test_main_with_health_port_override(self, monkeypatch):
         """Main should pass overridden health port to settings and run_pipeline."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
-        runs: list[tuple[Settings, bool]] = []
-
-        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
-            runs.append((settings, dry_run))
-            return EXIT_SUCCESS
-
-        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+        runs = _record_pipeline_runs(monkeypatch)
 
         with pytest.raises(SystemExit) as exc_info:
             main(["--health-port", "9090", "--dry-run"])
@@ -361,13 +367,7 @@ class TestMain:
     def test_main_runs_pipeline(self, monkeypatch):
         """Main should run the pipeline with the validated settings and dry-run flag."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
-        runs: list[tuple[Settings, bool]] = []
-
-        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
-            runs.append((settings, dry_run))
-            return EXIT_SUCCESS
-
-        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+        runs = _record_pipeline_runs(monkeypatch)
 
         with pytest.raises(SystemExit) as exc_info:
             main(["--dry-run"])
@@ -570,13 +570,7 @@ class TestCliOverrideConsistency:
 
     def test_overrides_reach_runtime_settings_and_summary_alike(self, monkeypatch, capsys):
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
-        runs: list[tuple[Settings, bool]] = []
-
-        async def run_pipeline(settings: Settings, dry_run: bool) -> int:
-            runs.append((settings, dry_run))
-            return EXIT_SUCCESS
-
-        monkeypatch.setattr(cli, "run_pipeline", run_pipeline)
+        runs = _record_pipeline_runs(monkeypatch)
 
         with pytest.raises(SystemExit):
             main(["--dry-run", "--log-level", "WARNING"])
