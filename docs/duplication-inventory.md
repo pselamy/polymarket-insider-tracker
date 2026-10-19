@@ -32,7 +32,7 @@ sensitivity policy. `src/polymarket_insider_tracker/redaction.py` was checked
 and is a different, broader policy (path masking, query-key preservation,
 lone-userinfo masking), so it was not adopted. Before/after on the same tree:
 101 -> 99 clone groups, 1347 -> 1271 duplicated lines; the only differences are
-the two removed cluster-5 clones. Resolved by this card's PR.
+the two removed cluster-5 clones. Resolved by PR #153.
 
 Reproduce: enumerate the authored scope, stage it, then call the vendored
 `quality.duplication.scan(root, config, staged, output, minimum=50, deadline)`
@@ -60,7 +60,7 @@ knowledge).
 | 2 | 12 | 147 | test_end_to_end.py, test_persist_assessment.py, test_pipeline.py, test_pipeline_persistence.py, test_postgres_journey.py | Repeated `wire_pipeline(...)` bootstrap blocks with the same fake-stack wiring | real |
 | 3 | 7 | 94 | test_redaction.py | Repeated harness setups asserting the same redaction policy across inputs | real |
 | 4 | 9 | 92 | test_dispatcher.py | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
-| 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (this card) |
+| 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
 | 6 | 6 | 64 | test_trade_poller.py | Repeated poller cycle setups and repair assertions | real |
 | 7 | 3 | 60 | detector/models.py, storage/repos.py | Duplicated dataclass property/`to_dict` serialization knowledge across signal models | real |
 | 8 | 4 | 47 | test_health_server.py | Repeated `set_component_checker` wiring for up/degraded/down cases | real |
