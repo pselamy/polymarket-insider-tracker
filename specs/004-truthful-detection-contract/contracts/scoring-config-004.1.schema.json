@@ -75,6 +75,24 @@
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?\\+00:00$"
     },
+    "raw_nonfinite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$nonfinite"],
+      "properties": {"$nonfinite": {"enum": ["NaN", "Infinity", "-Infinity"]}}
+    },
+    "raw_truncated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$truncated", "bytes", "reason", "sha256", "type"],
+      "properties": {
+        "$truncated": {"const": true},
+        "bytes": {"type": "integer", "minimum": 1},
+        "reason": {"enum": ["oversize", "reserved_key", "nested_nonfinite"]},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "type": {"enum": ["string", "array", "object"]}
+      }
+    },
     "factors": {"type": "object", "additionalProperties": {"$ref": "#/$defs/decimal"}},
     "evidence": {
       "type": "object",
@@ -121,7 +139,7 @@
             },
             "volume_reason": {"enum": ["gamma_fetch_failed", "absent_from_complete_crawl", "crawl_truncated", "clob_miss_path", "no_volume_record", "metadata_lookup_failed", "unknown_source", "no_provenance", "null_or_absent", "not_a_finite_number", "zero", "negative", "absent", "naive", "unparseable", "nonpositive_epoch", "future", "older_than_600s", "gamma", "caller"]},
             "volume24hr_present": {"type": "boolean"},
-            "volume24hr_raw": {},
+            "volume24hr_raw": {"description": "Decoded JSON value verbatim (<= 256 canonical UTF-8 bytes, finite numbers only, no reserved top-level key), else exactly one of #/$defs/raw_nonfinite or #/$defs/raw_truncated. Object-shaped values carrying $nonfinite/$truncated are checked against those defs by check_envelope (the validator subset has no conditional keyword)."},
             "daily_volume": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
             "daily_volume_acquired_at": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/utc"}]},
             "daily_volume_age_seconds": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/signed_decimal"}]},

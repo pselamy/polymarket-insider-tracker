@@ -319,7 +319,7 @@ Findings (each is a reproducible consequence of the weights, not a judgment):
 | Option | Effect (see `evidence/reachability.md`) | Trade-offs |
 |---|---|---|
 | **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings** (recommended default) | With O1: assessments are produced and persisted, none qualifies by default; alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: out of the box the live monitor delivers nothing |
-| **R1 lower the default to ≤ 0.78** | Unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 40 live replay cases at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
+| **R1 lower the default to ≤ 0.78** | Unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 45 live replay cases at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
 | **R2 raise the unknown-age base to ≥ 0.541** | Keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
 | **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
 | **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
@@ -331,9 +331,9 @@ deliverable alert at default settings.
 ### Live-realistic replay
 
 The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
-adds 40 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
+adds 45 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
 by `scripts/spec004_evidence/`replay_live`.py`) using unknown age and every volume state, with the 003.1-as-wired score
-next to the proposed one. 0 of 40 qualify at 0.80; 7 at 0.78.
+next to the proposed one. 0 of 45 qualify at 0.80; 7 at 0.78.
 
 ## R02a — Volume freshness that matches the real sync (added 2026-10-19; resolves F07, F08, F09, F10, F12, F14)
 

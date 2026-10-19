@@ -19,10 +19,26 @@ from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 from typing import Any, cast
 
-from scripts.spec004_evidence.replay_envelopes import build_envelope, replay_specs
+from scripts.spec004_evidence.replay_envelopes import (
+    RAW_BOUND_BYTES,
+    RESERVED_KEYS,
+    build_envelope,
+    canonical,
+    has_nonfinite,
+    replay_specs,
+)
 
 CONTRACTS = (
     Path(__file__).resolve().parents[2] / "specs" / "004-truthful-detection-contract" / "contracts"
+)
+RAW_EXAMPLES = {
+    "scoring-config-004.1.nonfinite.example.json": "live-invalid-nonfinite-nan-token",
+    "scoring-config-004.1.truncated.example.json": "live-invalid-oversize-string",
+}
+DOCUMENTS = (
+    "scoring-config-004.1.example.json",
+    "scoring-config-004.1.failure-row.json",
+    *RAW_EXAMPLES,
 )
 TYPES: dict[str, tuple[type, ...]] = {
     "object": (dict,),
@@ -236,6 +252,37 @@ def age_sign_errors(size: dict[str, Any]) -> list[str]:
     return ["negative age outside invalid_time/future"]
 
 
+RAW_TAGS = {"$nonfinite": "raw_nonfinite", "$truncated": "raw_truncated"}
+
+
+def verbatim_raw_errors(raw: Any) -> list[str]:
+    errors: list[str] = []
+    if has_nonfinite(raw):
+        errors.append("raw: non-finite number stored verbatim (must be a $nonfinite tag)")
+    if isinstance(raw, dict) and RESERVED_KEYS & raw.keys():
+        errors.append("raw: reserved key stored verbatim")
+    if len(canonical(raw)) > RAW_BOUND_BYTES:
+        errors.append(f"raw: verbatim value over {RAW_BOUND_BYTES} bytes (must be a marker)")
+    return errors
+
+
+def stored_raw_errors(raw: Any) -> list[str]:
+    """The raw-value rule: markers match their defs; anything else is verbatim, bounded and finite."""
+    schema = load("scoring-config-004.1.schema.json")
+    tags = [tag for tag in RAW_TAGS if isinstance(raw, dict) and tag in raw]
+    if not tags:
+        return verbatim_raw_errors(raw)
+    return validate(raw, schema["$defs"][RAW_TAGS[tags[0]]], schema, "raw")
+
+
+def tag_state_errors(size: dict[str, Any]) -> list[str]:
+    """A non-finite tag is a malformed observation: the state is always `invalid`."""
+    raw = size["volume24hr_raw"]
+    if isinstance(raw, dict) and "$nonfinite" in raw and size["volume_state"] != "invalid":
+        return ["raw: a $nonfinite tag requires volume_state invalid"]
+    return []
+
+
 def volume_state_errors(evidence: dict[str, Any]) -> list[str]:
     size = evidence["size"]
     available = size["volume_state"] == "available"
@@ -245,6 +292,7 @@ def volume_state_errors(evidence: dict[str, Any]) -> list[str]:
     if available != (size["volume_impact"] is not None):
         errors.append("volume_impact must be non-null exactly when volume_state is available")
     errors += age_sign_errors(size)
+    errors += tag_state_errors(size) + stored_raw_errors(size["volume24hr_raw"])
     return errors + (available_volume_errors(evidence) if available else [])
 
 
@@ -285,6 +333,32 @@ def mutations(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     return cases
 
 
+def raw_mutation_failures() -> list[str]:
+    """Stored raw values the rule must reject."""
+    digest = "0" * 64
+    bad: dict[str, Any] = {
+        "bare NaN float": float("nan"),
+        "nested NaN float": [float("nan")],
+        "reserved key verbatim": {"$truncated": False},
+        "oversize verbatim": "x" * 300,
+        "tag with wrong spelling": {"$nonfinite": "nan"},
+        "marker without digest": {
+            "$truncated": True,
+            "bytes": 9,
+            "reason": "oversize",
+            "type": "string",
+        },
+        "marker with bad reason": {
+            "$truncated": True,
+            "bytes": 9,
+            "reason": "big",
+            "sha256": digest,
+            "type": "string",
+        },
+    }
+    return [f"raw mutation accepted: {n}" for n, v in bad.items() if not stored_raw_errors(v)]
+
+
 def load(name: str) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads((CONTRACTS / name).read_text()))
 
@@ -319,12 +393,24 @@ def replay_failures(schema: dict[str, Any]) -> list[str]:
     return failures
 
 
+def raw_example_drift() -> list[str]:
+    """The committed raw-value examples must equal what the builder produces for their cases."""
+    template = load("scoring-config-004.1.example.json")
+    by_id = {spec["case_id"]: spec for spec in replay_specs()}
+    return [
+        f"{name} drifts from replay case {case}"
+        for name, case in RAW_EXAMPLES.items()
+        if load(name) != build_envelope(by_id[case], template)
+    ]
+
+
 def main() -> int:
     schema = load("scoring-config-004.1.schema.json")
     failures: list[str] = replay_failures(schema)
-    for name in ("scoring-config-004.1.example.json", "scoring-config-004.1.failure-row.json"):
+    for name in DOCUMENTS:
         failures += document_failures(name, schema)
-    failures += mutation_failures(schema)
+    failures += raw_example_drift()
+    failures += mutation_failures(schema) + raw_mutation_failures()
     for failure in failures:
         print(failure)
     print("ok" if not failures else f"{len(failures)} failure(s)")

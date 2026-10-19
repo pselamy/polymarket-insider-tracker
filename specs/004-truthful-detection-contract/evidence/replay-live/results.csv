@@ -22,6 +22,11 @@ live-invalid-bool,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.2
 live-invalid-array,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,JSON array
 live-invalid-nan,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,NaN string
 live-invalid-infinity,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,Infinity string
+live-invalid-nonfinite-nan-token,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,bare NaN token decoded by Python json into a float; stored as the tagged non-finite value
+live-invalid-nonfinite-neg-infinity-token,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,bare -Infinity token decoded into a float; tagged non-finite value
+live-invalid-nested-nonfinite,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,"array holding a NaN float; canonical JSON cannot hold it, so a truncation marker with reason nested_nonfinite"
+live-invalid-oversize-string,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,300-character string exceeds the 256-byte bound; truncation marker with reason oversize
+live-invalid-reserved-key,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,object that uses the reserved key $truncated; truncation marker with reason reserved_key so a stored marker is never ambiguous
 live-invalid-empty-string,invalid,not_a_finite_number,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,"empty string is malformed, not missing"
 live-unqualified-unknown-source,unqualified,unknown_source,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,source id not in the qualified set
 live-unqualified-legacy-record,unqualified,no_provenance,low_activity_unknown_age,0.500,0.200,category,2,0.480,0.384,False,False,"pre-004 cache record: value present, no provenance fields"

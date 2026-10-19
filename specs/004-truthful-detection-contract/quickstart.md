@@ -29,7 +29,7 @@ Each scenario names its implementation task(s), test obligation, and evidence re
 2. **Stale volume** (T012a–d → ingestor table test): `evaluated_at - acquired_at > 600s` →
    unavailable, no ratio, no zero.
 3. **Invalid/missing/nonpositive volume** (T012a–d/T009d): each distinct state → unavailable,
-   labeled, no ratio; raw value retained verbatim.
+   labeled, no ratio; raw value retained per data-model §1.1a (verbatim to 256 bytes, else a typed marker).
 4. **Source failure** (T012a–d/T019): failed Gamma fetch leaves volume unavailable; CLOB
    metadata still usable; no carry-forward refresh.
 5. **Threshold boundaries** (T009d/T015): score exactly 0.80 qualifies (inclusive); nonce

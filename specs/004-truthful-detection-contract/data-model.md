@@ -15,12 +15,36 @@ record that a CLOB-only path can rewrite.
 | Field | Type | Rule |
 |---|---|---|
 | `volume24hr_present` | bool | True when the received market object had a `volume24hr` key. Distinguishes an absent key from JSON `null`. |
-| `volume24hr_raw` | JSON value (`null`, bool, number, string, array or object) | The **decoded** JSON value exactly as it arrived (type and value). It is *semantically* preserved: the original bytes (whitespace, number spelling such as `1e3` vs `1000`) are not recoverable because the client decodes with `response.json()` (`ingestor/gamma_client.py:141`), and no artifact may claim otherwise. Stored in Redis/JSON so that `5`, `5.0` and `"5"` stay distinct. Never coerced, substituted or dropped; malformed values are kept verbatim as evidence of `invalid`. `null` when absent or null. |
+| `volume24hr_raw` | JSON value (`null`, bool, number, string, array or object) | The **decoded** JSON value as it arrived, kept **semantically**: the original bytes (whitespace, number spelling such as `1e3` vs `1000`) are not recoverable because the client decodes with `response.json()` (`ingestor/gamma_client.py:141`), and no artifact may claim otherwise. Stored so that `5`, `5.0` and `"5"` stay distinct; never coerced or substituted; malformed values are kept as evidence of `invalid`. `null` when absent or null. **One storage rule (§1.1a) bounds it; the two exceptions below are the only ways it is not verbatim.** |
 | `daily_volume` | `Decimal \| null` | The usable denominator: set only in state `available`, equal to the finite positive parse of `volume24hr_raw`. This is the only value allowed in `notional / daily_volume`. |
 | `daily_volume_acquired_at` | aware UTC datetime \| null | The instant the page's response body was received by `GammaClient` (read from an injectable clock immediately after the HTTP response completes, before JSON decoding). Carried unchanged through the crawl result, the volume record and Redis; a cache read never restamps it. Null when no observation exists or the stamp is unusable. The envelope stores the **signed** age `evaluated_at - acquired_at`: a future stamp (`invalid_time`/`future`) keeps its real timestamp and a negative age; the other unusable stamps (`absent`, `naive`, `unparseable`, `nonpositive_epoch`) store null for both (contracts/scoring-config.md). |
 | `daily_volume_source` | string \| null | Source identifier, e.g. `gamma-markets-v1` (endpoint + first-party revision note `49ec9991b7f3e95197a4d53910f6086bf3ff2294`); `caller` for an explicit argument (§1.3). Null for legacy records. A source is **qualified** iff it is in the code-defined qualified set, initially `{gamma-markets-v1, caller}` (set membership is the T018 receipt). |
 | `volume_state` | enum (8 values) | Exactly one of `available`, `unavailable`, `unqualified`, `missing`, `invalid`, `nonpositive`, `invalid_time`, `stale`; assigned by the precedence table in §1.2. |
 | `volume_reason` | enum | Sub-reason, recorded for diagnosis, never a separate state (§1.2 last column). |
+
+### 1.1a Raw-value storage rule (the only exceptions to verbatim preservation)
+
+A decoded `volume24hr` value is stored **verbatim** when all of these hold: it contains no non-finite
+float, it is not an object with a top-level `$truncated` or `$nonfinite` key, and its canonical JSON
+(`sort_keys`, `(",", ":")` separators, UTF-8) is at most **256 bytes**. Otherwise the stored value is
+exactly one of two typed markers, applied in this order:
+
+1. **Non-finite scalar** (Python's `json` accepts bare `NaN`, `Infinity`, `-Infinity` on decode, and
+   canonical JSON cannot represent them): `{"$nonfinite": "NaN" | "Infinity" | "-Infinity"}`. The
+   *string* `"NaN"` is an ordinary string and stays verbatim.
+2. **Truncation marker** `{"$truncated": true, "type": "string|array|object", "bytes": <canonical length>,
+   "sha256": <hex of the canonical bytes>, "reason": "nested_nonfinite|reserved_key|oversize"}`:
+   `nested_nonfinite` (a non-finite float inside an array/object; the canonical text then uses Python's
+   `NaN`/`Infinity` tokens for the hash), `reserved_key` (so a stored marker is never ambiguous with a
+   genuine object), `oversize` (> 256 bytes). `type`, `bytes` and `sha256` are measured on the original.
+
+The state is decided **before** bounding, from the decoded value, so a marker never changes a state:
+a `$nonfinite` tag is always `invalid` (reason `not_a_finite_number`); a truncated array/object is
+`invalid`; a truncated string follows the table (a long non-numeric string is `invalid`). The marker
+loses the original content by design; the sha256 and length let an operator confirm a candidate value
+without storing it. Schema: `#/$defs/raw_nonfinite`, `#/$defs/raw_truncated`; executable form:
+`scripts/spec004_evidence/replay_envelopes.py::bound_raw`; validated examples:
+`contracts/scoring-config-004.1.nonfinite.example.json`, `…truncated.example.json`.
 
 `evaluated_at` is the single evaluation instant injected into the evaluation (contracts/detector-api.md
 §Evaluation clock). Age is `evaluated_at - daily_volume_acquired_at`.
@@ -43,8 +67,8 @@ of (observation, qualified set, `evaluated_at`); the fixed 600 s matches the cac
 recency rule, not a provider measurement-time guarantee; the stamp is never synthesized from cache
 reads, TTL, CLOB refresh or generic `last_updated`
 (`ingestor/models.py::MarketMetadata.from_dict` falls back to *now*). Executable form and one
-replay case per state and per reason: `scripts/spec004_evidence/`replay_live`.py`, `evidence/replay-live/cases.json`
-(40 cases; every state and every reason).
+replay case per state and per reason: `scripts/spec004_evidence/replay_live.py`, `evidence/replay-live/cases.json`
+(45 cases; every state and every reason, plus the §1.1a raw-value markers).
 
 ### 1.3 Explicit `daily_volume` argument
 

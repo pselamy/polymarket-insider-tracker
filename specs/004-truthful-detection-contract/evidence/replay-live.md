@@ -22,7 +22,7 @@ Columns: `old_score_as_wired` = 003.1 rules with the live wiring (no volume pass
 
 ## Coverage
 
-40 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
+45 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
 `science` from real metadata unless stated.
 
 | Volume state | Cases |

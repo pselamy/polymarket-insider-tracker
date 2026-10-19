@@ -47,7 +47,7 @@ Recomputed by `scripts/spec004_evidence/`reachability`.py` ([research.md](resear
 highest attainable score is **0.780 for every trade size**; markets with ≥ $50k volume top out at
 0.45 (unknown age) or 0.642 (best-case known age); main today (003.1 rules, volume never passed) tops
 out at 0.528. The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases.
-Unknown-age live-realistic replay: 0 of 40 qualify at 0.80, 7 at 0.78.
+Unknown-age live-realistic replay: 0 of 45 qualify at 0.80, 7 at 0.78.
 
 | Option | Consequence | Main trade-off |
 |---|---|---|
@@ -81,10 +81,10 @@ lookup failure the code even invents category `"other"`, which counts as niche-p
 | V2 ingestion | "separate pending request, untouched" | live contract; wallet subject is `proxy_wallet`; journey suites in scope (T021–T026) | F02, F24 |
 | Wallet age | assumed available | none on main; FR-007a/b, basis recorded, D1 | F01, F02 |
 | Unknown-age confidence | "capped at" and "exactly" 0.50 | exactly 0.50 everywhere (single table) | F26 |
-| Threshold reachability | not examined | table + script + 40 live-realistic replay cases; ceiling 0.780; D2 | F03, F04, F05 |
+| Threshold reachability | not examined | table + script + 45 live-realistic replay cases; ceiling 0.780; D2 | F03, F04, F05 |
 | Volume freshness | per-page stamp carried through Redis by the coupled loop | arithmetic shows 688 s worst case; decoupled Gamma loop, own volume record, miss path cannot poison | F07, F08, F09, F10 |
 | Volume states | seven, overlapping, 3 fields | eight, one precedence table P1–P8, zero ⊂ `nonpositive`, one replay case per state/reason | F11, F13, F15 |
-| Raw value | "byte-preserved" | decoded JSON value preserved semantically, 256-byte bound | F12 |
+| Raw value | "byte-preserved" | decoded JSON value preserved semantically; one rule (data-model §1.1a): verbatim ≤ 256 canonical bytes, else a typed `$truncated` marker or `$nonfinite` tag (explicit exceptions) | F12 |
 | 004.1 envelope | prose list | JSON Schema + example + failure-row + checker; reader dispatch; stated as a semantic amendment of the 003 field | F16, F17, F23 |
 | Detector API | pins only | evaluation clock, alias table, explicit-volume rule, `Decimal \| None` companions, formatter line | F18–F21 |
 | Task graph | T012 depended on T011 | T012a–d independent; T021–T028 added | F14, F24 |
@@ -115,7 +115,7 @@ deprecated inclusive alias; no new migration.
 
 - 114-case / 228-score / 63-delta behavioural replay is unchanged and still valid as an
   old-versus-proposed comparison; its 0 → 15 qualifications are **all known-age** cases the live
-  runtime cannot produce. The 40-case live-realistic addendum shows 0 qualifying at 0.80 and 7 at 0.78.
+  runtime cannot produce. The 45-case live-realistic addendum shows 0 qualifying at 0.80 and 7 at 0.78.
   Neither is calibration.
 - Source hashes: 4 of 7 recorded hashes unchanged, 3 changed by refactors only
   (`evidence/source-refresh-f2e2167.md`).

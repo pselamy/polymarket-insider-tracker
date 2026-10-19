@@ -128,13 +128,25 @@ def optional_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def decoded_raw(raw: dict[str, object]) -> object:
+    """The decoded volume24hr value; ``raw_spec`` builds values plain JSON cannot hold."""
+    spec = raw.get("raw_spec")
+    if not isinstance(spec, dict):
+        return raw.get("raw")
+    if "float" in spec:
+        return float(str(spec["float"]))
+    if "nested_float" in spec:
+        return [float(str(spec["nested_float"]))]
+    return "x" * int(spec["repeat_string"])
+
+
 def build_observation(raw: dict[str, object]) -> Observation:
     return Observation(
         kind=str(raw.get("kind", "observed")),
         reason=optional_str(raw.get("reason")),
         source=optional_str(raw.get("source")),
         present=bool(raw.get("present", True)),
-        raw=raw.get("raw"),
+        raw=decoded_raw(raw),
         acquired_age_seconds=raw.get("acquired_age_seconds"),
     )
 

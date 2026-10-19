@@ -7,7 +7,9 @@ results out in the stored envelope shape so ``check_envelope`` can validate ever
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any, cast
@@ -27,6 +29,66 @@ WEIGHTS = {
     "niche_market": Decimal("0.25"),
     "size_anomaly": Decimal("0.35"),
 }
+
+
+RAW_BOUND_BYTES = 256
+RESERVED_KEYS = frozenset({"$truncated", "$nonfinite"})
+
+
+def canonical(value: object) -> bytes:
+    """Canonical UTF-8 text of a decoded value; non-finite floats keep Python's NaN/Infinity tokens."""
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return text.encode("utf-8")
+
+
+def json_type(value: object) -> str:
+    if value is None:
+        return "null"
+    names = {bool: "boolean", int: "number", float: "number", str: "string", list: "array"}
+    return names.get(type(value), "object")
+
+
+def children(value: object) -> list[object]:
+    if isinstance(value, list):
+        return value
+    return list(value.values()) if isinstance(value, dict) else []
+
+
+def has_nonfinite(value: object) -> bool:
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    return any(has_nonfinite(item) for item in children(value))
+
+
+def truncation_reason(value: object, size: int) -> str | None:
+    if has_nonfinite(value):
+        return "nested_nonfinite"
+    if isinstance(value, dict) and RESERVED_KEYS & value.keys():
+        return "reserved_key"
+    return "oversize" if size > RAW_BOUND_BYTES else None
+
+
+def nonfinite_tag(value: float) -> str:
+    if math.isnan(value):
+        return "NaN"
+    return "Infinity" if value > 0 else "-Infinity"
+
+
+def bound_raw(value: object) -> object:
+    """The stored form of a decoded volume24hr value (contracts/scoring-config.md raw-value rule)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"$nonfinite": nonfinite_tag(value)}
+    body = canonical(value)
+    reason = truncation_reason(value, len(body))
+    if reason is None:
+        return value
+    return {
+        "$truncated": True,
+        "bytes": len(body),
+        "reason": reason,
+        "sha256": hashlib.sha256(body).hexdigest(),
+        "type": json_type(value),
+    }
 
 
 def plain(value: Decimal) -> str:
@@ -58,7 +120,7 @@ def volume_source(obs: rl.Observation, explicit: Decimal | None) -> str | None:
 def raw_fields(obs: rl.Observation, explicit: Decimal | None) -> tuple[bool, object]:
     if explicit is not None or obs.kind == "unavailable":
         return False, None
-    return obs.present, obs.raw
+    return obs.present, bound_raw(obs.raw)
 
 
 def size_block(
