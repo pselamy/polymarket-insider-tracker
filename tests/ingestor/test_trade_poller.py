@@ -98,6 +98,18 @@ def states() -> RecordingStateCallback:
     return RecordingStateCallback()
 
 
+@pytest.fixture
+async def anchored(
+    server: FakeTradesServer,
+    clock: FakeClock,
+    fake_redis: FakeAsyncRedis,
+    settings: PolymarketSettings,
+    callback: RecordingTradeCallback,
+    states: RecordingStateCallback,
+) -> TradePoller:
+    return await _anchored(server, clock, fake_redis, settings, callback, states=states)
+
+
 def _poller(
     server: FakeTradesServer,
     clock: FakeClock,
@@ -124,6 +136,35 @@ def _poller(
 def _seed_history(server: FakeTradesServer, *, count: int = 5, newest: int = T0 - 1) -> None:
     for offset in range(count):
         server.publish(trade_row(timestamp=newest - offset * 60, transaction=offset, wallet=offset))
+
+
+def _yes_no() -> FakeMetadataSync:
+    """Cached metadata that can repair a missing outcome on ``0xmarket`` (No at 0, Yes at 1)."""
+    metadata = FakeMetadataSync()
+    metadata.markets["0xmarket"] = MarketMetadata(
+        condition_id="0xmarket",
+        question="Synthetic?",
+        description="",
+        tokens=(
+            Token(token_id="asset-no", outcome="No"),
+            Token(token_id="asset-yes", outcome="Yes"),
+        ),
+    )
+    return metadata
+
+
+def _publish_missing_outcome(
+    server: FakeTradesServer, *, timestamp: int, transaction: int, market: str = "0xmarket"
+) -> None:
+    server.publish(
+        trade_row(
+            timestamp=timestamp,
+            transaction=transaction,
+            market=market,
+            outcome=None,
+            outcome_index=None,
+        )
+    )
 
 
 async def _run_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
@@ -234,15 +275,10 @@ class TestHealthyCycles:
     async def test_exact_repeats_are_suppressed_while_multi_wallet_rows_are_distinct(
         self,
         server: FakeTradesServer,
-        clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
+        anchored: TradePoller,
         callback: RecordingTradeCallback,
     ) -> None:
-        _seed_history(server, count=2)
-        poller = _poller(server, clock, fake_redis, settings, callback)
-        await poller.run_cycle()
-        clock.advance(5)
+        poller = anchored
         taker = trade_row(timestamp=T0 + 1, transaction=7, wallet=1, side="BUY")
         maker = trade_row(timestamp=T0 + 1, transaction=7, wallet=2, side="SELL")
         server.publish(taker)
@@ -263,14 +299,10 @@ class TestHealthyCycles:
         self,
         server: FakeTradesServer,
         clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
+        anchored: TradePoller,
         callback: RecordingTradeCallback,
     ) -> None:
-        _seed_history(server, count=2)
-        poller = _poller(server, clock, fake_redis, settings, callback)
-        await poller.run_cycle()
-        clock.advance(5)
+        poller = anchored
         server.publish(trade_row(timestamp=T0 + 5, transaction=5))
         server.publish(trade_row(timestamp=T0 + 9, transaction=9))
 
@@ -294,30 +326,9 @@ class TestHealthyCycles:
         settings: PolymarketSettings,
         callback: RecordingTradeCallback,
     ) -> None:
-        metadata = FakeMetadataSync()
-        metadata.markets["0xmarket"] = MarketMetadata(
-            condition_id="0xmarket",
-            question="Synthetic?",
-            description="",
-            tokens=(
-                Token(token_id="asset-no", outcome="No"),
-                Token(token_id="asset-yes", outcome="Yes"),
-            ),
-        )
-        _seed_history(server, count=2)
-        poller = _poller(server, clock, fake_redis, settings, callback, metadata=metadata)
-        await poller.run_cycle()
-        clock.advance(5)
-        server.publish(trade_row(timestamp=T0 + 1, transaction=1, outcome=None, outcome_index=None))
-        server.publish(
-            trade_row(
-                timestamp=T0 + 2,
-                transaction=2,
-                market="0xunknown",
-                outcome=None,
-                outcome_index=None,
-            )
-        )
+        poller = await _anchored(server, clock, fake_redis, settings, callback, metadata=_yes_no())
+        _publish_missing_outcome(server, timestamp=T0 + 1, transaction=1)
+        _publish_missing_outcome(server, timestamp=T0 + 2, transaction=2, market="0xunknown")
         server.publish(trade_row(timestamp=T0 + 3, transaction=3))
 
         await poller.run_cycle()
@@ -338,10 +349,7 @@ class TestHealthyCycles:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         callback = RecordingTradeCallback(failing=RuntimeError("downstream exploded"))
-        _seed_history(server, count=2)
-        poller = _poller(server, clock, fake_redis, settings, callback)
-        await poller.run_cycle()
-        clock.advance(5)
+        poller = await _anchored(server, clock, fake_redis, settings, callback)
         server.publish(trade_row(timestamp=T0 + 1, transaction=1))
         server.publish(trade_row(timestamp=T0 + 2, transaction=2))
 
@@ -416,10 +424,7 @@ class TestStatusAndMetrics:
     ) -> None:
         emitted_before = _metric("polymarket_ingest_rows_total", disposition="emitted")
         success_before = _metric("polymarket_ingest_requests_total", outcome="success")
-        _seed_history(server, count=2)
-        poller = _poller(server, clock, fake_redis, settings, callback)
-        await poller.run_cycle()
-        clock.advance(5)
+        poller = await _anchored(server, clock, fake_redis, settings, callback)
         server.publish(trade_row(timestamp=T0 + 1, transaction=1))
         await poller.run_cycle()
 
@@ -493,7 +498,7 @@ class InterruptedCallback(RecordingTradeCallback):
             raise asyncio.CancelledError
 
 
-async def _anchored(
+async def _saturated(
     server: FakeTradesServer,
     clock: FakeClock,
     fake_redis: FakeAsyncRedis,
@@ -502,9 +507,29 @@ async def _anchored(
     *,
     states: RecordingStateCallback | None = None,
 ) -> TradePoller:
+    """An anchored poller whose next page (limit 2) holds five new rows, so it cannot be proven."""
+    server.page_limit = 2
+    poller = await _anchored(server, clock, fake_redis, settings, callback, states=states)
+    for offset in range(1, 6):
+        server.publish(trade_row(timestamp=T0 + offset, transaction=offset))
+    return poller
+
+
+async def _anchored(
+    server: FakeTradesServer,
+    clock: FakeClock,
+    fake_redis: FakeAsyncRedis,
+    settings: PolymarketSettings,
+    callback: RecordingTradeCallback,
+    *,
+    states: RecordingStateCallback | None = None,
+    metadata: FakeMetadataSync | None = None,
+) -> TradePoller:
     """A poller that has completed its first-start cycle over two rows of history."""
     _seed_history(server, count=2)
-    poller = _poller(server, clock, fake_redis, settings, callback, states=states)
+    poller = _poller(
+        server, clock, fake_redis, settings, callback, states=states, metadata=metadata
+    )
     await poller.run_cycle()
     clock.advance(5)
     return poller
@@ -523,14 +548,13 @@ class TestTransientFailures:
         self,
         server: FakeTradesServer,
         clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
+        anchored: TradePoller,
         callback: RecordingTradeCallback,
         states: RecordingStateCallback,
         fault: Fault,
         fragment: str,
     ) -> None:
-        poller = await _anchored(server, clock, fake_redis, settings, callback, states=states)
+        poller = anchored
         server.fail_next(fault, times=5)
 
         await poller.run_cycle()
@@ -556,11 +580,10 @@ class TestTransientFailures:
         self,
         server: FakeTradesServer,
         clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
+        anchored: TradePoller,
         callback: RecordingTradeCallback,
     ) -> None:
-        poller = await _anchored(server, clock, fake_redis, settings, callback)
+        poller = anchored
         server.fail_next(throttled("2"), times=2)
         server.publish(trade_row(timestamp=T0 + 1, transaction=1))
 
@@ -585,14 +608,13 @@ class TestTerminalFailures:
         self,
         server: FakeTradesServer,
         clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
+        anchored: TradePoller,
         callback: RecordingTradeCallback,
         states: RecordingStateCallback,
         fault: Fault,
         fragment: str,
     ) -> None:
-        poller = await _anchored(server, clock, fake_redis, settings, callback, states=states)
+        poller = anchored
         server.fail_next(fault)
         requests_before = len(server.requests)
 
@@ -694,11 +716,10 @@ class TestRowQuality:
         self,
         server: FakeTradesServer,
         clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
+        anchored: TradePoller,
         callback: RecordingTradeCallback,
     ) -> None:
-        poller = await _anchored(server, clock, fake_redis, settings, callback)
+        poller = anchored
         server.publish(trade_row(timestamp=T0 + 2, transaction=22, wallet=2))
         server.publish(trade_row(timestamp=T0 + 1, transaction=11, wallet=1))
         server.publish(trade_row(timestamp=T0 + 2, transaction=21, wallet=3))
@@ -849,22 +870,9 @@ class TestSaturation:
         settings: PolymarketSettings,
         callback: RecordingTradeCallback,
     ) -> None:
-        metadata = FakeMetadataSync()
-        metadata.markets["0xmarket"] = MarketMetadata(
-            condition_id="0xmarket",
-            question="Synthetic?",
-            description="",
-            tokens=(
-                Token(token_id="asset-no", outcome="No"),
-                Token(token_id="asset-yes", outcome="Yes"),
-            ),
-        )
         server.page_limit = 2
-        _seed_history(server, count=2)
-        poller = _poller(server, clock, fake_redis, settings, callback, metadata=metadata)
-        await poller.run_cycle()
-        clock.advance(5)
-        server.publish(trade_row(timestamp=T0 + 1, transaction=1, outcome=None, outcome_index=None))
+        poller = await _anchored(server, clock, fake_redis, settings, callback, metadata=_yes_no())
+        _publish_missing_outcome(server, timestamp=T0 + 1, transaction=1)
         server.publish(trade_row(timestamp=T0 + 2, transaction=2))
         server.publish(trade_row(timestamp=T0 + 3, transaction=3))
 
@@ -910,10 +918,7 @@ class TestSaturation:
         callback: RecordingTradeCallback,
         states: RecordingStateCallback,
     ) -> None:
-        server.page_limit = 2
-        poller = await _anchored(server, clock, fake_redis, settings, callback, states=states)
-        for offset in range(1, 6):
-            server.publish(trade_row(timestamp=T0 + offset, transaction=offset))
+        poller = await _saturated(server, clock, fake_redis, settings, callback, states=states)
 
         await poller.run_cycle()
         frozen = poller.status
@@ -947,10 +952,7 @@ class TestSaturation:
         settings: PolymarketSettings,
         callback: RecordingTradeCallback,
     ) -> None:
-        server.page_limit = 2
-        poller = await _anchored(server, clock, fake_redis, settings, callback)
-        for offset in range(1, 6):
-            server.publish(trade_row(timestamp=T0 + offset, transaction=offset))
+        poller = await _saturated(server, clock, fake_redis, settings, callback)
         await poller.run_cycle()
         assert poller.state is IngestionState.POSSIBLE_DATA_LOSS
         clock.advance(5)
@@ -975,10 +977,7 @@ class TestSaturation:
         states: RecordingStateCallback,
     ) -> None:
         loss_before = _metric("polymarket_ingest_loss_events_total", reason="horizon-expired")
-        server.page_limit = 2
-        poller = await _anchored(server, clock, fake_redis, settings, callback, states=states)
-        for offset in range(1, 6):
-            server.publish(trade_row(timestamp=T0 + offset, transaction=offset))
+        poller = await _saturated(server, clock, fake_redis, settings, callback, states=states)
         await poller.run_cycle()
         clock.advance(5)
         server.publish(trade_row(timestamp=T0 + 6, transaction=6))
@@ -1015,11 +1014,10 @@ class TestSaturation:
         self,
         server: FakeTradesServer,
         clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
+        anchored: TradePoller,
         callback: RecordingTradeCallback,
     ) -> None:
-        poller = await _anchored(server, clock, fake_redis, settings, callback)
+        poller = anchored
         retained = trade_row(timestamp=T0 + 1, transaction=31)
         server.publish(retained)
         server.publish(trade_row(timestamp=T0 + 2, transaction=32))
