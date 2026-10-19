@@ -158,7 +158,7 @@ knowledge).
 | # | Clones | Dup lines | Files | Knowledge | Verdict |
 | --- | --- | --- | --- | --- | --- |
 | 1 | 11 | 196 | test_formatter.py, test_history.py, test_scorer.py, test_size_anomaly.py | Repeated `sample_trade`/`sample_wallet_profile` fixtures and formatter/history case scaffolds (two fixture families share one component) | real |
-| 2 | 0 | 0 | _journey_harness.py | **Resolved**: the sample trade, single-token market, seeded provider history, journey settings, and wire/start/stop scaffolding now have one home (`tests/integration/_journey_harness.py`); the five suites use it | resolved (PR pending) |
+| 2 | 0 | 0 | _journey_harness.py | **Resolved**: the sample trade, single-token market, seeded provider history, journey settings, and wire/start/stop scaffolding now have one home (`tests/integration/_journey_harness.py`); the five suites use it | resolved (PR #163) |
 | 3 | 7 | 94 | test_redaction.py | Repeated harness setups asserting the same redaction policy across inputs | real |
 | 4 | 9 | 92 | test_dispatcher.py | Discord/Telegram parallel test cases sharing failure/retry scaffolds | real |
 | 5 | 0 | 0 | _url_redaction.py (new) | **Resolved**: identical URL parsing + credential extraction now has one home (`scripts/_url_redaction.py`); both former copies import it | resolved (PR #153) |
@@ -649,7 +649,7 @@ No other clone group appeared or disappeared. Resolved by draft PR
 ### 2026-10-19 resolution update: cluster 2 (integration-test pipeline wiring bootstrap)
 
 Cluster 2 is resolved by the dedup card for cluster 2 on branch `ralph/dedup-wiring`
-(draft PR recorded in the PR body). The pipeline-wiring test data and scaffolding that
+(draft PR [#163](https://github.com/pselamy/polymarket-insider-tracker/pull/163)). The pipeline-wiring test data and scaffolding that
 `test_end_to_end.py`, `test_pipeline.py`, `test_pipeline_persistence.py` and
 `test_postgres_journey.py` each copied now has exactly one home, the existing
 `tests/integration/_journey_harness.py`: `make_sample_trade_event`, `market_for_trade`,
