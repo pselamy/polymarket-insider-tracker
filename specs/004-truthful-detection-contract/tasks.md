@@ -49,7 +49,7 @@ Named files, entry points, dependency order:
   `test_fresh_wallet.py`, `test_size_anomaly.py`, `test_scorer.py`): default/override/equality
   boundary fixtures (nonce exactly `B`, age exactly 48h, score exactly 0.80, ratio exactly
   0.02), transaction-override-3-3 / transaction-override-10-9 counterexamples, **all eight volume
-  states and every reason** (FR-005a; the 45 cases of `evidence/replay-live/cases.json` are the table),
+  states and every reason** (FR-005a; the 51 cases of `evidence/replay-live/cases.json` are the table),
   niche modifier incl. the D3 lookup-failure case, threshold equality (FR-001–011, FR-015, SC-001–003)
 - [ ] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
@@ -156,7 +156,7 @@ Named files, entry points, dependency order:
   wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:
   unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
   `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
-  SC-009). Also add the 45 `evidence/replay-live/cases.json` cases to the table-driven suite.
+  SC-009). Also add the 51 `evidence/replay-live/cases.json` cases to the table-driven suite.
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 

@@ -90,7 +90,7 @@
         "bytes": {"type": "integer", "minimum": 1},
         "reason": {"enum": ["oversize", "reserved_key", "nested_nonfinite"]},
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-        "type": {"enum": ["string", "array", "object"]}
+        "type": {"enum": ["string", "number", "array", "object"]}
       }
     },
     "factors": {"type": "object", "additionalProperties": {"$ref": "#/$defs/decimal"}},

@@ -27,27 +27,27 @@ after T027 (pre-T027 it is recorded as an observation only).
 
 ## Coverage
 
-45 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
+51 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
 `science` from real metadata unless stated.
 
 | Volume state | Cases |
 |---|---|
-| `available` | niche saturated, just above ratio, niche-only, not niche (2), JSON number, age 0 s, age 600 s, explicit caller argument, large trade, nonce 4 |
+| `available` | niche saturated, just above ratio, niche-only, not niche (2), JSON number, age 0 s, age 600 s, explicit caller argument, large trade, nonce 4, 300-digit JSON integer (stored as a `number` truncation marker; not niche, so no size signal) |
 | `stale` | age 601 s |
 | `invalid_time` | future, naive, absent, unparseable, epoch-0 stamps |
-| `nonpositive` | zero, negative, explicit caller 0 |
-| `missing` | JSON null, key absent |
-| `invalid` | non-numeric string, boolean, array, `NaN`, `Infinity`, empty string |
+| `nonpositive` | zero, negative, explicit caller 0, zero with a future stamp (negative age stored) |
+| `missing` | JSON null, key absent, JSON null with a future stamp (negative age stored) |
+| `invalid` | non-numeric string, boolean, array, `NaN`, `Infinity`, empty string, bare `NaN`/`-Infinity` tokens (`$nonfinite` tag), nested non-finite, oversize string, reserved key (truncation markers), `"1_000"` and `" 30000"` (fail the data-model §1.1b grammar), non-numeric string with a future stamp (negative age stored) |
 | `unqualified` | unknown source id, legacy record without provenance |
 | `unavailable` | fetch failed, absent from complete crawl, crawl truncated, CLOB miss path, no volume record, tech category, politics category, metadata lookup failed |
 | wallet gate | nonce 5 (= B), notional 999.99 |
 
 ## Result
 
-- **Default pre-T027 posture**: 0 of 45 qualify at 0.80 and 0 at 0.78; the maximum is 0.450, reached
+- **Default pre-T027 posture**: 0 of 51 qualify at 0.80 and 0 at 0.78; the maximum is 0.450, reached
   by exactly the saturated niche cases. Every non-`available` volume state falls back to the category
   signal and scores 0.120 (niche-prone category) or 0.000 (otherwise).
-- **Post-T027 scenario**: 0 of 45 qualify at 0.80; 7 qualify at 0.78 (all `available`, niche, ratio ≥
+- **Post-T027 scenario**: 0 of 51 qualify at 0.80; 7 qualify at 0.78 (all `available`, niche, ratio ≥
   0.06). The unknown-age ceiling 0.780 is reached by exactly the saturated niche cases; non-`available`
   states score 0.384 (niche-prone category) or 0.200 (otherwise).
 - `live-metadata-lookup-failed`: 003.1 as wired gives 0.480 (category `other` counts as niche);

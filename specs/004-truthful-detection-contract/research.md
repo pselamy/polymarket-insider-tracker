@@ -349,7 +349,7 @@ Effects are stated for the default pre-T027 posture first, then post-T027.
 | Option | Effect (see `evidence/reachability.md`) | Trade-offs |
 |---|---|---|
 | **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings** | Pre-T027: nothing qualifies (ceiling 0.450). Post-T027 with O1: still nothing qualifies (0.780); alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: it presents an alert path that cannot fire; honest only with FR-022a |
-| **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 45 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 45 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
+| **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 51 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 51 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
 | **R2 raise the unknown-age base to ≥ 0.541** | Pre-T027: no effect (wallet non-scoring). Post-T027: keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
 | **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Pre-T027 the watch floor must be ≤ 0.45 to show anything; post-T027 surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
 | **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
@@ -362,10 +362,10 @@ the product records assessments but produces no deliverable alert at default set
 ### Live-realistic replay
 
 The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
-adds 45 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
+adds 51 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
 by `scripts/spec004_evidence/replay_live.py`) using unknown age and every volume state, with the 003.1-as-wired score
-next to the proposed one in both wallet postures. Pre-T027 (default): 0 of 45 qualify at 0.80 or 0.78
-(maximum 0.450). Post-T027: 0 of 45 at 0.80; 7 at 0.78.
+next to the proposed one in both wallet postures. Pre-T027 (default): 0 of 51 qualify at 0.80 or 0.78
+(maximum 0.450). Post-T027: 0 of 51 at 0.80; 7 at 0.78.
 
 ## R02a — Volume freshness that matches the real sync (added 2026-10-19; resolves F07, F08, F09, F10, F12, F14)
 

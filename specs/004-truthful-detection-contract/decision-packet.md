@@ -91,7 +91,7 @@ Recomputed by `scripts/spec004_evidence/reachability.py` ([research.md](research
 | Main today (003.1 rules, volume never passed) | 0.528 | |
 
 The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases. Live-realistic
-replay (45 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); post-T027, 0 at 0.80 and
+replay (51 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); post-T027, 0 at 0.80 and
 7 at 0.78.
 
 | Option | Pre-T027 (default posture) | Post-T027 | Main trade-off |
@@ -146,7 +146,7 @@ round 1 flagged the fallback as a false-positive source.
 | V2 ingestion | "separate pending request, untouched" | live contract; wallet subject is `proxy_wallet`; journey suites in scope (T021–T026) | F02, F24 |
 | Wallet age | assumed available | none on main; FR-007a/b, basis recorded, D1a/D1b | F01, F02 |
 | Unknown-age confidence | "capped at" and "exactly" 0.50 | exactly 0.50 everywhere (single table) | F26 |
-| Threshold reachability | not examined | table + script + 45 live-realistic replay cases; ceiling 0.450 pre-T027 (default posture), 0.780 post-T027 unknown age; D2 | F03, F04, F05, R3 B1 |
+| Threshold reachability | not examined | table + script + 51 live-realistic replay cases; ceiling 0.450 pre-T027 (default posture), 0.780 post-T027 unknown age; D2 | F03, F04, F05, R3 B1 |
 | Wallet gate | none | FR-007c default posture: wallet group non-scoring before T027, serialized as `wallet.group_status` | R2-4a, R3 B1 |
 | Volume freshness | per-page stamp carried through Redis by the coupled loop | arithmetic shows 688 s worst case; decoupled Gamma loop, own volume record, miss path cannot poison | F07, F08, F09, F10 |
 | Volume states | seven, overlapping, 3 fields | eight, one precedence table P1–P8, zero ⊂ `nonpositive`, one replay case per state/reason | F11, F13, F15 |
@@ -165,6 +165,11 @@ round 1 flagged the fallback as a false-positive source.
   inert string `"1"` in 004.1 documents (`"1.3"` stays in 003.1 rows).
 - `SizeAnomalySignal` keeps its required floats; authoritative values are the new `Decimal | None`
   companions.
+- A volume string counts as numeric only if it is one RFC 8259 number token (data-model §1.1b), so
+  `"1_000"`, `" 30000"`, `"+5"` are `invalid`; current main's `Decimal(str(value))` accepts them. If you
+  prefer to keep main's leniency, say so; no replay score changes either way for the committed cases.
+- A stored volume stamp always carries the exact signed age, so a future stamp shows a negative age in
+  whichever state wins (not only `invalid_time`/`future`); nulling it instead would discard evidence.
 
 ## Final behavior (if authorized, under the recommended defaults)
 
@@ -183,7 +188,7 @@ deprecated inclusive alias; no new migration.
 
 - 114-case / 228-score / 63-delta behavioural replay is unchanged and still valid as an
   old-versus-proposed comparison; its 0 → 15 qualifications are **all known-age** cases the live
-  runtime cannot produce. The 45-case live-realistic addendum shows, pre-T027, 0 qualifying at 0.80 or
+  runtime cannot produce. The 51-case live-realistic addendum shows, pre-T027, 0 qualifying at 0.80 or
   0.78 (maximum 0.450); post-T027, 0 at 0.80 and 7 at 0.78.
   Neither is calibration.
 - Source hashes: 4 of 7 recorded hashes unchanged, 3 changed by refactors only
@@ -207,7 +212,9 @@ deprecated inclusive alias; no new migration.
 - The reviewer-owned checklist text still says "seven" states (CHK003) and "cap 0.50" (CHK005); it is
   left untouched and is read against the eight-state table and the exactly-0.50 rule.
   CHK003's wording is stale (seven versus eight states, P1-P8); whether it is met is for the
-  reviewer to judge, and nothing in this revision ticks it (see revision log §5).
+  reviewer to judge, and nothing in this revision ticks it (see revision log §5). CHK005 also predates
+  the FR-007c posture (pre-T027 an unknown-age wallet has no confidence at all), and CHK023's "v2
+  migration" wording is stale (revision log §6).
 - **Evidence tooling lives under `scripts/spec004_evidence/`** (stdlib only, no `src/` import) so it is
   inside every Python gate (ruff, black, strict mypy, vulture, complexipy max 5, cyclomatic 10) with no
   suppression; this revision therefore also adds that package outside `specs/`. Outputs are committed and

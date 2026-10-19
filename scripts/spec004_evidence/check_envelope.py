@@ -278,22 +278,34 @@ def available_volume_errors(evidence: dict[str, Any]) -> list[str]:
     )
     if ratio != Decimal(size["volume_impact"]):
         errors.append(f"volume_impact {size['volume_impact']} != notional/daily_volume {ratio}")
-    acquired = datetime.fromisoformat(size["daily_volume_acquired_at"])
-    age = datetime.fromisoformat(evidence["evaluated_at"]) - acquired
-    if Decimal(str(age.total_seconds())) != Decimal(size["daily_volume_age_seconds"]):
-        errors.append("daily_volume_age_seconds != evaluated_at - acquired_at")
-    if not 0 <= age.total_seconds() <= 600:
+    age = size["daily_volume_age_seconds"]
+    if age is None or not 0 <= Decimal(age) <= 600:
         errors.append("available volume outside the 0-600 s window")
     return errors
 
 
+def age_magnitude_errors(evidence: dict[str, Any]) -> list[str]:
+    """A stored age is exactly evaluated_at - acquired_at, so a future stamp is a negative age."""
+    size = evidence["size"]
+    acquired, age = size["daily_volume_acquired_at"], size["daily_volume_age_seconds"]
+    if (acquired is None) != (age is None):
+        return ["daily_volume_acquired_at and daily_volume_age_seconds must be null together"]
+    if age is None:
+        return []
+    delta = datetime.fromisoformat(evidence["evaluated_at"]) - datetime.fromisoformat(acquired)
+    if Decimal(str(delta.total_seconds())) != Decimal(age):
+        return ["daily_volume_age_seconds != evaluated_at - acquired_at"]
+    return []
+
+
 def age_sign_errors(size: dict[str, Any]) -> list[str]:
+    """invalid_time/future always carries its real stamp, so its age is present and negative."""
+    if (size["volume_state"], size["volume_reason"]) != ("invalid_time", "future"):
+        return []
     age = size["daily_volume_age_seconds"]
-    if age is None or Decimal(age) >= 0:
+    if age is not None and Decimal(age) < 0:
         return []
-    if (size["volume_state"], size["volume_reason"]) == ("invalid_time", "future"):
-        return []
-    return ["negative age outside invalid_time/future"]
+    return ["invalid_time/future requires a negative age"]
 
 
 RAW_TAGS = {"$nonfinite": "raw_nonfinite", "$truncated": "raw_truncated"}
@@ -335,7 +347,7 @@ def volume_state_errors(evidence: dict[str, Any]) -> list[str]:
         errors.append("daily_volume must be non-null exactly when volume_state is available")
     if available != (size["volume_impact"] is not None):
         errors.append("volume_impact must be non-null exactly when volume_state is available")
-    errors += age_sign_errors(size)
+    errors += age_sign_errors(size) + age_magnitude_errors(evidence)
     errors += tag_state_errors(size) + stored_raw_errors(size["volume24hr_raw"])
     return errors + (available_volume_errors(evidence) if available else [])
 
@@ -416,6 +428,54 @@ def gated_mutation_failures() -> list[str]:
     return failures
 
 
+FUTURE_CASES = (
+    "live-invalid-time-future",
+    "live-nonpositive-zero-future-stamp",
+    "live-invalid-string-future-stamp",
+    "live-missing-null-future-stamp",
+)
+
+
+def future_age_variants(size: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Wrong-magnitude and wrong-sign ages for an observation stamped in the future; for
+    invalid_time/future also a dropped stamp (other states may legitimately have no stamp)."""
+    age = Decimal(size["daily_volume_age_seconds"])
+    variants: list[tuple[str, dict[str, Any]]] = [
+        ("magnitude", {"daily_volume_age_seconds": plain_decimal(age + 1)}),
+        ("sign", {"daily_volume_age_seconds": plain_decimal(-age)}),
+    ]
+    if size["volume_state"] != "invalid_time":
+        return variants
+    return [
+        *variants,
+        ("dropped", {"daily_volume_age_seconds": None, "daily_volume_acquired_at": None}),
+    ]
+
+
+def plain_decimal(value: Decimal) -> str:
+    return format(value, "f")
+
+
+def future_age_mutation_failures() -> list[str]:
+    """Each future-stamped replay envelope must reject an age that is not evaluated_at - acquired_at."""
+    template = load("scoring-config-004.1.example.json")
+    by_id = {spec["case_id"]: spec for spec in replay_specs()}
+    failures: list[str] = []
+    for case in FUTURE_CASES:
+        failures += accepted_future_variants(case, build_envelope(by_id[case], template))
+    return failures
+
+
+def accepted_future_variants(case: str, doc: dict[str, Any]) -> list[str]:
+    accepted: list[str] = []
+    for label, edit in future_age_variants(doc["evaluation_evidence"]["size"]):
+        bad = copy.deepcopy(doc)
+        bad["evaluation_evidence"]["size"].update(edit)
+        if not reconstruct(bad):
+            accepted.append(f"future-age mutation accepted: {case} {label}")
+    return accepted
+
+
 def raw_mutation_failures() -> list[str]:
     """Stored raw values the rule must reject."""
     digest = "0" * 64
@@ -424,6 +484,7 @@ def raw_mutation_failures() -> list[str]:
         "nested NaN float": [float("nan")],
         "reserved key verbatim": {"$truncated": False},
         "oversize verbatim": "x" * 300,
+        "oversize verbatim number": int("9" * 300),
         "tag with wrong spelling": {"$nonfinite": "nan"},
         "marker without digest": {
             "$truncated": True,
@@ -496,6 +557,7 @@ def main() -> int:
         failures += document_failures(name, schema)
     failures += example_drift()
     failures += mutation_failures(schema) + raw_mutation_failures() + gated_mutation_failures()
+    failures += future_age_mutation_failures()
     for failure in failures:
         print(failure)
     print("ok" if not failures else f"{len(failures)} failure(s)")

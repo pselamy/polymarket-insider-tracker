@@ -18,7 +18,9 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -41,6 +43,9 @@ NICHE_PRONE = frozenset({"science", "tech", "finance", "other"})
 RECENCY_SECONDS = 600
 BOUNDARY = 5  # B: exclusive nonce bound (proposed); old rule is nonce <= 5
 THRESHOLDS = ("0.80", "0.78")
+# data-model.md section 1.1b: a numeric string is exactly one RFC 8259 JSON number token (ASCII, no
+# sign "+", no whitespace, no "_" separators, no leading zeros, no NaN/Infinity spelling).
+NUMERIC_STRING = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
 COLUMNS = (
     "case_id",
     "volume_state",
@@ -70,12 +75,19 @@ class Observation:
     acquired_age_seconds: object
 
 
+def is_numeric_candidate(raw: object) -> bool:
+    """A JSON number (not a boolean), or a string that is exactly one JSON number token."""
+    if isinstance(raw, str):
+        return NUMERIC_STRING.fullmatch(raw) is not None
+    return isinstance(raw, int | float) and not isinstance(raw, bool)
+
+
 def parse_finite(raw: object) -> Decimal | None:
-    """A finite Decimal from a JSON number or numeric string; None for anything else."""
-    if isinstance(raw, bool) or not isinstance(raw, int | float | str):
+    """A finite Decimal from a JSON number or a numeric string (section 1.1b); None otherwise."""
+    if not is_numeric_candidate(raw):
         return None
     try:
-        value = Decimal(str(raw).strip()) if isinstance(raw, str) else Decimal(str(raw))
+        value = Decimal(str(raw))
     except InvalidOperation:
         return None
     return value if value.is_finite() else None
@@ -134,17 +146,21 @@ def optional_str(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+RAW_BUILDERS: dict[str, Callable[[str], object]] = {
+    "float": float,
+    "nested_float": lambda text: [float(text)],
+    "repeat_string": lambda text: "x" * int(text),
+    "big_int_digits": lambda text: int("9" * int(text)),
+}
+
+
 def decoded_raw(raw: dict[str, object]) -> object:
     """The decoded volume24hr value; ``raw_spec`` builds values plain JSON cannot hold."""
     spec = raw.get("raw_spec")
     if not isinstance(spec, dict):
         return raw.get("raw")
-    spec = cast(dict[str, object], spec)
-    if "float" in spec:
-        return float(str(spec["float"]))
-    if "nested_float" in spec:
-        return [float(str(spec["nested_float"]))]
-    return "x" * int(str(spec["repeat_string"]))
+    kind, arg = next(iter(cast(dict[str, object], spec).items()))
+    return RAW_BUILDERS[kind](str(arg))
 
 
 def build_observation(raw: dict[str, object]) -> Observation:
