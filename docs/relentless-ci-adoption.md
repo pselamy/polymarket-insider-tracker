@@ -549,7 +549,7 @@ measured run. Total: 7238 statements, 351 missing; 1480 branches, 194 partially 
 
 Closest to 100% and chosen for step 1 (staged enrollment): the 24 modules already complete plus
 `alerter/_channel_delivery.py`, `alerter/_history_records.py`, `alerter/history.py`,
-`alerter/formatter.py`, `detector/fresh_wallet.py`, `detector/scorer.py`, `profiler/analyzer.py`,
+`alerter/formatter.py`, `detector/fresh_wallet.py`, `profiler/analyzer.py`,
 `profiler/rpc_handle.py` and `profiler/funding.py`. Their gaps are one-line `Protocol` stubs
 (`->exit` branches, closed by a docstring-only body rather than any exclusion) and a few
 behaviours without a test.
@@ -558,10 +558,13 @@ behaviours without a test.
 
 The last two commands in `quality/checks.json` enforce the gate: `coverage run -m pytest tests
 --ignore=tests/tooling` followed by `coverage report --fail-under=100 --include=<enrolled modules>`.
-The enrolled list is the 33 modules now at 100% line and branch (the 24 complete modules plus the nine
+The enrolled list is the 32 modules now at 100% line and branch (the 24 complete modules plus the eight
 brought up in this step); it may only grow. No `pragma: no cover`, omit list or threshold relaxation
 is used. Dead code removed to get there: three unreachable `"wallet" in links` checks in
-`alerter/formatter.py` and the unreachable 3+ signal bonus branch in `detector/scorer.py`.
+`alerter/formatter.py` (`_build_links` always sets `wallet`; output is byte-identical).
+`detector/scorer.py` is deliberately NOT enrolled: its 3+ signal bonus branch is unreachable through
+the public API (signal count maxes at 2) but removing it would change scoring semantics, which belongs
+to slice 004 (PR #167). It waits for that slice; the file is unchanged from main.
 
 Defect-fails: appending an unexercised two-branch function to `endpoints.py` drops it to 83% and
 `coverage report` exits 2; the reverted tree exits 0 (100%, 1687 statements, 276 branches).
