@@ -67,8 +67,17 @@ def test_explicit_official_v1_url_is_rejected_with_the_migration_message(
         f"https://data-api.polymarket.com/trades/?x={SECRET}",
         f"https://data-api.polymarket.com/trades?limit={SECRET}",
         f"http://data-api.polymarket.com/trades#{SECRET}",
+        f"https://data-api.polymarket.com:443/trades#{SECRET}",
+        f"http://data-api.polymarket.com:80/trades?x={SECRET}",
     ],
-    ids=["credentials-and-query", "trailing-slash", "query", "plain-http"],
+    ids=[
+        "credentials-and-query",
+        "trailing-slash",
+        "query",
+        "plain-http",
+        "explicit-443",
+        "explicit-80",
+    ],
 )
 def test_v1_route_variants_are_rejected_without_echoing_the_value(
     monkeypatch: pytest.MonkeyPatch, configured: str

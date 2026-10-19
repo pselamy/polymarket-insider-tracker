@@ -26,11 +26,13 @@ def is_official_v1_trades_url(url: str) -> bool:
     The comparison is route-level, not string-exact: a trailing slash, a query string, a plain
     ``http`` scheme, or userinfo credentials all still name the retiring endpoint and must not
     slip past validation into a post-retirement outage. The host is compared dot-normalized and
-    the port must be the default one, so a distinct origin on the same hostname stays accepted.
+    the port must be the scheme's default, so only a distinct origin on the same hostname — an
+    explicit non-default port — stays accepted.
     """
     parts = urlsplit(url)
+    default_port = {"http": 80, "https": 443}.get(parts.scheme)
     return (
-        parts.port in (None, _V1_PARTS.port)
+        parts.port in (None, default_port)
         and (parts.hostname or "").rstrip(".") == (_V1_PARTS.hostname or "").rstrip(".")
         and parts.path.rstrip("/") == _V1_PARTS.path.rstrip("/")
     )
