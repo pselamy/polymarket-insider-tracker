@@ -11,6 +11,8 @@ import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
@@ -28,6 +30,11 @@ class FakeWalletAnalyzer:
     def __init__(self) -> None:
         self.profiles: dict[str, WalletProfile] = {}
         self.failures: dict[str, BaseException] = {}
+
+    def register_all(self, trades: list[TradeEvent]) -> None:
+        """Give every trade's wallet a fresh profile."""
+        for trade in trades:
+            self.profiles[trade.wallet_address.lower()] = fresh_profile(trade.wallet_address)
 
     async def analyze(self, address: str) -> WalletProfile:
         wallet = address.lower()
@@ -95,25 +102,21 @@ def market_metadata(category: str) -> MarketMetadata:
 class TestFreshWalletBatchContract:
     """The gather/zip/exception contract as seen through ``FreshWalletDetector``."""
 
-    async def test_preserves_input_order(self) -> None:
+    @pytest.mark.parametrize(
+        ("sizes", "expected"),
+        [
+            (("10000", "10000", "10000"), ["t1", "t2", "t3"]),
+            (("10000", "100", "10000"), ["t1", "t3"]),
+        ],
+    )
+    async def test_keeps_input_order_and_drops_none(self, sizes, expected) -> None:
         analyzer = FakeWalletAnalyzer()
-        trades = [make_trade("t1"), make_trade("t2"), make_trade("t3")]
-        for trade in trades:
-            analyzer.profiles[trade.wallet_address.lower()] = fresh_profile(trade.wallet_address)
+        trades = [make_trade(f"t{i}", size=size) for i, size in enumerate(sizes, start=1)]
+        analyzer.register_all(trades)
 
         signals = await FreshWalletDetector(analyzer).analyze_batch(trades)
 
-        assert [signal.trade_event.trade_id for signal in signals] == ["t1", "t2", "t3"]
-
-    async def test_drops_filtered_trades_and_keeps_order(self) -> None:
-        analyzer = FakeWalletAnalyzer()
-        trades = [make_trade("keep"), make_trade("small", size="100"), make_trade("keep2")]
-        for trade in trades:
-            analyzer.profiles[trade.wallet_address.lower()] = fresh_profile(trade.wallet_address)
-
-        signals = await FreshWalletDetector(analyzer).analyze_batch(trades)
-
-        assert [signal.trade_event.trade_id for signal in signals] == ["keep", "keep2"]
+        assert [signal.trade_event.trade_id for signal in signals] == expected
 
     async def test_failed_trade_is_dropped_and_logged(self, caplog) -> None:
         analyzer = FakeWalletAnalyzer()

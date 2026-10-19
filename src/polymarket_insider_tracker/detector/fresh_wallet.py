@@ -7,11 +7,11 @@ from fresh wallets and generates alert signals with confidence scores.
 import logging
 from decimal import Decimal
 
+from polymarket_insider_tracker.detector._batch import gather_signals
 from polymarket_insider_tracker.detector.models import FreshWalletSignal
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.models import WalletProfile
-from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -215,29 +215,5 @@ class FreshWalletDetector:
         Returns:
             List of FreshWalletSignal for trades from fresh wallets.
         """
-        import asyncio
-
         tasks = [self.analyze(trade) for trade in trades]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        signals: list[FreshWalletSignal] = []
-        for trade, result in zip(trades, results, strict=True):
-            signal = self._handle_batch_result(trade, result)
-            if signal is not None:
-                signals.append(signal)
-
-        return signals
-
-    @staticmethod
-    def _handle_batch_result(
-        trade: TradeEvent,
-        result: FreshWalletSignal | BaseException | None,
-    ) -> FreshWalletSignal | None:
-        if isinstance(result, BaseException):
-            logger.warning(
-                "Failed to analyze trade %s: %s",
-                trade.trade_id,
-                redact_exception_message(result),
-            )
-            return None
-        return result
+        return await gather_signals(trades, tasks)
