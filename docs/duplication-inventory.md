@@ -727,11 +727,11 @@ Discord/Telegram functions (they share only the assertion helper). The earlier
 
 Measured with the pinned jscpd 5.3.3 (same raw command and flags as above, empty
 config) over `quality.source_scope.discover` `.py` files, identically enumerated at
-both ends. Baseline is `origin/main` at `430c9af` (after #164): **72 groups, 858
-duplicated lines, 1.40%** over 290 files (256 sources tokenized). This branch:
-**65 groups, 764 duplicated lines, 1.25%** over 291 files (257 sources; the added
-file is `tests/test_redaction_harness_characterization.py`). Matched by file pair,
-token count and line count, the seven removed groups are exactly the seven cluster-3
+both ends. Baseline is `origin/main` at `f2e2167` (after #164 and #166): **63 groups,
+766 duplicated lines, 1.25%** over 290 files. This branch rebased onto it: **56
+groups, 672 duplicated lines, 1.10%** over 291 files (the added file is
+`tests/test_redaction_harness_characterization.py`). Matched by file pair and line
+count, the seven removed groups are exactly the seven cluster-3
 groups (57, 60, 64, 76, 77, 84 and 120 tokens, all `tests/test_redaction.py` against
 itself) and **no group was added**.
 
