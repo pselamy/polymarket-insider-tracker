@@ -12,8 +12,6 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Any
 
 import aiohttp
@@ -27,27 +25,24 @@ from tests.fakes import (
     FakeTradesServer,
     make_test_settings,
     terminal,
-    trade_row,
     wire_pipeline,
 )
 from tests.integration._journey_harness import (
     POLL_START,
     dry_run_assessment,
+    journey_settings,
+    make_sample_trade_event,
+    market_for_trade,
+    persisted_assessments,
+    pipeline_row,
+    run_until,
     running_pipeline,
+    seeded_server,
     wire_journey_pipeline,
-)
-from tests.integration._journey_harness import (
-    persisted_assessments as _persisted_assessments,
-)
-from tests.integration._journey_harness import (
-    pipeline_row as _pipeline_row,
-)
-from tests.integration._journey_harness import (
-    run_until as _run_until,
 )
 
 from polymarket_insider_tracker.config import Settings
-from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.pipeline import PipelineState
 from polymarket_insider_tracker.storage.database import DatabaseManager
 
@@ -57,44 +52,14 @@ def test_settings(unused_tcp_port: int) -> Settings:
     return make_test_settings(health_port=unused_tcp_port)
 
 
-def _market(trade: TradeEvent, category: str) -> MarketMetadata:
-    return MarketMetadata(
-        condition_id=trade.market_id,
-        question="Test market?",
-        description="",
-        tokens=(Token(token_id=trade.asset_id, outcome=trade.outcome, price=trade.price),),
-        category=category,
-    )
-
-
 @pytest.fixture
 def sample_trade_event() -> TradeEvent:
-    return TradeEvent(
-        trade_id="0x" + "a" * 64,
-        wallet_address="0x" + "b" * 40,
-        market_id="0x" + "c" * 64,
-        asset_id="asset_123",
-        side="BUY",
-        price=Decimal("0.65"),
-        size=Decimal("5000"),
-        timestamp=datetime.now(UTC),
-        outcome="Yes",
-        outcome_index=0,
-        event_title="Test Market",
-        market_slug="test-market",
-    )
+    return make_sample_trade_event()
 
 
 @pytest.fixture
 def niche_market(sample_trade_event: TradeEvent) -> MarketMetadata:
-    return _market(sample_trade_event, "science")
-
-
-def _seeded_server(clock: FakeClock) -> FakeTradesServer:
-    server = FakeTradesServer(clock=clock)
-    server.publish(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1))
-    server.publish(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2))
-    return server
+    return market_for_trade(sample_trade_event, "science")
 
 
 async def _await_readiness(
@@ -151,15 +116,11 @@ class TestEndToEndPipelineHarness:
     ) -> None:
         """Verify complete pipeline in dry-run mode: zero delivery calls, zero dedup keys, assessment persisted."""
         clock = FakeClock(POLL_START)
-        server = _seeded_server(clock)
+        server = seeded_server(clock)
         discord = FakeAlertChannel("discord")
         telegram = FakeAlertChannel("telegram")
 
-        settings = make_test_settings(
-            dry_run=True,
-            alert_threshold=0.4,
-            health_port=unused_tcp_port,
-        )
+        settings = journey_settings(dry_run=True, health_port=unused_tcp_port)
 
         pipeline = await wire_journey_pipeline(
             settings,
@@ -172,7 +133,7 @@ class TestEndToEndPipelineHarness:
         )
 
         async with running_pipeline(pipeline):
-            await _run_until(lambda: len(server.requests) >= 1)
+            await run_until(lambda: len(server.requests) >= 1)
 
             # Check health readiness (bounded poll; the settled state is asserted)
             ready, reason, _ = await _await_readiness(pipeline, True)
@@ -198,9 +159,9 @@ class TestEndToEndPipelineHarness:
                     assert resp.status == 200
 
             # Publish qualifying trade
-            server.publish(_pipeline_row(sample_trade_event, clock))
-            await _run_until(lambda: pipeline.stats.trades_processed >= 1)
-            await _run_until(lambda: len(server.requests) >= 4)
+            server.publish(pipeline_row(sample_trade_event, clock))
+            await run_until(lambda: pipeline.stats.trades_processed >= 1)
+            await run_until(lambda: len(server.requests) >= 4)
 
         # Verification: dry run safety guarantees
         assert pipeline.stats.trades_processed == 1
@@ -213,7 +174,7 @@ class TestEndToEndPipelineHarness:
         assert await fake_redis.keys("alert:ambiguous:*") == []
 
         # Assessment persisted with dry_run disposition and populated diagnostics
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assessment_row = dry_run_assessment(rows, sample_trade_event)
         assert assessment_row.wallet_tx_count == 0
         assert assessment_row.wallet_age_known is False
@@ -235,20 +196,15 @@ class TestEndToEndPipelineHarness:
     ) -> None:
         """Verify live multi-channel delivery and subsequent duplicate suppression."""
         clock = FakeClock(POLL_START)
-        server = _seeded_server(clock)
+        server = seeded_server(clock)
         discord = FakeAlertChannel("discord")
         telegram = FakeAlertChannel("telegram")
 
-        settings = make_test_settings(
-            dry_run=False,
-            alert_threshold=0.4,
-            health_port=unused_tcp_port,
-        )
+        settings = journey_settings(dry_run=False, health_port=unused_tcp_port)
 
-        pipeline = await wire_pipeline(
+        pipeline = await wire_journey_pipeline(
             settings,
             redis=fake_redis,
-            eth=FakeEth(transaction_count=0),
             market=niche_market,
             db_manager=db_manager,
             channels=[discord, telegram],
@@ -258,13 +214,13 @@ class TestEndToEndPipelineHarness:
 
         try:
             await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
-            await _run_until(lambda: len(server.requests) >= 1)
+            await run_until(lambda: len(server.requests) >= 1)
 
             # 1. First trade delivery
-            server.publish(_pipeline_row(sample_trade_event, clock, tx_num=10))
-            await _run_until(lambda: len(discord.deliveries) >= 1)
-            await _run_until(lambda: len(telegram.deliveries) >= 1)
-            await _run_until(lambda: pipeline.stats.alerts_sent >= 1)
+            server.publish(pipeline_row(sample_trade_event, clock, tx_num=10))
+            await run_until(lambda: len(discord.deliveries) >= 1)
+            await run_until(lambda: len(telegram.deliveries) >= 1)
+            await run_until(lambda: pipeline.stats.alerts_sent >= 1)
             assert pipeline.stats.alerts_sent == 1
 
             wallet_lower = sample_trade_event.wallet_address.lower()
@@ -276,9 +232,9 @@ class TestEndToEndPipelineHarness:
 
             # 2. Second trade for same wallet/market should be duplicate suppressed
             clock.advance(5.0)
-            server.publish(_pipeline_row(sample_trade_event, clock, tx_num=11))
-            await _run_until(lambda: pipeline.stats.trades_processed >= 2)
-            await _run_until(lambda: len(server.requests) >= 6)
+            server.publish(pipeline_row(sample_trade_event, clock, tx_num=11))
+            await run_until(lambda: pipeline.stats.trades_processed >= 2)
+            await run_until(lambda: len(server.requests) >= 6)
 
             # No second alert delivery to channels
             assert len(discord.deliveries) == 1
@@ -286,7 +242,7 @@ class TestEndToEndPipelineHarness:
         finally:
             await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
 
-        rows = await _persisted_assessments(async_engine)
+        rows = await persisted_assessments(async_engine)
         assert len(rows) == 2
         dispositions = [r.delivery_disposition for r in rows]
         assert "delivered" in dispositions
@@ -302,19 +258,14 @@ class TestEndToEndPipelineHarness:
     ) -> None:
         """FR-013: Persistence failure after scoring must not prevent delivery."""
         clock = FakeClock(POLL_START)
-        server = _seeded_server(clock)
+        server = seeded_server(clock)
         discord = FakeAlertChannel("discord")
 
-        settings = make_test_settings(
-            dry_run=False,
-            alert_threshold=0.4,
-            health_port=unused_tcp_port,
-        )
+        settings = journey_settings(dry_run=False, health_port=unused_tcp_port)
 
-        pipeline = await wire_pipeline(
+        pipeline = await wire_journey_pipeline(
             settings,
             redis=fake_redis,
-            eth=FakeEth(transaction_count=0),
             market=niche_market,
             db_manager=FailingDatabaseManager(),  # type: ignore[arg-type]
             channels=[discord],
@@ -322,19 +273,16 @@ class TestEndToEndPipelineHarness:
             poll_clock=clock,
         )
 
-        try:
-            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
-            await _run_until(lambda: len(server.requests) >= 1)
+        async with running_pipeline(pipeline):
+            await run_until(lambda: len(server.requests) >= 1)
 
-            server.publish(_pipeline_row(sample_trade_event, clock))
-            await _run_until(lambda: len(discord.deliveries) >= 1)
-            await _run_until(lambda: pipeline.stats.alerts_sent >= 1)
+            server.publish(pipeline_row(sample_trade_event, clock))
+            await run_until(lambda: len(discord.deliveries) >= 1)
+            await run_until(lambda: pipeline.stats.alerts_sent >= 1)
 
             # Delivery still succeeded despite database error
             assert len(discord.deliveries) == 1
             assert pipeline.stats.alerts_sent == 1
-        finally:
-            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
 
     @pytest.mark.asyncio
     async def test_end_to_end_worker_crash_causes_pipeline_error_and_unready(
@@ -358,14 +306,14 @@ class TestEndToEndPipelineHarness:
         pipeline._state = PipelineState.RUNNING
         try:
             await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
-            await _run_until(lambda: len(server.requests) >= 1)
+            await run_until(lambda: len(server.requests) >= 1)
 
             ready_before, _, _ = await _await_readiness(pipeline, True)
             assert ready_before is True
 
             # Trigger terminal 401 error on trade polling
             server.fail_next(terminal(401))
-            await _run_until(lambda: pipeline.state is PipelineState.ERROR)
+            await run_until(lambda: pipeline.state is PipelineState.ERROR)
 
             assert pipeline.state is PipelineState.ERROR
             assert pipeline.stats.errors >= 1

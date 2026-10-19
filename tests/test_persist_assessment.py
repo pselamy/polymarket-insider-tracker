@@ -12,8 +12,7 @@ from decimal import Decimal
 
 import pytest
 from fakeredis import FakeAsyncRedis
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.detector.models import FreshWalletSignal, SizeAnomalySignal
@@ -21,8 +20,8 @@ from polymarket_insider_tracker.detector.scorer import SignalBundle
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
-from polymarket_insider_tracker.storage.models import RiskAssessmentModel
 from tests.fakes import FakeAlertChannel, FakeEth, make_test_settings, wire_pipeline
+from tests.integration._journey_harness import persisted_assessments as _persisted_rows
 
 UNREACHABLE_DATABASE_URL = "postgresql+psycopg://tracker:unused@127.0.0.1:1/unreachable"
 
@@ -91,11 +90,6 @@ def _niche_signal(trade: TradeEvent, confidence: float) -> SizeAnomalySignal:
         confidence=confidence,
         factors={},
     )
-
-
-async def _persisted_rows(engine: AsyncEngine) -> list[RiskAssessmentModel]:
-    async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
-        return list((await session.execute(select(RiskAssessmentModel))).scalars().all())
 
 
 class TestPersistAssessment:

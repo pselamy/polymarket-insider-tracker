@@ -14,11 +14,16 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import tests.integration.test_end_to_end as end_to_end
-import tests.integration.test_postgres_journey as postgres_journey
 import tests.test_persist_assessment as persist_assessment
-import tests.test_pipeline_persistence as pipeline_persistence
 import tests.test_pipeline as unit_pipeline
+import tests.test_pipeline_persistence as pipeline_persistence
 from tests.fakes import FakeClock, trade_row
+from tests.integration._journey_harness import (
+    make_sample_trade_event,
+    market_for_trade,
+    pipeline_row,
+    seeded_server,
+)
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 
@@ -50,7 +55,7 @@ def test_sample_trade_event_values_are_pinned() -> None:
     }
     assert _sample_fields(end_to_end.sample_trade_event.__wrapped__()) == expected
     assert _sample_fields(unit_pipeline.sample_trade_event.__wrapped__()) == expected
-    assert _sample_fields(postgres_journey._sample_trade()) == expected
+    assert _sample_fields(make_sample_trade_event()) == expected
     assert _sample_fields(pipeline_persistence.sample_trade.__wrapped__()) == expected
 
 
@@ -67,7 +72,7 @@ def test_persist_assessment_trade_is_a_different_trade() -> None:
 
 def test_market_for_trade_values_are_pinned() -> None:
     trade = end_to_end.sample_trade_event.__wrapped__()
-    for build in (end_to_end._market, unit_pipeline._market):
+    for build in (market_for_trade,):
         market = build(trade, "science")
         assert market.condition_id == trade.market_id
         assert market.question == "Test market?"
@@ -82,7 +87,7 @@ def test_seeded_server_history_is_pinned() -> None:
         trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1),
         trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2),
     ]
-    for build in (end_to_end._seeded_server, unit_pipeline._seeded_server):
+    for build in (seeded_server,):
         server = build(FakeClock(POLL_START))
         assert [entry.row for entry in server._ledger] == expected
 
@@ -99,5 +104,4 @@ def test_provider_row_for_the_sample_trade_is_pinned() -> None:
         size="5000",
     )
     expected["proxyWallet"] = trade.wallet_address
-    assert end_to_end._pipeline_row(trade, clock) == expected
-    assert unit_pipeline._pipeline_row(trade, clock) == expected
+    assert pipeline_row(trade, clock) == expected

@@ -14,6 +14,8 @@ import asyncio
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from decimal import Decimal
 
 from fakeredis import FakeAsyncRedis
 from sqlalchemy import select
@@ -22,7 +24,9 @@ from tests.fakes import (
     FakeAlertChannel,
     FakeClock,
     FakeEth,
+    FakeTradesServer,
     FakeV2TradesServer,
+    make_test_settings,
     trade_row,
     v2_row,
     wire_pipeline,
@@ -31,7 +35,7 @@ from tests.fakes.pipeline import TradesServer
 
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel
 from polymarket_insider_tracker.config import Settings
-from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import RiskAssessmentModel
@@ -47,6 +51,48 @@ class JourneyEnvironment:
     redis: FakeAsyncRedis
     db_manager: DatabaseManager
     engine: AsyncEngine
+
+
+def journey_settings(*, dry_run: bool, health_port: int) -> Settings:
+    """Settings for a journey whose sample trade clears the 0.4 alert threshold."""
+    return make_test_settings(dry_run=dry_run, alert_threshold=0.4, health_port=health_port)
+
+
+def make_sample_trade_event() -> TradeEvent:
+    """The BUY trade every pipeline wiring suite scores: $5000 x $0.65 from wallet ``0xbb..``."""
+    return TradeEvent(
+        trade_id="0x" + "a" * 64,
+        wallet_address="0x" + "b" * 40,
+        market_id="0x" + "c" * 64,
+        asset_id="asset_123",
+        side="BUY",
+        price=Decimal("0.65"),
+        size=Decimal("5000"),
+        timestamp=datetime.now(UTC),
+        outcome="Yes",
+        outcome_index=0,
+        event_title="Test Market",
+        market_slug="test-market",
+    )
+
+
+def market_for_trade(trade: TradeEvent, category: str) -> MarketMetadata:
+    """A single-token market for ``trade`` in ``category`` (e.g. science is niche)."""
+    return MarketMetadata(
+        condition_id=trade.market_id,
+        question="Test market?",
+        description="",
+        tokens=(Token(token_id=trade.asset_id, outcome=trade.outcome, price=trade.price),),
+        category=category,
+    )
+
+
+def seeded_server(clock: FakeClock) -> FakeTradesServer:
+    """Two rows of history so the first cycle can anchor and later pages reach."""
+    server = FakeTradesServer(clock=clock)
+    server.publish(trade_row(timestamp=int(POLL_START) - 1, transaction=1, wallet=1))
+    server.publish(trade_row(timestamp=int(POLL_START) - 61, transaction=2, wallet=2))
+    return server
 
 
 def seeded_v2_server(clock: FakeClock) -> FakeV2TradesServer:

@@ -13,13 +13,11 @@ compatibility suite scrubs service configuration.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -32,19 +30,17 @@ from psycopg import sql
 from sqlalchemy import select
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from tests.fakes import (
-    FakeAlertChannel,
-    FakeClock,
-    FakeEth,
-    make_test_settings,
-    wire_pipeline,
-)
-from tests.integration.test_end_to_end import (
+from tests.fakes import FakeAlertChannel, FakeClock
+from tests.integration._journey_harness import (
     POLL_START,
-    _market,
-    _pipeline_row,
-    _run_until,
-    _seeded_server,
+    journey_settings,
+    make_sample_trade_event,
+    market_for_trade,
+    pipeline_row,
+    run_until,
+    running_pipeline,
+    seeded_server,
+    wire_journey_pipeline,
 )
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
@@ -144,23 +140,6 @@ def _disposable_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
         _drop_database(admin_url, name)
 
 
-def _sample_trade() -> TradeEvent:
-    return TradeEvent(
-        trade_id="0x" + "a" * 64,
-        wallet_address="0x" + "b" * 40,
-        market_id="0x" + "c" * 64,
-        asset_id="asset_123",
-        side="BUY",
-        price=Decimal("0.65"),
-        size=Decimal("5000"),
-        timestamp=datetime.now(UTC),
-        outcome="Yes",
-        outcome_index=0,
-        event_title="Test Market",
-        market_slug="test-market",
-    )
-
-
 async def _assessment_rows(database_url: str) -> list[RiskAssessmentModel]:
     """Read through a fresh engine and session, independent of the pipeline's."""
     engine = create_async_engine(database_url)
@@ -220,21 +199,16 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
     """One explainable assessment lands in migrated PostgreSQL; nothing is delivered."""
     with _disposable_database(monkeypatch) as database_url:
         clock = FakeClock(POLL_START)
-        server = _seeded_server(clock)
-        trade = _sample_trade()
+        server = seeded_server(clock)
+        trade = make_sample_trade_event()
         discord = FakeAlertChannel("discord")
         telegram = FakeAlertChannel("telegram")
-        settings = make_test_settings(
-            dry_run=True,
-            alert_threshold=0.4,
-            health_port=unused_tcp_port,
-        )
+        settings = journey_settings(dry_run=True, health_port=unused_tcp_port)
         manager = DatabaseManager(database_url, async_mode=True)
-        pipeline = await wire_pipeline(
+        pipeline = await wire_journey_pipeline(
             settings,
             redis=fake_redis,
-            eth=FakeEth(transaction_count=0),
-            market=_market(trade, "science"),
+            market=market_for_trade(trade, "science"),
             db_manager=manager,
             channels=[discord, telegram],
             trades=server,
@@ -242,13 +216,12 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
         )
 
         try:
-            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
-            await _run_until(lambda: len(server.requests) >= 1)
-            server.publish(_pipeline_row(trade, clock, TX_NUMBER))
-            await _run_until(lambda: pipeline.stats.trades_processed >= 1)
-            await _run_until(lambda: len(server.requests) >= 4)
+            async with running_pipeline(pipeline):
+                await run_until(lambda: len(server.requests) >= 1)
+                server.publish(pipeline_row(trade, clock, TX_NUMBER))
+                await run_until(lambda: pipeline.stats.trades_processed >= 1)
+                await run_until(lambda: len(server.requests) >= 4)
         finally:
-            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
             await manager.dispose_async()
 
         assert pipeline.stats.trades_processed == 1
