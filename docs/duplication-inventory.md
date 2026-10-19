@@ -31,8 +31,15 @@ and #154) measures **95 groups, 1224 duplicated lines, 2.06%** over 276 files.
 (All narrative totals above are historical receipts from each card's review
 round, measured on their own then-current trees.)
 
-Totals after the cluster-7 card's round-1 rebase onto `origin/main` at
-`6be456a`: **84 clone groups, 1035 duplicated lines, 1.71% duplication** over
+Totals after the cluster-7 card's round-3 rebase onto `origin/main` at
+`382a0f6` (after #157 and #161): **87 clone groups, 1071 duplicated lines,
+1.76% duplication** over **285 authored Python files**; `origin/main` at
+`382a0f6` measures **88 groups, 1116 duplicated lines, 1.85%** over 283 files
+with the identical enumeration, and the raw clone-list difference is exactly the
+three cluster-7 clones removed (197, 67 and 52 tokens) plus the two
+characterization-module self-pairs added (51 and 68 tokens); no new product
+clone group. The round-1 figures that follow are kept as recorded: after the
+card's round-1 rebase onto `6be456a`: **84 clone groups, 1035 duplicated lines, 1.71% duplication** over
 **283 authored Python files** (the scanner's own statistics report 250 sources).
 The pre-refactor tree of the rebased card chain (US-001 characterization tests
 present, before the cluster-7 refactor) measured **87 groups, 1095 duplicated
@@ -201,7 +208,7 @@ resolution sections at the end for the current measured total.
 | 50 | 9 | tests/integration/test_end_to_end.py:253-261 <-> tests/integration/test_postgres_journey.py:238-246 |
 | 50 | 9 | tests/integration/test_end_to_end.py:322-330 <-> tests/test_pipeline.py:578-585 |
 | 50 | 6 | tests/test_persist_assessment.py:96-101 <-> tests/test_pipeline.py:107-112 |
-| 51 | 5 | tests/detector/test_models.py:311-315 <-> tests/detector/test_models.py:324-328 |
+| 51 | 5 | tests/detector/test_models.py:313-317 <-> tests/detector/test_models.py:326-330 |
 | 51 | 6 | tests/detector/test_scorer.py:548-553 <-> tests/detector/test_scorer.py:796-802 |
 | 51 | 12 | tests/ingestor/test_clob_client.py:176-187 <-> tests/ingestor/test_clob_client.py:192-203 |
 | 51 | 9 | tests/tooling/test_complexipy.py:105-113 <-> tests/tooling/test_policy_snapshot.py:77-85 |
@@ -248,7 +255,7 @@ resolution sections at the end for the current measured total.
 | 67 | 11 | tests/ingestor/test_health_server.py:65-75 <-> tests/ingestor/test_health_server.py:276-286 |
 | 67 | 10 | tests/test_main.py:305-314 <-> tests/test_main.py:572-581 |
 | 68 | 12 | tests/alerter/test_formatter.py:502-513 <-> tests/alerter/test_formatter.py:680-691 |
-| 68 | 10 | tests/detector/test_models.py:319-328 <-> tests/detector/test_models.py:332-341 |
+| 68 | 10 | tests/detector/test_models.py:321-330 <-> tests/detector/test_models.py:334-343 |
 | 68 | 14 | tests/test_terminal_error_durable.py:36-49 <-> tests/test_terminal_error_durable.py:81-94 |
 | 69 | 9 | scripts/runtime_services.py:46-54 <-> scripts/verify.py:27-35 |
 | 69 | 11 | tests/ingestor/test_health_server.py:104-114 <-> tests/ingestor/test_health_server.py:140-150 |
@@ -468,10 +475,11 @@ One home per knowledge piece: thresholds live in named constants
 `is_high_confidence_score` / `is_very_high_confidence_score`, whose shared
 getter functions back each signal class's property objects; trade-head entries
 are built once by `serialized_trade_head` and spread into all three `to_dict`s;
-`UNRECORDED_DELIVERY_DISPOSITION` lives beside the persistence DTO in
-`storage/repos.py` and `detector.models` imports it (detector -> storage keeps
-warning-strict storage-only entrypoints free of detector's dependency tree;
-the reverse import was attempted and rejected). No base classes, mixins,
+`UNRECORDED_DELIVERY_DISPOSITION` lives in the dependency-free
+`polymarket_insider_tracker/constants.py`, which both `detector/models.py` and
+`storage/repos.py` import (the domain model no longer imports the persistence
+layer, and the warning-strict storage-only entrypoints stay free of detector's
+dependency tree). No base classes, mixins,
 registries or `__module__` rewriting; public import paths unchanged and every
 existing test passes unchanged.
 
@@ -494,3 +502,11 @@ src/.../detector/models.py:182-195`, 67 tokens;
 52 tokens) disappeared and **no new clone group appeared anywhere**. Against
 `origin/main` directly, the branch additionally contributes only the two
 intra-file clones of the characterization test module required by US-001.
+
+Round-3 rebase re-measurement (onto `origin/main` at `382a0f6`, same pinned
+method and enumeration): `origin/main` **88 groups, 1116 lines, 1.85%** over 283
+files; this branch **87 groups, 1071 lines, 1.76%** over 285 files (the two
+added files are `constants.py` and the characterization module `tests/detector/test_models.py`).
+Set-difference: the three cluster-7 clones above disappeared; the only additions
+are the two intra-file characterization-test clones (51 and 68 tokens, now at
+`tests/detector/test_models.py:313-317 <-> 326-330` and `321-330 <-> 334-343`).
