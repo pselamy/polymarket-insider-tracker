@@ -23,14 +23,14 @@ all five 004 artifacts listed (document check only — no runtime test credit in
 
 Each scenario names its implementation task(s), test obligation, and evidence receipt:
 
-1. **Positive monetary volume** (T011/T012 → `tests/integration/test_end_to_end.py` →
+1. **Positive monetary volume** (T011/T012a–d → `tests/integration/test_end_to_end.py` →
    persisted row): usable positive current volume → `volume_ratio = notional / volume`
    (±0.0001), recorded inputs, persisted row replays decision.
-2. **Stale volume** (T012 → ingestor table test): `evaluated_at - acquired_at > 600s` →
+2. **Stale volume** (T012a–d → ingestor table test): `evaluated_at - acquired_at > 600s` →
    unavailable, no ratio, no zero.
-3. **Invalid/missing/nonpositive volume** (T012/T009d): each distinct state → unavailable,
+3. **Invalid/missing/nonpositive volume** (T012a–d/T009d): each distinct state → unavailable,
    labeled, no ratio; raw value retained verbatim.
-4. **Source failure** (T012/T019): failed Gamma fetch leaves volume unavailable; CLOB
+4. **Source failure** (T012a–d/T019): failed Gamma fetch leaves volume unavailable; CLOB
    metadata still usable; no carry-forward refresh.
 5. **Threshold boundaries** (T009d/T015): score exactly 0.80 qualifies (inclusive); nonce
    exactly `B` excluded (`< B`); boundary-3/nonce-3 and boundary-10/nonce-9 overrides

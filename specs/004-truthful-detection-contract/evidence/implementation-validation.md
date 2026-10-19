@@ -128,3 +128,6 @@ migration); this packet is not reduced to a CI or planning-only goal.
 - T012 was split into T012a–d (stamp/aggregation, decoupled loop and cache-miss path, serialization/legacy
   records, freshness evidence) and no longer depends on T011; FR-004a/FR-004b → T012a–d; FR-022/SC-009 →
   T028; wallet-subject qualification → T027.
+- New requirement mapping (2026-10-19): FR-004a/FR-004b → T012a–d; FR-005a → T009d, T012c; FR-007a/FR-007b →
+  T009b, T009c, T027; FR-022 and SC-009 → T028; V2 journey suites → T021–T026. As before, a mapping is a
+  written obligation, not a passing test.

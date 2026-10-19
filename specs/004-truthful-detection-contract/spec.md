@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: Proposed for Patrick review; implementation is not yet authorized
+**Status**: Proposed for Patrick review; revised 2026-10-19 after the codex/agy second opinions (not approved; open decisions D1–D3 in [decision-packet.md](decision-packet.md)); implementation is not yet authorized
 
 **Input**: User description: "Make live detector inputs, signal semantics, scoring, persisted evidence, and public capability claims match the monitoring behavior that is actually wired and supportable."
 

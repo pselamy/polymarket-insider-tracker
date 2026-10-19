@@ -60,10 +60,13 @@ No constitution exception is requested. Phase1 design is proposed below.
 
 See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
 
-- **Acquisition provenance**: stamp each successful Gamma HTTP page at body acquisition
-  (`daily_volume_acquired_at`, aware UTC, source id); carry through `GammaMarketStats`,
-  enrichment, and Redis unchanged; usable only when `0 <= evaluated_at - acquired_at <= 600s`.
-  Never synthesize from cache reads, TTL, CLOB refresh, or generic `last_updated`.
+- **Acquisition provenance (revised 2026-10-19)**: stamp each successful Gamma HTTP page at body
+  acquisition (`daily_volume_acquired_at`, aware UTC, source id) and carry it through the page tuples to
+  `GammaMarketStats`; store it in a **separate per-market volume record** written by a Gamma loop that is
+  decoupled from the CLOB crawl (the coupled loop's worst-case entry age is `2D + w + S − g`, 688 s with the
+  reported D = 204 s; research R02a); usable only when the single precedence table of data-model §1.2
+  yields `available` (`0 <= evaluated_at - acquired_at <= 600s`). Eight mutually exclusive states; never
+  synthesize the stamp from cache reads, TTL, CLOB refresh, or generic `last_updated`.
 - **Operator surface**: keep `DETECTOR_ALERT_THRESHOLD` default 0.80 (inclusive `>=`,
   0.001 quantum); add `DETECTOR_FRESH_TRANSACTION_BOUNDARY` default 5, positive integer and
   exclusive nonce bound — every classification rule uses the captured effective boundary
