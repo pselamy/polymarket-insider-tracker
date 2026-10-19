@@ -1,0 +1,10 @@
+[tools]
+"aqua:crate-ci/typos" = "1.50.3"
+"aqua:gitleaks/gitleaks" = "8.30.1"
+"aqua:google/osv-scanner" = "2.6.0"
+"aqua:opengrep/opengrep" = "1.30.0"
+"aqua:astral-sh/uv" = "0.11.26"
+"aqua:koalaman/shellcheck" = "0.11.0"
+"aqua:rhysd/actionlint" = "1.7.12"
+"aqua:zizmorcore/zizmor" = "1.30.1"
+"github:kucherenko/jscpd" = "5.3.3"

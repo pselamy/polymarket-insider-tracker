@@ -57,7 +57,7 @@ hooks; **unenrolled** = measured, documented, not yet enforced.
 | REF-CMD-13 | `uv export --locked --only-group build …` | 2 | 1 | `error: Group `build` is not defined in the project's `dependency-groups` table` | unenrolled |
 | REF-CMD-14 | `python -m quality.build_constraints_main` | 1 | 1 | `FileNotFoundError: .quality-results/build-constraints.txt` (depends on REF-CMD-13) | unenrolled |
 | REF-CMD-15 | `python -m quality.package_main` | 1 | 1 | `CalledProcessError`: `uv build … --require-hashes` cannot resolve `setuptools>=61.0` (reference build-constraint policy) | unenrolled |
-| REF-CMD-16 | `python -m quality.duplication_main` | 1 | 1 | `ValueError: Python module is not snake_case: alembic/versions/20260104_0000_initial_schema.py` (native jscpd not provisioned) | unenrolled |
+| REF-CMD-16 | `python -m quality.duplication_main` | 1 | 90 | `ValueError: scripts/traceability.py: 447 physical lines exceeds 399` (fails in `verify_sources` before scanning; the pinned native scanner itself now runs — see the REF-CMD-16 update note below) | unenrolled |
 | REF-CMD-17 | `black --check src tests quality` | 1 | 32 | `would reformat quality/build_constraints.py`, `package_build.py`, `commands.py`, `package_process.py`, `mutation_pool.py` | enrolled at the **full authored scope** after formatting `quality/` at line length 100 |
 | REF-CMD-18 | `ruff check src tests quality` | 1 | 5 | `SIM105` (`commands.py`, `owned_process.py`), `SIM102` (`incomplete.py`), `ARG001` (`document_links.py`, `trusted_policy/github_read.py`) | enrolled at the **full authored scope** after fixing the 5 vendored violations |
 | REF-CMD-19 | `mypy src tests quality` | 1 | 403 | `tests/tooling/test_traceability.py:86: error: Function is missing a return type annotation`; 403 `error:` lines across the full authored scope | unenrolled |
@@ -127,3 +127,31 @@ by `tests/quality/` and are bound to the ledger above.
 
 The independent strict type gates are unchanged: mypy still covers `src` and
 `scripts`, and Pyright still covers `src/polymarket_insider_tracker`.
+
+## REF-CMD-16 update: jscpd provisioned, scanner runs, enrollment still blocked
+
+Provisioning (2026-10-19): `mise.toml` and `mise.lock` are now checked in, copied
+verbatim from the reference (`github:kucherenko/jscpd = 5.3.3` plus the reference
+tool set), and `mise --yes --locked exec -- jscpd --version` prints exactly
+`jscpd 5.3.3` (the receipt `quality.duplication` requires). The hosted Relentless
+CI workflow gains a checksum-pinned `jdx/mise-action` step with
+`install_args: --locked`, mirroring the reference `ci.yml`, so `quality.verify` and
+the duplication gate run behind the same locked tool set locally and in CI.
+
+With the native scanner available, `python -m quality.duplication_main` now fails in
+`verify_sources` — the vendored `MAXIMUM_LINES = 399` physical-size control — on the
+first oversized authored file (`scripts/traceability.py` at 447 lines at measurement
+time; 50 authored files exceeded 399 lines in the REF-HOOK-01 measurement above).
+This is the pre-existing size-debt blocker, not a missing-tool error, and it is not
+fixed by suppression or by excluding the directory.
+
+The native scanner itself was run over the full authored scope (255 authored Python
+files discovered by `quality.source_scope`, staged and scanned with the vendored
+policy: `--mode mild --format python --min-tokens 50 --min-lines 4 --threshold 0
+--no-gitignore --workers 1`, empty config, no ignore lists). Result: **90 clone
+groups, 1214 duplicated lines, 2.19% duplication** — the measured count recorded in
+the ledger row above. The full clone inventory lives in
+[`docs/duplication-inventory.md`](duplication-inventory.md). REF-CMD-16 therefore
+remains **unenrolled** (US-004's zero-clone condition is not met), and the
+`399-line` size gate must be paid down before `duplication_main` can reach the
+scanner and a clean enrollment is possible.
