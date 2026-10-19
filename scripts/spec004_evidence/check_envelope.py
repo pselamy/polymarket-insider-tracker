@@ -17,10 +17,14 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from decimal import ROUND_HALF_EVEN, Decimal
+from itertools import product
 from pathlib import Path
 from typing import Any, TypeGuard, cast
 
 from scripts.spec004_evidence.replay_envelopes import (
+    GROUP_STATUSES,
+    POST_T027,
+    PRE_T027,
     RAW_BOUND_BYTES,
     RESERVED_KEYS,
     build_envelope,
@@ -36,8 +40,13 @@ RAW_EXAMPLES = {
     "scoring-config-004.1.nonfinite.example.json": "live-invalid-nonfinite-nan-token",
     "scoring-config-004.1.truncated.example.json": "live-invalid-oversize-string",
 }
+POSTURE_EXAMPLES = {
+    "scoring-config-004.1.example.json": PRE_T027,
+    "scoring-config-004.1.post-t027.example.json": POST_T027,
+}
+EXAMPLE_CASE = "live-available-niche-saturated"
 DOCUMENTS = (
-    "scoring-config-004.1.example.json",
+    *POSTURE_EXAMPLES,
     "scoring-config-004.1.failure-row.json",
     *RAW_EXAMPLES,
 )
@@ -231,8 +240,34 @@ def reconstruct(doc: dict[str, Any]) -> list[str]:
         score_errors(doc, evidence)
         + wallet_contribution_errors(weights, evidence)
         + size_contribution_errors(weights, evidence)
+        + group_errors(evidence)
         + state_errors(evidence)
     )
+
+
+def gated_wallet_errors(evidence: dict[str, Any]) -> list[str]:
+    """FR-007c: before T027 the wallet group carries no confidence, factors or contribution."""
+    wallet = evidence["wallet"]
+    if wallet["group_status"] != PRE_T027:
+        return []
+    errors: list[str] = []
+    if wallet["confidence"] is not None or wallet["factors"]:
+        errors.append("pre-T027 wallet must have null confidence and no factors")
+    if Decimal(evidence["contributions"]["fresh_wallet"]) != 0:
+        errors.append("pre-T027 wallet contribution must be 0")
+    return errors
+
+
+def group_errors(evidence: dict[str, Any]) -> list[str]:
+    """signals_triggered counts scoring groups only; the 1.2 bonus applies exactly at two."""
+    wallet_scores = evidence["wallet"]["confidence"] is not None
+    groups = int(wallet_scores) + int(evidence["size"]["signal_emitted"])
+    errors = gated_wallet_errors(evidence)
+    if evidence["result"]["signals_triggered"] != groups:
+        errors.append(f"signals_triggered != scoring groups ({groups})")
+    if (evidence["contributions"]["bonus"] == "1.2") != (groups == 2):
+        errors.append("bonus must be 1.2 exactly when two groups score")
+    return errors
 
 
 def available_volume_errors(evidence: dict[str, Any]) -> list[str]:
@@ -309,7 +344,9 @@ def wallet_state_errors(wallet: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if (wallet["age_state"] == "known") != (wallet["age_basis"] != "none"):
         errors.append("age_state known requires a basis other than none")
-    if wallet["classification"] == "low_activity_unknown_age" and wallet["confidence"] != "0.500":
+    scoring = wallet["group_status"] == POST_T027
+    unknown = wallet["classification"] == "low_activity_unknown_age"
+    if scoring and unknown and wallet["confidence"] != "0.500":
         errors.append("unknown-age confidence must be exactly 0.500")
     return errors
 
@@ -339,7 +376,44 @@ def mutations(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     )
     variant("wrong version", lambda d: d.update(evidence_schema="003.1"))
     variant("bool as int", lambda d: d["detector_config"].update(fresh_transaction_boundary=True))
+    variant("no group status", lambda d: d["evaluation_evidence"]["wallet"].pop("group_status"))
+    variant(
+        "bad group status",
+        lambda d: d["evaluation_evidence"]["wallet"].update(group_status="unqualified"),
+    )
     return cases
+
+
+def gated_scoring(doc: dict[str, Any]) -> None:
+    """A pre-T027 envelope whose wallet scores as if qualified (consistent arithmetic)."""
+    evidence = doc["evaluation_evidence"]
+    evidence["wallet"].update(confidence="0.500", factors={"base": "0.5"})
+    evidence["contributions"].update(fresh_wallet="0.200", bonus="1.2", capped_score="0.78000")
+    evidence["result"].update(signals_triggered=2, weighted_score="0.780")
+
+
+def gated_bonus(doc: dict[str, Any]) -> None:
+    doc["evaluation_evidence"]["contributions"].update(bonus="1.2", capped_score="0.54000")
+    doc["evaluation_evidence"]["result"].update(weighted_score="0.540")
+
+
+def gated_count(doc: dict[str, Any]) -> None:
+    doc["evaluation_evidence"]["result"].update(signals_triggered=2)
+
+
+def gated_mutation_failures() -> list[str]:
+    """Pre-T027 envelopes the cross-field rules must reject (schema-valid, arithmetic-consistent)."""
+    failures: list[str] = []
+    for name, edit in (
+        ("wallet scores", gated_scoring),
+        ("bonus", gated_bonus),
+        ("count", gated_count),
+    ):
+        doc = load("scoring-config-004.1.example.json")
+        edit(doc)
+        if not reconstruct(doc):
+            failures.append(f"pre-T027 mutation accepted: {name}")
+    return failures
 
 
 def raw_mutation_failures() -> list[str]:
@@ -395,21 +469,23 @@ def replay_failures(schema: dict[str, Any]) -> list[str]:
     """One envelope per replay-live case: schema, reconstruction and state rules must all hold."""
     template = load("scoring-config-004.1.example.json")
     failures: list[str] = []
-    for spec in replay_specs():
-        doc = build_envelope(spec, template)
+    for spec, status in product(replay_specs(), GROUP_STATUSES):
+        doc = build_envelope(spec, template, status)
         found = validate(doc, schema, schema) + reconstruct(doc)
-        failures += [f"replay {spec['case_id']}: {e}" for e in found]
+        failures += [f"replay {spec['case_id']} {status}: {e}" for e in found]
     return failures
 
 
-def raw_example_drift() -> list[str]:
-    """The committed raw-value examples must equal what the builder produces for their cases."""
+def example_drift() -> list[str]:
+    """The committed examples must equal what the builder produces for their cases and postures."""
     template = load("scoring-config-004.1.example.json")
     by_id = {spec["case_id"]: spec for spec in replay_specs()}
+    expected = {name: (case, PRE_T027) for name, case in RAW_EXAMPLES.items()}
+    expected |= {name: (EXAMPLE_CASE, status) for name, status in POSTURE_EXAMPLES.items()}
     return [
-        f"{name} drifts from replay case {case}"
-        for name, case in RAW_EXAMPLES.items()
-        if load(name) != build_envelope(by_id[case], template)
+        f"{name} drifts from replay case {case} ({status})"
+        for name, (case, status) in expected.items()
+        if load(name) != build_envelope(by_id[case], template, status)
     ]
 
 
@@ -418,8 +494,8 @@ def main() -> int:
     failures: list[str] = replay_failures(schema)
     for name in DOCUMENTS:
         failures += document_failures(name, schema)
-    failures += raw_example_drift()
-    failures += mutation_failures(schema) + raw_mutation_failures()
+    failures += example_drift()
+    failures += mutation_failures(schema) + raw_mutation_failures() + gated_mutation_failures()
     for failure in failures:
         print(failure)
     print("ok" if not failures else f"{len(failures)} failure(s)")

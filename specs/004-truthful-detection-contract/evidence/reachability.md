@@ -18,7 +18,26 @@
 - `detector/fresh_wallet.py`: `LARGE_TRADE_BONUS = 0.1`
 - `detector/fresh_wallet.py`: `LARGE_TRADE_THRESHOLD = Decimal("10000")`
 
-## Proposed 004 rules: maximum attainable score
+## Proposed 004 rules, default pre-T027 posture (FR-007c): maximum attainable score
+
+The wallet group is non-scoring until the T027 qualification receipt exists: it contributes 0, is not counted as a signal group, and the 1.2 two-group bonus never applies. This is the posture the live product would ship with. Best case: 0.75 x (0.35 + 0.25) = 0.450.
+
+Book depth is non-operational (FR-006). Grid: notionals $1,000, $3,250, $10,000, $10,001, $50,000, $1,000,000; usable volumes $5,000, $30,000, $49,999, $50,000, $200,000, $5,000,000. Max over the grid; the volume ratio that saturates the 3x cap is >= 0.06.
+
+| Wallet evidence | Market evidence | Trade | Max score | Reaches 0.80? |
+|---|---|---|---|---|
+| any (wallet group non-scoring before T027) | volume available, niche (< $50k) | <= $10,000 | 0.450 | **no** |
+| any (wallet group non-scoring before T027) | volume available, niche (< $50k) | > $10,000 | 0.450 | **no** |
+| any (wallet group non-scoring before T027) | volume available, not niche (>= $50k) | <= $10,000 | 0.175 | **no** |
+| any (wallet group non-scoring before T027) | volume available, not niche (>= $50k) | > $10,000 | 0.175 | **no** |
+| any (wallet group non-scoring before T027) | volume unavailable, niche-prone category | <= $10,000 | 0.120 | **no** |
+| any (wallet group non-scoring before T027) | volume unavailable, niche-prone category | > $10,000 | 0.120 | **no** |
+| any (wallet group non-scoring before T027) | volume unavailable, other category | <= $10,000 | 0.000 | **no** |
+| any (wallet group non-scoring before T027) | volume unavailable, other category | > $10,000 | 0.000 | **no** |
+
+## Proposed 004 rules, post-T027 scenario (wallet group qualified): maximum attainable score
+
+Valid only after T027 authorizes wallet scoring (DECISION D1b). Known-age rows also need an operational age source (DECISION D1a); none exists on main.
 
 Book depth is non-operational (FR-006). Grid: notionals $1,000, $3,250, $10,000, $10,001, $50,000, $1,000,000; usable volumes $5,000, $30,000, $49,999, $50,000, $200,000, $5,000,000. Max over the grid; the volume ratio that saturates the 3x cap is >= 0.06.
 
@@ -58,7 +77,21 @@ Book depth is non-operational (FR-006). Grid: notionals $1,000, $3,250, $10,000,
 | unknown age, nonce 0 | volume unavailable, other category | <= $10,000 | 0.280 |
 | unknown age, nonce 0 | volume unavailable, other category | > $10,000 | 0.320 |
 
-## Sensitivity: unknown-age wallet, proposed rules
+## Sensitivity: default pre-T027 posture, proposed rules
+
+Grid points are illustrative combinations, **not** live frequencies.
+
+| Threshold | Grid points >= threshold (of 48) | Highest score among them |
+|---|---|---|
+| 0.80 | 0 | - |
+| 0.78 | 0 | - |
+| 0.75 | 0 | - |
+| 0.70 | 0 | - |
+| 0.60 | 0 | - |
+| 0.45 | 16 | 0.450 |
+| 0.40 | 16 | 0.450 |
+
+## Sensitivity: unknown-age wallet, post-T027 scenario, proposed rules
 
 Grid points are illustrative combinations, **not** live frequencies.
 
@@ -69,10 +102,12 @@ Grid points are illustrative combinations, **not** live frequencies.
 | 0.75 | 16 | 0.780 |
 | 0.70 | 16 | 0.780 |
 | 0.60 | 16 | 0.780 |
+| 0.45 | 25 | 0.780 |
 | 0.40 | 28 | 0.780 |
 
 ## Recalibration arithmetic
 
-- Smallest unknown-age confidence that lets the best niche case reach 0.80: 0.541 (vs the proposed exact 0.500).
-- With confidence fixed at 0.500 the highest unknown-age score is 0.780 for any trade size, so no threshold-0.80 alert is possible while age is unknown.
+- Default pre-T027 posture: the highest score of any trade is 0.450, so no alert is possible at any threshold above it; lowering the threshold to 0.78 (R1) still yields zero alerts.
+- Post-T027 scenario: smallest unknown-age confidence that lets the best niche case reach 0.80: 0.541 (vs the proposed exact 0.500).
+- Post-T027 scenario: with confidence fixed at 0.500 the highest unknown-age score is 0.780 for any trade size, so no threshold-0.80 alert is possible while age is unknown.
 

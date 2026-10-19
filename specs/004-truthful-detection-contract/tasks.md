@@ -11,7 +11,7 @@ planning contract only, not a shippable increment.
 - [ ] T001 Record base/allocations and hydrate prior Phase0 artifacts byte-identically in packet scope
 - [ ] T002 Verify scoring runtime unchanged (no `src/` diff) before reusing replay conclusions.
   Re-run 2026-10-19 against `f2e2167`: `scorer.py`/`pipeline.py` byte-identical; three detector files
-  changed by refactors only (`evidence/source-refresh-f2e2167.md`, `scripts/spec004_evidence/`check_source_hashes`.py`)
+  changed by refactors only (`evidence/source-refresh-f2e2167.md`, `scripts/spec004_evidence/check_source_hashes.py`)
 
 ## Phase 2: Foundational (contract pins — proposed in this packet)
 
@@ -33,11 +33,17 @@ Named files, entry points, dependency order:
   deprecated inclusive `max_nonce` alias per contract table; effective `B` captured per
   evaluation; classification uses `nonce < B` with notional ≥ 1000 and age ≤ 48h gates
   (FR-007/009, D1)
-- [ ] T009c [US1] Freshness-closure regression in `tests/detector/test_fresh_wallet.py` —
-  unknown-age candidate asserts confidence exactly 0.50 (never lower or higher), no age/new-wallet/large-trade bonus,
-  low-activity factor, JSON `wallet_is_fresh` (`detector/models.py:124`), persisted
-  `WalletProfileDTO.is_fresh` (`pipeline.py:680`), rendered label, PLUS the boundary-10 /
-  nonce-9 override mismatch (FR-008/010, SC-003/006, D2). Joint assertion, not separate
+- [ ] T009c [US1] Freshness-closure regression in `tests/detector/test_fresh_wallet.py` and
+  `tests/detector/test_scorer.py` — two postures, asserted jointly:
+  **pre-T027 (default, FR-007c)**: the unknown-age low-activity classification and nonce are recorded,
+  but the assessment has `wallet.group_status = unqualified_pre_T027`, wallet confidence `None`, empty
+  wallet factors, wallet contribution `0`, the group not counted in `signals_triggered`, bonus `1`, and
+  the rendered output never presents the wallet as a scoring signal;
+  **post-T027 (rule under test for when the gate opens)**: the unknown-age candidate has confidence
+  exactly 0.50 (never lower or higher), no age/new-wallet/large-trade bonus, low-activity factor.
+  Both postures also assert JSON `wallet_is_fresh` (`detector/models.py:124`), persisted
+  `WalletProfileDTO.is_fresh` (`pipeline.py:680`), the rendered label, PLUS the boundary-10 /
+  nonce-9 override mismatch (FR-007c/008/010, SC-003/006, D2). Joint assertion, not separate
   label checks.
 - [ ] T009d [US1] Table-driven detector tests in `tests/detector/` (extend
   `test_fresh_wallet.py`, `test_size_anomaly.py`, `test_scorer.py`): default/override/equality
@@ -107,7 +113,7 @@ Named files, entry points, dependency order:
   Depends on T011. Includes: the version-dispatched reader of `contracts/scoring-config.md` §3
   (unknown version raises, column/`evidence_schema` mismatch is a corrupt row), the exact
   `scoring-config-004.1.schema.json` as conformance fixture (a test validates real persisted rows against
-  it, as `scripts/spec004_evidence/`check_envelope`.py` does for the examples), detector-failure rows with
+  it, as `scripts/spec004_evidence/check_envelope.py` does for the examples), detector-failure rows with
   `evaluation_evidence: null` + `detector_failures`. The contract text of slice 003
   `assessment-storage.md` §4 is already amended (versioned union); T017 only implements it and
   must not reopen that text.
@@ -131,11 +137,13 @@ Named files, entry points, dependency order:
 - [ ] T029 [US3] Default-alert-path disclosure (FR-022a): when the effective configuration makes every
   evidence class unable to reach `DETECTOR_ALERT_THRESHOLD` (ceilings from the T028 table), startup and
   the operator status surface MUST report `default alert path unreachable` with the highest reachable
-  ceiling and the configured threshold; test asserts the report for the 0.80/unknown-age default and
-  its absence when the threshold is lowered to a reachable value. Lands with T028.
+  ceiling and the configured threshold; test asserts the report for the 0.80 default in the pre-T027
+  posture (ceiling 0.450) and its absence when the threshold is lowered to a reachable value (≤ 0.450).
+  Lands with T028.
 - [ ] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
-  `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md`
-  (unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
+  `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md` for both
+  wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:
+  unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
   `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
   SC-009). Also add the 45 `evidence/replay-live/cases.json` cases to the table-driven suite.
 
@@ -148,21 +156,27 @@ with `daily_volume=None` in category `science`, a $3,250 trade (5000 × 0.65,
 `tests/integration/test_end_to_end.py:78-79`) and `alert_threshold=0.4`. Today that scores
 `(0.700·0.40 + 0.200·0.35 + 0.200·0.25)·1.2 = 0.480` ≥ 0.4. Under the 004 unknown-age rule
 (confidence exactly 0.50, no brand-new bonus) the same fixture scores
-`(0.500·0.40 + 0.200·0.35 + 0.200·0.25)·1.2 = 0.384 < 0.4` (replay `core-w2-m1`), so
-`should_alert` becomes `False` and `delivery_disposition` becomes `not_alertable`, which fails
-`dry_run_assessment` (`tests/integration/_journey_harness.py:126-127`). The change must be made
+`(0.500·0.40 + 0.200·0.35 + 0.200·0.25)·1.2 = 0.384 < 0.4` (replay `core-w2-m1`) once the wallet
+group may score, and in the default pre-T027 posture (FR-007c: wallet non-scoring, one group, no bonus)
+`0.200·0.35 + 0.200·0.25 = 0.120 < 0.4`. Either way `should_alert` becomes `False` and
+`delivery_disposition` becomes `not_alertable`, which fails `dry_run_assessment`
+(`tests/integration/_journey_harness.py:126-127`). The literals below are for the **pre-T027 default
+posture** (the posture 004 ships in); the post-T027 values are given in parentheses and become the
+asserted values only in the reviewed change that opens the gate after T027. The change must be made
 deliberately, not by loosening the assertion:
 
 - [ ] T021 [US1] `tests/integration/_journey_harness.py` + `tests/integration/test_end_to_end.py::_market`:
   add a fixture builder for a market whose Gamma volume carries a fresh acquisition stamp
   (state `available`, e.g. $10,000 so a $3,250 trade has ratio 0.325, saturating the 3× cap:
-  volume confidence 0.5 × niche 1.5 = 0.75, score `(0.5·0.40+0.75·0.35+0.75·0.25)·1.2 = 0.780`).
+  volume confidence 0.5 × niche 1.5 = 0.75, score pre-T027 `0.75·0.35 + 0.75·0.25 = 0.450`, one group,
+  bonus 1; post-T027 `(0.5·0.40+0.75·0.35+0.75·0.25)·1.2 = 0.780`, two groups).
   The dry-run journeys use it so they keep proving "one qualifying assessment, zero deliveries,
-  zero dedup keys" at `alert_threshold=0.4`. Keep `dry_run_assessment` strict.
+  zero dedup keys" at `alert_threshold=0.4` (0.450 ≥ 0.4 pre-T027). Keep `dry_run_assessment` strict.
 - [ ] T022 [US1] `tests/integration/test_end_to_end.py`: replace the pinned `"003.1"` (`:222`)
   with the 004.1 identity, keep one deliberate **negative** journey on the volume-less fixture
-  asserting score 0.384, `should_alert is False`, `delivery_disposition == "not_alertable"` and
-  that the persisted evidence says `volume_state=unavailable` / age unknown; add the FR-016
+  asserting score 0.120 (post-T027: 0.384), `signals_triggered == 1`, `should_alert is False`,
+  `delivery_disposition == "not_alertable"` and that the persisted evidence says
+  `volume_state=unavailable` / age unknown / `wallet.group_status=unqualified_pre_T027`; add the FR-016
   same-evidence assertions (analysis → score → row → dry-run render) and the FR-021
   two-participant assertion (T010 lives here).
 - [ ] T023 [US1] `tests/integration/test_v2_journey.py` (explicit V2 URL, threshold 0.4):
@@ -180,7 +194,10 @@ deliberately, not by loosening the assertion:
   `_EXPECTED_SIZE_ANOMALY_CONFIDENCE = 0.200`, `_EXPECTED_WEIGHTED_SCORE = 0.480`
   (`:66-80`), `_EXPECTED_SCORING_CONFIG` (exact dict equality, incl. the
   `multi_signal_bonus_3` key) and `"003.1"` (`:196`) with literals recomputed from the final
-  contract; the stored `scoring_config` becomes the 004.1 envelope and the assertion must parse
+  contract. Pre-T027 default posture on today's volume-less fixture: wallet confidence `None` with
+  `group_status = unqualified_pre_T027`, size confidence 0.200, weighted score 0.120, one group;
+  on the T021 stamped-volume fixture: size 0.750, score 0.450 (post-T027: wallet 0.500 and 0.384 /
+  0.780 respectively). The stored `scoring_config` becomes the 004.1 envelope and the assertion must parse
   it with the schema's reader dispatch and also read a seeded `003.1` and a
   `legacy-unversioned` row unchanged (no migration, disposable DB only).
 
@@ -189,7 +206,9 @@ it (same rule as T009c/T009d/T015).
 
 ## Dependencies
 
-T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015–T017 → T019; T021 → T022–T026; T027 gates T009d(wallet rules)/T015/T019; T022–T026 → T019;
+T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015–T017 → T019; T021 → T022–T026; T027 gates every change that lets the wallet group score: T009c/T009d (post-T027
+wallet rules), T015, T019 and the post-T027 literals of T021–T026 (their pre-T027 literals land with
+the 004 implementation); T022–T026 → T019;
 foundational contract (T003–T008) precedes all implementation. Tests that pin a behavior
 (T009c/T009d/T015) land with or before the implementation change they cover — never after
 as a separate unblocking layer. Parallel-safe pairs after their prerequisites:

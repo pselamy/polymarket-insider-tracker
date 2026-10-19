@@ -232,24 +232,29 @@ identity wallet and `:251` sets `TradeEvent.wallet_address`; `profiler/analyzer.
 Consequences adopted in the spec: FR-007a (subject kind recorded; wording limited to "low transaction
 count on the proxy address"), FR-007b (age needs a recorded basis; live age unknown until a source
 is selected), FR-008 (unknown age is exactly 0.50), and a required qualification receipt (T027) before
-the wallet group may be described more strongly.
+the wallet group may score or be described more strongly (FR-007c: before T027 the wallet group is
+non-scoring, `wallet.group_status = unqualified_pre_T027`).
 
 **Age-source options** (a product/data-semantics choice → DECISION D1 in
 [decision-packet.md](decision-packet.md); nothing here is settled)
 
 | Option | What "age" means | Trade-offs | Evidence status |
 |---|---|---|---|
-| **O1 – age branch non-operational; score only on low-activity evidence** (recommended default for this slice) | No age. Live wallet group = `low_activity_unknown_age`, confidence exactly 0.50 | No new dependency, credential, request or rate cost; fully truthful; the known-age branch stays tested via injected profiles but is documented non-operational. Cost: max score 0.78 (see R10), so 0.80 alerts need D2 | Fully supported by current code |
+| **O1 – age branch non-operational; score only on low-activity evidence** (recommended age source once T027 has qualified the wallet group) | No age. Live wallet group = `low_activity_unknown_age`, confidence exactly 0.50 once it may score | No new dependency, credential, request or rate cost; fully truthful; the known-age branch stays tested via injected profiles but is documented non-operational. Cost: max score 0.780 after T027 (0.450 before it; see R10), so 0.80 alerts need D2 | Fully supported by current code |
 | **O2 – Polymarket-activity age**: earliest public trade seen for the proxy address in the Data API | "Time since this proxy address's first public Polymarket trade" (`age_basis = polymarket_first_trade`). Not chain age and must never be worded as such | Directly measures "new to Polymarket", independent of the nonce question; one extra anonymous request per candidate (only trades ≥ $1,000 pass the wallet gate, so volume is small against the 200 req/10 s Data API limit recorded in slice 001 feasibility). Costs: needs a per-user query qualified for this use, results are newest-first with a 10,000-row offset cap, so "earliest" is only exact for addresses whose whole history fits; otherwise age is a lower bound and must be `unknown`. A maker-side trade may be hidden if `takerOnly` defaults apply | The official endpoint is documented as "Get trades for a user or markets" (`specs/001-supported-trade-ingestion/evidence/feasibility.md:13`) but the user filter, ordering and `takerOnly` interaction are **UNVERIFIED** here; no live call was made in this revision |
 | **O3 – external indexer** (chain first-transaction time of the address) | `age_basis = chain_first_transaction` | Matches the original README meaning; adds a vendor dependency, a credential or quota, new failure/cost surface and a trust decision; still subject to the proxy-address semantics question (a contract's creation time is not the participant's first use) | No indexer in the repo (`get_first_transaction` note at `profiler/chain.py:524-527`); vendor behaviour unverified |
 | **O4 – Gamma public-profile style creation timestamp** | Account creation as Polymarket records it | Possibly the closest to "new account" | **UNVERIFIED lead only**: nothing in the repo or checked-in evidence shows such an endpoint or its terms; listed so a future qualification can evaluate it, not as a candidate this revision can recommend |
 
 **O5 (added after codex round 2)** – wallet group non-scoring until T027 qualifies the proxy-address nonce (FR-007c). Not an age source; a posture that composes with any of O1–O4. See decision-packet D1.
 
-**Recommended default**: O1 for this slice, with O2 as the first follow-up candidate once a bounded,
-authorized qualification (T027) establishes the per-user query semantics. Rationale: it is the only option
-whose every claim is supported by code on main today, and it keeps FR-007/FR-008 truthful without
-adding a network surface to the detection path.
+**Default posture (one statement for the whole contract)**: O5 until T027. Before the T027 receipt the
+wallet group is recorded but non-scoring, so only the size group scores (ceiling 0.450, R10). This is
+not "O1 gated": the age-source choice only matters once the wallet group may score.
+
+**Recommended age source once T027 has qualified the wallet group**: O1 for this slice, with O2 as the
+first follow-up candidate once a bounded, authorized qualification (T027) establishes the per-user query
+semantics. Rationale: it is the only option whose every claim is supported by code on main today, and it
+keeps FR-007/FR-008 truthful without adding a network surface to the detection path.
 
 **FR-007/FR-008 under each option**
 
@@ -277,13 +282,28 @@ caps and bonuses are those of `detector/scorer.py` (0.40/0.35/0.25, ×1.2 for tw
 `detector/size_anomaly.py` (volume component ≤ 0.5, ×1.5 niche multiplier, niche-only 0.2) and
 `detector/fresh_wallet.py` (0.5 + 0.2 nonce 0 + 0.1 age < 2 h + 0.1 trade > $10k), plus the proposed
 004 rules (unknown age exactly 0.50; book depth non-operational; category fallback whenever volume is
-not `available`).
+not `available`), in both wallet postures: the default pre-T027 posture (FR-007c, wallet group
+non-scoring) and the post-T027 scenario (wallet group qualified).
 
-### Maximum attainable score by evidence class (proposed 004 rules, threshold 0.80)
+### Default pre-T027 posture: maximum attainable score (size group only, no two-group bonus)
 
 | Wallet evidence | Market evidence | Max score | Reaches 0.80 |
 |---|---|---|---|
-| unknown age (everything live today) | volume available, niche (< $50k), ratio ≥ 0.06 | **0.780** (any trade size) | **no** |
+| any (non-scoring before T027) | volume available, niche (< $50k), ratio ≥ 0.06 | **0.450** = `0.75 × (0.35 + 0.25)` (any trade size) | **no** |
+| any | volume available, not niche (≥ $50k) | 0.175 | no |
+| any | volume unavailable, niche-prone category | 0.120 | no |
+| any | volume unavailable, other category | 0.000 (no signal) | no |
+
+This is the posture the contract ships with. No trade can reach 0.80, and lowering the threshold to
+0.78 still yields no alert; only a threshold ≤ 0.45 would let a size-only signal qualify.
+
+### Post-T027 scenario: maximum attainable score by evidence class (proposed 004 rules, threshold 0.80)
+
+Valid only after T027 qualifies the wallet group; the known-age rows also need a D1 age source.
+
+| Wallet evidence | Market evidence | Max score | Reaches 0.80 |
+|---|---|---|---|
+| unknown age (everything live after T027) | volume available, niche (< $50k), ratio ≥ 0.06 | **0.780** (any trade size) | **no** |
 | unknown age | volume available, not niche (≥ $50k) | 0.450 | no |
 | unknown age | volume unavailable, niche-prone category | 0.384 | no |
 | unknown age | volume unavailable, other category | 0.200 | no |
@@ -295,7 +315,9 @@ not `available`).
 
 Findings (each is a reproducible consequence of the weights, not a judgment):
 
-1. **With age unknown, 0.80 is unreachable for every trade size.** The ceiling is
+0. **In the default pre-T027 posture nothing can reach 0.80 or 0.78.** Only the size group scores and
+   the two-group bonus never applies, so the ceiling is `0.75·0.35 + 0.75·0.25 = 0.450` for every trade.
+1. **After T027, with age unknown, 0.80 is unreachable for every trade size.** The ceiling is
    `(0.5·0.40 + 0.75·0.35 + 0.75·0.25)·1.2 = 0.780`. The smallest unknown-age confidence that would
    reach it is 0.541 (script output). agy's "trades > $10k can alert" came from a 0.60 unknown-age
    confidence that the contract does not grant (FR-008).
@@ -320,22 +342,28 @@ Findings (each is a reproducible consequence of the weights, not a judgment):
 
 | Option | Effect (see `evidence/reachability.md`) | Trade-offs |
 |---|---|---|
-| **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings** (recommended default) | With O1: assessments are produced and persisted, none qualifies by default; alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: out of the box the live monitor delivers nothing |
-| **R1 lower the default to ≤ 0.78** | Unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 45 live replay cases at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
-| **R2 raise the unknown-age base to ≥ 0.541** | Keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
-| **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
-| **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
+Effects are stated for the default pre-T027 posture first, then post-T027.
 
-**Recommended default: R0.** The hard consequence stays visible to Patrick in
-[decision-packet.md](decision-packet.md): with O1 + R0 the product records assessments but produces no
-deliverable alert at default settings.
+| Option | Effect (see `evidence/reachability.md`) | Trade-offs |
+|---|---|---|
+| **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings** | Pre-T027: nothing qualifies (ceiling 0.450). Post-T027 with O1: still nothing qualifies (0.780); alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: it presents an alert path that cannot fire; honest only with FR-022a |
+| **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 45 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 45 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
+| **R2 raise the unknown-age base to ≥ 0.541** | Pre-T027: no effect (wallet non-scoring). Post-T027: keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
+| **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Pre-T027 the watch floor must be ≤ 0.45 to show anything; post-T027 surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
+| **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
+| **R5 defer an alert-capable release (assessment-only)** | Assessments are recorded and inspectable; README, configuration summary and the FR-022a report state that this release produces no alert | Truthful about what ships; no deliverable alerts, stated rather than discovered. Alerting returns under a later approved spec once a qualified evidence class can reach the threshold |
+
+**Recommended default: R5** (R0's configuration, released and described as assessment-only, with
+FR-022a). The hard consequence stays visible to Patrick in [decision-packet.md](decision-packet.md):
+the product records assessments but produces no deliverable alert at default settings.
 
 ### Live-realistic replay
 
 The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
 adds 45 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
-by `scripts/spec004_evidence/`replay_live`.py`) using unknown age and every volume state, with the 003.1-as-wired score
-next to the proposed one. 0 of 45 qualify at 0.80; 7 at 0.78.
+by `scripts/spec004_evidence/replay_live.py`) using unknown age and every volume state, with the 003.1-as-wired score
+next to the proposed one in both wallet postures. Pre-T027 (default): 0 of 45 qualify at 0.80 or 0.78
+(maximum 0.450). Post-T027: 0 of 45 at 0.80; 7 at 0.78.
 
 ## R02a — Volume freshness that matches the real sync (added 2026-10-19; resolves F07, F08, F09, F10, F12, F14)
 

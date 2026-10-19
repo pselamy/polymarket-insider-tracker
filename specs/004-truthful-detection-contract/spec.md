@@ -49,8 +49,9 @@ assessment schema, alert output, README capability table, tracked skill, and arc
 
 **Acceptance Scenarios**:
 
-1. **Given** the live core pipeline, **When** its risk score is calculated, **Then** only fresh/low-activity
-   wallet evidence, size anomaly evidence, and the niche-market factor contribute.
+1. **Given** the live core pipeline, **When** its risk score is calculated, **Then** only size anomaly
+   evidence and the niche-market factor contribute in the default pre-T027 posture (FR-007c), and
+   fresh/low-activity wallet evidence contributes as well only once T027 has qualified the wallet group.
 2. **Given** the sniper-cluster library, **When** public capabilities are listed, **Then** it is identified
    as experimental and non-operational until a separately approved specification wires and validates it.
 3. **Given** funding-chain tracing, **When** a fresh-wallet candidate is enriched, **Then** funding records
@@ -77,8 +78,9 @@ persisted assessment fields, sample output, README, example environment, and the
    0.80 everywhere it is displayed or documented.
 2. **Given** a valid threshold override, **When** an assessment is created, **Then** the exact effective
    threshold is recorded and used for qualification.
-3. **Given** the two operational signal groups plus a niche factor, **When** the score is calculated, **Then**
-   only reachable bonus rules are applied and the reported signal count matches the defined groups.
+3. **Given** the two defined signal groups plus a niche factor, **When** the score is calculated, **Then**
+   only reachable bonus rules are applied and the reported signal count matches the groups that scored
+   (the wallet group is never counted in the pre-T027 posture).
 4. **Given** a sample alert or interpretation guide, **When** a reviewer reconstructs its score from the
    shown evidence and documented weights, **Then** the result agrees within normal rounding tolerance.
 
@@ -100,9 +102,11 @@ persisted assessment fields, sample output, README, example environment, and the
 
 ### Functional Requirements
 
-- **FR-001**: The supported live core MUST consist of two operational signal groups: fresh/low-activity
+- **FR-001**: The supported live core MUST consist of two defined signal groups: fresh/low-activity
   wallet evidence and size-anomaly evidence. Niche-market context MAY modify size evidence but MUST NOT be
-  reported as a separately invoked detector.
+  reported as a separately invoked detector. **Default posture (pre-T027, FR-007c)**: only the size group
+  is operational for scoring; the wallet group is evaluated and recorded as an observation but is
+  non-scoring until the T027 receipt qualifies it. Both groups score only in the post-T027 posture.
 - **FR-002**: The default alert threshold MUST be 0.80, and every public default, example, configuration
   summary, persisted assessment, and tracked skill MUST agree.
 - **FR-003**: Every risk assessment MUST record the effective threshold, score, signal-group count, applicable
@@ -143,10 +147,17 @@ persisted assessment fields, sample output, README, example environment, and the
   the live product uses is DECISION D1 in [decision-packet.md](decision-packet.md); until a source is selected
   and qualified, live age is **always unknown** and the known-age classification is exercised only by injected
   test profiles and is documented as non-operational. Failure to obtain an age is `unknown`, never `fresh`.
-- **FR-007c** *(qualification gate)*: The wallet group MUST NOT contribute to a score until the qualification
-  receipt T027 records what the proxy-address transaction count measures. Before that receipt the wallet
-  group is non-scoring (assessments record `wallet_group = unqualified`). Recommended-default status:
-  a recommendation under DECISION D1, not settled.
+- **FR-007c** *(qualification gate; the spec's single default posture)*: The wallet group MUST NOT
+  contribute to a score until the qualification receipt T027 records what the proxy-address transaction
+  count measures. Before that receipt every assessment records `wallet.group_status = unqualified_pre_T027`
+  ([contracts/scoring-config.md](contracts/scoring-config.md) §2): the wallet classification and transaction
+  count are still recorded as observations, but `wallet.confidence` is null, `wallet.factors` is empty, the
+  wallet contribution is `0`, the group is not counted in `signals_triggered`, and the 1.2 two-group bonus
+  never applies. The size group alone scores, so the highest attainable score is **0.450**
+  (`0.75 × (0.35 + 0.25)`). After a T027 receipt shows the nonce tracks trading, a reviewed change citing
+  the receipt sets `group_status = qualified` and the FR-007/FR-008 wallet rules score. The gate is not an
+  environment knob. Allowing the wallet group to score before T027 is DECISION D1b in
+  [decision-packet.md](decision-packet.md); the spec is written for the gated default.
 - **FR-008**: When age is unknown and transaction count is below the boundary, the detector MAY emit a
   lower-certainty low-activity-wallet candidate, but all outputs MUST label age as unknown and MUST NOT state
   or imply a less-than-48-hour age. Its confidence MUST be **exactly 0.50** (neither lower nor higher,
@@ -185,7 +196,8 @@ persisted assessment fields, sample output, README, example environment, and the
   evidence classes can reach it. The maximum attainable score per evidence class is published in
   [research.md](research.md) R10 / `evidence/reachability.md`, and a regression test MUST recompute those
   ceilings from the real scorer so that a weight, cap, bonus or threshold change cannot silently change
-  what is reachable. With unknown age the ceiling is 0.780 for every trade size.
+  what is reachable. In the default pre-T027 posture the ceiling is **0.450** for every evidence class
+  (size group only, no bonus); in the post-T027 posture with unknown age it is 0.780 for every trade size.
 - **FR-022a** *(runtime visibility)*: Whenever the effective configuration makes the alert threshold
   unreachable by every evidence class, startup logging and the operator status surface MUST report
   `default alert path unreachable` with the configured threshold and the highest reachable ceiling, so a
@@ -199,7 +211,8 @@ persisted assessment fields, sample output, README, example environment, and the
 - **Market Evidence**: Market identity and category, positive known or unavailable daily volume, unavailable
   book depth for this slice, data freshness, and resulting niche context.
 - **Operational Signal Group**: One live detector result with confidence and factors that may contribute to
-  the score; exactly wallet evidence and size anomaly are supported here.
+  the score; exactly wallet evidence and size anomaly are defined here, and before T027 only size anomaly
+  is operational for scoring (FR-007c).
 - **Risk Assessment**: The trade, source evidence, availability flags, effective weights and threshold,
   signal-group count, bonus, final score, qualification, and delivery disposition.
 - **Capability Status**: Operational, enrichment-only, experimental/non-operational, or deferred, with the
@@ -238,7 +251,8 @@ persisted assessment fields, sample output, README, example environment, and the
   useful but is labeled a lower-certainty “low-activity wallet, age unknown” candidate with confidence exactly
   0.50 and no age, brand-new, very-young or large-trade bonus.
   Because no age source is operational (FR-007b), this is the **only** wallet classification the live
-  runtime can produce until decision D1 selects and qualifies a source.
+  runtime can produce until decision D1 selects and qualifies a source. In the default pre-T027 posture
+  (FR-007c) it is recorded but does not score.
 - The default transaction-count rule is fewer than 5 prior transactions, following the README wording. This
   intentionally resolves the current mix of `< 5` and `<= 5` behavior.
 - Available positive daily volume is part of the core size contract. Book-depth scoring is disabled and
@@ -268,7 +282,7 @@ persisted assessment fields, sample output, README, example environment, and the
   (no first-party code, test or checked-in evidence); see FR-007a.
 - Slice 003 owns the assessment schema, `scoring_config` column and dry-run safety (G-018).
 
-**Open decisions**: FR-005a (lookup failure), FR-007b/FR-008 (live age unknown, exactly 0.50) and the 0.80 default are written for the recommended defaults of D1–D3 in [decision-packet.md](decision-packet.md); they are not settled until Patrick decides and change with the chosen option.
+**Open decisions**: FR-005a (lookup failure), FR-007b/FR-008 (live age unknown, exactly 0.50), FR-007c (wallet group non-scoring before T027) and the 0.80 default are written for the recommended defaults of D1–D3 in [decision-packet.md](decision-packet.md); they are not settled until Patrick decides and change with the chosen option.
 
 **Non-goals**: trading or execution, financial advice, backtesting or calibration, book-depth scoring,
 funding or sniper scoring, changes to the V2 acquisition path or its cadence, a new database migration,

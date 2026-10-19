@@ -106,10 +106,14 @@
           "additionalProperties": false,
           "required": [
             "age_basis", "age_hours", "age_state", "boundary", "classification", "confidence",
-            "factors", "observation_time", "retrieval_error", "subject_kind", "tx_count"
+            "factors", "group_status", "observation_time", "retrieval_error", "subject_kind", "tx_count"
           ],
           "properties": {
             "subject_kind": {"const": "proxy_wallet"},
+            "group_status": {
+              "description": "FR-007c. unqualified_pre_T027: the wallet group is non-scoring (confidence null, factors empty, contribution 0, not counted in signals_triggered, no two-group bonus); classification and tx_count are still recorded as observations. qualified: T027 has authorized wallet scoring.",
+              "enum": ["unqualified_pre_T027", "qualified"]
+            },
             "classification": {
               "enum": ["fresh", "low_activity_unknown_age", "known_nonqualifying", "not_requested", "retrieval_failed"]
             },

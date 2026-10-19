@@ -1,0 +1,74 @@
+{
+  "alert_threshold": "0.800",
+  "detector_config": {
+    "fresh_min_notional": "1000",
+    "fresh_transaction_boundary": 5,
+    "known_age_ceiling_hours": "48",
+    "niche_min_notional": "500",
+    "niche_volume_threshold": "50000",
+    "size_volume_threshold": "0.02",
+    "volume_recency_seconds": 600
+  },
+  "detector_failures": [],
+  "evaluation_evidence": {
+    "contributions": {
+      "bonus": "1.2",
+      "capped_score": "0.780000",
+      "fresh_wallet": "0.2000",
+      "niche_market": "0.18750",
+      "size_anomaly": "0.26250"
+    },
+    "evaluated_at": "2026-10-19T12:00:00+00:00",
+    "notional": "3250",
+    "result": {
+      "should_alert": false,
+      "signals_triggered": 2,
+      "weighted_score": "0.780"
+    },
+    "size": {
+      "book_impact": null,
+      "book_state": "unavailable",
+      "category": "science",
+      "category_source": "metadata",
+      "confidence": "0.750",
+      "daily_volume": "30000",
+      "daily_volume_acquired_at": "2026-10-19T11:59:30+00:00",
+      "daily_volume_age_seconds": "30",
+      "daily_volume_source": "gamma-markets-v1",
+      "factors": {},
+      "niche": true,
+      "niche_basis": "numeric",
+      "signal_emitted": true,
+      "volume24hr_present": true,
+      "volume24hr_raw": "30000",
+      "volume_impact": "0.1083",
+      "volume_reason": "gamma",
+      "volume_state": "available"
+    },
+    "wallet": {
+      "age_basis": "none",
+      "age_hours": null,
+      "age_state": "unknown",
+      "boundary": 5,
+      "classification": "low_activity_unknown_age",
+      "confidence": "0.500",
+      "factors": {
+        "base": "0.5"
+      },
+      "group_status": "qualified",
+      "observation_time": "2026-10-19T11:58:10+00:00",
+      "retrieval_error": null,
+      "subject_kind": "proxy_wallet",
+      "tx_count": 0
+    }
+  },
+  "evidence_schema": "004.1",
+  "multi_signal_bonus_2": "1.2",
+  "multi_signal_bonus_3": "1",
+  "score_quantum": "0.001",
+  "weights": {
+    "fresh_wallet": "0.4",
+    "niche_market": "0.25",
+    "size_anomaly": "0.35"
+  }
+}

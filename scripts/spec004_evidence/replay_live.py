@@ -8,6 +8,9 @@ Stdlib only; never imports from src/. Scoring arithmetic is shared with reachabi
 constants are textually verified against the product source). The volume-state classifier below is
 the executable form of the precedence table in data-model.md section 1; the cases cover every
 state and reason. ``old_score_as_wired`` is the 003.1 rule with the live wiring (no volume passed).
+Each case is scored in both wallet postures: ``pre_T027`` is the default (FR-007c: the wallet group
+is non-scoring, so only the size group counts and the two-group bonus never applies) and
+``post_T027`` is the scenario in which T027 has qualified the wallet group.
 """
 
 from __future__ import annotations
@@ -43,13 +46,16 @@ COLUMNS = (
     "volume_state",
     "volume_reason",
     "wallet_class",
-    "wallet_confidence",
+    "wallet_confidence_post_T027",
     "size_confidence",
     "niche_basis",
-    "groups",
     "old_score_as_wired",
-    "proposed_score",
-    *(f"alerts_at_{t}" for t in THRESHOLDS),
+    "groups_pre_T027",
+    "score_pre_T027",
+    *(f"alerts_pre_T027_at_{t}" for t in THRESHOLDS),
+    "groups_post_T027",
+    "score_post_T027",
+    *(f"alerts_post_T027_at_{t}" for t in THRESHOLDS),
     "purpose",
 )
 
@@ -180,12 +186,22 @@ def explicit_volume(spec: dict[str, Any]) -> Decimal | None:
     return Decimal(str(spec["explicit_daily_volume"])) if spec["explicit_daily_volume"] else None
 
 
+def posture_columns(
+    posture: str, wconf: float | None, size: tuple[float, bool] | None
+) -> dict[str, object]:
+    proposed = score(wconf, size)
+    return {
+        f"groups_{posture}": int(wconf is not None) + int(size is not None),
+        f"score_{posture}": proposed,
+        **{f"alerts_{posture}_at_{t}": proposed >= Decimal(t) for t in THRESHOLDS},
+    }
+
+
 def result_row(
     spec: dict[str, Any],
     verdict: Verdict,
     wconf: float | None,
     size: tuple[float, bool] | None,
-    proposed: Decimal,
 ) -> dict[str, object]:
     state, reason, volume = verdict
     return {
@@ -193,15 +209,14 @@ def result_row(
         "volume_state": state,
         "volume_reason": reason,
         "wallet_class": "low_activity_unknown_age" if wconf is not None else "none",
-        "wallet_confidence": "" if wconf is None else f"{wconf:.3f}",
+        "wallet_confidence_post_T027": "" if wconf is None else f"{wconf:.3f}",
         "size_confidence": "" if size is None else f"{size[0]:.3f}",
         "niche_basis": niche_basis(size, volume),
-        "groups": int(wconf is not None) + int(size is not None),
         "old_score_as_wired": old_score(
             str(spec["category"]), int(spec["nonce"]), Decimal(str(spec["notional"]))
         ),
-        "proposed_score": proposed,
-        **{f"alerts_at_{t}": proposed >= Decimal(t) for t in THRESHOLDS},
+        **posture_columns("pre_T027", None, size),
+        **posture_columns("post_T027", wconf, size),
         "purpose": spec["purpose"],
     }
 
@@ -216,8 +231,7 @@ def evaluate(spec: dict[str, Any]) -> dict[str, object]:
     wallet = Wallet("unknown age", nonce, None)
     wconf = wallet_confidence(wallet, notional, proposed=True) if nonce < BOUNDARY else None
     size = size_signal(market, notional, volume_passed=True)
-    proposed = score(wconf, size)
-    return result_row(spec, (state, reason, volume), wconf, size, proposed)
+    return result_row(spec, (state, reason, volume), wconf, size)
 
 
 def results() -> list[dict[str, object]]:

@@ -12,15 +12,19 @@
   "detector_failures": [],
   "evaluation_evidence": {
     "contributions": {
-      "bonus": "1.2",
-      "capped_score": "0.78000",
-      "fresh_wallet": "0.20000",
+      "bonus": "1",
+      "capped_score": "0.45000",
+      "fresh_wallet": "0",
       "niche_market": "0.18750",
       "size_anomaly": "0.26250"
     },
     "evaluated_at": "2026-10-19T12:00:00+00:00",
     "notional": "3250",
-    "result": {"should_alert": false, "signals_triggered": 2, "weighted_score": "0.780"},
+    "result": {
+      "should_alert": false,
+      "signals_triggered": 1,
+      "weighted_score": "0.450"
+    },
     "size": {
       "book_impact": null,
       "book_state": "unavailable",
@@ -31,7 +35,7 @@
       "daily_volume_acquired_at": "2026-10-19T11:59:30+00:00",
       "daily_volume_age_seconds": "30",
       "daily_volume_source": "gamma-markets-v1",
-      "factors": {"niche_multiplier": "1.5", "volume_impact": "0.5"},
+      "factors": {},
       "niche": true,
       "niche_basis": "numeric",
       "signal_emitted": true,
@@ -47,8 +51,9 @@
       "age_state": "unknown",
       "boundary": 5,
       "classification": "low_activity_unknown_age",
-      "confidence": "0.500",
-      "factors": {"base": "0.5"},
+      "confidence": null,
+      "factors": {},
+      "group_status": "unqualified_pre_T027",
       "observation_time": "2026-10-19T11:58:10+00:00",
       "retrieval_error": null,
       "subject_kind": "proxy_wallet",
@@ -59,5 +64,9 @@
   "multi_signal_bonus_2": "1.2",
   "multi_signal_bonus_3": "1",
   "score_quantum": "0.001",
-  "weights": {"fresh_wallet": "0.4", "niche_market": "0.25", "size_anomaly": "0.35"}
+  "weights": {
+    "fresh_wallet": "0.4",
+    "niche_market": "0.25",
+    "size_anomaly": "0.35"
+  }
 }

@@ -12,9 +12,9 @@
   "detector_failures": [],
   "evaluation_evidence": {
     "contributions": {
-      "bonus": "1.2",
-      "capped_score": "0.384000",
-      "fresh_wallet": "0.2000",
+      "bonus": "1",
+      "capped_score": "0.12000",
+      "fresh_wallet": "0",
       "niche_market": "0.05000",
       "size_anomaly": "0.07000"
     },
@@ -22,8 +22,8 @@
     "notional": "3250",
     "result": {
       "should_alert": false,
-      "signals_triggered": 2,
-      "weighted_score": "0.384"
+      "signals_triggered": 1,
+      "weighted_score": "0.120"
     },
     "size": {
       "book_impact": null,
@@ -53,10 +53,9 @@
       "age_state": "unknown",
       "boundary": 5,
       "classification": "low_activity_unknown_age",
-      "confidence": "0.500",
-      "factors": {
-        "base": "0.5"
-      },
+      "confidence": null,
+      "factors": {},
+      "group_status": "unqualified_pre_T027",
       "observation_time": "2026-10-19T11:58:10+00:00",
       "retrieval_error": null,
       "subject_kind": "proxy_wallet",

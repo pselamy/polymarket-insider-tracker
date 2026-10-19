@@ -106,9 +106,14 @@ can never be mistaken for Gamma data. The live pipeline never passes it.
 | `age_basis` | enum | `none` \| `polymarket_first_trade` \| `chain_first_transaction` (FR-007b). `none` is the only value current main can produce (`profiler/chain.py:485-532` returns no first transaction for any wallet). A known age without a basis is invalid evidence. |
 | `age_state` | enum | `known` (basis ≠ `none`) \| `unknown`. |
 | `classification` | enum | `fresh` (known age ≤ 48h, `nonce < B`, notional ≥ 1000, where `B` is the captured effective exclusive boundary, default 5) \| `low_activity_unknown_age` (unknown age, `nonce < B`, notional ≥ 1000; confidence exactly 0.50, see the unknown-age table below) \| `known_nonqualifying` (immutable evidence of a non-qualifying input, distinct from missing) \| `not_requested` \| `retrieval_failed`. The `5` is the default of `DETECTOR_FRESH_TRANSACTION_BOUNDARY`, never a hardcoded constant: boundary 3 excludes nonce 3 (`transaction-override-3-3` emits no wallet signal), boundary 10 includes nonce 9 (`transaction-override-10-9` emits a wallet signal). Equality rule: nonce exactly `B` never qualifies. |
+| `group_status` | enum `unqualified_pre_T027` \| `qualified` | Spec FR-007c, the contract's default posture. `unqualified_pre_T027` (every assessment until the T027 receipt exists): `classification`, `tx_count` and the age fields are still recorded as observations, but the wallet group is **non-scoring**: `confidence` null, `factors` empty, wallet contribution `0`, not counted in `signals_triggered`, and the 1.2 two-group bonus never applies (ceiling 0.450). `qualified`: set only by the reviewed change that cites a T027 receipt showing the nonce tracks trading; the unknown-age table below then scores. Not an environment knob. |
 | `observation_time` | aware UTC | The wallet profile's `analyzed_at` (`profiler/models.py:96`): when the nonce/first-seen values were obtained, **not** when the detector read them. A cached profile keeps its original `analyzed_at`; a cache read never restamps it. Evidence records both `observation_time` and the trade-evaluation time so a reviewer can see the gap. |
 
 ### Unknown-age rule (single normative table; spec FR-008)
+
+The confidences below are the scoring rule once `group_status = qualified`. With
+`group_status = unqualified_pre_T027` the same classification is recorded but carries no confidence and
+no contribution (row above).
 
 | Input | Result |
 |---|---|
@@ -161,8 +166,8 @@ the boundary-10 override case.
 
 Behavior under non-`available` volume: no ratio; the size signal can arise only from the category basis
 (confidence 0.2 niche-only); every state in data-model §1.2 other than `available` behaves identically
-here (replay: `live-nonpositive-*`, `live-stale-*`, `live-missing-*`, ... all 0.384 for a niche-prone
-category).
+here (replay: `live-nonpositive-*`, `live-stale-*`, `live-missing-*`, ... all 0.120 for a niche-prone
+category in the default pre-T027 posture, 0.384 post-T027).
 
 ## 4. Assessment Envelope (versioned amendment of shared 003 contract)
 
@@ -186,6 +191,7 @@ only records the rules the schema cannot express:
 
 Default alert threshold 0.80 everywhere (config, docs, persisted rows, skill). Inclusive `>=`
 comparison at 0.001 quantum. Effective threshold recorded per assessment. Exactly two
-operational signal groups (fresh/low-activity wallet, size anomaly); reachable two-group bonus
-only; 3+ bonus removed from the operational contract. Score reconstructs from shown evidence
+defined signal groups (fresh/low-activity wallet, size anomaly); in the default pre-T027 posture
+(FR-007c, `group_status = unqualified_pre_T027`) only the size group scores and the bonus never
+applies (ceiling 0.450); reachable two-group bonus only; 3+ bonus removed from the operational contract. Score reconstructs from shown evidence
 within rounding tolerance (SC-004/005).

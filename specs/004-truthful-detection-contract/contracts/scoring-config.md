@@ -6,7 +6,8 @@ Amends the shared [003 assessment-storage contract](../../003-safe-observable-op
 
 Machine-readable form (checked by `uv run python -m scripts.spec004_evidence.check_envelope`, exit 0):
 [`scoring-config-004.1.schema.json`](scoring-config-004.1.schema.json),
-[`scoring-config-004.1.example.json`](scoring-config-004.1.example.json),
+[`scoring-config-004.1.example.json`](scoring-config-004.1.example.json) (default pre-T027 posture),
+[`scoring-config-004.1.post-t027.example.json`](scoring-config-004.1.post-t027.example.json) (wallet group qualified),
 [`scoring-config-004.1.failure-row.json`](scoring-config-004.1.failure-row.json).
 
 ## 1. What this amends (stated plainly)
@@ -61,13 +62,14 @@ readable summary.
 | `evaluated_at` | UTC timestamp | no | The single evaluation instant injected into both detectors (detector-api.md §Evaluation clock). |
 | `notional` | decimal string | no | Trade notional as evaluated. |
 | `wallet.subject_kind` | const `"proxy_wallet"` | no | FR-007a. |
+| `wallet.group_status` | enum `unqualified_pre_T027`, `qualified` | no | FR-007c, the default posture. `unqualified_pre_T027`: the wallet group is **non-scoring**: `wallet.confidence` null, `wallet.factors` `{}`, `contributions.fresh_wallet` `"0"`, the group is not counted in `result.signals_triggered`, and `contributions.bonus` is `"1"` (the 1.2 bonus needs two scoring groups); `classification`, `tx_count` and age fields are still recorded as observations. `qualified`: written only after the reviewed change citing a T027 receipt; the wallet rules of data-model §2 score. Example of each posture: `scoring-config-004.1.example.json` (pre-T027) and `scoring-config-004.1.post-t027.example.json`. |
 | `wallet.classification` | enum `fresh`, `low_activity_unknown_age`, `known_nonqualifying`, `not_requested`, `retrieval_failed` | no | data-model §2. |
 | `wallet.boundary` | int ≥ 1 | no | The captured effective `B` used for this classification. |
 | `wallet.tx_count` | int ≥ 0 | yes (retrieval failed / not requested) | Nonce of the proxy address. |
 | `wallet.age_state` / `wallet.age_basis` / `wallet.age_hours` | `known`/`unknown`; `none`/`polymarket_first_trade`/`chain_first_transaction`; decimal string | `age_hours` null when unknown | Known age requires a basis other than `none`. |
 | `wallet.observation_time` | UTC timestamp | yes | The profile's `analyzed_at`. |
 | `wallet.retrieval_error` | string ≤ 128 | yes | Error class name only. |
-| `wallet.confidence`, `wallet.factors` | 3-decimal string; object name → decimal string | confidence null when no signal | Unknown age ⇒ `"0.500"`, factors `{"base":"0.5"}`. |
+| `wallet.confidence`, `wallet.factors` | 3-decimal string; object name → decimal string | confidence null when no signal **or** `group_status = unqualified_pre_T027` | With `qualified`, unknown age ⇒ `"0.500"`, factors `{"base":"0.5"}`. |
 | `size.volume_state`, `size.volume_reason` | enum (8 states); enum of the §1.2 reasons | never null (every state has a reason) | data-model §1.2. |
 | `size.volume24hr_present`, `size.volume24hr_raw` | boolean; **any JSON value** | raw null when absent/null | Decoded JSON value, stored by the one rule of data-model §1.1a: verbatim if finite, free of the reserved keys and ≤ 256 canonical UTF-8 bytes; otherwise exactly `{"$nonfinite":"NaN"\|"Infinity"\|"-Infinity"}` (bare non-finite float) or `{"$truncated":true,"type":"string\|array\|object","bytes":<n>,"sha256":"<hex>","reason":"oversize\|reserved_key\|nested_nonfinite"}`. These are the only exceptions to verbatim preservation; the state is decided before bounding (a `$nonfinite` tag is always `invalid`). Examples: `scoring-config-004.1.nonfinite.example.json`, `…truncated.example.json`. |
 | `size.daily_volume` | decimal string | null unless `available` | The only denominator. |
@@ -78,12 +80,12 @@ readable summary.
 | `size.signal_emitted`, `size.confidence`, `size.factors` | bool; 3-decimal string; object | confidence null when no signal | |
 | `contributions.{fresh_wallet,size_anomaly,niche_market}` | exact decimal strings (confidence × weight, ≤ 5 decimals), `"0"` when absent | no | Pre-bonus terms. |
 | `contributions.bonus`, `contributions.capped_score` | `"1"` or `"1.2"`; exact decimal | no | `capped_score = min(sum × bonus, 1)` before quantization. |
-| `result.weighted_score`, `result.signals_triggered`, `result.should_alert` | 3-decimal string; int 0–2; bool | no | `weighted_score = quantize(capped_score)`; `should_alert = weighted_score >= alert_threshold`. |
+| `result.weighted_score`, `result.signals_triggered`, `result.should_alert` | 3-decimal string; int 0–2; bool | no | `weighted_score = quantize(capped_score)`; `should_alert = weighted_score >= alert_threshold`; `signals_triggered` = number of **scoring** groups (wallet counts only with non-null confidence; size counts when `signal_emitted`); bonus `"1.2"` exactly when it is 2. |
 
 Reconstruction (CHK014): every `result` field is recomputable from the rest of the document with
 decimal arithmetic alone; `scripts/spec004_evidence/check_envelope.py` performs exactly that and also verifies the volume
 cross-field rules (`daily_volume`/`volume_impact` non-null exactly when `available`; age within
-0–600 s when `available`; negative age only for `invalid_time`/`future`; one envelope is built and validated for every replay-live case; unknown age ⇒ confidence exactly `0.500`). SC-005 (±0.01) is therefore met
+0–600 s when `available`; negative age only for `invalid_time`/`future`; one envelope is built and validated for every replay-live case in **both** wallet postures; the pre-T027 wallet carries no confidence, factors or contribution; `signals_triggered` counts scoring groups and the bonus is 1.2 exactly at two; with `qualified`, unknown age ⇒ confidence exactly `0.500`). SC-005 (±0.01) is therefore met
 with zero tolerance for stored 004.1 rows.
 
 ## 3. Reader dispatch

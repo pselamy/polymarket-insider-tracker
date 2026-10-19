@@ -3,6 +3,8 @@
 Stdlib only; never imports from src/. The verdicts come from ``replay_live`` (the executable
 precedence table) and the scoring arithmetic from ``reachability``; this module only lays the
 results out in the stored envelope shape so ``check_envelope`` can validate every volume state.
+Envelopes are built in the default pre-T027 posture (FR-007c, ``wallet.group_status =
+unqualified_pre_T027``) unless the post-T027 scenario (``qualified``) is requested.
 """
 
 from __future__ import annotations
@@ -30,6 +32,10 @@ WEIGHTS = {
     "size_anomaly": Decimal("0.35"),
 }
 
+
+PRE_T027 = "unqualified_pre_T027"
+POST_T027 = "qualified"
+GROUP_STATUSES = (PRE_T027, POST_T027)
 
 RAW_BOUND_BYTES = 256
 RESERVED_KEYS = frozenset({"$truncated", "$nonfinite"})
@@ -166,15 +172,19 @@ def size_block(
     }
 
 
-def wallet_block(wconf: float | None, nonce: int) -> dict[str, Any]:
+def wallet_block(
+    classification: str, wconf: float | None, status: str, nonce: int
+) -> dict[str, Any]:
+    """``wconf`` is the scoring confidence: always None while the group is unqualified."""
     return {
         "age_basis": "none",
         "age_hours": None,
         "age_state": "unknown",
         "boundary": rl.BOUNDARY,
-        "classification": "known_nonqualifying" if wconf is None else "low_activity_unknown_age",
+        "classification": classification,
         "confidence": None if wconf is None else f"{wconf:.3f}",
         "factors": {} if wconf is None else {"base": "0.5"},
+        "group_status": status,
         "observation_time": "2026-10-19T11:58:10+00:00",
         "retrieval_error": None,
         "subject_kind": "proxy_wallet",
@@ -202,7 +212,9 @@ def contributions(wconf: float | None, size: tuple[float, bool] | None) -> dict[
     }
 
 
-def build_envelope(spec: dict[str, Any], template: dict[str, Any]) -> dict[str, Any]:
+def build_envelope(
+    spec: dict[str, Any], template: dict[str, Any], status: str = PRE_T027
+) -> dict[str, Any]:
     """A complete 004.1 document for one replay case, based on the example's static keys."""
     notional = Decimal(str(spec["notional"]))
     nonce = int(spec["nonce"])
@@ -212,11 +224,13 @@ def build_envelope(spec: dict[str, Any], template: dict[str, Any]) -> dict[str, 
         verdict[2],
         str(spec["category"]) in rl.NICHE_PRONE and spec["category_source"] == "metadata",
     )
-    wconf = (
+    candidate = (
         wallet_confidence(Wallet("unknown age", nonce, None), notional, proposed=True)
         if nonce < rl.BOUNDARY
         else None
     )
+    classification = "known_nonqualifying" if candidate is None else "low_activity_unknown_age"
+    wconf = candidate if status == POST_T027 else None
     size = size_signal(market, notional, volume_passed=True)
     proposed = score(wconf, size)
     doc = cast(dict[str, Any], json.loads(json.dumps(template)))
@@ -230,7 +244,7 @@ def build_envelope(spec: dict[str, Any], template: dict[str, Any]) -> dict[str, 
             "weighted_score": plain(proposed.quantize(Decimal("0.001"), ROUND_HALF_EVEN)),
         },
         "size": size_block(spec, verdict, size),
-        "wallet": wallet_block(wconf, nonce),
+        "wallet": wallet_block(classification, wconf, status, nonce),
     }
     return doc
 

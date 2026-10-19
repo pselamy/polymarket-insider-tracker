@@ -11,8 +11,10 @@ from detector/scorer.py, detector/size_anomaly.py and detector/fresh_wallet.py.
 
 Rules modelled: the *proposed* 004 contract (unknown age = exactly 0.50, book depth
 non-operational, volume usable only when ``available``, category fallback whenever volume is not
-usable) next to the *003.1* rules as currently wired on main (the live pipeline passes no volume,
-so the size signal can only come from the category fallback).
+usable) in its two wallet postures -- the default pre-T027 posture (FR-007c: wallet group
+non-scoring, so only the size group can score and the two-group bonus never applies) and the
+post-T027 scenario (wallet group qualified) -- next to the *003.1* rules as currently wired on main
+(the live pipeline passes no volume, so the size signal can only come from the category fallback).
 """
 
 from __future__ import annotations
@@ -199,32 +201,44 @@ UNAVAILABLE = (
 BANDS = (("<= $10,000", at_most_large), ("> $10,000", above_large))
 
 
+def gated_confidence(wallet: Wallet | None, notional: Decimal, *, proposed: bool) -> float | None:
+    """``wallet=None`` is the pre-T027 posture (FR-007c): the wallet group never scores."""
+    if wallet is None:
+        return None
+    return wallet_confidence(wallet, notional, proposed=proposed)
+
+
 def grid_available(
-    wallet: Wallet, regime: int, notionals: list[Decimal], *, proposed: bool, volume_passed: bool
+    wallet: Wallet | None,
+    regime: int,
+    notionals: list[Decimal],
+    *,
+    proposed: bool,
+    volume_passed: bool,
 ) -> Iterator[tuple[Decimal, Decimal]]:
     selector = MARKETS[regime][1]
     for volume, notional in product(VOLUMES, notionals):
         market = selector(volume)
         if market is not None:
             yield score(
-                wallet_confidence(wallet, notional, proposed=proposed),
+                gated_confidence(wallet, notional, proposed=proposed),
                 size_signal(market, notional, volume_passed=volume_passed),
             ), notional
 
 
 def grid_unavailable(
-    wallet: Wallet, regime: int, notionals: list[Decimal], *, proposed: bool
+    wallet: Wallet | None, regime: int, notionals: list[Decimal], *, proposed: bool
 ) -> Iterator[tuple[Decimal, Decimal]]:
     market = UNAVAILABLE[regime - 2][1]
     for notional in notionals:
         yield score(
-            wallet_confidence(wallet, notional, proposed=proposed),
+            gated_confidence(wallet, notional, proposed=proposed),
             size_signal(market, notional, volume_passed=False),
         ), notional
 
 
 def grid(
-    wallet: Wallet,
+    wallet: Wallet | None,
     regime: int,
     band: Callable[[Decimal], bool],
     *,
@@ -242,14 +256,31 @@ def grid(
 REGIME_NAMES = (MARKETS[0][0], MARKETS[1][0], UNAVAILABLE[0][0], UNAVAILABLE[1][0])
 
 
+GATED_NAME = "any (wallet group non-scoring before T027)"
+
+
 def reachability_row(
-    wallet: Wallet, regime: int, band_name: str, band: Callable[[Decimal], bool]
+    wallet: Wallet | None, regime: int, band_name: str, band: Callable[[Decimal], bool]
 ) -> str | None:
     best = max((s for s, _ in grid(wallet, regime, band, proposed=True)), default=None)
     if best is None:
         return None
     verdict = "yes" if best >= THRESHOLD else "**no**"
-    return f"| {wallet.name} | {REGIME_NAMES[regime]} | {band_name} | {best} | {verdict} |"
+    name = GATED_NAME if wallet is None else wallet.name
+    return f"| {name} | {REGIME_NAMES[regime]} | {band_name} | {best} | {verdict} |"
+
+
+def gated_table() -> list[str]:
+    """Default pre-T027 posture: only the size group scores; no two-group bonus."""
+    rows = [
+        "| Wallet evidence | Market evidence | Trade | Max score | Reaches 0.80? |",
+        "|---|---|---|---|---|",
+    ]
+    for regime, (band_name, band) in product(range(4), BANDS):
+        row = reachability_row(None, regime, band_name, band)
+        if row is not None:
+            rows.append(row)
+    return rows
 
 
 def reachability_table() -> list[str]:
@@ -280,9 +311,8 @@ def sensitivity_row(threshold: str, scores: list[Decimal]) -> str:
     return f"| {threshold} | {len(hit)} | {max(hit) if hit else '-'} |"
 
 
-def sensitivity_table() -> list[str]:
-    """Grid points (not live frequencies) at or above candidate thresholds, unknown-age wallet."""
-    wallet = WALLETS[0]
+def sensitivity_table(wallet: Wallet | None) -> list[str]:
+    """Grid points (not live frequencies) at or above candidate thresholds for one wallet posture."""
     scores = [
         s
         for regime, (_, band) in product(range(4), BANDS)
@@ -292,9 +322,17 @@ def sensitivity_table() -> list[str]:
         f"| Threshold | Grid points >= threshold (of {len(scores)}) | Highest score among them |",
         "|---|---|---|",
     ]
-    for threshold in ("0.80", "0.78", "0.75", "0.70", "0.60", "0.40"):
+    for threshold in ("0.80", "0.78", "0.75", "0.70", "0.60", "0.45", "0.40"):
         rows.append(sensitivity_row(threshold, scores))
     return rows
+
+
+def gated_ceiling() -> Decimal:
+    return max(
+        s
+        for regime, (_, band) in product(range(4), BANDS)
+        for s, _ in grid(None, regime, band, proposed=True)
+    )
 
 
 def unknown_confidence_needed() -> str:
@@ -306,45 +344,78 @@ def unknown_confidence_needed() -> str:
     return "none"
 
 
-def report() -> str:
-    parts = ["# Threshold reachability (generated by reachability.py)", ""]
-    parts += ["## Constants verified against product source", ""] + verify_constants() + [""]
-    parts += (
+def grid_note() -> str:
+    return (
+        "Book depth is non-operational (FR-006). Grid: notionals "
+        + ", ".join(f"${n:,}" for n in NOTIONALS)
+        + "; usable volumes "
+        + ", ".join(f"${v:,}" for v in VOLUMES)
+        + ". Max over the grid; the volume ratio that saturates the 3x cap is >= 0.06."
+    )
+
+
+def proposed_sections() -> list[str]:
+    return (
         [
-            "## Proposed 004 rules: maximum attainable score",
+            "## Proposed 004 rules, default pre-T027 posture (FR-007c): maximum attainable score",
             "",
-            "Book depth is non-operational (FR-006). Grid: notionals "
-            + ", ".join(f"${n:,}" for n in NOTIONALS)
-            + "; usable volumes "
-            + ", ".join(f"${v:,}" for v in VOLUMES)
-            + ". Max over the grid; the volume ratio that saturates the 3x cap is >= 0.06.",
+            "The wallet group is non-scoring until the T027 qualification receipt exists: it "
+            "contributes 0, is not counted as a signal group, and the 1.2 two-group bonus never "
+            "applies. This is the posture the live product would ship with. Best case: "
+            "0.75 x (0.35 + 0.25) = 0.450.",
+            "",
+            grid_note(),
+            "",
+        ]
+        + gated_table()
+        + [
+            "",
+            "## Proposed 004 rules, post-T027 scenario (wallet group qualified): maximum attainable score",
+            "",
+            "Valid only after T027 authorizes wallet scoring (DECISION D1b). Known-age rows also "
+            "need an operational age source (DECISION D1a); none exists on main.",
+            "",
+            grid_note(),
             "",
         ]
         + reachability_table()
         + [""]
     )
+
+
+def sensitivity_sections() -> list[str]:
+    note = ["Grid points are illustrative combinations, **not** live frequencies.", ""]
+    return (
+        ["## Sensitivity: default pre-T027 posture, proposed rules", ""]
+        + note
+        + sensitivity_table(None)
+        + ["", "## Sensitivity: unknown-age wallet, post-T027 scenario, proposed rules", ""]
+        + note
+        + sensitivity_table(WALLETS[0])
+        + [""]
+    )
+
+
+def report() -> str:
+    parts = ["# Threshold reachability (generated by reachability.py)", ""]
+    parts += ["## Constants verified against product source", ""] + verify_constants() + [""]
+    parts += proposed_sections()
     parts += (
         ["## 003.1 rules as wired on main today (live pipeline passes no volume, G-022)", ""]
         + old_table()
         + [""]
     )
-    parts += (
-        [
-            "## Sensitivity: unknown-age wallet, proposed rules",
-            "",
-            "Grid points are illustrative combinations, **not** live frequencies.",
-            "",
-        ]
-        + sensitivity_table()
-        + [""]
-    )
+    parts += sensitivity_sections()
     parts += [
         "## Recalibration arithmetic",
         "",
-        f"- Smallest unknown-age confidence that lets the best niche case reach 0.80: {unknown_confidence_needed()} "
+        f"- Default pre-T027 posture: the highest score of any trade is {gated_ceiling()}, so no "
+        "alert is possible at any threshold above it; lowering the threshold to 0.78 (R1) "
+        "still yields zero alerts.",
+        f"- Post-T027 scenario: smallest unknown-age confidence that lets the best niche case reach 0.80: {unknown_confidence_needed()} "
         "(vs the proposed exact 0.500).",
-        "- With confidence fixed at 0.500 the highest unknown-age score is 0.780 for any trade size, so no "
-        "threshold-0.80 alert is possible while age is unknown.",
+        "- Post-T027 scenario: with confidence fixed at 0.500 the highest unknown-age score is 0.780 for "
+        "any trade size, so no threshold-0.80 alert is possible while age is unknown.",
         "",
     ]
     return "\n".join(parts)
