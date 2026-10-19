@@ -243,3 +243,19 @@ The totals above differ from the round-1 totals at the top of this document
 because that measurement enumerated 258 files; this update re-measures both
 trees with one consistent enumeration so the before/after comparison is like
 for like. All other recorded round-1 clones are unchanged.
+
+### 2026-10-19 rebase re-measurement (rebased onto main after #153)
+
+After the branch was rebased onto main (which now carries the cluster-5
+resolution from #153), both trees were re-measured with the identical pinned
+method:
+
+- `origin/main` at `52445f9`: **99 clone groups, 1271 duplicated lines,
+  2.16%** over 268 files. The three cluster-9 clones still reproduce there
+  (110, 68, and 80 tokens).
+- This branch (rebased head): **96 clone groups, 1227 duplicated lines,
+  2.09%** over 270 files (the two added files are the new pacing module and
+  the characterization test module).
+
+Set-difference against the rebased main scan: exactly the three cluster-9
+clones disappeared and **no new clone group appeared anywhere**.
