@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import aiohttp
@@ -24,6 +25,33 @@ from polymarket_insider_tracker.ingestor.health import (
     ComponentStatus,
     HealthMonitor,
 )
+
+
+def _static_checker(status: ComponentStatus) -> Callable[[], Awaitable[ComponentStatus]]:
+    async def check() -> ComponentStatus:
+        return status
+
+    return check
+
+
+def wire_components(monitor: HealthMonitor, **statuses: ComponentStatus) -> None:
+    """Install a checker per component that always reports the given status."""
+    for name, status in statuses.items():
+        monitor.set_component_checker(name, _static_checker(status))
+
+
+async def probe(monitor: HealthMonitor, port: int, route: str) -> tuple[int, Any]:
+    """Serve ``monitor`` on ``port``, GET ``route`` and return (status, JSON body)."""
+    await monitor.start()
+    await monitor.start_http_server(port=port)
+    try:
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}{route}") as resp,
+        ):
+            return resp.status, await resp.json()
+    finally:
+        await monitor.stop()
 
 
 @pytest.mark.asyncio
@@ -49,108 +77,54 @@ async def test_live_endpoint() -> None:
 async def test_ready_endpoint_all_up() -> None:
     """Test /ready endpoint returns 200 when all components are up."""
     monitor = HealthMonitor()
-    monitor.set_component_checker(
-        "database",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up", latency_ms=1.5)),
+    wire_components(
+        monitor,
+        database=ComponentStatus(status="up", latency_ms=1.5),
+        redis=ComponentStatus(status="up", latency_ms=0.5),
+        ingestion=ComponentStatus(status="up"),
     )
-    monitor.set_component_checker(
-        "redis",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up", latency_ms=0.5)),
-    )
-    monitor.set_component_checker(
-        "ingestion",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
-    )
-    port = 19102
-    await monitor.start()
-    await monitor.start_http_server(port=port)
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(f"http://127.0.0.1:{port}/ready") as resp,
-        ):
-            assert resp.status == 200
-            data = await resp.json()
-            assert data["ready"] is True
-            assert data["components"] == {
-                "database": "up",
-                "redis": "up",
-                "ingestion": "up",
-            }
-    finally:
-        await monitor.stop()
+    status, data = await probe(monitor, 19102, "/ready")
+    assert status == 200
+    assert data["ready"] is True
+    assert data["components"] == {
+        "database": "up",
+        "redis": "up",
+        "ingestion": "up",
+    }
 
 
 @pytest.mark.asyncio
 async def test_ready_endpoint_database_down() -> None:
     """Test /ready endpoint returns 503 when database is down."""
     monitor = HealthMonitor()
-    monitor.set_component_checker(
-        "database",
-        lambda: asyncio.sleep(
-            0,
-            result=ComponentStatus(status="down", last_error="connection refused"),
-        ),
+    wire_components(
+        monitor,
+        database=ComponentStatus(status="down", last_error="connection refused"),
+        redis=ComponentStatus(status="up", latency_ms=0.5),
+        ingestion=ComponentStatus(status="up"),
     )
-    monitor.set_component_checker(
-        "redis",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up", latency_ms=0.5)),
-    )
-    monitor.set_component_checker(
-        "ingestion",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
-    )
-    port = 19103
-    await monitor.start()
-    await monitor.start_http_server(port=port)
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(f"http://127.0.0.1:{port}/ready") as resp,
-        ):
-            assert resp.status == 503
-            data = await resp.json()
-            assert data["ready"] is False
-            assert data["reason"] == "database_unreachable"
-            assert data["components"]["database"] == "down"
-    finally:
-        await monitor.stop()
+    status, data = await probe(monitor, 19103, "/ready")
+    assert status == 503
+    assert data["ready"] is False
+    assert data["reason"] == "database_unreachable"
+    assert data["components"]["database"] == "down"
 
 
 @pytest.mark.asyncio
 async def test_ready_endpoint_ingestion_crashed() -> None:
     """Test /ready endpoint returns 503 when ingestion worker has failed."""
     monitor = HealthMonitor()
-    monitor.set_component_checker(
-        "database",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
+    wire_components(
+        monitor,
+        database=ComponentStatus(status="up"),
+        redis=ComponentStatus(status="up"),
+        ingestion=ComponentStatus(status="down", last_error="ingestion_worker_failed"),
     )
-    monitor.set_component_checker(
-        "redis",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
-    )
-    monitor.set_component_checker(
-        "ingestion",
-        lambda: asyncio.sleep(
-            0,
-            result=ComponentStatus(status="down", last_error="ingestion_worker_failed"),
-        ),
-    )
-    port = 19104
-    await monitor.start()
-    await monitor.start_http_server(port=port)
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(f"http://127.0.0.1:{port}/ready") as resp,
-        ):
-            assert resp.status == 503
-            data = await resp.json()
-            assert data["ready"] is False
-            assert data["reason"] == "ingestion_worker_failed"
-            assert data["components"]["ingestion"] == "down"
-    finally:
-        await monitor.stop()
+    status, data = await probe(monitor, 19104, "/ready")
+    assert status == 503
+    assert data["ready"] is False
+    assert data["reason"] == "ingestion_worker_failed"
+    assert data["components"]["ingestion"] == "down"
 
 
 @pytest.mark.asyncio
@@ -171,17 +145,11 @@ async def test_health_endpoint_quiet_market_period() -> None:
     monitor.record_acquisition(now - 2.0)
     monitor.record_trade_arrival(now - 120.0)
 
-    monitor.set_component_checker(
-        "database",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up", latency_ms=1.2)),
-    )
-    monitor.set_component_checker(
-        "redis",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up", latency_ms=0.4)),
-    )
-    monitor.set_component_checker(
-        "ingestion",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
+    wire_components(
+        monitor,
+        database=ComponentStatus(status="up", latency_ms=1.2),
+        redis=ComponentStatus(status="up", latency_ms=0.4),
+        ingestion=ComponentStatus(status="up"),
     )
 
     port = 19105
@@ -257,63 +225,31 @@ async def test_ready_endpoint_reports_degraded_component_without_failing() -> No
     reported truthfully instead of being hidden as "up".
     """
     monitor = HealthMonitor()
-    monitor.set_component_checker(
-        "database",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
+    wire_components(
+        monitor,
+        database=ComponentStatus(status="up"),
+        redis=ComponentStatus(status="up"),
+        ingestion=ComponentStatus(status="degraded", last_error="acquisition cycle failed: 503"),
     )
-    monitor.set_component_checker(
-        "redis",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="up")),
-    )
-    monitor.set_component_checker(
-        "ingestion",
-        lambda: asyncio.sleep(
-            0,
-            result=ComponentStatus(status="degraded", last_error="acquisition cycle failed: 503"),
-        ),
-    )
-    port = 19111
-    await monitor.start()
-    await monitor.start_http_server(port=port)
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(f"http://127.0.0.1:{port}/ready") as resp,
-        ):
-            assert resp.status == 200
-            data = await resp.json()
-            assert data["ready"] is True
-            assert data["components"]["ingestion"] == "degraded"
-    finally:
-        await monitor.stop()
+    status, data = await probe(monitor, 19111, "/ready")
+    assert status == 200
+    assert data["ready"] is True
+    assert data["components"]["ingestion"] == "degraded"
 
 
 @pytest.mark.asyncio
 async def test_health_endpoint_reports_degraded_component_with_error() -> None:
     """/health carries a degraded component's error and reports overall degraded (200)."""
     monitor = HealthMonitor()
-    monitor.set_component_checker(
-        "ingestion",
-        lambda: asyncio.sleep(
-            0,
-            result=ComponentStatus(status="degraded", last_error="possible-data-loss"),
-        ),
+    wire_components(
+        monitor,
+        ingestion=ComponentStatus(status="degraded", last_error="possible-data-loss"),
     )
-    port = 19112
-    await monitor.start()
-    await monitor.start_http_server(port=port)
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(f"http://127.0.0.1:{port}/health") as resp,
-        ):
-            assert resp.status == 200
-            data = await resp.json()
-            assert data["status"] == "degraded"
-            assert data["components"]["ingestion"]["status"] == "degraded"
-            assert data["components"]["ingestion"]["last_error"] == "possible-data-loss"
-    finally:
-        await monitor.stop()
+    status, data = await probe(monitor, 19112, "/health")
+    assert status == 200
+    assert data["status"] == "degraded"
+    assert data["components"]["ingestion"]["status"] == "degraded"
+    assert data["components"]["ingestion"]["last_error"] == "possible-data-loss"
 
 
 @pytest.mark.asyncio
@@ -348,28 +284,15 @@ async def test_health_routes_only_on_effective_port(
 async def test_health_endpoint_returns_503_when_component_down() -> None:
     """Test /health returns 503 when a component is unhealthy."""
     monitor = HealthMonitor()
-    monitor.set_component_checker(
-        "redis",
-        lambda: asyncio.sleep(
-            0,
-            result=ComponentStatus(status="down", last_error="redis connection refused"),
-        ),
+    wire_components(
+        monitor,
+        redis=ComponentStatus(status="down", last_error="redis connection refused"),
     )
-    port = 19106
-    await monitor.start()
-    await monitor.start_http_server(port=port)
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(f"http://127.0.0.1:{port}/health") as resp,
-        ):
-            assert resp.status == 503
-            data = await resp.json()
-            assert data["status"] == "unhealthy"
-            assert data["components"]["redis"]["status"] == "down"
-            assert "redis connection refused" in data["components"]["redis"]["last_error"]
-    finally:
-        await monitor.stop()
+    status, data = await probe(monitor, 19106, "/health")
+    assert status == 503
+    assert data["status"] == "unhealthy"
+    assert data["components"]["redis"]["status"] == "down"
+    assert "redis connection refused" in data["components"]["redis"]["last_error"]
 
 
 @pytest.mark.asyncio
@@ -420,11 +343,9 @@ async def test_prometheus_health_gauge_agrees_with_health_endpoint() -> None:
     combined component-and-stream snapshot."""
     monitor = HealthMonitor()
     monitor.record_event("trades")
-    monitor.set_component_checker(
-        "database",
-        lambda: asyncio.sleep(
-            0, result=ComponentStatus(status="down", last_error="connection refused")
-        ),
+    wire_components(
+        monitor,
+        database=ComponentStatus(status="down", last_error="connection refused"),
     )
     port = 19113
     await monitor.start()
@@ -447,11 +368,9 @@ async def test_prometheus_health_gauge_reports_degraded_component() -> None:
     """A degraded component exports 0.5, matching the /health "degraded" verdict."""
     monitor = HealthMonitor()
     monitor.record_event("trades")
-    monitor.set_component_checker(
-        "ingestion",
-        lambda: asyncio.sleep(
-            0, result=ComponentStatus(status="degraded", last_error="possible-data-loss")
-        ),
+    wire_components(
+        monitor,
+        ingestion=ComponentStatus(status="degraded", last_error="possible-data-loss"),
     )
     port = 19114
     await monitor.start()
@@ -473,9 +392,9 @@ async def test_metrics_scrape_alone_evaluates_components_for_the_gauge() -> None
     """A scrape without any prior /health call must still export the combined truth."""
     monitor = HealthMonitor()
     monitor.record_event("trades")
-    monitor.set_component_checker(
-        "redis",
-        lambda: asyncio.sleep(0, result=ComponentStatus(status="down", last_error="refused")),
+    wire_components(
+        monitor,
+        redis=ComponentStatus(status="down", last_error="refused"),
     )
     port = 19115
     await monitor.start()
