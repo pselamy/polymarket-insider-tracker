@@ -49,28 +49,35 @@ class ChannelHarness:
     def __init__(self, kind: str) -> None:
         self._kind = kind
 
-    def channel(
-        self, *, rate_limit_per_minute: int, max_retries: int, retry_delay: float
-    ) -> DiscordChannel | TelegramChannel:
+    def prepared(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        rate_limit_per_minute: int,
+        max_retries: int,
+        retry_delay: float,
+        network_error: Exception | None = None,
+    ) -> tuple[DiscordChannel | TelegramChannel, FakeWebhookServer]:
+        """The channel with the given pacing settings, routed through its fake server."""
         if self._kind == "discord":
-            return DiscordChannel(
+            channel: DiscordChannel | TelegramChannel = DiscordChannel(
                 webhook_url=DISCORD_WEBHOOK_URL,
                 rate_limit_per_minute=rate_limit_per_minute,
                 max_retries=max_retries,
                 retry_delay=retry_delay,
             )
-        return TelegramChannel(
-            "test-bot-token",
-            "chat-1",
-            rate_limit_per_minute=rate_limit_per_minute,
-            max_retries=max_retries,
-            retry_delay=retry_delay,
-        )
-
-    def server(self, *, network_error: Exception | None = None) -> FakeWebhookServer:
-        if self._kind == "discord":
-            return discord_webhook(network_error=network_error)
-        return telegram_bot_api(network_error=network_error)
+            server = discord_webhook(network_error=network_error)
+        else:
+            channel = TelegramChannel(
+                "test-bot-token",
+                "chat-1",
+                rate_limit_per_minute=rate_limit_per_minute,
+                max_retries=max_retries,
+                retry_delay=retry_delay,
+            )
+            server = telegram_bot_api(network_error=network_error)
+        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        return channel, server
 
 
 @pytest.fixture
@@ -122,9 +129,9 @@ class TestRateLimitWindow:
         """A full window delays the next send by exactly the oldest windowed
         request's remaining seconds, and the delayed send is still delivered."""
         harness = ChannelHarness(kind)
-        channel = harness.channel(rate_limit_per_minute=2, max_retries=1, retry_delay=0.0)
-        server = harness.server()
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = harness.prepared(
+            monkeypatch, rate_limit_per_minute=2, max_retries=1, retry_delay=0.0
+        )
 
         assert await channel.send(pacing_alert) is True
         pacing_clock.advance(50.0)
@@ -148,9 +155,9 @@ class TestRateLimitWindow:
         """A window that is full by count but whose requests have all expired
         no longer delays a send: no sleep is recorded and delivery proceeds."""
         harness = ChannelHarness(kind)
-        channel = harness.channel(rate_limit_per_minute=2, max_retries=1, retry_delay=0.0)
-        server = harness.server()
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = harness.prepared(
+            monkeypatch, rate_limit_per_minute=2, max_retries=1, retry_delay=0.0
+        )
 
         assert await channel.send(pacing_alert) is True
         pacing_clock.advance(30.0)
@@ -178,9 +185,13 @@ class TestRetryBackoff:
         """Three permitted attempts with a base delay of 0.5 sleep 0.5 then 1.0
         across three failed attempts, and the final attempt sleeps never."""
         harness = ChannelHarness(kind)
-        channel = harness.channel(rate_limit_per_minute=30, max_retries=3, retry_delay=0.5)
-        server = harness.server(network_error=httpx.ConnectError("connect failed"))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = harness.prepared(
+            monkeypatch,
+            rate_limit_per_minute=30,
+            max_retries=3,
+            retry_delay=0.5,
+            network_error=httpx.ConnectError("connect failed"),
+        )
 
         result = await channel.send(pacing_alert)
 
@@ -200,9 +211,13 @@ class TestRetryBackoff:
         """With one permitted attempt there is no retry to space out: no sleep,
         exactly one request, confirmed failure."""
         harness = ChannelHarness(kind)
-        channel = harness.channel(rate_limit_per_minute=30, max_retries=1, retry_delay=0.5)
-        server = harness.server(network_error=httpx.ConnectError("connect failed"))
-        monkeypatch.setattr(httpx, "AsyncClient", server.client_factory(httpx.AsyncClient))
+        channel, server = harness.prepared(
+            monkeypatch,
+            rate_limit_per_minute=30,
+            max_retries=1,
+            retry_delay=0.5,
+            network_error=httpx.ConnectError("connect failed"),
+        )
 
         result = await channel.send(pacing_alert)
 

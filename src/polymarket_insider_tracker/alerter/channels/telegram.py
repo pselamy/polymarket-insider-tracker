@@ -9,6 +9,7 @@ from urllib.parse import quote
 
 import httpx
 
+from polymarket_insider_tracker.alerter.channels import pacing
 from polymarket_insider_tracker.alerter.channels.response_values import (
     response_json_object,
     validated_integer,
@@ -94,26 +95,9 @@ class TelegramChannel:
                 reverse=True,
             )
         )
-
-        # Rate limiting state
-        self._request_times: list[float] = []
-        self._lock = asyncio.Lock()
-
-    async def _wait_for_rate_limit(self) -> None:
-        """Wait if rate limit is exceeded."""
-        async with self._lock:
-            now = asyncio.get_event_loop().time()
-            # Remove requests older than 1 minute
-            self._request_times = [t for t in self._request_times if now - t < 60]
-
-            if len(self._request_times) >= self.rate_limit_per_minute:
-                # Wait until the oldest request expires
-                wait_time = 60 - (now - self._request_times[0])
-                if wait_time > 0:
-                    logger.debug(f"Telegram rate limit hit, waiting {wait_time:.2f}s")
-                    await asyncio.sleep(wait_time)
-
-            self._request_times.append(now)
+        self._rate_window = pacing.RateLimitWindow(
+            limit_per_minute=rate_limit_per_minute, label="Telegram"
+        )
 
     async def _post_payload(
         self,
@@ -167,26 +151,11 @@ class TelegramChannel:
             raise TimeoutError("Telegram API response timed out") from e
         except httpx.HTTPError as e:
             # The bot token rides in the API URL; an httpx message may embed it.
-            logger.error("Telegram API error: %s", self._redact_failure(e))
+            logger.error(
+                "Telegram API error: %s", redact_failure_with_secrets(e, self._secret_components)
+            )
 
         return None
-
-    def _redact_failure(self, error: BaseException) -> str:
-        """Render a transport failure without re-emitting the bot token.
-
-        HTTPX annotates error messages as ``str``, but a runtime fault can
-        carry bytes or container arguments; ``str(error)`` would interpolate
-        them verbatim before any replacement could see them. The shared
-        argument-aware renderer runs first, then the bare token and every
-        credential spelling derived from the API URL are replaced and the
-        central policy masks remaining URL-shaped text.
-        """
-        return redact_failure_with_secrets(error, self._secret_components)
-
-    async def _backoff(self, attempt: int) -> None:
-        if attempt < self.max_retries - 1:
-            delay = self.retry_delay * (2**attempt)
-            await asyncio.sleep(delay)
 
     async def send(self, alert: FormattedAlert) -> bool:
         """Send alert to Telegram channel.
@@ -200,7 +169,7 @@ class TelegramChannel:
         Raises:
             TimeoutError: The outcome is ambiguous; Telegram may have accepted the payload.
         """
-        await self._wait_for_rate_limit()
+        await self._rate_window.wait_for_slot()
 
         payload: dict[str, object] = {
             "chat_id": self.chat_id,
@@ -215,7 +184,7 @@ class TelegramChannel:
                 return True
             if result is False:
                 continue
-            await self._backoff(attempt)
+            await pacing.sleep_backoff(attempt, self.max_retries, self.retry_delay)
 
         logger.error("Telegram delivery failed after all retries")
         return False
