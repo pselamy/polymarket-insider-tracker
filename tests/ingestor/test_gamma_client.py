@@ -94,6 +94,19 @@ def _make_client(
 PatchAsyncClient = Callable[[httpx.MockTransport], None]
 
 
+def _first_page_then(
+    first_page: object, status: int, rest: object
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Serve ``first_page`` at offset 0 and ``status`` with ``rest`` for every later offset."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if int(request.url.params.get("offset", "0")) == 0:
+            return httpx.Response(200, json=first_page)
+        return httpx.Response(status, json=rest)
+
+    return handler
+
+
 @pytest.fixture
 def patch_async_client(monkeypatch: pytest.MonkeyPatch) -> PatchAsyncClient:
     """Replace the AsyncClient used by gamma_client with one bound to a MockTransport."""
@@ -170,11 +183,9 @@ async def test_get_active_market_stats_offset_cap_clean_stop(
 ) -> None:
     """Gamma rejects offsets past its hard cap; that error is swallowed cleanly."""
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        offset = int(request.url.params.get("offset", "0"))
-        if offset == 0:
-            return httpx.Response(200, json=[{"conditionId": "0xa", "volume24hr": "1"}])
-        return httpx.Response(400, json={"error": "offset too large"})
+    handler = _first_page_then(
+        [{"conditionId": "0xa", "volume24hr": "1"}], 400, {"error": "offset too large"}
+    )
 
     transport = httpx.MockTransport(handler)
     patch_async_client(transport)
@@ -228,19 +239,9 @@ async def test_unexpected_response_shape_is_handled(patch_async_client: PatchAsy
 async def test_skips_non_dict_entries(patch_async_client: PatchAsyncClient) -> None:
     """Defensive: server returning mixed-type list items shouldn't crash."""
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        offset = int(request.url.params.get("offset", "0"))
-        if offset == 0:
-            return httpx.Response(
-                200,
-                json=[
-                    {"conditionId": "0xa", "volume24hr": "1"},
-                    "garbage",
-                    None,
-                    42,
-                ],
-            )
-        return httpx.Response(200, json=[])
+    handler = _first_page_then(
+        [{"conditionId": "0xa", "volume24hr": "1"}, "garbage", None, 42], 200, []
+    )
 
     transport = httpx.MockTransport(handler)
     patch_async_client(transport)

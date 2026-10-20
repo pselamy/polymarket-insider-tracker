@@ -14,6 +14,7 @@ from fakeredis import FakeAsyncRedis, FakeServer
 
 from polymarket_insider_tracker.config import PolymarketSettings
 from polymarket_insider_tracker.ingestor.observation_boundary import BoundaryOrigin
+from polymarket_insider_tracker.ingestor.trade_poller import TradePoller
 from tests.fakes import (
     FakeClock,
     FakeTradesServer,
@@ -60,6 +61,24 @@ def _seed_v2_history(server: FakeV2TradesServer, *, count: int, newest: int = T0
         )
 
 
+async def _run_v1_cycle(clock: FakeClock, redis: FakeAsyncRedis) -> TradePoller:
+    """Run one cycle under the legacy v1 configuration against two seeded trades."""
+    v1_server = FakeTradesServer(clock=FakeClock(NOW))
+    _seed_history(v1_server, count=2)
+    first = _poller(v1_server, clock, redis, _legacy_v1_polymarket(), RecordingTradeCallback())
+    await first.run_cycle()
+    return first
+
+
+def _v2_server_after_v1(clock: FakeClock) -> FakeV2TradesServer:
+    """Advance five seconds and serve a new trade over two seeded history rows via v2."""
+    clock.advance(5)
+    v2_server = FakeV2TradesServer(clock=clock)
+    v2_server.publish(v2_row(trade_row(timestamp=T0 + 1, transaction=9, wallet=9)))
+    _seed_v2_history(v2_server, count=2)
+    return v2_server
+
+
 async def _zset(redis: FakeAsyncRedis, key: str) -> dict[str, int]:
     members = await redis.zrangebyscore(key, "-inf", "+inf", withscores=True)
     return {member.decode(): int(score) for member, score in members}
@@ -69,21 +88,14 @@ class TestEndpointSwitchResume:
     async def test_first_v2_cycle_resumes_the_v1_checkpoint_and_window(self) -> None:
         clock = FakeClock(NOW)
         redis = FakeAsyncRedis(server=FakeServer())
-        v1_server = FakeTradesServer(clock=FakeClock(NOW))
-        _seed_history(v1_server, count=2)
-
-        first = _poller(v1_server, clock, redis, _legacy_v1_polymarket(), RecordingTradeCallback())
-        await first.run_cycle()
+        first = await _run_v1_cycle(clock, redis)
         assert first.status.boundary_origin is BoundaryOrigin.FIRST_START
         checkpoint_key = first.boundary.checkpoint_key
         identities_key = first.boundary.identities_key
         window_before = await _zset(redis, identities_key)
         await first.stop()
 
-        clock.advance(5)
-        v2_server = FakeV2TradesServer(clock=clock)
-        v2_server.publish(v2_row(trade_row(timestamp=T0 + 1, transaction=9, wallet=9)))
-        _seed_v2_history(v2_server, count=2)
+        v2_server = _v2_server_after_v1(clock)
         second_callback = RecordingTradeCallback()
         second = _poller(v2_server, clock, redis, _polymarket(OFFICIAL_V2), second_callback)
 
@@ -100,17 +112,10 @@ class TestEndpointSwitchResume:
     async def test_v2_with_a_different_coverage_does_not_resume_the_v1_checkpoint(self) -> None:
         clock = FakeClock(NOW)
         redis = FakeAsyncRedis(server=FakeServer())
-        v1_server = FakeTradesServer(clock=FakeClock(NOW))
-        _seed_history(v1_server, count=2)
-
-        first = _poller(v1_server, clock, redis, _legacy_v1_polymarket(), RecordingTradeCallback())
-        await first.run_cycle()
+        first = await _run_v1_cycle(clock, redis)
         await first.stop()
 
-        clock.advance(5)
-        v2_server = FakeV2TradesServer(clock=clock)
-        v2_server.publish(v2_row(trade_row(timestamp=T0 + 1, transaction=9, wallet=9)))
-        _seed_v2_history(v2_server, count=2)
+        v2_server = _v2_server_after_v1(clock)
         switched = _poller(
             v2_server,
             clock,

@@ -257,6 +257,32 @@ async def test_pipeline_applies_every_command_in_order(contract: ContractRedis) 
 _begin_multi: Callable[[Pipeline], None] = Pipeline.multi  # redis-py leaves multi() unannotated
 
 
+async def _competing_client(contract: ContractRedis) -> Redis:
+    """A second connection to the same server, standing in for a competing owner."""
+    if contract.fake_server is not None:
+        return FakeAsyncRedis(server=contract.fake_server)
+    return await _connect_real_redis()
+
+
+async def _abort_after_takeover(
+    contract: ContractRedis, key: str, ttl: int, queue: Callable[[Pipeline], object]
+) -> None:
+    """Hold a stale token under WATCH, let a competitor take the key, and expect EXEC to abort."""
+    await contract.client.set(key, "stale-token", ex=ttl)
+    competitor = await _competing_client(contract)
+    try:
+        async with contract.client.pipeline(transaction=True) as pipe:
+            await pipe.watch(key)
+            assert await pipe.get(key) == b"stale-token"
+            await competitor.set(key, "new-owner-token", ex=ttl)
+            _begin_multi(pipe)
+            queue(pipe)
+            with pytest.raises(WatchError):
+                await pipe.execute()
+    finally:
+        await competitor.aclose()
+
+
 async def _read(
     redis: Redis, group: str, consumer: str, stream: str, start: str
 ) -> list[tuple[bytes, dict[bytes, bytes]]]:
@@ -451,11 +477,7 @@ async def test_watched_type_change_aborts_before_transaction_writes(
     redis = contract.client
     watched = contract.key("watched")
     transaction_owned = contract.key("transaction-owned")
-    competitor = (
-        FakeAsyncRedis(server=contract.fake_server)
-        if contract.fake_server is not None
-        else await _connect_real_redis()
-    )
+    competitor = await _competing_client(contract)
     try:
         async with redis.pipeline(transaction=True) as pipe:
             await pipe.watch(watched)
@@ -496,24 +518,8 @@ async def test_compare_and_delete_aborts_when_the_value_changes_under_watch(
 ) -> None:
     """A claim re-acquired by another owner between WATCH and EXEC must survive."""
     redis, key = contract.client, contract.key("claim")
-    await redis.set(key, "stale-token", ex=60)
-    competitor = (
-        FakeAsyncRedis(server=contract.fake_server)
-        if contract.fake_server is not None
-        else await _connect_real_redis()
-    )
-    try:
-        async with redis.pipeline(transaction=True) as pipe:
-            await pipe.watch(key)
-            assert await pipe.get(key) == b"stale-token"
-            await competitor.set(key, "new-owner-token", ex=60)
-            _begin_multi(pipe)
-            pipe.delete(key)
-            with pytest.raises(WatchError):
-                await pipe.execute()
-        assert await redis.get(key) == b"new-owner-token"
-    finally:
-        await competitor.aclose()
+    await _abort_after_takeover(contract, key, 60, lambda pipe: pipe.delete(key))
+    assert await redis.get(key) == b"new-owner-token"
 
 
 async def test_compare_and_expire_extends_only_the_owned_value(contract: ContractRedis) -> None:
@@ -541,25 +547,9 @@ async def test_compare_and_expire_aborts_when_the_value_changes_under_watch(
 ) -> None:
     """A claim re-acquired by another owner between WATCH and EXEC keeps its own lease."""
     redis, key = contract.client, contract.key("claim-extend")
-    await redis.set(key, "stale-token", ex=30)
-    competitor = (
-        FakeAsyncRedis(server=contract.fake_server)
-        if contract.fake_server is not None
-        else await _connect_real_redis()
-    )
-    try:
-        async with redis.pipeline(transaction=True) as pipe:
-            await pipe.watch(key)
-            assert await pipe.get(key) == b"stale-token"
-            await competitor.set(key, "new-owner-token", ex=30)
-            _begin_multi(pipe)
-            pipe.expire(key, 600)
-            with pytest.raises(WatchError):
-                await pipe.execute()
-        assert await redis.get(key) == b"new-owner-token"
-        assert await redis.ttl(key) <= 30
-    finally:
-        await competitor.aclose()
+    await _abort_after_takeover(contract, key, 30, lambda pipe: pipe.expire(key, 600))
+    assert await redis.get(key) == b"new-owner-token"
+    assert await redis.ttl(key) <= 30
 
 
 @pytest.mark.parametrize("key_name", ["checkpoint_key", "identities_key", "loss_events_key"])

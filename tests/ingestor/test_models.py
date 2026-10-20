@@ -15,6 +15,17 @@ from polymarket_insider_tracker.ingestor.models import (
 )
 
 
+def _tight_orderbook() -> Orderbook:
+    """A book with one 0.50 bid and one 0.52 ask."""
+    return Orderbook(
+        market="0x",
+        asset_id="t",
+        bids=(OrderbookLevel(Decimal("0.50"), Decimal("100")),),
+        asks=(OrderbookLevel(Decimal("0.52"), Decimal("100")),),
+        tick_size=Decimal("0.01"),
+    )
+
+
 class TestToken:
     """Tests for Token model."""
 
@@ -216,13 +227,7 @@ class TestOrderbook:
 
     def test_spread(self) -> None:
         """Test spread calculation."""
-        orderbook = Orderbook(
-            market="0x",
-            asset_id="t",
-            bids=(OrderbookLevel(Decimal("0.50"), Decimal("100")),),
-            asks=(OrderbookLevel(Decimal("0.52"), Decimal("100")),),
-            tick_size=Decimal("0.01"),
-        )
+        orderbook = _tight_orderbook()
 
         assert orderbook.spread == Decimal("0.02")
 
@@ -240,13 +245,7 @@ class TestOrderbook:
 
     def test_midpoint(self) -> None:
         """Test midpoint calculation."""
-        orderbook = Orderbook(
-            market="0x",
-            asset_id="t",
-            bids=(OrderbookLevel(Decimal("0.50"), Decimal("100")),),
-            asks=(OrderbookLevel(Decimal("0.52"), Decimal("100")),),
-            tick_size=Decimal("0.01"),
-        )
+        orderbook = _tight_orderbook()
 
         assert orderbook.midpoint == Decimal("0.51")
 
