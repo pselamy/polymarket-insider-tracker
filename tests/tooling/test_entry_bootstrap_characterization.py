@@ -1,6 +1,6 @@
 """Characterize the script entry-point bootstrap shared by both entry points.
 
-Cluster 28 of ``docs/duplication-inventory.md`` duplicates one piece of
+Cluster 28 of ``docs/duplication/clusters`` duplicates one piece of
 knowledge between ``scripts/runtime_services.py`` and ``scripts/verify.py``:
 each creates a unique synthetic helper package that owns its sibling modules,
 temporarily points ``__package__``/``__spec__`` at it so relative imports

@@ -1,6 +1,6 @@
 """Characterize how the verifier and service entry points behave when loaded by file path.
 
-Clusters 16 and 19 of ``docs/duplication-inventory.md`` repeat one piece of
+Clusters 16 and 19 of ``docs/duplication/clusters`` repeat one piece of
 knowledge in several test modules: load ``scripts/verify.py`` or
 ``scripts/runtime_services.py`` under an arbitrary module name with
 ``importlib.util.spec_from_file_location``. These tests pin the observable facts

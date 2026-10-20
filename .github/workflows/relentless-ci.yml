@@ -51,6 +51,8 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
       - name: Run the checked-in Relentless CI gates
         run: uv run --locked --group dev python -m quality.verify
+      - name: Verify the per-cluster duplication inventory against the tree
+        run: uv run --locked --group dev python -m quality.duplication_clusters_main --check
 
   gate:
     name: Relentless CI gate
