@@ -6,6 +6,7 @@ suspicious wallets based on their on-chain activity patterns.
 
 import json
 import logging
+from abc import abstractmethod
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol
@@ -28,9 +29,13 @@ DEFAULT_PROFILE_CACHE_TTL = 300  # 5 minutes
 class WalletChainReader(Protocol):
     """The chain queries the analyzer needs (satisfied structurally by ``PolygonClient``)."""
 
-    async def get_wallet_info(self, address: str, /) -> WalletInfo: ...
+    @abstractmethod
+    async def get_wallet_info(self, address: str, /) -> WalletInfo:
+        """Read the on-chain wallet facts for ``address``."""
 
-    async def get_token_balance(self, address: str, token_address: str, /) -> Decimal: ...
+    @abstractmethod
+    async def get_token_balance(self, address: str, token_address: str, /) -> Decimal:
+        """Read ``address``'s balance of ``token_address``."""
 
 
 class WalletAnalyzer:

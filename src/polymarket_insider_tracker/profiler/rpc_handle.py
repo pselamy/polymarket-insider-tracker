@@ -6,6 +6,7 @@ what lets the client accept an injected handle without any typing bypass.
 
 from __future__ import annotations
 
+from abc import abstractmethod
 from collections.abc import Awaitable, Mapping, Sequence
 from typing import Any, Protocol
 
@@ -18,21 +19,29 @@ class EthRpc(Protocol):
     """The ``eth`` namespace of the Polygon JSON-RPC handle."""
 
     @property
-    def block_number(self) -> Awaitable[int]: ...
+    @abstractmethod
+    def block_number(self) -> Awaitable[int]:
+        """The latest block number."""
 
-    def get_logs(self, filter_params: FilterParams) -> Awaitable[Sequence[Mapping[str, Any]]]: ...
+    @abstractmethod
+    def get_logs(self, filter_params: FilterParams) -> Awaitable[Sequence[Mapping[str, Any]]]:
+        """Fetch the logs matching ``filter_params``."""
 
     # The one confined escape: web3 overloads ``contract`` and resolves ``functions`` dynamically,
     # so pyright reports 'No overloaded function matches' for every structural proxy type.
     # ``erc20_balance_of`` is the only caller and returns a typed ``int``.
-    def contract(self, address: ChecksumAddress, **kwargs: Any) -> Any: ...
+    @abstractmethod
+    def contract(self, address: ChecksumAddress, **kwargs: Any) -> Any:
+        """Build a contract proxy at ``address``."""
 
 
 class Web3Handle(Protocol):
     """A Polygon RPC handle: ``AsyncWeb3`` or an injected equivalent."""
 
     @property
-    def eth(self) -> EthRpc: ...
+    @abstractmethod
+    def eth(self) -> EthRpc:
+        """The ``eth`` namespace."""
 
 
 async def erc20_balance_of(
