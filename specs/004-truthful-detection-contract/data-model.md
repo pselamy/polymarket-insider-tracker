@@ -42,7 +42,8 @@ exactly one of two typed markers, applied in this order:
 The state is decided **before** bounding, from the decoded value, so a marker never changes a state:
 a `$nonfinite` tag is always `invalid` (reason `not_a_finite_number`); a truncated array/object is
 `invalid`; a truncated string or number follows the table (a long non-numeric string is `invalid`; a
-300-digit positive integer is still a finite positive number and can be `available`). The marker
+300-digit positive integer is a finite positive number, so it reaches §1.1c and is `invalid`/`out_of_range`
+under the D4 default bound, not because it was truncated). The marker
 loses the original content by design; the sha256 and length let an operator confirm a candidate value
 without storing it. Schema: `#/$defs/raw_nonfinite`, `#/$defs/raw_truncated`; executable form:
 `scripts/spec004_evidence/replay_envelopes.py::bound_raw`; validated examples:
@@ -68,8 +69,34 @@ returns `None` only for `None`, `""` or a conversion error). Executable form:
 `scripts/spec004_evidence/replay_live.py::NUMERIC_STRING`; replay cases `live-invalid-underscore-string`,
 `live-invalid-whitespace-string`.
 
+**Overflow (number vs string).** A JSON *number* token whose value exceeds the float range, e.g.
+`1e400`, is finite as text but Python's `json` decodes it to `inf`; the decoded value is what this
+contract classifies, so it is stored as `{"$nonfinite":"Infinity"}` and is `invalid`/
+`not_a_finite_number` (§1.1a rule 1 applies to the decoded float, whatever token produced it). The
+*string* `"1e400"` matches the grammar and converts to a finite `Decimal`, so it reaches §1.1c and is
+`invalid`/`out_of_range`. Replay cases `live-invalid-overflow-number-1e400`,
+`live-invalid-out-of-range-1e400-string`.
+
+### 1.1c Usable-magnitude bound (DECISION D4; this is the packet's recommended default)
+
+A finite **positive** value is usable as a denominator only when `10^-6 <= value < 10^15` **and** its
+plain-notation form (`format(value, "f")`) is at most 32 characters. Otherwise it is `invalid` with reason
+`out_of_range` (P4): it is never formatted, never stored as `daily_volume` and never divided. The bound
+keeps every stored decimal short and every ratio finite: without it, the grammar-valid string
+`"1e999999999"` would be `available` and its plain-notation `daily_volume` would be a billion digits, and
+`"1e-30"` would give a ratio of 3.25 × 10^33 that a 28-digit decimal context cannot quantize (round-4 N3).
+The bound applies equally to an explicit caller argument (§1.3). It is a positivity-side rule only:
+zero and negative values stay `nonpositive` (P5), so the two rows are disjoint. Replay cases:
+`live-invalid-out-of-range-*`, `live-invalid-bigint-300-digits`, `live-explicit-arg-out-of-range`,
+`live-available-volume-at-minimum`. Executable form: `replay_live.py::in_range`.
+
 `evaluated_at` is the single evaluation instant injected into the evaluation (contracts/detector-api.md
-§Evaluation clock). Age is `evaluated_at - daily_volume_acquired_at`.
+§Evaluation clock). Age is `evaluated_at - daily_volume_acquired_at`, computed exactly from the two aware
+datetimes (microsecond resolution, no float) and stored as a plain signed decimal with trailing zeros
+removed (`"30"`, `"599.999999"`, `"-0.000001"`). The P7/P8 comparisons use that exact value, so 600 s is
+`available` and 600.000001 s is `stale` (replay cases `live-available-age-0.5`,
+`live-available-age-599.999999`, `live-stale-age-600.000001`, `live-stale-age-600.5`,
+`live-invalid-time-future-microsecond`).
 
 ### 1.2 Precedence table (mutually exclusive, exhaustive; first matching row wins)
 
@@ -78,7 +105,7 @@ returns `None` only for `None`, `""` or a conversion error). Executable form:
 | P1 | `unavailable` | No observation exists for this market at evaluation time, or an explicit `daily_volume` argument was not given and no volume record can be read | `gamma_fetch_failed` (whole Gamma fetch failed), `absent_from_complete_crawl` (crawl completed, market not returned — outside the top-5,000 window or not active), `crawl_truncated` (a page failed, so absence cannot be told from truncation), `clob_miss_path` (metadata came from the CLOB cache-miss path, no Gamma data), `no_volume_record` (volume record expired or never written), `metadata_lookup_failed` (minimal metadata, no volume lookup possible) | `present=false`, raw null, `acquired_at` null, `source` null, `daily_volume` null |
 | P2 | `unqualified` | An observation exists but its `daily_volume_source` is not in the qualified set | `unknown_source` (id not qualified), `no_provenance` (legacy pre-004 record: value possibly present, no source/stamp) | fields as stored; value is **not interpreted** (not parsed, not called invalid) |
 | P3 | `missing` | Qualified observation; `volume24hr_present` is false or the raw value is JSON `null` | `null_or_absent` | `present` false/true, raw null |
-| P4 | `invalid` | Raw present and non-null but not a finite number: a string that is not a numeric string (§1.1b; including the empty string and the strings `"NaN"`/`"Infinity"`), boolean, array, object, or a bare non-finite float (`NaN`, `±Infinity` tokens) | `not_a_finite_number` | raw stored by the §1.1a rule: verbatim when it qualifies; a bare non-finite float as the `$nonfinite` tag; an oversize, reserved-key or nested-non-finite value as the truncation marker |
+| P4 | `invalid` | Raw present and non-null but not a finite number: a string that is not a numeric string (§1.1b; including the empty string and the strings `"NaN"`/`"Infinity"`), boolean, array, object, or a bare non-finite float (`NaN`, `±Infinity` tokens, or a number token that overflows to `inf` on decode); **or** a finite positive value outside the §1.1c bound | `not_a_finite_number`, `out_of_range` (§1.1c) | raw stored by the §1.1a rule: verbatim when it qualifies; a bare non-finite float as the `$nonfinite` tag; an oversize, reserved-key or nested-non-finite value as the truncation marker |
 | P5 | `nonpositive` | Raw parses to a finite value `<= 0`. **Zero is a nonpositive value, not a separate state and never `unavailable`**; the raw value distinguishes `0` from a negative | `zero`, `negative` | raw kept; no ratio |
 | P6 | `invalid_time` | Finite positive value but the stamp is unusable: absent, naive (no UTC offset), unparseable, epoch `<= 0`, or later than `evaluated_at` | `absent`, `naive`, `unparseable`, `nonpositive_epoch`, `future` | raw kept; no ratio |
 | P7 | `stale` | Finite positive value, valid stamp, `evaluated_at - acquired_at > 600 s` | `older_than_600s` | raw kept; no ratio |
@@ -90,15 +117,16 @@ recency rule, not a provider measurement-time guarantee; the stamp is never synt
 reads, TTL, CLOB refresh or generic `last_updated`
 (`ingestor/models.py::MarketMetadata.from_dict` falls back to *now*). Executable form and one
 replay case per state and per reason: `scripts/spec004_evidence/replay_live.py`, `evidence/replay-live/cases.json`
-(51 cases; every state and every reason, the §1.1a raw-value markers, the §1.1b grammar, and a future
+(64 cases; every state and every reason, the §1.1a raw-value markers, the §1.1b grammar, the §1.1c bound, fractional ages at the 0 s / 600 s edges, and a future
 stamp under P3, P4 and P5).
 
 ### 1.3 Explicit `daily_volume` argument
 
 `SizeAnomalyDetector.analyze(trade, daily_volume=...)` and `analyze_batch(volume_data=...)` keep their
 signatures (`detector/size_anomaly.py:93-99,369-389`). A caller-supplied value is a caller assertion
-without provenance: a positive `Decimal` is `available` with `daily_volume_source = "caller"`,
-`volume_reason = "caller"` and `acquired_at = evaluated_at`; zero or negative is `nonpositive`
+without provenance: a positive `Decimal` inside the §1.1c bound is `available` with
+`daily_volume_source = "caller"`, `volume_reason = "caller"` and `acquired_at = evaluated_at`; a positive
+value outside the bound is `invalid`/`out_of_range` (same source and stamp); zero or negative is `nonpositive`
 (reason `zero`/`negative`); `None` means "no argument" and falls through to the stored observation.
 An explicit value overrides the stored observation. Persisted evidence records `source = "caller"` so it
 can never be mistaken for Gamma data. The live pipeline never passes it.
@@ -163,7 +191,7 @@ the root `detector_config` member of the serialized per-assessment scoring_confi
 captured `B`, never against a reread mutable setting.
 
 Legacy interpretation (explicit compatibility exception, not current measurement): the
-existing library surfaces `profiler/analyzer.py:210–229` (`_is_wallet_fresh`, unknown age →
+existing library surfaces `profiler/analyzer.py:223–242` (`_is_wallet_fresh`, unknown age →
 `True`), `WalletProfile.is_fresh`, and `pipeline.py:680` retain their earlier meaning on old
 rows and unamended code paths. They MUST NOT be presented as the new known-age
 classification. Old rows keep version-specific reader semantics (§4); unknown-age
@@ -181,7 +209,7 @@ the boundary-10 override case.
 | Field | Type | Rule |
 |---|---|---|
 | `notional` | Decimal | Trade's actual notional value; always wired into size analysis. |
-| `volume_impact` (a.k.a. ratio) | Decimal \| null | `notional / daily_volume` quantised to 0.0001 (`ROUND_HALF_EVEN`, SC-002 ±0.0001) **only in `volume_state = available`**; null in every other state, never serialized as measured zero. Surfaces as `volume_impact_measured: Decimal \| None` (contracts/detector-api.md §4). |
+| `volume_impact` (a.k.a. ratio) | Decimal \| null | `notional / daily_volume` quantised to 0.0001 (`ROUND_HALF_EVEN`, SC-002 ±0.0001) **only in `volume_state = available`**. Computed as the **exact** rational quotient rounded once (e.g. `fractions.Fraction`); a fixed-precision decimal division followed by `quantize` does not conform (Python's default 28-digit context raises `InvalidOperation` once the ratio needs more than 28 digits, and a division rounded before the `quantize` can round twice); with the §1.1c bound every `available` row is computable (executable form `replay_envelopes.py::exact_ratio`, case `live-available-volume-at-minimum`); null in every other state, never serialized as measured zero. Surfaces as `volume_impact_measured: Decimal \| None` (contracts/detector-api.md §4). |
 | `book_state` | enum | `unavailable` for this slice (book-depth scoring disabled until separately approved); `book_impact` always null. |
 | `niche`, `niche_basis` | bool + enum `numeric` \| `category` \| `none` | Niche is a size modifier, not a third detector invocation. **Numeric basis**: `volume_state = available` and `daily_volume < 50000`. **Category basis** (only when volume is not `available`): category in `science/tech/finance/other` **and** `category_source = metadata`. `none` otherwise. A volume that is `available` and `>= 50000` is not niche regardless of category. |
 | `category`, `category_source` | string \| null; enum `metadata` \| `minimal` | `minimal` means the market metadata lookup failed and `SizeAnomalyDetector._create_minimal_metadata` (`detector/size_anomaly.py:211-227`) supplied the placeholder category `"other"`. A placeholder is not evidence: with `minimal` there is no category basis (default of DECISION D3; current main treats it as niche-prone, which the replay shows as 0.480 vs 0.200). |

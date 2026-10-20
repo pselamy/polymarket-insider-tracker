@@ -2,7 +2,8 @@
 
 Usage:
     python3 -m scripts.spec004_evidence.replay_live                 # print the results CSV
-    python3 -m scripts.spec004_evidence.replay_live --check FILE    # exit 1 unless FILE equals the CSV byte for byte
+    python3 -m scripts.spec004_evidence.replay_live --check FILE    # exit 0 iff FILE equals the CSV byte for byte; 1 if stale or
+                                                                    # missing; 2 on any other arguments
 
 Stdlib only; never imports from src/. Scoring arithmetic is shared with reachability.py (whose
 constants are textually verified against the product source). The volume-state classifier below is
@@ -26,6 +27,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, cast
 
+from scripts.spec004_evidence.cli import print_or_check
 from scripts.spec004_evidence.reachability import (
     Market,
     Wallet,
@@ -46,6 +48,11 @@ THRESHOLDS = ("0.80", "0.78")
 # data-model.md section 1.1b: a numeric string is exactly one RFC 8259 JSON number token (ASCII, no
 # sign "+", no whitespace, no "_" separators, no leading zeros, no NaN/Infinity spelling).
 NUMERIC_STRING = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
+# data-model.md section 1.1c (DECISION D4 default): a positive volume is usable only inside this
+# magnitude window and with a short plain-notation form; otherwise invalid/out_of_range.
+VOLUME_MIN = Decimal("0.000001")
+VOLUME_LIMIT = Decimal(10) ** 15
+VOLUME_MAX_CHARS = 32
 COLUMNS = (
     "case_id",
     "volume_state",
@@ -100,15 +107,37 @@ def nonpositive_verdict(value: Decimal) -> Verdict:
     return "nonpositive", "zero" if value == 0 else "negative", None
 
 
+def in_range(value: Decimal) -> bool:
+    """Section 1.1c: 10^-6 <= value < 10^15 and at most 32 characters in plain notation."""
+    if not VOLUME_MIN <= value < VOLUME_LIMIT:
+        return False
+    return len(format(value, "f")) <= VOLUME_MAX_CHARS
+
+
+def unusable_verdict(value: Decimal) -> Verdict | None:
+    """P4 out_of_range or P5; None when the value itself is usable (the conditions are disjoint)."""
+    if value <= 0:
+        return nonpositive_verdict(value)
+    if not in_range(value):
+        return "invalid", "out_of_range", None
+    return None
+
+
 def explicit_verdict(explicit: Decimal) -> Verdict:
-    if explicit > 0:
-        return "available", "caller", explicit
-    return nonpositive_verdict(explicit)
+    return unusable_verdict(explicit) or ("available", "caller", explicit)
 
 
-def time_verdict(age: object, value: Decimal) -> Verdict:
-    if not isinstance(age, int):
-        return "invalid_time", str(age), None
+def age_seconds(age: object) -> Decimal | None:
+    """A numeric case age (integer or fractional seconds); None for a named unusable stamp."""
+    if isinstance(age, bool) or not isinstance(age, int | float):
+        return None
+    return Decimal(str(age))
+
+
+def time_verdict(raw_age: object, value: Decimal) -> Verdict:
+    age = age_seconds(raw_age)
+    if age is None:
+        return "invalid_time", str(raw_age), None
     if age < 0:
         return "invalid_time", "future", None
     if age > RECENCY_SECONDS:
@@ -120,9 +149,7 @@ def value_verdict(obs: Observation) -> Verdict:
     value = parse_finite(obs.raw)
     if value is None:
         return "invalid", "not_a_finite_number", None
-    if value <= 0:
-        return nonpositive_verdict(value)
-    return time_verdict(obs.acquired_age_seconds, value)
+    return unusable_verdict(value) or time_verdict(obs.acquired_age_seconds, value)
 
 
 def observed_verdict(obs: Observation) -> Verdict:
@@ -265,11 +292,7 @@ def render() -> str:
 
 
 def main(argv: list[str]) -> int:
-    text = render()
-    if len(argv) == 3 and argv[1] == "--check":
-        return 0 if Path(argv[2]).read_text() == text else 1
-    sys.stdout.write(text)
-    return 0
+    return print_or_check(argv, render())
 
 
 if __name__ == "__main__":

@@ -6,8 +6,8 @@ Pins exact current interfaces (refreshed to main `f2e2167`; originally `46e4192`
 ## Current pins
 
 - `FreshWalletDetector.__init__(wallet_analyzer, *, min_trade_size=1000, max_nonce=5, max_age_hours=48)`
-  (`detector/fresh_wallet.py:62`); `analyze(trade) -> FreshWalletSignal | None`. The bound is stored
-  privately as `_max_nonce` (`:74`) and compared with `profile.nonce > self._max_nonce` (`:153`); there
+  (`detector/fresh_wallet.py:65`); `analyze(trade) -> FreshWalletSignal | None`. The bound is stored
+  privately as `_max_nonce` (`:83`) and compared with `profile.nonce > self._max_nonce` (`:162`); there
   is **no public `max_nonce` attribute** to preserve.
 - `SizeAnomalyDetector.__init__(metadata_sync, *, volume_threshold=0.02, book_threshold=0.05,
   niche_volume_threshold=50000, niche_min_trade_size=500)` (`detector/size_anomaly.py:67`);
@@ -50,7 +50,7 @@ omitted-both).
   `_max_nonce` is removed (private). No public attribute is lost.
 - **Removal**: this slice only emits the warning. Removal needs a separate, later, approved change; no
   date is promised here.
-- `profiler/analyzer.py:24,225` (`DEFAULT_FRESH_THRESHOLD = 5`, `nonce >= threshold` rejects) is already
+- `profiler/analyzer.py:25,238` (`DEFAULT_FRESH_THRESHOLD = 5`, `nonce >= threshold` rejects) is already
   exclusive; the canonical freshness rule of data-model §2a governs which meaning surfaces use.
 
 ## 2. Evaluation entry points and the evaluation clock

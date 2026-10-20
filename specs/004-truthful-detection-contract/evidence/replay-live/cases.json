@@ -49,7 +49,7 @@
     {"case_id": "live-nonpositive-zero-future-stamp", "purpose": "raw 0 with a stamp 5 s after evaluation: nonpositive wins (P5 before P6); the real stamp and negative age are still stored", "observation": {"raw": 0, "acquired_age_seconds": -5}},
     {"case_id": "live-invalid-string-future-stamp", "purpose": "non-numeric string with a future stamp: invalid wins (P4 before P6); negative age stored", "observation": {"raw": "abc", "acquired_age_seconds": -5}},
     {"case_id": "live-missing-null-future-stamp", "purpose": "JSON null with a future stamp: missing wins (P3 before P6); negative age stored", "observation": {"raw": null, "acquired_age_seconds": -5}},
-    {"case_id": "live-available-bigint-300-digits", "purpose": "300-digit JSON integer: a finite positive number, so available; over 256 bytes, so stored as a truncation marker of type number", "observation": {"raw_spec": {"big_int_digits": 300}, "acquired_age_seconds": 10}},
+    {"case_id": "live-invalid-bigint-300-digits", "purpose": "300-digit JSON integer: finite and positive but >= 10^15, so invalid/out_of_range (section 1.1c, DECISION D4 default; was available before round 4); over 256 bytes, so stored as a truncation marker of type number", "observation": {"raw_spec": {"big_int_digits": 300}, "acquired_age_seconds": 10}},
     {"case_id": "live-invalid-underscore-string", "purpose": "'1_000' is not a JSON number token (section 1.1b), so invalid although Python Decimal accepts it", "observation": {"raw": "1_000"}},
     {"case_id": "live-invalid-whitespace-string", "purpose": "' 30000' has surrounding whitespace, so it is not a numeric string (section 1.1b)", "observation": {"raw": " 30000"}},
     {"case_id": "live-unqualified-unknown-source", "purpose": "source id not in the qualified set", "observation": {"source": "gamma-markets-v2-unreviewed"}},
@@ -67,6 +67,19 @@
     {"case_id": "live-nonce-4", "purpose": "unknown age; nonce 4 still below B=5; exactly 0.50", "nonce": 4},
     {"case_id": "live-nonce-5", "purpose": "nonce equals B: no wallet signal", "nonce": 5},
     {"case_id": "live-below-wallet-min", "purpose": "notional 999.99 < 1000: no wallet signal; size signal only", "notional": "999.99"},
-    {"case_id": "live-large-trade-unknown-age", "purpose": "$12,000 unknown age: still exactly 0.50 (no large-trade addition)", "notional": "12000", "observation": {"raw": "30000"}}
+    {"case_id": "live-large-trade-unknown-age", "purpose": "$12,000 unknown age: still exactly 0.50 (no large-trade addition)", "notional": "12000", "observation": {"raw": "30000"}},
+    {"case_id": "live-invalid-out-of-range-tiny-number", "purpose": "JSON number 1e-30: finite and positive but below 10^-6, so invalid/out_of_range; the ratio is never computed (round-4 N3)", "observation": {"raw": 1e-30}},
+    {"case_id": "live-invalid-out-of-range-tiny-string", "purpose": "numeric string '1e-30' (section 1.1b grammar): below 10^-6, invalid/out_of_range (round-4 N3)", "observation": {"raw": "1e-30"}},
+    {"case_id": "live-invalid-out-of-range-exponent-string", "purpose": "numeric string '1e999999999': its plain form would be a billion digits; >= 10^15, invalid/out_of_range and never formatted", "observation": {"raw": "1e999999999"}},
+    {"case_id": "live-invalid-out-of-range-long-mantissa", "purpose": "'1.0000000000000000000000000000001' is in the magnitude window but 33 characters in plain notation (> 32), invalid/out_of_range", "observation": {"raw": "1.0000000000000000000000000000001"}},
+    {"case_id": "live-invalid-overflow-number-1e400", "purpose": "JSON number 1e400 overflows on decode (Python json yields inf), so it is the $nonfinite Infinity tag and invalid/not_a_finite_number although the input token was finite (round-4 N5)", "observation": {"raw_spec": {"float": "1e400"}}},
+    {"case_id": "live-invalid-out-of-range-1e400-string", "purpose": "the string '1e400' decodes to a finite Decimal, so unlike the number it is invalid/out_of_range, not $nonfinite (round-4 N5)", "observation": {"raw": "1e400"}},
+    {"case_id": "live-available-volume-at-minimum", "purpose": "raw '0.000001' is the smallest usable volume; ratio 3250000000.0000 is computed exactly (no 28-digit context)", "observation": {"raw": "0.000001"}},
+    {"case_id": "live-explicit-arg-out-of-range", "purpose": "caller-supplied 1e-30 is out of range too: invalid/out_of_range, not available", "explicit_daily_volume": "1e-30"},
+    {"case_id": "live-available-age-0.5", "purpose": "fractional age 0.5 s is available (round-4 N6)", "observation": {"acquired_age_seconds": 0.5}},
+    {"case_id": "live-available-age-599.999999", "purpose": "fractional age 1 us below 600 s is available (round-4 N6)", "observation": {"acquired_age_seconds": 599.999999}},
+    {"case_id": "live-stale-age-600.000001", "purpose": "fractional age 1 us above 600 s is stale: the 600 s bound is inclusive and exact to the microsecond (round-4 N6)", "observation": {"acquired_age_seconds": 600.000001}},
+    {"case_id": "live-stale-age-600.5", "purpose": "fractional age 600.5 s is stale (round-4 N6)", "observation": {"acquired_age_seconds": 600.5}},
+    {"case_id": "live-invalid-time-future-microsecond", "purpose": "stamp 1 us after evaluation: invalid_time/future with age -0.000001 (round-4 N6)", "observation": {"acquired_age_seconds": -1e-06}}
   ]
 }

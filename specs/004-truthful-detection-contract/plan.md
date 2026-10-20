@@ -3,7 +3,7 @@
 **Branch**: `dispatch/polymarket-004-full-plan-20261017-3ae1b398` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
 **Status**: Phase0 complete; Phase1 design proposed. Implementation is not authorized.
-**Baseline**: upstream main `f2e21672c9707c927befea8d82b1069171ae38f9`, re-checked against `112a733` (Protocol typing only) and `0ddee0b` (callback rename only; see source-refresh) (refreshed 2026-10-19; the
+**Baseline**: upstream main `f2e21672c9707c927befea8d82b1069171ae38f9`, re-checked against `112a733` (Protocol typing only), `0ddee0b` (callback rename only) and `f3871cb` (Protocol stub bodies only; see source-refresh) (refreshed 2026-10-19; the
 original 2026-10-17 baseline was `46e41921ca06b701fece7a17953a666f6873b7e1`; scoring semantics are
 unchanged between them, see [evidence/source-refresh-f2e2167.md](evidence/source-refresh-f2e2167.md)).
 The existing A4 direction was approved; no new human answer or implementation approval is claimed.
@@ -99,7 +99,7 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   supplies no freshness fact. The canonical freshness rule in
   [data-model.md](data-model.md) §2a governs signal JSON, assessment evidence, cached
   profiles, and persisted wallet rows coherently, with the legacy
-  `profiler/analyzer.py:210–229` unknown-age-`True` path named as an explicit compatibility
+  `profiler/analyzer.py:223–242` unknown-age-`True` path named as an explicit compatibility
   exception. Usable positive current volume
   enables notional/volume ratio; unavailable/nonpositive/stale/invalid volume yields no
   observed ratio; unavailable volume may use category fallback with basis recorded. Book

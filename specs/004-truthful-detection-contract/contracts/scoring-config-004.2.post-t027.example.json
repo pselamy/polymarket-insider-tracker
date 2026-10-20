@@ -62,7 +62,7 @@
       "tx_count": 0
     }
   },
-  "evidence_schema": "004.1",
+  "evidence_schema": "004.2",
   "multi_signal_bonus_2": "1.2",
   "multi_signal_bonus_3": "1",
   "score_quantum": "0.001",

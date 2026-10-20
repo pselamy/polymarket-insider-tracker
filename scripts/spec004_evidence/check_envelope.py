@@ -1,4 +1,5 @@
-"""Validate the 004.1 scoring_config schema and examples (contracts/scoring-config.md).
+"""Validate the 004.1 scoring_config schema, the derived 004.2 schema and the examples
+(contracts/scoring-config.md).
 
 Usage: python3 -m scripts.spec004_evidence.check_envelope        # exit 0 = schema, examples and reconstruction agree
 
@@ -6,6 +7,10 @@ Stdlib only; never imports from src/. ``validate`` implements the small JSON Sch
 schema file uses ($ref/$defs, type, enum, const, pattern, required, properties, additionalProperties,
 items, oneOf, minimum, maximum, maxLength). The checks beyond the schema are the cross-field rules
 the contract states in prose: score reconstruction, ratio reconstruction and state consistency.
+The schema file and these rules together are the machine-readable contract; the schema alone
+does not constrain ``volume24hr_raw`` (``stored_raw_errors`` does). The 004.2 schema (wallet group
+qualified, contracts/scoring-config.md section 2a) is the 004.1 schema with exactly two constants
+changed, built by ``schema_for``.
 """
 
 from __future__ import annotations
@@ -27,8 +32,11 @@ from scripts.spec004_evidence.replay_envelopes import (
     PRE_T027,
     RAW_BOUND_BYTES,
     RESERVED_KEYS,
+    VERSION_BY_STATUS,
     build_envelope,
     canonical,
+    exact_ratio,
+    exact_seconds,
     has_nonfinite,
     replay_specs,
 )
@@ -42,9 +50,10 @@ RAW_EXAMPLES = {
 }
 POSTURE_EXAMPLES = {
     "scoring-config-004.1.example.json": PRE_T027,
-    "scoring-config-004.1.post-t027.example.json": POST_T027,
+    "scoring-config-004.2.post-t027.example.json": POST_T027,
 }
 EXAMPLE_CASE = "live-available-niche-saturated"
+SCHEMA_FILE = "scoring-config-004.1.schema.json"
 DOCUMENTS = (
     *POSTURE_EXAMPLES,
     "scoring-config-004.1.failure-row.json",
@@ -273,10 +282,8 @@ def group_errors(evidence: dict[str, Any]) -> list[str]:
 def available_volume_errors(evidence: dict[str, Any]) -> list[str]:
     size = evidence["size"]
     errors: list[str] = []
-    ratio = (Decimal(evidence["notional"]) / Decimal(size["daily_volume"])).quantize(
-        Decimal("0.0001"), rounding=ROUND_HALF_EVEN
-    )
-    if ratio != Decimal(size["volume_impact"]):
+    ratio = exact_ratio(Decimal(evidence["notional"]), Decimal(size["daily_volume"]))
+    if Decimal(ratio) != Decimal(size["volume_impact"]):
         errors.append(f"volume_impact {size['volume_impact']} != notional/daily_volume {ratio}")
     age = size["daily_volume_age_seconds"]
     if age is None or not 0 <= Decimal(age) <= 600:
@@ -293,7 +300,7 @@ def age_magnitude_errors(evidence: dict[str, Any]) -> list[str]:
     if age is None:
         return []
     delta = datetime.fromisoformat(evidence["evaluated_at"]) - datetime.fromisoformat(acquired)
-    if Decimal(str(delta.total_seconds())) != Decimal(age):
+    if exact_seconds(delta) != Decimal(age):
         return ["daily_volume_age_seconds != evaluated_at - acquired_at"]
     return []
 
@@ -324,7 +331,7 @@ def verbatim_raw_errors(raw: Any) -> list[str]:
 
 def stored_raw_errors(raw: Any) -> list[str]:
     """The raw-value rule: markers match their defs; anything else is verbatim, bounded and finite."""
-    schema = load("scoring-config-004.1.schema.json")
+    schema = load(SCHEMA_FILE)
     tags = [tag for tag in RAW_TAGS if is_object(raw) and tag in raw]
     if not tags:
         return verbatim_raw_errors(raw)
@@ -393,7 +400,39 @@ def mutations(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
         "bad group status",
         lambda d: d["evaluation_evidence"]["wallet"].update(group_status="unqualified"),
     )
+    variant(
+        "qualified posture under 004.1",
+        lambda d: d["evaluation_evidence"]["wallet"].update(group_status=POST_T027),
+    )
+    variant("004.2 version on a 004.1 document", lambda d: d.update(evidence_schema="004.2"))
     return cases
+
+
+def schema_for(status: str) -> dict[str, Any]:
+    """004.1 as committed; 004.2 = 004.1 with only the version and the wallet posture changed."""
+    schema = load(SCHEMA_FILE)
+    if status == PRE_T027:
+        return schema
+    derived = copy.deepcopy(schema)
+    derived["properties"]["evidence_schema"] = {"const": VERSION_BY_STATUS[status]}
+    wallet = derived["$defs"]["evidence"]["properties"]["wallet"]["properties"]
+    wallet["group_status"] = {"const": status}
+    return derived
+
+
+def posture_mutation_failures() -> list[str]:
+    """004.2 must reject the pre-T027 posture and the 004.1 version (one identity per posture)."""
+    schema = schema_for(POST_T027)
+    doc = load("scoring-config-004.2.post-t027.example.json")
+    bad_status = copy.deepcopy(doc)
+    bad_status["evaluation_evidence"]["wallet"]["group_status"] = PRE_T027
+    bad_version = copy.deepcopy(doc)
+    bad_version["evidence_schema"] = VERSION_BY_STATUS[PRE_T027]
+    return [
+        f"004.2 schema accepted: {label}"
+        for label, bad in (("pre-T027 posture", bad_status), ("004.1 version", bad_version))
+        if not validate(bad, schema, schema)
+    ]
 
 
 def gated_scoring(doc: dict[str, Any]) -> None:
@@ -507,8 +546,9 @@ def load(name: str) -> dict[str, Any]:
     return cast(dict[str, Any], json.loads((CONTRACTS / name).read_text()))
 
 
-def document_failures(name: str, schema: dict[str, Any]) -> list[str]:
+def document_failures(name: str) -> list[str]:
     doc = load(name)
+    schema = schema_for(POSTURE_EXAMPLES.get(name, PRE_T027))
     found = validate(doc, schema, schema) + reconstruct(doc)
     failures = [f"{name}: {e}" for e in found]
     canonical = json.dumps(doc, sort_keys=True, separators=(",", ":"))
@@ -526,13 +566,15 @@ def mutation_failures(schema: dict[str, Any]) -> list[str]:
     ]
 
 
-def replay_failures(schema: dict[str, Any]) -> list[str]:
-    """One envelope per replay-live case: schema, reconstruction and state rules must all hold."""
+def replay_failures() -> list[str]:
+    """One envelope per replay-live case and posture: schema, reconstruction and state rules hold."""
     template = load("scoring-config-004.1.example.json")
+    schemas = {status: schema_for(status) for status in GROUP_STATUSES}
     failures: list[str] = []
     for spec, status in product(replay_specs(), GROUP_STATUSES):
         doc = build_envelope(spec, template, status)
-        found = validate(doc, schema, schema) + reconstruct(doc)
+        posture_schema = schemas[status]
+        found = validate(doc, posture_schema, posture_schema) + reconstruct(doc)
         failures += [f"replay {spec['case_id']} {status}: {e}" for e in found]
     return failures
 
@@ -551,11 +593,11 @@ def example_drift() -> list[str]:
 
 
 def main() -> int:
-    schema = load("scoring-config-004.1.schema.json")
-    failures: list[str] = replay_failures(schema)
+    schema = load(SCHEMA_FILE)
+    failures: list[str] = replay_failures()
     for name in DOCUMENTS:
-        failures += document_failures(name, schema)
-    failures += example_drift()
+        failures += document_failures(name)
+    failures += example_drift() + posture_mutation_failures()
     failures += mutation_failures(schema) + raw_mutation_failures() + gated_mutation_failures()
     failures += future_age_mutation_failures()
     for failure in failures:

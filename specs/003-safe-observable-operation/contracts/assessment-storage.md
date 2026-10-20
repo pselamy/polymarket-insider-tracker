@@ -68,6 +68,7 @@ identity:
   | `legacy-unversioned` | `NULL` (configuration unknowable) | none; never reinterpreted |
   | `003.1` | canonical deterministic JSON of the exact active configuration: alert threshold, multi-signal bonuses, score quantum, and the active weights — all as decimal strings, keys sorted, separators fixed, so equal configurations serialize identically | the 003 pure-configuration reader, unchanged |
   | `004.1` | a strict superset of the 003.1 document (the same five configuration keys with the same types) plus the evidence keys defined by slice 004 | the 004.1 reader |
+  | `004.2` (draft) | the 004.1 document for the qualified wallet posture; written only after slice 004's T027 gate opens, which is a combination-rule change and so a version bump | the 004.2 reader, added by that change |
 
   The normative definition of the `004.1` document, the reader dispatch, and the handling of an
   unknown version or a column/`evidence_schema` mismatch (reported, never guessed) is

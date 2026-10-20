@@ -43,14 +43,14 @@ Book depth is non-operational (FR-006). Grid: notionals $1,000, $3,250, $10,000,
 
 | Wallet evidence | Market evidence | Trade | Max score | Reaches 0.80? |
 |---|---|---|---|---|
-| unknown age (live today; any nonce < 5) | volume available, niche (< $50k) | <= $10,000 | 0.780 | **no** |
-| unknown age (live today; any nonce < 5) | volume available, niche (< $50k) | > $10,000 | 0.780 | **no** |
-| unknown age (live today; any nonce < 5) | volume available, not niche (>= $50k) | <= $10,000 | 0.450 | **no** |
-| unknown age (live today; any nonce < 5) | volume available, not niche (>= $50k) | > $10,000 | 0.450 | **no** |
-| unknown age (live today; any nonce < 5) | volume unavailable, niche-prone category | <= $10,000 | 0.384 | **no** |
-| unknown age (live today; any nonce < 5) | volume unavailable, niche-prone category | > $10,000 | 0.384 | **no** |
-| unknown age (live today; any nonce < 5) | volume unavailable, other category | <= $10,000 | 0.200 | **no** |
-| unknown age (live today; any nonce < 5) | volume unavailable, other category | > $10,000 | 0.200 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume available, niche (< $50k) | <= $10,000 | 0.780 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume available, niche (< $50k) | > $10,000 | 0.780 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume available, not niche (>= $50k) | <= $10,000 | 0.450 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume available, not niche (>= $50k) | > $10,000 | 0.450 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume unavailable, niche-prone category | <= $10,000 | 0.384 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume unavailable, niche-prone category | > $10,000 | 0.384 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume unavailable, other category | <= $10,000 | 0.200 | **no** |
+| unknown age (the only age state main produces; nonce < B = 5) | volume unavailable, other category | > $10,000 | 0.200 | **no** |
 | known age, best case (nonce 0, < 2 h) | volume available, niche (< $50k) | <= $10,000 | 0.924 | yes |
 | known age, best case (nonce 0, < 2 h) | volume available, niche (< $50k) | > $10,000 | 0.972 | yes |
 | known age, best case (nonce 0, < 2 h) | volume available, not niche (>= $50k) | <= $10,000 | 0.594 | **no** |

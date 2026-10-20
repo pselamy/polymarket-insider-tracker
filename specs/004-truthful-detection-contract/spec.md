@@ -203,8 +203,8 @@ persisted assessment fields, sample output, README, example environment, and the
 - **FR-022a** *(runtime visibility)*: The trigger is evaluated over the evidence classes the **configured
   live sources can produce**, not over every class the scoring rules define. Those classes follow from a
   declared, typed *live evidence capability* value built from code constants and effective settings:
-  (1) `wallet_group_status` (`unqualified_pre_T027` | `qualified`), the same value the 004.1 envelope
-  writes as `wallet.group_status`; it is a code constant changed only by the reviewed change citing the
+  (1) `wallet_group_status` (`unqualified_pre_T027` | `qualified`), the same value the envelope writes as
+  `wallet.group_status` (004.1 pre-T027, 004.2 qualified; contracts/scoring-config.md §2a); it is a code constant changed only by the reviewed change citing the
   T027 receipt (FR-007c), never an environment variable; (2) `wallet_age_source` (`none` | the source
   chosen in DECISION D1a), `none` on main because no live source produces a known first-seen time; it is
   likewise a code constant set by the change that makes an age source operational; (3) book depth
@@ -279,6 +279,9 @@ persisted assessment fields, sample output, README, example environment, and the
   signal counts, availability states, and qualification decisions match the documented contract.
 - **SC-002**: For every deterministic trade with positive current daily volume, the persisted volume impact
   equals trade notional divided by that volume within 0.0001; unknown inputs are never serialized as measured zero.
+  "Positive" means inside the usable-magnitude bound of data-model §1.1c (DECISION D4; outside it the
+  volume is `invalid`/`out_of_range`, so no impact exists), and the impact is the exact quotient rounded
+  once (data-model §3), so SC-002 is computable for every `available` row.
 - **SC-003**: Across all unknown-age fixture and pipeline outputs, zero statements claim or imply that the
   wallet is under 48 hours old.
 - **SC-004**: Deterministic capability tests establish which detectors and scoring inputs are operational
@@ -336,7 +339,7 @@ persisted assessment fields, sample output, README, example environment, and the
   (tasks T021–T026).
 - **The wallet subject is the V2 `proxy_wallet`.** `TradeEvent.wallet_address` is the lowercased
   `proxyWallet` of the public trade row (`ingestor/trade_row_v2.py:27`, `ingestor/trade_rows.py:169`),
-  and the wallet profiler queries exactly that address (`profiler/analyzer.py:168`). Whether that
+  and the wallet profiler queries exactly that address (`profiler/analyzer.py:171,181`). Whether that
   address's Polygon transaction count or age measures the participant's experience is **unverified**
   (no first-party code, test or checked-in evidence); see FR-007a.
 - Slice 003 owns the assessment schema, `scoring_config` column and dry-run safety (G-018).

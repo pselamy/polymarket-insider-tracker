@@ -217,7 +217,7 @@ evidence remain mandatory. Reviewer checklists remain human-owned; implementatio
 
 **What is profiled (verified in code)**: the trade's wallet is the V2 `proxy_wallet`:
 `ingestor/trade_row_v2.py:27` maps it to `proxyWallet`; `ingestor/trade_rows.py:169` takes it as the
-identity wallet and `:251` sets `TradeEvent.wallet_address`; `profiler/analyzer.py:168` →
+identity wallet and `:251` sets `TradeEvent.wallet_address`; `profiler/analyzer.py:171,181` →
 `profiler/chain.py:308-327` call `eth_getTransactionCount` on exactly that address. This predates V2
 (slice 001 already mapped `proxyWallet`→`wallet_address`).
 
@@ -227,7 +227,7 @@ identity wallet and `:251` sets `TradeEvent.wallet_address`; `profiler/analyzer.
 |---|---|
 | A per-address Polygon transaction count at profiling time (`analyzed_at`) | Whether that count tracks Polymarket trading for a proxy address. If the address is a contract account its nonce counts contract creations, not trades; if relayers submit the transactions the address's own nonce may not move at all. **Neither is verified for Polymarket** (no first-party code, test or checked-in evidence); the reviewers' "stays 0" claim is likewise unverified. The spec is written to hold under either outcome. |
 | The address as a stable trade-row identity (lowercased, slice 001 contract) | The participant's account age, total history or identity; a proxy address is not shown to be 1:1 with a person |
-| Nothing about age on current main | `first_seen` is `None` for every wallet: `profiler/chain.py:519-530`, `profiler/analyzer.py:180-196` |
+| Nothing about age on current main | `first_seen` is `None` for every wallet: `profiler/chain.py:519-530`, `profiler/analyzer.py:193-201` |
 
 Consequences adopted in the spec: FR-007a (subject kind recorded; wording limited to "low transaction
 count on the proxy address"), FR-007b (age needs a recorded basis; live age unknown until a source
@@ -290,7 +290,7 @@ O1/O2/O3 age source)**
 | Frame | Distinct lowercased `proxy_wallet` values seen in a trade with notional ≥ $1,000 (the population the wallet detector actually evaluates) during the first hour `[t0, t0 + 1 h)` of the window. |
 | Sample | Simple random sample of `N = 200` addresses from the frame, with the RNG seed and the frame size recorded; if the frame has fewer than 200, all of it. |
 | Observations per address | `n0` = `eth_getTransactionCount(address, "latest")` read when the address is sampled (time `ts`); `n1` = the same at `t1 = t0 + 24 h`; `code` = whether `eth_getCode(address)` is non-empty at `t1` (contract account vs EOA); `k` = counted trades for the address in `(ts, t1]`. Three RPC reads per address (≤ 600 total) and no Data API request beyond the ingestion poll already running. |
-| Coverage (else INCONCLUSIVE) | ≥ 150 of the sampled addresses have `n0`, `n1`, `code` and `k`; ≥ 50 have `k ≥ 1` ("active"); ≥ 30 have `k ≥ 6` ("heavy": more trades in 24 h than the low-activity rule `nonce ≤ 5`, `detector/fresh_wallet.py:20`, `:159`, allows). |
+| Coverage (else INCONCLUSIVE) | ≥ 150 of the sampled addresses have `n0`, `n1`, `code` and `k`; ≥ 50 have `k ≥ 1` ("active"); ≥ 30 have `k ≥ 6` ("heavy": more trades in 24 h than the low-activity rule `nonce ≤ 5`, `detector/fresh_wallet.py:20`, `:162`, allows). |
 | Metric M1 — tracking rate | Among active addresses, the fraction with `n1 − n0 ≥ 1`. |
 | Metric M2 — false low-activity rate | Among heavy addresses, the fraction with `n1 ≤ 5`, i.e. addresses the current rule would call "low activity" although they made more than five public trades in one day. |
 | Strata | M1 and M2 are computed for all addresses and separately for contract and EOA addresses. A stratum with fewer than 20 addresses is reported but not judged. |
@@ -408,7 +408,7 @@ Effects are stated for the default pre-T027 posture first, then post-T027.
 | Option | Effect (see `evidence/reachability.md`) | Trade-offs |
 |---|---|---|
 | **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings; delivery unchanged** | Pre-T027: nothing qualifies at the default (ceiling 0.450); an override ≤ 0.450 qualifies size-only signals and delivers them normally. Post-T027 with O1: still nothing qualifies (0.780); alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: the default alert path is inert, honest only with FR-022a; the delivery stage is proven end to end only at non-default thresholds (journeys at 0.4) |
-| **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 51 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 51 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
+| **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 64 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (10 of 64 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
 | **R2 raise the unknown-age base to ≥ 0.541** | Pre-T027: no effect (wallet non-scoring). Post-T027: keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
 | **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Pre-T027 the watch floor must be ≤ 0.45 to show anything; post-T027 surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
 | **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
@@ -423,10 +423,10 @@ alert at default settings.
 ### Live-realistic replay
 
 The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
-adds 51 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
+adds 64 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
 by `scripts/spec004_evidence/replay_live.py`) using unknown age and every volume state, with the 003.1-as-wired score
-next to the proposed one in both wallet postures. Pre-T027 (default): 0 of 51 qualify at 0.80 or 0.78
-(maximum 0.450). Post-T027: 0 of 51 at 0.80; 7 at 0.78.
+next to the proposed one in both wallet postures. Pre-T027 (default): 0 of 64 qualify at 0.80 or 0.78
+(maximum 0.450). Post-T027: 0 of 64 at 0.80; 10 at 0.78.
 
 ## R02a — Volume freshness that matches the real sync (added 2026-10-19; resolves F07, F08, F09, F10, F12, F14)
 

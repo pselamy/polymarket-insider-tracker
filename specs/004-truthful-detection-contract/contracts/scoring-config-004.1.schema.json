@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/polymarket-insider-tracker/scoring-config-004.1.schema.json",
-  "title": "scoring_config document for scoring_algorithm_version 004.1",
+  "title": "scoring_config document for scoring_algorithm_version 004.1 (pre-T027 wallet posture)",
   "description": "Proposed. Stored as canonical JSON (sort_keys, separators ',' ':') in the existing assessment scoring_config TEXT column. Decimals are JSON strings in plain notation; floats never appear.",
   "type": "object",
   "additionalProperties": false,
@@ -111,8 +111,8 @@
           "properties": {
             "subject_kind": {"const": "proxy_wallet"},
             "group_status": {
-              "description": "FR-007c. unqualified_pre_T027: the wallet group is non-scoring (confidence null, factors empty, contribution 0, not counted in signals_triggered, no two-group bonus); classification and tx_count are still recorded as observations. qualified: T027 has authorized wallet scoring.",
-              "enum": ["unqualified_pre_T027", "qualified"]
+              "description": "FR-007c. unqualified_pre_T027: the wallet group is non-scoring (confidence null, factors empty, contribution 0, not counted in signals_triggered, no two-group bonus); classification and tx_count are still recorded as observations. The qualified posture (T027 has authorized wallet scoring) is a different scoring rule and therefore version 004.2: this schema with evidence_schema const 004.2 and group_status const qualified, nothing else changed (contracts/scoring-config.md section 2a).",
+              "const": "unqualified_pre_T027"
             },
             "classification": {
               "enum": ["fresh", "low_activity_unknown_age", "known_nonqualifying", "not_requested", "retrieval_failed"]
@@ -141,9 +141,9 @@
             "volume_state": {
               "enum": ["available", "unavailable", "unqualified", "missing", "invalid", "nonpositive", "invalid_time", "stale"]
             },
-            "volume_reason": {"enum": ["gamma_fetch_failed", "absent_from_complete_crawl", "crawl_truncated", "clob_miss_path", "no_volume_record", "metadata_lookup_failed", "unknown_source", "no_provenance", "null_or_absent", "not_a_finite_number", "zero", "negative", "absent", "naive", "unparseable", "nonpositive_epoch", "future", "older_than_600s", "gamma", "caller"]},
+            "volume_reason": {"enum": ["gamma_fetch_failed", "absent_from_complete_crawl", "crawl_truncated", "clob_miss_path", "no_volume_record", "metadata_lookup_failed", "unknown_source", "no_provenance", "null_or_absent", "not_a_finite_number", "out_of_range", "zero", "negative", "absent", "naive", "unparseable", "nonpositive_epoch", "future", "older_than_600s", "gamma", "caller"]},
             "volume24hr_present": {"type": "boolean"},
-            "volume24hr_raw": {"description": "Decoded JSON value verbatim (<= 256 canonical UTF-8 bytes, finite numbers only, no reserved top-level key), else exactly one of #/$defs/raw_nonfinite or #/$defs/raw_truncated. Object-shaped values carrying $nonfinite/$truncated are checked against those defs by check_envelope (the validator subset has no conditional keyword)."},
+            "volume24hr_raw": {"description": "Not constrained by this schema alone; check_envelope.stored_raw_errors enforces the rule (data-model section 1.1a). Decoded JSON value verbatim (<= 256 canonical UTF-8 bytes, finite numbers only, no reserved top-level key), else exactly one of #/$defs/raw_nonfinite or #/$defs/raw_truncated. Object-shaped values carrying $nonfinite/$truncated are checked against those defs by check_envelope (the validator subset has no conditional keyword)."},
             "daily_volume": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
             "daily_volume_acquired_at": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/utc"}]},
             "daily_volume_age_seconds": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/signed_decimal"}]},

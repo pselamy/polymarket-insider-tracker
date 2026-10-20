@@ -14,6 +14,7 @@ import json
 import math
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
+from fractions import Fraction
 from typing import Any, cast
 
 from scripts.spec004_evidence import replay_live as rl
@@ -36,6 +37,9 @@ WEIGHTS = {
 PRE_T027 = "unqualified_pre_T027"
 POST_T027 = "qualified"
 GROUP_STATUSES = (PRE_T027, POST_T027)
+# contracts/scoring-config.md section 2a: each wallet posture is its own scoring version.
+VERSION_BY_STATUS = {PRE_T027: "004.1", POST_T027: "004.2"}
+RATIO_QUANTUM = 10_000  # volume_impact has exactly 4 decimals (notional >= 0, volume > 0)
 
 RAW_BOUND_BYTES = 256
 RESERVED_KEYS = frozenset({"$truncated", "$nonfinite"})
@@ -110,11 +114,27 @@ def plain(value: Decimal) -> str:
     return format(value, "f")
 
 
-def stamp(age: object) -> tuple[str | None, str | None]:
+def exact_ratio(notional: Decimal, volume: Decimal) -> str:
+    """notional / volume as an exact rational rounded half-even to 0.0001 (data-model section 3);
+    no fixed-precision decimal context, so every available row is computable."""
+    whole, fraction = divmod(
+        round(Fraction(notional) / Fraction(volume) * RATIO_QUANTUM), RATIO_QUANTUM
+    )
+    return f"{whole}.{fraction:04d}"
+
+
+def exact_seconds(delta: timedelta) -> Decimal:
+    """A timedelta as exact decimal seconds (microsecond resolution, no float)."""
+    return Decimal(delta // timedelta(microseconds=1)).scaleb(-6)
+
+
+def stamp(raw_age: object) -> tuple[str | None, str | None]:
     """(acquired_at, signed age seconds); both null when the stamp is unusable."""
-    if not isinstance(age, int):
+    age = rl.age_seconds(raw_age)
+    if age is None:
         return None, None
-    return (EVALUATED_AT - timedelta(seconds=age)).isoformat(), str(age)
+    acquired = EVALUATED_AT - timedelta(microseconds=int(age.scaleb(6)))
+    return acquired.isoformat(), plain(exact_seconds(EVALUATED_AT - acquired).normalize())
 
 
 def volume_stamp(obs: rl.Observation, explicit: Decimal | None) -> tuple[str | None, str | None]:
@@ -146,9 +166,7 @@ def size_block(
     acquired, age = volume_stamp(obs, explicit)
     present, raw = raw_fields(obs, explicit)
     notional = Decimal(str(spec["notional"]))
-    impact = (
-        None if volume is None else (notional / volume).quantize(Decimal("0.0001"), ROUND_HALF_EVEN)
-    )
+    impact = None if volume is None else exact_ratio(notional, volume)
     conf = None if size is None else f"{size[0]:.3f}"
     return {
         "book_impact": None,
@@ -166,7 +184,7 @@ def size_block(
         "signal_emitted": size is not None,
         "volume24hr_present": present,
         "volume24hr_raw": raw,
-        "volume_impact": None if impact is None else plain(impact),
+        "volume_impact": impact,
         "volume_reason": reason,
         "volume_state": state,
     }
@@ -215,7 +233,7 @@ def contributions(wconf: float | None, size: tuple[float, bool] | None) -> dict[
 def build_envelope(
     spec: dict[str, Any], template: dict[str, Any], status: str = PRE_T027
 ) -> dict[str, Any]:
-    """A complete 004.1 document for one replay case, based on the example's static keys."""
+    """A complete 004.1 (or, post-T027, 004.2) document for one replay case, based on the example's static keys."""
     notional = Decimal(str(spec["notional"]))
     nonce = int(spec["nonce"])
     verdict = rl.classify(rl.build_observation(spec["observation"]), rl.explicit_volume(spec))
@@ -234,6 +252,7 @@ def build_envelope(
     size = size_signal(market, notional, volume_passed=True)
     proposed = score(wconf, size)
     doc = cast(dict[str, Any], json.loads(json.dumps(template)))
+    doc["evidence_schema"] = VERSION_BY_STATUS[status]
     doc["evaluation_evidence"] = {
         "contributions": contributions(wconf, size),
         "evaluated_at": EVALUATED_AT.isoformat(),

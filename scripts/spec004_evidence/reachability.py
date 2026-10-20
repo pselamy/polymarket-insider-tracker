@@ -2,7 +2,8 @@
 
 Usage:
     python3 -m scripts.spec004_evidence.reachability                 # print the markdown report
-    python3 -m scripts.spec004_evidence.reachability --check FILE    # exit 1 unless FILE equals the report byte for byte
+    python3 -m scripts.spec004_evidence.reachability --check FILE    # exit 0 iff FILE equals the report byte for byte; 1 if stale or
+                                                                     # missing; 2 on any other arguments
 
 Stdlib only. It never imports from src/; the scoring constants below are copies, and
 ``verify_constants`` re-reads the product source as text (default: the repository containing this
@@ -25,6 +26,8 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal
 from itertools import product
 from pathlib import Path
+
+from scripts.spec004_evidence.cli import print_or_check
 
 QUANTUM = Decimal("0.001")
 ROOT = Path(__file__).resolve().parents[2]
@@ -166,7 +169,7 @@ def score(wallet_conf: float | None, size: tuple[float, bool] | None) -> Decimal
 
 
 WALLETS = (
-    Wallet("unknown age (live today; any nonce < 5)", 0, None),
+    Wallet("unknown age (the only age state main produces; nonce < B = 5)", 0, None),
     Wallet("known age, best case (nonce 0, < 2 h)", 0, 1.0),
     Wallet("known age, typical (nonce 1-4, 2-48 h)", 2, 24.0),
 )
@@ -422,11 +425,7 @@ def report() -> str:
 
 
 def main(argv: list[str]) -> int:
-    text = report() + "\n"
-    if len(argv) == 3 and argv[1] == "--check":
-        return 0 if Path(argv[2]).read_text() == text else 1
-    sys.stdout.write(text)
-    return 0
+    return print_or_check(argv, report() + "\n")
 
 
 if __name__ == "__main__":

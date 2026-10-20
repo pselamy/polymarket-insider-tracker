@@ -7,8 +7,10 @@ APPROVE; triage in [evidence/revision-2026-10-19.md](evidence/revision-2026-10-1
 **Status, stated plainly**: this contract is **not approved**. Nothing here records an approval,
 waiver or acceptance. The reviewer-owned [domain checklist](checklists/domain-requirements.md) is
 entirely unchecked (23 items) and stays that way until Patrick or a designated reviewer decides.
-No product code, test, script, migration or CI file changed; no network call was made for this
-revision. Implementation is not authorized. Scope of any eventual approval: the reviewed implementation
+No product code (`src/`), test (`tests/`), migration (`alembic/`), quality-gate (`quality/`) or CI file
+changed. The one change outside `specs/` is the evidence tooling this packet relies on,
+`scripts/spec004_evidence/*` (stdlib only, no `src/` import, inside every Python gate; see "Remaining
+known limits"). No network call was made for this revision other than git/GitHub for this repository. Implementation is not authorized. Scope of any eventual approval: the reviewed implementation
 contract only, not a merge, deployment, real notification, trading or calibration claim.
 
 ## Open decisions at a glance
@@ -18,7 +20,8 @@ contract only, not a merge, deployment, real notification, trading or calibratio
 | **D1a** | Wallet-age source (current main has none) | **O1** (none) for this slice; O2 or O6 as the first follow-up | O2/O3/O6 add a source task and a qualification receipt; O4 is an unverified lead |
 | **D1b** | May nonce or activity evidence score before qualification? | **G1** (former O5): wallet group non-scoring until T027 (FR-007c) | G2 scores an unvalidated proxy-nonce heuristic; G3 needs D1a = O6 |
 | **D2** | What 0.80 means while nothing live can reach it (pre-T027 ceiling 0.450; post-T027 unknown-age ceiling 0.780) | **R0**: keep 0.80; the default configuration cannot alert, an operator threshold override still can, and FR-022a/T029 report `default alert path unreachable` | **R5** makes "no alert" a guarantee: delivery structurally suppressed at every threshold (FR-022b, T030); R1 to 0.78 still yields zero alerts pre-T027; R3 needs a new spec |
-| **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata | (a) keeps invented evidence; (b) silences the size group on any outage |
+| **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata (written default; both round-4 reviewers chose **(d)**, see D3) | (a) keeps invented evidence; (b) silences the size group on any outage; (d) also drops the fallback when Gamma did report a value |
+| **D4** | Which positive volume values are usable at all (added round 4) | **M1**: `10^-6 <= v < 10^15` and ≤ 32 plain-notation characters, else `invalid`/`out_of_range` | M0 has a reachable crash/memory path (`"1e999999999"`); M2 caps the stored ratio instead |
 
 **Consequence to accept knowingly**: in the default pre-T027 posture only the size group scores, so the
 highest attainable score of **any** trade is **0.450** (`0.75 × (0.35 + 0.25)`, no two-group bonus).
@@ -28,6 +31,14 @@ alert. After T027 qualifies the wallet group, the unknown-age ceiling is 0.780, 
 R0 an operator can still lower `DETECTOR_ALERT_THRESHOLD`, and a qualifying assessment is then delivered
 normally (the value is recorded per assessment); under R5 nothing is delivered at any threshold.
 
+**Round-4 reviewer choices (input, not decisions)**:
+
+| | D1a | D1b | D2 | D3 | D4 |
+|---|---|---|---|---|---|
+| codex round 4 | O6 after qualification (O1 behaviour until then) | G1 | R0 for this slice | (d) | not yet reviewed (added after round 4) |
+| Claude round 4 | O1 now, O6 as the named follow-up | G1 | R5 (would fold R0 into it) | (d) | not yet reviewed (raised the N3 crash it answers) |
+| this packet | O1; O6 (or O2) as follow-up | G1 | R0 | (c) written; (d) favoured by both reviewers | M1 |
+
 ## DECISIONS FOR PATRICK (open; none is settled by this revision)
 
 ### D1a — Wallet-age source (DECISION FOR PATRICK)
@@ -35,7 +46,8 @@ normally (the value is recorded per assessment); under R5 nothing is delivered a
 Current main cannot produce a known wallet age (`profiler/chain.py:485-532` returns no first
 transaction for any wallet), and the profiled address is the V2 `proxy_wallet`, whose nonce meaning is
 **unverified**. Full analysis: [research.md](research.md) R09. D1a only matters once the wallet group may
-score (D1b); it does not change the pre-T027 ceiling 0.450.
+score (D1b); it does not change the pre-T027 ceiling 0.450. **Under the recommended D1b (G1), the D1a
+choice has no effect on what slice 004 does**: it decides only what the first follow-up builds.
 
 | Option | Live behaviour | Main trade-off |
 |---|---|---|
@@ -88,6 +100,12 @@ may tighten or loosen; they are not presented as settled facts about provider be
 - *Claude round 3*: D1b **G1 (O5) now**, then D1a **O6** (O2's query for age plus a Polymarket trade
   count) once T027 qualifies the query; would not pick plain O1, because scoring an unqualified nonce at
   0.50 is what the gate exists to prevent.
+- *codex round 4*: D1a **O6 after qualification**, with O1 behaviour until then; D1b **G1**.
+- *Claude round 4*: D1a **O1 for 004**, naming **O6** (not "O2 or O6") as the follow-up, because O6 also
+  replaces the unqualified nonce on the activity side and is the only path to a wallet group that does not
+  depend on what T027 finds; D1b **G1**, and calls G2's relayer risk accurately stated. Both round-4
+  reviewers therefore converge on G1 now and O6 next; they differ only in whether to call the interim
+  "O1" or "O6 pending qualification", which under G1 has no behavioural difference.
 
 ### D2 — What the 0.80 threshold means while nothing live can reach it (DECISION FOR PATRICK)
 
@@ -102,8 +120,8 @@ Recomputed by `scripts/spec004_evidence/reachability.py` ([research.md](research
 | Main today (003.1 rules, volume never passed) | 0.528 | |
 
 The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases. Live-realistic
-replay (51 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); post-T027, 0 at 0.80 and
-7 at 0.78.
+replay (64 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); post-T027, 0 at 0.80 and
+10 at 0.78.
 
 | Option | Pre-T027 (default posture) | Post-T027 | Main trade-off |
 |---|---|---|---|
@@ -155,13 +173,38 @@ lookup failure the code even invents category `"other"`, which counts as niche-p
 | **(c) fallback only for a category from real metadata (recommended)** | real `science/tech/finance/other` ⇒ 0.120 pre-T027 (0.384 post-T027); failed lookup or other categories ⇒ 0.000 (0.200) | removes the invented evidence, keeps the documented heuristic |
 | (d) (c) **and** only when no volume value was observed: P1 `unavailable` or P3 `missing` (added after the round-3 Claude review) | as (c) for P1/P3; for P2 `unqualified`, P4 `invalid`, P5 `nonpositive`, P6 `invalid_time`, P7 `stale` ⇒ no size signal ⇒ 0.000 pre-T027 (0.200 post-T027) | closes the path where Gamma did report a value (for example a $5M `science` market whose stamp is 601 s old) yet the market is treated as niche by category; an outage that still returns stale or unqualified values silences the size group for those markets |
 
-**Recommended default: (c).** (d) is the stricter variant; it is not the default only because it is a
-new rule no reviewer had evaluated before round 3, and choosing it changes FR-005a, data-model §1.2/§3
-(`category_source` use) and tasks T009/T012 test literals.
+**Written default: (c).** (d) is the stricter variant. The earlier reason for not making it the default
+("a new rule no reviewer had evaluated") **no longer holds**: two review rounds have now evaluated it and
+both round-4 reviewers choose (d). The contract artifacts and replay literals stay on (c) only so they do
+not move before you decide; on the reviewers' reasoning alone (d) is the stronger candidate. Choosing (d)
+changes FR-005a, data-model §1.2/§3 (`category_source` use), tasks T009/T012 test literals, and the
+replay rows for P2/P4–P7 in a niche-prone category (0.120 → 0.000 pre-T027, 0.384 → 0.200 post-T027).
+The score effect is small either way (at most 0.120 pre-T027, which never alerts at 0.80).
 
 **Reviewer positions (input, not decisions)**: codex round 3 chooses **(c)** and calls the option set
 complete; the round-3 Claude reviewer chooses **(d)**: (c) plus the no-observed-value rule. agy and codex
-round 1 flagged the fallback as a false-positive source.
+round 1 flagged the fallback as a false-positive source. Round 4: **both** codex and Claude choose
+**(d)**; Claude adds that under G1 the size group is the only scoring group, so a stale or unqualified
+$5M `science` market recording niche evidence under (c) matters more.
+
+### D4 — Usable-magnitude bound for a positive volume (DECISION FOR PATRICK; added round 4)
+
+The round-4 Claude review (N3) found that `"1e-30"` (string or number) classifies as `available` and the
+ratio `notional / daily_volume` then raises `InvalidOperation` under Python's default 28-digit decimal
+context. The same contract also let the grammar-valid string `"1e999999999"` be `available`, whose
+plain-notation `daily_volume` would be a billion characters. Gamma controls these values, so both are
+reachable paths. The ratio itself is now defined as an exact rational rounded once (data-model §3), which
+fixes the crash for every row; D4 decides which positive values may be interpreted at all.
+
+| Option | Behaviour | Trade-off |
+|---|---|---|
+| **M0** no bound; exact arithmetic only | every finite positive value is `available` when fresh | Truthful to the raw value, but stored decimals are unbounded (`"1e999999999"` exhausts memory when formatted) and a ratio can be dozens of digits; needs a separate storage bound anyway |
+| **M1 (recommended; written default)** `10^-6 <= v < 10^15` and ≤ 32 plain-notation characters, else `invalid`/`out_of_range` (data-model §1.1c) | values no real 24 h USD volume can take are malformed observations, scored like any other `invalid` (category fallback per D3) | Adds one reason value and one rule; a genuine sub-micro-dollar or quadrillion-dollar volume would be refused (none is plausible); changes one committed replay row (the 300-digit integer, `available` → `invalid`) |
+| **M2** keep every value `available` but cap the stored `volume_impact` (for example at 10^6) and the stored `daily_volume` length | the size signal still saturates as before | The stored ratio is then no longer `notional / daily_volume` (SC-002 fails for capped rows) and needs its own marker; more schema |
+
+**Recommended default: M1.** It is the only option that keeps SC-002 exact for every `available` row and
+every stored decimal short without a new marker. The bounds 10^-6, 10^15 and 32 characters are spec
+choices you may change; they are not facts about Gamma.
 
 ## What changed since the 2026-10-17 packet
 
@@ -171,7 +214,7 @@ round 1 flagged the fallback as a false-positive source.
 | V2 ingestion | "separate pending request, untouched" | live contract; wallet subject is `proxy_wallet`; journey suites in scope (T021–T026) | F02, F24 |
 | Wallet age | assumed available | none on main; FR-007a/b, basis recorded, D1a/D1b | F01, F02 |
 | Unknown-age confidence | "capped at" and "exactly" 0.50 | exactly 0.50 everywhere (single table) | F26 |
-| Threshold reachability | not examined | table + script + 51 live-realistic replay cases; ceiling 0.450 pre-T027 (default posture), 0.780 post-T027 unknown age; D2 | F03, F04, F05, R3 B1 |
+| Threshold reachability | not examined | table + script + 64 live-realistic replay cases; ceiling 0.450 pre-T027 (default posture), 0.780 post-T027 unknown age; D2 | F03, F04, F05, R3 B1 |
 | Wallet gate | none | FR-007c default posture: wallet group non-scoring before T027, serialized as `wallet.group_status` | R2-4a, R3 B1 |
 | Volume freshness | per-page stamp carried through Redis by the coupled loop | arithmetic shows 688 s worst case; decoupled Gamma loop, own volume record, miss path cannot poison | F07, F08, F09, F10 |
 | Volume states | seven, overlapping, 3 fields | eight, one precedence table P1–P8, zero ⊂ `nonpositive`, one replay case per state/reason | F11, F13, F15 |
@@ -195,6 +238,13 @@ round 1 flagged the fallback as a false-positive source.
   prefer to keep main's leniency, say so; no replay score changes either way for the committed cases.
 - A stored volume stamp always carries the exact signed age, so a future stamp shows a negative age in
   whichever state wins (not only `invalid_time`/`future`); nulling it instead would discard evidence.
+  Ages are exact to the microsecond (no float), so 600 s is `available` and 600.000001 s is `stale`.
+- Opening the T027 gate is a scoring-rule change, so it gets its own version: 004.1 is exactly the
+  pre-T027 posture and the qualified posture is 004.2 (contracts/scoring-config.md §2a). The alternative,
+  declaring `group_status` part of the 004.1 identity, was not taken because both this contract and the
+  shared 003 contract already require a bump for any combination-rule change.
+- `volume_impact` is the exact rational `notional / daily_volume` rounded once to 0.0001, not a
+  fixed-precision decimal division (data-model §3).
 
 ## Final behavior (if authorized, under the recommended defaults)
 
@@ -206,23 +256,25 @@ bonus of any kind. Threshold 0.80 inclusive; effective exclusive boundary `B` (d
 exactly `B` never qualifies); strict volume ratio `> 0.02`; eight mutually exclusive volume states,
 only `available` yields a ratio, never a measured zero; Gamma stamps at response-body receipt with a
 0–600 s local recency rule that the decoupled loop can meet; one evaluation instant per trade;
-immutable evaluation evidence in the versioned `004.1` document; additive evaluation API with the
+immutable evaluation evidence in the versioned `004.1` document (`004.2` once the gate opens); additive evaluation API with the
 deprecated inclusive alias; no new migration.
 
 ## Evidence and limitations
 
 - 114-case / 228-score / 63-delta behavioural replay is unchanged and still valid as an
   old-versus-proposed comparison; its 0 → 15 qualifications are **all known-age** cases the live
-  runtime cannot produce. The 51-case live-realistic addendum shows, pre-T027, 0 qualifying at 0.80 or
-  0.78 (maximum 0.450); post-T027, 0 at 0.80 and 7 at 0.78.
+  runtime cannot produce. The 64-case live-realistic addendum shows, pre-T027, 0 qualifying at 0.80 or
+  0.78 (maximum 0.450); post-T027, 0 at 0.80 and 10 at 0.78.
   Neither is calibration.
 - Source hashes: 4 of 7 recorded hashes unchanged, 3 changed by refactors only
   (`evidence/source-refresh-f2e2167.md`).
 - R01 monetary-volume interpretation rests on a reviewed first-party integration (archived
   2025-12-22 example, not a current warranty; no USDC-settlement/freshness/aggregation claims; no
   total-volume fallback; bounded current schema check still required at implementation entry).
-- Reproduce: `uv run python -m scripts.spec004_evidence.reachability --check evidence/reachability.md`,
-  `uv run python -m scripts.spec004_evidence.replay_live --check evidence/replay-live/results.csv`,
+- Reproduce from the repository root (each exits 0; `--check` exits 1 on a stale or missing file and 2 on
+  any other arguments):
+  `uv run python -m scripts.spec004_evidence.reachability --check specs/004-truthful-detection-contract/evidence/reachability.md`,
+  `uv run python -m scripts.spec004_evidence.replay_live --check specs/004-truthful-detection-contract/evidence/replay-live/results.csv`,
   `uv run python -m scripts.spec004_evidence.check_envelope`, `uv run python -m scripts.spec004_evidence.check_source_hashes`.
 
 ## Remaining known limits
@@ -249,5 +301,5 @@ deprecated inclusive alias; no new migration.
 ## Exact scope to authorize
 
 Approve or reject the contract in spec/plan/research/data-model/contracts/tasks **after** deciding
-D1a, D1b, D2 and D3. Do not decide whether a factual provider claim is true — evidence category and limits are
+D1a, D1b, D2, D3 and D4. Do not decide whether a factual provider claim is true — evidence category and limits are
 stated above.

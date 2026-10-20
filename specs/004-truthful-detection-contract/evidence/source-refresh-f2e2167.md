@@ -41,6 +41,21 @@ comparison, serialized key or scoring behavior changed, and no line pin cited by
 `check_source_hashes` exits 0. No 004 artifact referred to `_on_trade`. `replay/summary.json` stays
 the immutable receipt.
 
+## Fifth refresh: 0ddee0b → f3871cb (2026-10-21, review round 4)
+
+`git diff 0ddee0b f3871cb -- src` (#179) marks Protocol stubs `@abstractmethod` with docstring
+bodies in `detector/fresh_wallet.py` (+3 lines from the `WalletProfiler` Protocol on) and
+`profiler/analyzer.py` / `profiler/rpc_handle.py`, and removes unreachable wallet-link checks in
+`alerter/formatter.py`; `alerter/_channel_delivery.py` gains typing only. `scorer.py` is
+byte-identical. No weight, constant, threshold, comparison, serialized key or scoring behavior
+changed. `evidence/source-hashes.json` is regenerated for `detector/fresh_wallet.py`
+(`base_commit` f3871cb); `check_source_hashes` exits 0. Line pins refreshed:
+`detector/fresh_wallet.py` constructor 62→65, `_max_nonce` store 74→83, comparison 153/159→162;
+`profiler/analyzer.py` `DEFAULT_FRESH_THRESHOLD` 24→25, address use 168→171,181, `first_seen`
+`None` path 180-196→193-201, `_is_wallet_fresh` 210-229→223-242, `nonce >= threshold` 225→238
+(some older pins had already drifted; these are re-read against f3871cb). `adf809b` (#178) changes
+tests only; test citations in tasks T021–T026 are re-read against f3871cb (round-4 N4).
+
 ## Hash comparison
 
 Command (stdlib only, no `src/` import; exit 1 when any recorded hash drifts):

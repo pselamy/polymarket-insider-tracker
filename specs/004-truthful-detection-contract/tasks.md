@@ -44,12 +44,16 @@ Named files, entry points, dependency order:
   Both postures also assert JSON `wallet_is_fresh` (`detector/models.py:124`), persisted
   `WalletProfileDTO.is_fresh` (`pipeline.py:680`), the rendered label, PLUS the boundary-10 /
   nonce-9 override mismatch (FR-007c/008/010, SC-003/006, D2). Joint assertion, not separate
-  label checks.
+  label checks. **Gate split (round-4 N2)**: the pre-T027 half lands with the 004 implementation; the
+  post-T027 half lands in the gate-opening change with T015b/T019b, after a T027 PASS receipt.
 - [ ] T009d [US1] Table-driven detector tests in `tests/detector/` (extend
   `test_fresh_wallet.py`, `test_size_anomaly.py`, `test_scorer.py`): default/override/equality
   boundary fixtures (nonce exactly `B`, age exactly 48h, score exactly 0.80, ratio exactly
   0.02), transaction-override-3-3 / transaction-override-10-9 counterexamples, **all eight volume
-  states and every reason** (FR-005a; the 51 cases of `evidence/replay-live/cases.json` are the table),
+  states and every reason** (FR-005a; the 64 cases of `evidence/replay-live/cases.json` are the table,
+  including the §1.1c `out_of_range` bound of DECISION D4, the `1e400` number/string pair and the fractional
+  ages 0.5 / 599.999999 / 600.000001 / 600.5 / −0.000001 s, with ages computed exactly from aware datetimes),
+  `volume_impact` as the exact quotient rounded once (data-model §3; a ratio above 28 digits must not raise),
   niche modifier incl. the D3 lookup-failure case, threshold equality (FR-001–011, FR-015, SC-001–003)
 - [ ] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
@@ -96,10 +100,14 @@ Named files, entry points, dependency order:
 
 ## Phase 5: US3 Coherent scoring contract [US3] (future implementation)
 
-- [ ] T015 [US3] Threshold/bonus/override tests in `tests/detector/test_scorer.py`: default
-  0.80 equality (inclusive `>=`, 0.001 quantum), effective-threshold recording, reachable
-  two-group 1.2 bonus only (3+ branch removed, `multi_signal_bonus_3` neutral key retained),
-  override reconstruction within rounding (FR-002/003/011, SC-005)
+- [ ] T015a [US3] **Pre-T027 (ships with 004; not gated by T027)** threshold/bonus/override tests in
+  `tests/detector/test_scorer.py`: default 0.80 equality (inclusive `>=`, 0.001 quantum),
+  effective-threshold recording, 3+ branch removed with the `multi_signal_bonus_3` neutral key retained,
+  the one-scoring-group posture (bonus `1`, `signals_triggered ≤ 1`, wallet contribution `0`), override
+  reconstruction within rounding, and every row written as `004.1` (FR-002/003/007c/011, SC-005)
+- [ ] T015b [US3] **Post-T027 (gated by a T027 PASS receipt; lands in the gate-opening change)**: the
+  reachable two-group 1.2 bonus with a scoring wallet group on the default configuration, rows written as
+  `004.2` (contracts/scoring-config.md §2a), and the post-T027 reachability ceilings of T028 (FR-011)
 - [ ] T016 [US3] Exclusive-boundary + deprecated-alias migration (`detector/fresh_wallet.py`,
   `config.py`) with additive nullable-impact serialization (`detector/models.py`,
   `scorer.py::_extract_size_diagnostics`, `alerter/formatter.py`,
@@ -121,12 +129,17 @@ Named files, entry points, dependency order:
 ## Phase 6: Cross-cutting evidence (future implementation)
 
 - [ ] T018 Bounded current Gamma field/schema qualification receipt (read-only; R01 limits preserved)
-- [ ] T019 Full pipeline/storage/output/failure/restart/integration evidence per
-  `quickstart.md` journey scenarios 1–10 (SC-001–008). Depends on T010, T015–T017.
+- [ ] T019a Full pipeline/storage/output/failure/restart/integration evidence per
+  `quickstart.md` journey scenarios 1–10 (SC-001–008) **in the pre-T027 posture**: the completion evidence of
+  the 004 release, not gated by T027. Depends on T010, T015a, T016, T017 and the pre-T027 literals of
+  T021–T026.
+- [ ] T019b The same journeys **in the post-T027 posture** (`004.2` rows, scoring wallet group), run in the
+  gate-opening change. Depends on a T027 PASS receipt, T015b and the post-T027 literals of T021–T026.
 - [ ] T020 Real PostgreSQL/Redis parity + migration downgrade exercise (disposable DB only)
 - [ ] T027 **ENTRY GATE for the wallet group** — wallet-subject qualification receipt (needs explicit
   authorization for read-only anonymous probes; none were run in this revision). No implementation task
-  that lets the wallet group contribute to a score (T009d wallet rules, T015, T019) may merge until this
+  that lets the wallet group contribute to a score (the post-T027 halves of T009c and T009d, T015b, T019b
+  and the post-T027 literals of T021–T026) may merge until this
   receipt exists and records what the proxy-address nonce measures; until then the wallet group is
   non-scoring (spec FR-007c). **Acceptance rule: `research.md` R09a**, fixed before any probe runs.
   Part A (nonce): random sample of N = 200 proxy addresses from the ≥ $1,000-trade frame of the first
@@ -187,7 +200,7 @@ Named files, entry points, dependency order:
   wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:
   unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
   `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
-  SC-009). Also add the 51 `evidence/replay-live/cases.json` cases to the table-driven suite.
+  SC-009). Also add the 64 `evidence/replay-live/cases.json` cases to the table-driven suite.
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 
@@ -195,14 +208,14 @@ Data API V2 is the live ingestion contract on main (`d647adf` default, `bfc1a10`
 acceptance), so these five suites plus the shared harness are 004 obligations, not a separate
 pending concern. Their fixtures all use `FakeEth(transaction_count=0)` (unknown age), a market
 with `daily_volume=None` in category `science`, a $3,250 trade (5000 × 0.65,
-`tests/integration/test_end_to_end.py:78-79`) and `alert_threshold=0.4`. Today that scores
+`tests/integration/_journey_harness.py:61-76` `make_sample_trade_event`) and `alert_threshold=0.4`. Today that scores
 `(0.700·0.40 + 0.200·0.35 + 0.200·0.25)·1.2 = 0.480` ≥ 0.4. Under the 004 unknown-age rule
 (confidence exactly 0.50, no brand-new bonus) the same fixture scores
 `(0.500·0.40 + 0.200·0.35 + 0.200·0.25)·1.2 = 0.384 < 0.4` (replay `core-w2-m1`) once the wallet
 group may score, and in the default pre-T027 posture (FR-007c: wallet non-scoring, one group, no bonus)
 `0.200·0.35 + 0.200·0.25 = 0.120 < 0.4`. Either way `should_alert` becomes `False` and
 `delivery_disposition` becomes `not_alertable`, which fails `dry_run_assessment`
-(`tests/integration/_journey_harness.py:126-127`). The literals below are for the **pre-T027 default
+(`tests/integration/_journey_harness.py:166-173`). The literals below are for the **pre-T027 default
 posture** (the posture 004 ships in); the post-T027 values are given in parentheses and become the
 asserted values only in the reviewed change that opens the gate after T027. The change must be made
 deliberately, not by loosening the assertion:
@@ -214,7 +227,7 @@ deliberately, not by loosening the assertion:
   bonus 1; post-T027 `(0.5·0.40+0.75·0.35+0.75·0.25)·1.2 = 0.780`, two groups).
   The dry-run journeys use it so they keep proving "one qualifying assessment, zero deliveries,
   zero dedup keys" at `alert_threshold=0.4` (0.450 ≥ 0.4 pre-T027). Keep `dry_run_assessment` strict.
-- [ ] T022 [US1] `tests/integration/test_end_to_end.py`: replace the pinned `"003.1"` (`:222`)
+- [ ] T022 [US1] `tests/integration/test_end_to_end.py`: replace the pinned `"003.1"` (`:183`)
   with the 004.1 identity, keep one deliberate **negative** journey on the volume-less fixture
   asserting score 0.120 (post-T027: 0.384), `signals_triggered == 1`, `should_alert is False`,
   `delivery_disposition == "not_alertable"` and that the persisted evidence says
@@ -224,18 +237,18 @@ deliberately, not by loosening the assertion:
 - [ ] T023 [US1] `tests/integration/test_v2_journey.py` (explicit V2 URL, threshold 0.4):
   switch to the T021 stamped-volume market for the qualifying path; assert the row's
   `scoring_algorithm_version`, `threshold_at_eval == 0.400` and recomputable score; keep
-  `test_journey_harness_characterization` (`:61-70`) in sync with the new fixture builder.
+  `test_journey_harness_characterization` (`:53`) in sync with the new fixture builder.
 - [ ] T024 [US1] `tests/integration/test_v2_default_journey.py` (default URL, no env): same
   fixture change; replace `"003.1"` at `:55` with the 004.1 identity and additionally assert the
   evidence envelope parses under the contract schema (`contracts/scoring-config.md`).
 - [ ] T025 [US1] `tests/integration/test_v2_default_journey_services.py` (real Redis/services):
-  replace `"003.1"` at `:137`; the stamped-volume market must be served through the real Redis
+  replace `"003.1"` at `:139`; the stamped-volume market must be served through the real Redis
   metadata cache so the 0-600 s rule is exercised with real expiry, not only with a fake clock.
 - [ ] T026 [US3] `tests/integration/test_postgres_journey.py` (real PostgreSQL): replace the
   hard-coded expectations `_EXPECTED_FRESH_WALLET_CONFIDENCE = 0.700`,
   `_EXPECTED_SIZE_ANOMALY_CONFIDENCE = 0.200`, `_EXPECTED_WEIGHTED_SCORE = 0.480`
-  (`:66-80`), `_EXPECTED_SCORING_CONFIG` (exact dict equality, incl. the
-  `multi_signal_bonus_3` key) and `"003.1"` (`:196`) with literals recomputed from the final
+  (`:65-73`), `_EXPECTED_SCORING_CONFIG` (`:75-85`; exact dict equality, incl. the
+  `multi_signal_bonus_3` key) and `"003.1"` (`:175`) with literals recomputed from the final
   contract. Pre-T027 default posture on today's volume-less fixture: wallet confidence `None` with
   `group_status = unqualified_pre_T027`, size confidence 0.200, weighted score 0.120, one group;
   on the T021 stamped-volume fixture: size 0.750, score 0.450 (post-T027: wallet 0.500 and 0.384 /
@@ -244,25 +257,25 @@ deliberately, not by loosening the assertion:
   `legacy-unversioned` row unchanged (no migration, disposable DB only).
 
 Each of T021–T026 lands with the implementation change that alters its expectation, never after
-it (same rule as T009c/T009d/T015).
+it (same rule as T009c/T009d/T015a/T015b).
 
 ## Dependencies
 
-T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015–T017 → T019; T021 → T022–T026; T027 gates every change that lets the wallet group score: T009c/T009d (post-T027
-wallet rules), T015, T019 and the post-T027 literals of T021–T026 (their pre-T027 literals land with
-the 004 implementation); T022–T026 → T019; T029 → T030 (R5 only), and T030 lands with or before the T021–T026 disposition change;
+T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015a/T016/T017 → T019a; T021 → T022–T026; T027 gates every change that lets the wallet group score: T009c/T009d (post-T027
+wallet rules), T015b, T019b and the post-T027 literals of T021–T026 (their pre-T027 literals, T015a and
+T019a land with the 004 implementation and do not wait for T027); T022–T026 → T019a; T015b → T019b; T029 → T030 (R5 only), and T030 lands with or before the T021–T026 disposition change;
 foundational contract (T003–T008) precedes all implementation. Tests that pin a behavior
-(T009c/T009d/T015) land with or before the implementation change they cover — never after
+(T009c/T009d/T015a/T015b) land with or before the implementation change they cover — never after
 as a separate unblocking layer. Parallel-safe pairs after their prerequisites:
-T009d with T012a–d (detector vs ingestor tables), T013 with T015 (capability vs scoring).
+T009d with T012a–d (detector vs ingestor tables), T013 with T015a (capability vs scoring).
 
 ## Traceability (every FR/SC + 12 story acceptance scenarios)
 
 Full per-requirement table with implementation task(s), named test/scenario obligation, and
 future evidence receipt lives in `evidence/implementation-validation.md` §Traceability.
-Summary: FR-001–011 → T009a–d/T011/T012a–d/T013/T015/T016; FR-012–014 → T013/T014;
-FR-015/016 → T009d/T010; FR-017/018 → T014; FR-019 → T002/T019; FR-020 → T006/T017/T020;
-FR-021 → T010; FR-007c → T027; FR-022/FR-022a/SC-009 → T028/T029; FR-022b/SC-010 → T030 (R5 only); SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
-(US1-1..4, US2-1..4, US3-1..4) → T009d/T010/T013/T014/T015/T017/T019 with journey
+Summary: FR-001–011 → T009a–d/T011/T012a–d/T013/T015a/T015b/T016; FR-012–014 → T013/T014;
+FR-015/016 → T009d/T010; FR-017/018 → T014; FR-019 → T002/T019a; FR-020 → T006/T017/T020;
+FR-021 → T010; FR-007c → T027; FR-022/FR-022a/SC-009 → T028/T029; FR-022b/SC-010 → T030 (R5 only); SC-001–008 → T009d/T010/T013/T015a/T017/T019a (T015b/T019b repeat them post-T027); 12 acceptance scenarios
+(US1-1..4, US2-1..4, US3-1..4) → T009d/T010/T013/T014/T015a/T017/T019a with journey
 scenarios 1–10 in `quickstart.md`. No FR/SC/scenario is covered by nominal reference —
 each names its task, test file, and evidence receipt.
