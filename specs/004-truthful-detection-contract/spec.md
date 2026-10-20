@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: Proposed for Patrick review; revised 2026-10-19 after the codex/agy second opinions (not approved; open decisions D1a, D1b, D2, D3 in [decision-packet.md](decision-packet.md)); implementation is not yet authorized
+**Status**: Proposed for Patrick review; revised 2026-10-19 after the codex/agy second opinions (not approved; open decisions D1a, D1b, D2, D3, D4 in [decision-packet.md](decision-packet.md)); implementation is not yet authorized
 
 **Input**: User description: "Make live detector inputs, signal semantics, scoring, persisted evidence, and public capability claims match the monitoring behavior that is actually wired and supportable."
 
@@ -344,7 +344,7 @@ persisted assessment fields, sample output, README, example environment, and the
   (no first-party code, test or checked-in evidence); see FR-007a.
 - Slice 003 owns the assessment schema, `scoring_config` column and dry-run safety (G-018).
 
-**Open decisions**: FR-005a (lookup failure), FR-007b/FR-008 (live age unknown, exactly 0.50), FR-007c (wallet group non-scoring before T027) and the 0.80 default are written for the recommended defaults of D1a, D1b, D2 and D3 in [decision-packet.md](decision-packet.md); they are not settled until Patrick decides and change with the chosen option.
+**Open decisions**: FR-005a (lookup failure), FR-007b/FR-008 (live age unknown, exactly 0.50), FR-007c (wallet group non-scoring before T027), the 0.80 default and the usable-magnitude bound (data-model §1.1c, SC-002) are written for the recommended defaults of D1a, D1b, D2, D3 and D4 in [decision-packet.md](decision-packet.md); they are not settled until Patrick decides and change with the chosen option.
 
 **Non-goals**: trading or execution, financial advice, backtesting or calibration, book-depth scoring,
 funding or sniper scoring, changes to the V2 acquisition path or its cadence, a new database migration,

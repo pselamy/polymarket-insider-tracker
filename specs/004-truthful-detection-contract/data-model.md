@@ -52,7 +52,20 @@ without storing it. Schema: `#/$defs/raw_nonfinite`, `#/$defs/raw_truncated`; ex
 ### 1.1b Numeric-string grammar
 
 A JSON **number** is numeric by type (Python's `json` has already decoded it; only finiteness and sign
-matter). A JSON **string** is a numeric string iff the *whole* string matches the RFC 8259 §6 number
+matter). A JSON boolean is never a number (`live-invalid-bool`).
+
+**Number → `Decimal` conversion (normative; round-5 B1).** A decoded JSON number is converted with
+`Decimal(str(value))`: an `int` gives its exact digits, and a finite `float` gives the decimal of its
+shortest round-trip `repr` (Python 3 `str(float) == repr(float)`), which is the literal Gamma sent
+whenever that literal has ≤ 17 significant digits. `Decimal(float)` (the float's exact binary
+expansion) is **forbidden**: it would turn `12345.678901234567` into
+`12345.678901234567092615179717540740966796875` (45 plain characters, so `invalid`/`out_of_range` under
+§1.1c) and `0.1` into a 57-character value, removing the size signal from ordinary markets. Converting
+through `str` is the same rule main applies (`ingestor/gamma_client.py:53-59`) and the executable form
+uses (`scripts/spec004_evidence/replay_live.py::parse_finite`); replay case
+`live-available-float-17-digits` stores `daily_volume = "12345.678901234567"` and is `available`.
+
+A JSON **string** is a numeric string iff the *whole* string matches the RFC 8259 §6 number
 token, ASCII only:
 
 ```text
@@ -117,7 +130,7 @@ recency rule, not a provider measurement-time guarantee; the stamp is never synt
 reads, TTL, CLOB refresh or generic `last_updated`
 (`ingestor/models.py::MarketMetadata.from_dict` falls back to *now*). Executable form and one
 replay case per state and per reason: `scripts/spec004_evidence/replay_live.py`, `evidence/replay-live/cases.json`
-(64 cases; every state and every reason, the §1.1a raw-value markers, the §1.1b grammar, the §1.1c bound, fractional ages at the 0 s / 600 s edges, and a future
+(65 cases; every state and every reason, the §1.1a raw-value markers, the §1.1b grammar, the §1.1c bound, fractional ages at the 0 s / 600 s edges, and a future
 stamp under P3, P4 and P5).
 
 ### 1.3 Explicit `daily_volume` argument

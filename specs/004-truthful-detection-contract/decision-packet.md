@@ -20,8 +20,8 @@ contract only, not a merge, deployment, real notification, trading or calibratio
 | **D1a** | Wallet-age source (current main has none) | **O1** (none) for this slice; O2 or O6 as the first follow-up | O2/O3/O6 add a source task and a qualification receipt; O4 is an unverified lead |
 | **D1b** | May nonce or activity evidence score before qualification? | **G1** (former O5): wallet group non-scoring until T027 (FR-007c) | G2 scores an unvalidated proxy-nonce heuristic; G3 needs D1a = O6 |
 | **D2** | What 0.80 means while nothing live can reach it (pre-T027 ceiling 0.450; post-T027 unknown-age ceiling 0.780) | **R0**: keep 0.80; the default configuration cannot alert, an operator threshold override still can, and FR-022a/T029 report `default alert path unreachable` | **R5** makes "no alert" a guarantee: delivery structurally suppressed at every threshold (FR-022b, T030); R1 to 0.78 still yields zero alerts pre-T027; R3 needs a new spec |
-| **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata (written default; both round-4 reviewers chose **(d)**, see D3) | (a) keeps invented evidence; (b) silences the size group on any outage; (d) also drops the fallback when Gamma did report a value |
-| **D4** | Which positive volume values are usable at all (added round 4) | **M1**: `10^-6 <= v < 10^15` and ≤ 32 plain-notation characters, else `invalid`/`out_of_range` | M0 has a reachable crash/memory path (`"1e999999999"`); M2 caps the stored ratio instead |
+| **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata (written default; both round-4 and both round-5 reviewers chose **(d)**, see D3) | (a) keeps invented evidence; (b) silences the size group on any outage; (d) also drops the fallback when Gamma did report a value |
+| **D4** | Which positive volume values are usable at all (added round 4) | **M1**: `10^-6 <= v < 10^15` and ≤ 32 plain-notation characters, else `invalid`/`out_of_range`; numbers converted by `Decimal(str(float))` (data-model §1.1b) | M0 has a reachable memory path (`"1e999999999"`); M2 caps the stored ratio instead; a lower floor keeps a dust-volume market's size signal (see D4) |
 
 **Consequence to accept knowingly**: in the default pre-T027 posture only the size group scores, so the
 highest attainable score of **any** trade is **0.450** (`0.75 × (0.35 + 0.25)`, no two-group bonus).
@@ -38,6 +38,14 @@ normally (the value is recorded per assessment); under R5 nothing is delivered a
 | codex round 4 | O6 after qualification (O1 behaviour until then) | G1 | R0 for this slice | (d) | not yet reviewed (added after round 4) |
 | Claude round 4 | O1 now, O6 as the named follow-up | G1 | R5 (would fold R0 into it) | (d) | not yet reviewed (raised the N3 crash it answers) |
 | this packet | O1; O6 (or O2) as follow-up | G1 | R0 | (c) written; (d) favoured by both reviewers | M1 |
+
+**Round-5 reviewer choices (input, not decisions; both verdicts READY AFTER MINOR REVISIONS, not an
+approval)**:
+
+| | D1a | D1b | D2 | D3 | D4 |
+|---|---|---|---|---|---|
+| codex round 5 | O1 for 004, O6 as the named follow-up | G1 | R0 | (d) | M1 |
+| Claude round 5 | O1 for 004, O6 as the named follow-up (expects T027 Part A to fail for contract proxies) | G1 | R0 (changed from R5) | (d) | M1, with the B1 conversion rule and the dust-volume trade-off stated |
 
 ## DECISIONS FOR PATRICK (open; none is settled by this revision)
 
@@ -83,12 +91,24 @@ an unvalidated heuristic; choosing G3 moves the wallet group's activity measure 
 **What opens the gate (added after codex round 4, blocker 2)**: T027 now has a fixed, objective
 acceptance rule, `research.md` R09a. Part A samples 200 proxy addresses from the ≥ $1,000-trade frame,
 uses the supported all-participant ingestion as ground truth over ≥ 20 h of proven coverage, and passes
-only if the nonce moved for ≥ 95 % of addresses that traded and stayed ≤ 5 for ≤ 2 % of addresses with
-more than five trades that day, overall and in each contract/EOA stratum. Part B (only for O2/O6/G3)
+only if the nonce moved for ≥ 95 % of addresses that traded and stayed below `B` (default 5, the
+FR-009 boundary) for ≤ 2 % of addresses with at least `B` trades that day, overall and in each
+contract/EOA stratum large enough to judge that metric (≥ 20 active for M1, ≥ 10 heavy for M2; a
+smaller or empty denominator is reported, not judged). Part B (only for O2/O6/G3)
 qualifies the per-user query (recall ≥ 0.99, ordering, truncation, stability). **FAIL or INCONCLUSIVE
 keeps the gate closed**, the nonce is never scored, and the recommended path becomes G3 with D1a O6; if
 Part B also fails, D1a/D1b come back to you. The thresholds (N = 200, 0.95, 0.02) are spec choices you
-may tighten or loosen; they are not presented as settled facts about provider behaviour.
+may tighten or loosen; they are not presented as settled facts about provider behaviour. They are
+point-estimate rules: at the coverage minimum, zero misses among 30 heavy addresses still allows a true
+false-low-activity rate near 9.5 % (one-sided 95 % bound), and a bound-based PASS would need about 150
+heavy addresses (research R09a, "Statistical strength").
+
+**Likely T027 outcome (Claude round 5; UNVERIFIED expectation, no probe made)**: Part A will probably
+FAIL for contract-account proxies, because under EIP-161 a contract's account nonce counts only the
+contracts it creates and a Safe-style wallet keeps its transaction nonce in storage. Part B needs no
+RPC read and shares Part A's sample and ground truth, so it can run first. **Recommendation**: plan
+**G3 + O6** as the likely post-gate path, run Part B first, and keep Part A for the EOA stratum and the
+record. This changes no default for slice 004 (G1 still holds until a PASS).
 
 **Reviewer positions on D1a/D1b (input, not decisions)**:
 
@@ -106,6 +126,13 @@ may tighten or loosen; they are not presented as settled facts about provider be
   depend on what T027 finds; D1b **G1**, and calls G2's relayer risk accurately stated. Both round-4
   reviewers therefore converge on G1 now and O6 next; they differ only in whether to call the interim
   "O1" or "O6 pending qualification", which under G1 has no behavioural difference.
+- *codex round 5*: D1a **O1 for 004, O6 as the named follow-up** (O6 replaces both the unavailable age
+  and the unqualified nonce; O2 fixes only age; O6's maker-visibility qualification is disclosed);
+  D1b **G1** (G2 scores an unvalidated proxy heuristic; G3 is right if O6 qualifies). Asks that T027's
+  per-stratum denominators be defined (done: R09a "Strata").
+- *Claude round 5*: D1a **O1 for 004, O6 as the named follow-up**; D1b **G1**. Expects (unverified)
+  T027 Part A to FAIL for contract-account proxies (EIP-161; Safe nonce in storage) and suggests running
+  Part B first and planning G3 + O6 as the likely path (recorded above under "Likely T027 outcome").
 
 ### D2 — What the 0.80 threshold means while nothing live can reach it (DECISION FOR PATRICK)
 
@@ -120,8 +147,8 @@ Recomputed by `scripts/spec004_evidence/reachability.py` ([research.md](research
 | Main today (003.1 rules, volume never passed) | 0.528 | |
 
 The checked-in 114-case replay's "0 → 15 qualifications" is entirely known-age cases. Live-realistic
-replay (64 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); post-T027, 0 at 0.80 and
-10 at 0.78.
+replay (65 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); post-T027, 0 at 0.80 and
+11 at 0.78.
 
 | Option | Pre-T027 (default posture) | Post-T027 | Main trade-off |
 |---|---|---|---|
@@ -157,7 +184,12 @@ true assessment-only behavior needs hard delivery suppression with tests (now FR
 defer R3 to a separate spec. The round-4 Claude reviewer chooses **R5** and would fold R0 into R5 as the
 same configuration framed differently; that fold is not adopted here because, with overrides kept, the
 two differ in delivery behavior. Claude adds the trade-off now recorded in the R0 row: with defaults
-unreachable, the delivery stage is proven only at non-default thresholds.
+unreachable, the delivery stage is proven only at non-default thresholds. Round 5: codex chooses **R0**
+(R5 is coherent but makes delivery structurally absent until a later reviewed change restores it). The
+round-5 Claude reviewer **changes to R0**: R5 adds a constant, a disposition value and T030 and leaves the
+delivery path unexercised, all to guard against an operator override that is already explicit, recorded
+per row (`threshold_at_eval`) and reported as reachable by FR-022a; pick R5 only if "no alert" must hold
+even against operator overrides.
 
 ### D3 — Category fallback when volume is not usable (DECISION FOR PATRICK)
 
@@ -185,7 +217,9 @@ The score effect is small either way (at most 0.120 pre-T027, which never alerts
 complete; the round-3 Claude reviewer chooses **(d)**: (c) plus the no-observed-value rule. agy and codex
 round 1 flagged the fallback as a false-positive source. Round 4: **both** codex and Claude choose
 **(d)**; Claude adds that under G1 the size group is the only scoring group, so a stale or unqualified
-$5M `science` market recording niche evidence under (c) matters more.
+$5M `science` market recording niche evidence under (c) matters more. Round 5: **both** reviewers
+again choose **(d)**; codex adds that (c) can turn a known high-volume market into a niche signal solely
+because its stamp aged past 600 s, and Claude calls the packet's handling of the choice now fair.
 
 ### D4 — Usable-magnitude bound for a positive volume (DECISION FOR PATRICK; added round 4)
 
@@ -206,6 +240,23 @@ fixes the crash for every row; D4 decides which positive values may be interpret
 every stored decimal short without a new marker. The bounds 10^-6, 10^15 and 32 characters are spec
 choices you may change; they are not facts about Gamma.
 
+**Trade-off of M1's lower bound (added round 5, Claude)**: the 10^-6 floor turns a real dust-volume
+market (for example float residue left after aggregation, `0.0000004`) from a saturating size signal
+into `invalid`/`out_of_range`; under D3 (d) that market then has **no size signal at all**, and under
+(c) only the category fallback. Because the ratio is now an exact rational rounded once, the crash N3
+reported is fixed whatever D4 says; the floor's only remaining purpose is to keep the stored ratio
+short (at 10^-6 a $3,250 trade already gives `3250000000.0000`). A lower floor, or none on the small
+side, is a legitimate variant of M1 if you prefer the dust market's signal to a short stored ratio.
+
+**The 32-character bound depends on the number conversion (round 5, Claude B1)**: data-model §1.1b now
+makes `Decimal(str(float))` normative (shortest round-trip form). Under the forbidden
+`Decimal(float)`, an ordinary Gamma volume such as `12345.678901234567` would become 45 plain characters
+and `invalid`; replay case `live-available-float-17-digits` pins the normative result (`available`).
+
+**Reviewer positions (input, not decisions)**: codex round 5 chooses **M1** (M0 is not safely bounded;
+M2 breaks exact reconstruction, SC-002). The round-5 Claude reviewer chooses **M1** as reasonable, with
+the two additions above.
+
 ## What changed since the 2026-10-17 packet
 
 | Area | 2026-10-17 | 2026-10-19 revision | Finding(s) |
@@ -214,7 +265,7 @@ choices you may change; they are not facts about Gamma.
 | V2 ingestion | "separate pending request, untouched" | live contract; wallet subject is `proxy_wallet`; journey suites in scope (T021–T026) | F02, F24 |
 | Wallet age | assumed available | none on main; FR-007a/b, basis recorded, D1a/D1b | F01, F02 |
 | Unknown-age confidence | "capped at" and "exactly" 0.50 | exactly 0.50 everywhere (single table) | F26 |
-| Threshold reachability | not examined | table + script + 64 live-realistic replay cases; ceiling 0.450 pre-T027 (default posture), 0.780 post-T027 unknown age; D2 | F03, F04, F05, R3 B1 |
+| Threshold reachability | not examined | table + script + 65 live-realistic replay cases; ceiling 0.450 pre-T027 (default posture), 0.780 post-T027 unknown age; D2 | F03, F04, F05, R3 B1 |
 | Wallet gate | none | FR-007c default posture: wallet group non-scoring before T027, serialized as `wallet.group_status` | R2-4a, R3 B1 |
 | Volume freshness | per-page stamp carried through Redis by the coupled loop | arithmetic shows 688 s worst case; decoupled Gamma loop, own volume record, miss path cannot poison | F07, F08, F09, F10 |
 | Volume states | seven, overlapping, 3 fields | eight, one precedence table P1–P8, zero ⊂ `nonpositive`, one replay case per state/reason | F11, F13, F15 |
@@ -243,12 +294,19 @@ choices you may change; they are not facts about Gamma.
   pre-T027 posture and the qualified posture is 004.2 (contracts/scoring-config.md §2a). The alternative,
   declaring `group_status` part of the 004.1 identity, was not taken because both this contract and the
   shared 003 contract already require a bump for any combination-rule change.
+- A decoded JSON number becomes a `Decimal` only through `Decimal(str(value))`, the shortest
+  round-trip form; `Decimal(float)` is forbidden (data-model §1.1b, round-5 B1).
+- T027's per-stratum judgement uses a minimum denominator per metric (≥ 20 active for M1, ≥ 10 heavy
+  for M2; a smaller or zero denominator is reported, not judged), and "heavy"/M2 are stated against
+  the captured FR-009 boundary `B` (`k ≥ B`, `n1 < B`), not main's inclusive `≤ 5` (research R09a).
 - `volume_impact` is the exact rational `notional / daily_volume` rounded once to 0.0001, not a
   fixed-precision decimal division (data-model §3).
 
 ## Final behavior (if authorized, under the recommended defaults)
 
-Assessment-only research core with two defined groups (low-activity wallet + size anomaly; niche as
+Research core under D2 **R0** (not R5's assessment-only posture; corrected round 5, Claude B3): every
+evaluation is persisted, the 0.80 default is unreachable on live evidence and FR-022a reports that, and
+an operator threshold override still formats and delivers under the existing contract. Two defined groups (low-activity wallet + size anomaly; niche as
 size modifier). Before T027 only the size group scores (ceiling 0.450); live wallet evidence is recorded
 as "low-activity wallet, age unknown" on the **proxy address** with `group_status =
 unqualified_pre_T027` and no score contribution. After T027 it scores at confidence exactly 0.50, no
@@ -263,8 +321,8 @@ deprecated inclusive alias; no new migration.
 
 - 114-case / 228-score / 63-delta behavioural replay is unchanged and still valid as an
   old-versus-proposed comparison; its 0 → 15 qualifications are **all known-age** cases the live
-  runtime cannot produce. The 64-case live-realistic addendum shows, pre-T027, 0 qualifying at 0.80 or
-  0.78 (maximum 0.450); post-T027, 0 at 0.80 and 10 at 0.78.
+  runtime cannot produce. The 65-case live-realistic addendum shows, pre-T027, 0 qualifying at 0.80 or
+  0.78 (maximum 0.450); post-T027, 0 at 0.80 and 11 at 0.78.
   Neither is calibration.
 - Source hashes: 4 of 7 recorded hashes unchanged, 3 changed by refactors only
   (`evidence/source-refresh-f2e2167.md`).

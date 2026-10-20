@@ -290,13 +290,28 @@ O1/O2/O3 age source)**
 | Frame | Distinct lowercased `proxy_wallet` values seen in a trade with notional ≥ $1,000 (the population the wallet detector actually evaluates) during the first hour `[t0, t0 + 1 h)` of the window. |
 | Sample | Simple random sample of `N = 200` addresses from the frame, with the RNG seed and the frame size recorded; if the frame has fewer than 200, all of it. |
 | Observations per address | `n0` = `eth_getTransactionCount(address, "latest")` read when the address is sampled (time `ts`); `n1` = the same at `t1 = t0 + 24 h`; `code` = whether `eth_getCode(address)` is non-empty at `t1` (contract account vs EOA); `k` = counted trades for the address in `(ts, t1]`. Three RPC reads per address (≤ 600 total) and no Data API request beyond the ingestion poll already running. |
-| Coverage (else INCONCLUSIVE) | ≥ 150 of the sampled addresses have `n0`, `n1`, `code` and `k`; ≥ 50 have `k ≥ 1` ("active"); ≥ 30 have `k ≥ 6` ("heavy": more trades in 24 h than the low-activity rule `nonce ≤ 5`, `detector/fresh_wallet.py:20`, `:162`, allows). |
+| Coverage (else INCONCLUSIVE) | ≥ 150 of the sampled addresses have `n0`, `n1`, `code` and `k`; ≥ 50 have `k ≥ 1` ("active"); ≥ 30 have `k ≥ B` ("heavy"), where `B` is the captured effective boundary of FR-009 (`DETECTOR_FRESH_TRANSACTION_BOUNDARY`, default 5; R04) recorded in the receipt. A heavy address made at least `B` counted trades in `(ts, t1]`, so if its nonce tracks trading then `n1 ≥ n0 + B ≥ B` and the 004 rule (low activity iff nonce `< B`) cannot call it low activity. The receipt judges the 004 rule, not main's inclusive `nonce ≤ 5` (`detector/fresh_wallet.py:21`, `:162`), which FR-009 replaces (corrected round 5, Claude B4). |
 | Metric M1 — tracking rate | Among active addresses, the fraction with `n1 − n0 ≥ 1`. |
-| Metric M2 — false low-activity rate | Among heavy addresses, the fraction with `n1 ≤ 5`, i.e. addresses the current rule would call "low activity" although they made more than five public trades in one day. |
-| Strata | M1 and M2 are computed for all addresses and separately for contract and EOA addresses. A stratum with fewer than 20 addresses is reported but not judged. |
-| PASS | Coverage met, **and** in the whole sample and in every judged stratum `M1 ≥ 0.95` **and** `M2 ≤ 0.02`. The runtime cannot condition on the stratum, so a failing judged stratum fails the whole receipt. |
+| Metric M2 — false low-activity rate | Among heavy addresses, the fraction with `n1 < B`, i.e. addresses the 004 rule would call "low activity" although they made at least `B` public trades in one day. |
+| Strata | M1 and M2 are computed for all addresses and separately for contract and EOA addresses. Each metric has its own minimum denominator (round 5, codex minor 1): in a stratum, M1 is judged only if the stratum has ≥ 20 active addresses, and M2 only if it has ≥ 10 heavy addresses. A metric below its minimum, including a zero denominator (metric undefined), is reported with numerator and denominator and marked "not judged"; it neither passes nor fails the receipt, and the receipt lists it as a limit. The whole sample is always judged for both metrics (the coverage minima give it ≥ 50 active and ≥ 30 heavy). |
+| PASS | Coverage met, **and** `M1 ≥ 0.95` **and** `M2 ≤ 0.02` in the whole sample and for every judged (stratum, metric) pair. The runtime cannot condition on the stratum, so a failing judged pair fails the whole receipt. |
 | FAIL | Coverage met and any PASS inequality violated. |
 | INCONCLUSIVE | Coverage not met, the window was not proven for ≥ 20 h, or the protocol was deviated from. It keeps the gate closed exactly as FAIL does; it may be re-run with a new seed and window, and both receipts are retained. |
+
+Statistical strength (round 5, Claude optional item): the thresholds are point-estimate rules, not
+confidence bounds. At the coverage minimum, `M2 ≤ 0.02` over 30 heavy addresses means zero misses, yet
+zero of 30 still leaves a one-sided 95 % upper bound of `1 − 0.05^(1/30) ≈ 0.095` on the true rate; 50
+of 50 tracked active addresses leaves a lower bound of `0.05^(1/50) ≈ 0.942` on M1. Stating PASS as a
+bound (for example "95 % upper bound on M2 ≤ 0.02") would need roughly 150 heavy addresses with zero
+misses, far beyond N = 200; the packet lists the point-estimate rule as a spec choice Patrick may
+tighten (decision-packet.md D1b).
+
+Expected outcome (Claude round 5; **UNVERIFIED** reviewer expectation, no probe made): Part A is likely
+to FAIL for contract-account proxies. Under EIP-161 a contract account's nonce counts only the
+contracts it creates, and a Safe-style wallet's transaction nonce is a storage variable, not the account
+nonce, so `n1 − n0` may stay 0 for an active contract proxy. Part B needs no RPC read and shares Part
+A's frame, sample and ground truth, so it may run first; the packet therefore recommends planning for **G3 + O6** as the likely path
+(still DECISION FOR PATRICK, D1a/D1b), with Part A run for the EOA stratum and as a record.
 
 Maker and taker visibility: the ground truth is the all-participant capture, so maker fills that the
 public query returns are counted; fills hidden from that query are not, and the receipt states this
@@ -408,7 +423,7 @@ Effects are stated for the default pre-T027 posture first, then post-T027.
 | Option | Effect (see `evidence/reachability.md`) | Trade-offs |
 |---|---|---|
 | **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings; delivery unchanged** | Pre-T027: nothing qualifies at the default (ceiling 0.450); an override ≤ 0.450 qualifies size-only signals and delivers them normally. Post-T027 with O1: still nothing qualifies (0.780); alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: the default alert path is inert, honest only with FR-022a; the delivery stage is proven end to end only at non-default thresholds (journeys at 0.4) |
-| **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 64 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (10 of 64 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
+| **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 65 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (11 of 65 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
 | **R2 raise the unknown-age base to ≥ 0.541** | Pre-T027: no effect (wallet non-scoring). Post-T027: keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
 | **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Pre-T027 the watch floor must be ≤ 0.45 to show anything; post-T027 surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
 | **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
@@ -423,10 +438,10 @@ alert at default settings.
 ### Live-realistic replay
 
 The existing 114-case corpus is unchanged. Alongside it, [evidence/replay-live.md](evidence/replay-live.md)
-adds 64 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
+adds 65 cases (`evidence/replay-live/cases.json`, results `evidence/replay-live/results.csv`, produced
 by `scripts/spec004_evidence/replay_live.py`) using unknown age and every volume state, with the 003.1-as-wired score
-next to the proposed one in both wallet postures. Pre-T027 (default): 0 of 64 qualify at 0.80 or 0.78
-(maximum 0.450). Post-T027: 0 of 64 at 0.80; 10 at 0.78.
+next to the proposed one in both wallet postures. Pre-T027 (default): 0 of 65 qualify at 0.80 or 0.78
+(maximum 0.450). Post-T027: 0 of 65 at 0.80; 11 at 0.78.
 
 ## R02a — Volume freshness that matches the real sync (added 2026-10-19; resolves F07, F08, F09, F10, F12, F14)
 

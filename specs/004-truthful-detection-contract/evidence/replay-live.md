@@ -27,7 +27,7 @@ after T027 (pre-T027 it is recorded as an observation only).
 
 ## Coverage
 
-64 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
+65 cases: unknown age throughout (nonce 0 unless stated), a $3,250 trade unless stated, category
 `science` from real metadata unless stated.
 
 | Volume state | Cases |
@@ -44,10 +44,10 @@ after T027 (pre-T027 it is recorded as an observation only).
 
 ## Result
 
-- **Default pre-T027 posture**: 0 of 64 qualify at 0.80 and 0 at 0.78; the maximum is 0.450, reached
+- **Default pre-T027 posture**: 0 of 65 qualify at 0.80 and 0 at 0.78; the maximum is 0.450, reached
   by exactly the saturated niche cases. Every non-`available` volume state falls back to the category
   signal and scores 0.120 (niche-prone category) or 0.000 (otherwise).
-- **Post-T027 scenario**: 0 of 64 qualify at 0.80; 10 qualify at 0.78 (all `available`, niche, ratio ≥
+- **Post-T027 scenario**: 0 of 65 qualify at 0.80; 11 qualify at 0.78 (all `available`, niche, ratio ≥
   0.06). The unknown-age ceiling 0.780 is reached by exactly the saturated niche cases; non-`available`
   states score 0.384 (niche-prone category) or 0.200 (otherwise).
 - `live-metadata-lookup-failed`: 003.1 as wired gives 0.480 (category `other` counts as niche);

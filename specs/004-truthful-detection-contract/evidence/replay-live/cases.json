@@ -80,6 +80,7 @@
     {"case_id": "live-available-age-599.999999", "purpose": "fractional age 1 us below 600 s is available (round-4 N6)", "observation": {"acquired_age_seconds": 599.999999}},
     {"case_id": "live-stale-age-600.000001", "purpose": "fractional age 1 us above 600 s is stale: the 600 s bound is inclusive and exact to the microsecond (round-4 N6)", "observation": {"acquired_age_seconds": 600.000001}},
     {"case_id": "live-stale-age-600.5", "purpose": "fractional age 600.5 s is stale (round-4 N6)", "observation": {"acquired_age_seconds": 600.5}},
-    {"case_id": "live-invalid-time-future-microsecond", "purpose": "stamp 1 us after evaluation: invalid_time/future with age -0.000001 (round-4 N6)", "observation": {"acquired_age_seconds": -1e-06}}
+    {"case_id": "live-invalid-time-future-microsecond", "purpose": "stamp 1 us after evaluation: invalid_time/future with age -0.000001 (round-4 N6)", "observation": {"acquired_age_seconds": -1e-06}},
+    {"case_id": "live-available-float-17-digits", "purpose": "JSON number 12345.678901234567 (17 significant digits) decodes to a float; the normative shortest-repr Decimal(str(float)) gives 18 plain characters and available, whereas Decimal(float) would give 45 and out_of_range (round-5 B1)", "observation": {"raw": 12345.678901234567}}
   ]
 }

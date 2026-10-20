@@ -50,7 +50,7 @@ Named files, entry points, dependency order:
   `test_fresh_wallet.py`, `test_size_anomaly.py`, `test_scorer.py`): default/override/equality
   boundary fixtures (nonce exactly `B`, age exactly 48h, score exactly 0.80, ratio exactly
   0.02), transaction-override-3-3 / transaction-override-10-9 counterexamples, **all eight volume
-  states and every reason** (FR-005a; the 64 cases of `evidence/replay-live/cases.json` are the table,
+  states and every reason** (FR-005a; the 65 cases of `evidence/replay-live/cases.json` are the table,
   including the §1.1c `out_of_range` bound of DECISION D4, the `1e400` number/string pair and the fractional
   ages 0.5 / 599.999999 / 600.000001 / 600.5 / −0.000001 s, with ages computed exactly from aware datetimes),
   `volume_impact` as the exact quotient rounded once (data-model §3; a ratio above 28 digits must not raise),
@@ -146,10 +146,14 @@ Named files, entry points, dependency order:
   hour of a 24 h window; ground truth = trades captured by the supported all-participant ingestion
   (`takerOnly=false`) over intervals proven complete (≥ 20 h, loss intervals excluded); per address
   `n0`/`n1` (`eth_getTransactionCount` at sampling and at +24 h), `eth_getCode`, and counted trades `k`.
-  Coverage: ≥ 150 complete, ≥ 50 with `k ≥ 1`, ≥ 30 with `k ≥ 6`. **PASS** iff tracking rate
+  Coverage: ≥ 150 complete, ≥ 50 with `k ≥ 1`, ≥ 30 heavy with `k ≥ B` (`B` = captured FR-009
+  boundary, default 5, recorded in the receipt). **PASS** iff tracking rate
   M1 = share of active addresses with `n1 − n0 ≥ 1` is ≥ 0.95 **and** false low-activity rate
-  M2 = share of `k ≥ 6` addresses with `n1 ≤ 5` is ≤ 0.02, overall and in every contract/EOA stratum
-  of ≥ 20 addresses. Part B (only if D1a selects O2 or O6, or D1b selects G3): per-user query
+  M2 = share of heavy addresses with `n1 < B` is ≤ 0.02, overall and for every judged contract/EOA
+  (stratum, metric) pair: M1 is judged in a stratum with ≥ 20 active addresses, M2 in one with ≥ 10
+  heavy addresses; below that (including a zero denominator) the metric is reported, not judged.
+  Part B needs no RPC read and may run first (Claude round 5 expects Part A to fail for contract-account
+  proxies; unverified). Part B (only if D1a selects O2 or O6, or D1b selects G3): per-user query
   (`takerOnly=false`, ≤ 1,000 requests) recall ≥ 0.99 aggregate and ≥ 0.95 per active address, zero
   ordering violations, truncation always detectable, earliest trade stable across two runs.
   **FAIL or INCONCLUSIVE keeps the gate closed** (`unqualified_pre_T027`, shipped posture unchanged);
@@ -185,7 +189,7 @@ Named files, entry points, dependency order:
   Add `assessment_only` to the 003 disposition vocabulary in
   `specs/003-safe-observable-operation/contracts/assessment-storage.md` in the same change. Extend the
   T029 report with status `assessment_only`. Tests (no mocks; the channel-scoped `FakeChannel` pattern of
-  `tests/alerter/test_deduplication.py:34` and the shared Redis fake, plus one real-Redis service journey):
+  `tests/alerter/test_deduplication.py:35` and the shared Redis fake, plus one real-Redis service journey):
   table-driven over threshold {0.80, 0.45, 0.40, 0.000} × {dry-run, real mode} on the T021 stamped-volume
   fixture, assert zero channel sends, zero deduplication keys, `alerts_sent == 0`, the persisted
   disposition, the computed `should_alert` and `threshold_at_eval`; plus the three FR-022a surfaces
@@ -200,7 +204,7 @@ Named files, entry points, dependency order:
   wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:
   unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
   `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
-  SC-009). Also add the 64 `evidence/replay-live/cases.json` cases to the table-driven suite.
+  SC-009). Also add the 65 `evidence/replay-live/cases.json` cases to the table-driven suite.
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 
@@ -214,7 +218,7 @@ with `daily_volume=None` in category `science`, a $3,250 trade (5000 × 0.65,
 `(0.500·0.40 + 0.200·0.35 + 0.200·0.25)·1.2 = 0.384 < 0.4` (replay `core-w2-m1`) once the wallet
 group may score, and in the default pre-T027 posture (FR-007c: wallet non-scoring, one group, no bonus)
 `0.200·0.35 + 0.200·0.25 = 0.120 < 0.4`. Either way `should_alert` becomes `False` and
-`delivery_disposition` becomes `not_alertable`, which fails `dry_run_assessment`
+`delivery_disposition` becomes `below_threshold` (`pipeline.py:792-797`), which fails `dry_run_assessment`
 (`tests/integration/_journey_harness.py:166-173`). The literals below are for the **pre-T027 default
 posture** (the posture 004 ships in); the post-T027 values are given in parentheses and become the
 asserted values only in the reviewed change that opens the gate after T027. The change must be made
@@ -230,7 +234,7 @@ deliberately, not by loosening the assertion:
 - [ ] T022 [US1] `tests/integration/test_end_to_end.py`: replace the pinned `"003.1"` (`:183`)
   with the 004.1 identity, keep one deliberate **negative** journey on the volume-less fixture
   asserting score 0.120 (post-T027: 0.384), `signals_triggered == 1`, `should_alert is False`,
-  `delivery_disposition == "not_alertable"` and that the persisted evidence says
+  `delivery_disposition == "below_threshold"` and that the persisted evidence says
   `volume_state=unavailable` / age unknown / `wallet.group_status=unqualified_pre_T027`; add the FR-016
   same-evidence assertions (analysis → score → row → dry-run render) and the FR-021
   two-participant assertion (T010 lives here).

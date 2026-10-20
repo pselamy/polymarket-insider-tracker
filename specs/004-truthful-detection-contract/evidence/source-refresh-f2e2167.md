@@ -56,6 +56,18 @@ changed. `evidence/source-hashes.json` is regenerated for `detector/fresh_wallet
 (some older pins had already drifted; these are re-read against f3871cb). `adf809b` (#178) changes
 tests only; test citations in tasks T021–T026 are re-read against f3871cb (round-4 N4).
 
+## Sixth refresh: f3871cb → 3d5ab59 (2026-10-21, review round 5)
+
+`git diff f3871cb 3d5ab59 -- src` (#182, #183) adds one read-only `AlertHistory.retention_ttl`
+property in `alerter/history.py`; no hashed file, weight, constant, threshold, comparison,
+serialized key or scoring behavior changed, so `evidence/source-hashes.json` keeps every hash and
+only its `base_commit` moves to 3d5ab59; `check_source_hashes` exits 0. Tests changed in
+`tests/alerter/test_deduplication.py` (`FakeChannel` 34→35, cited by T030) and
+`tests/integration/test_pipeline_wiring_characterization.py` (not cited). The journey citations
+in T021–T026 (`_journey_harness.py:61,166`, `test_end_to_end.py:183`, `test_v2_journey.py:53`,
+`test_v2_default_journey.py:55`, `test_v2_default_journey_services.py:139`,
+`test_postgres_journey.py:65,75,175`) were re-read on 3d5ab59 and are unchanged.
+
 ## Hash comparison
 
 Command (stdlib only, no `src/` import; exit 1 when any recorded hash drifts):

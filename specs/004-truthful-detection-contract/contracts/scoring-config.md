@@ -105,7 +105,7 @@ No exception is made for `group_status`. Therefore:
   `unqualified_pre_T027`; a 004.1 document claiming `qualified` is a schema violation (corrupt row).
 - **004.2 is the qualified posture**, and nothing else: the 004.1 schema with `evidence_schema` const
   `"004.2"` and `wallet.group_status` const `"qualified"`. `check_envelope.schema_for` derives it from the
-  committed 004.1 schema, validates `scoring-config-004.2.post-t027.example.json` and the 64 post-T027 replay
+  committed 004.1 schema, validates `scoring-config-004.2.post-t027.example.json` and the 65 post-T027 replay
   envelopes against it, and rejects a 004.2 document carrying the pre-T027 posture or the 004.1 version.
 - The 004 implementation writes only 004.1. The reviewed change that cites a T027 PASS receipt and opens
   the gate (tasks T015b/T019b) is the change that starts writing 004.2 and adds its reader. If that change
