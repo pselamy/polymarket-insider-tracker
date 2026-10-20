@@ -468,7 +468,6 @@ entries never cancel each other. `tests/tooling/test_merge_group_workflows.py` f
 workflow loses the trigger. Enabling the queue itself is a repository setting made by the
 owner, not by this change.
 
-
 ## Coverage step 1: per-module line+branch measurement (2026-10-19)
 
 `coverage run -m pytest tests --ignore=tests/tooling` (Python 3.13 locked resolution,
