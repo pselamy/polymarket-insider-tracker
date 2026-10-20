@@ -9,10 +9,11 @@ channel-scoped delivery helpers from :mod:`...alerter._channel_delivery` onto
   same objects (so monkeypatch seams and pickle references keep working),
 - the pure dedup-key helper's format and hour-scoping contract,
 - the extracted channel-delivery coroutines' observable Redis behaviour,
-- ``AlertRecord`` pickle pickles by reference to the historical module path.
+- ``AlertRecord`` pickles by reference to the historical module path and carries its fields.
 """
 
 import copy
+import dataclasses
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -86,6 +87,8 @@ class TestImportIdentity:
         module = "polymarket_insider_tracker.alerter.history"
         assert pickled_global(record) == (module, "AlertRecord")
         assert resolve_pickled_global(record) is AlertRecord
+        _, _, state = record.__reduce_ex__(4)[:3]
+        assert state == {f.name: getattr(record, f.name) for f in dataclasses.fields(record)}
         assert copy.deepcopy(record) == record
 
     def test_pure_helpers_pickle_round_trip_through_historical_name(self) -> None:

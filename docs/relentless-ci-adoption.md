@@ -696,4 +696,6 @@ Correction/receipt (step 2): the 6 opengrep findings above were fixed in tests, 
 The five `pickle.loads` round trips now assert the module and name `pickle.dumps` references
 (`tests/pickle_reference.py` reads the opcode stream with `pickletools`, never unpickling) and that
 resolving that name yields the same object; `yaml.load` became
-`BaseLoader(...).get_single_data()`. The 6 findings in the table are the pre-fix measurement.
+`BaseLoader(...).get_single_data()`. The `AlertRecord` test no longer runs `pickle.loads`: it asserts
+the referenced class and that the reduced state equals the dataclass fields, which is weaker than a
+full load round trip. The 6 findings in the table are the pre-fix measurement.
