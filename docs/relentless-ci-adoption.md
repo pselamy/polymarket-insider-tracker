@@ -599,3 +599,29 @@ Honest fixes, no suppression, cast, or `Any`:
 Still unenrolled: `tests/test_shutdown.py` (17; signal-handler internals), `tests/test_terminal_error_durable.py`,
 `tests/fakes`, `tests/detector`, `tests/profiler`, `tests/test_redaction.py`, `tests/integration`,
 `tests/test_pipeline.py`, `tests/ingestor`, `tests/test_main.py`, `tests/tooling`.
+
+## Mutation step 1: measurement beyond the redaction target (2026-10-20)
+
+mutmut 3.8.0 (`[tool.mutmut]` in `pyproject.toml`, Python 3.11, `--max-children 8`) over the
+redaction module plus four small pure-logic modules that are already under the 100% coverage gate.
+One run mutated 634 mutants in 2m15s locally. "Timeout" mutants are counted by mutmut as caught
+(the mutated code hung or exceeded the time limit); "no tests" means no selected test reached the
+mutated function.
+
+| Module | Killed | Survived | Timeout | No tests |
+| --- | --- | --- | --- | --- |
+| `endpoints.py` | 25 | 20 | 0 | 0 |
+| `ingestor/_retry.py` | 21 | 1 | 0 | 0 |
+| `ingestor/_attempt_budget.py` | 47 | 11 | 5 | 1 |
+| `ingestor/_cycle_cutoff.py` | 21 | 0 | 0 | 0 |
+| `redaction.py` (existing target) | 340 | 137 | 0 | 5 |
+
+Chosen for step 1: `endpoints.py`, `_retry.py`, `_attempt_budget.py` and `_cycle_cutoff.py`. They
+are tiny (40 to 146 lines), pure, deterministic, free of services, and encode safety-relevant
+rules (the v1-retirement route match, the retry and jitter caps, the attempt-start rate budget,
+the strictly increasing cycle cutoff). `detector/scorer.py` is not chosen: it is frozen until the
+slice 004 decisions. `redaction.py` keeps its existing job but is not yet survivor-free (137
+survivors, 5 untested mutants); it stays visibly unenrolled in the zero-survivor gate and is a
+later step. The hypothesis-based `test_v2_cursor_walk_properties.py` cannot run inside mutmut's
+in-process stats run (`FailedHealthCheck: differing_executors`), so it is not in the mutmut test
+selection; the plain suites that exercise the retry and cutoff modules are.

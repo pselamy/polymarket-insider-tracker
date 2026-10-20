@@ -205,8 +205,30 @@ exclude_lines = [
 # package explicitly keeps source_paths plus only_mutate = ["*/redaction.py"] as the combined
 # mutation fence: only redaction.py is ever mutated.
 [tool.mutmut]
-source_paths = ["src/polymarket_insider_tracker/redaction.py"]
-only_mutate = ["*/redaction.py"]
+source_paths = [
+    "src/polymarket_insider_tracker/redaction.py",
+    "src/polymarket_insider_tracker/endpoints.py",
+    "src/polymarket_insider_tracker/ingestor/_retry.py",
+    "src/polymarket_insider_tracker/ingestor/_attempt_budget.py",
+    "src/polymarket_insider_tracker/ingestor/_cycle_cutoff.py",
+]
+only_mutate = [
+    "*/redaction.py",
+    "*/endpoints.py",
+    "*/_retry.py",
+    "*/_attempt_budget.py",
+    "*/_cycle_cutoff.py",
+]
 also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
-pytest_add_cli_args_test_selection = ["tests/test_redaction.py", "-q", "-p", "no:cacheprovider"]
+pytest_add_cli_args_test_selection = [
+    "tests/test_redaction.py",
+    "tests/test_trades_v2_config.py",
+    "tests/ingestor/test_attempt_budget.py",
+    "tests/ingestor/test_attempt_budget_properties.py",
+    "tests/ingestor/test_trades_source.py",
+    "tests/ingestor/test_v2_cursor_walk.py",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+]
 
