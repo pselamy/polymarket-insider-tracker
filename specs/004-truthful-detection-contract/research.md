@@ -342,22 +342,22 @@ Findings (each is a reproducible consequence of the weights, not a judgment):
 
 ### Recalibration options → DECISION D2 (for Patrick; none is settled)
 
-| Option | Effect (see `evidence/reachability.md`) | Trade-offs |
-|---|---|---|
 Effects are stated for the default pre-T027 posture first, then post-T027.
 
 | Option | Effect (see `evidence/reachability.md`) | Trade-offs |
 |---|---|---|
-| **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings** | Pre-T027: nothing qualifies (ceiling 0.450). Post-T027 with O1: still nothing qualifies (0.780); alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: it presents an alert path that cannot fire; honest only with FR-022a |
+| **R0 keep 0.80 and the exact-0.50 rule; disclose the ceilings; delivery unchanged** | Pre-T027: nothing qualifies at the default (ceiling 0.450); an override ≤ 0.450 qualifies size-only signals and delivers them normally. Post-T027 with O1: still nothing qualifies (0.780); alerts become possible only after an age source qualifies, and then only in niche numeric markets | No unsupported calibration claim; the existing `DETECTOR_ALERT_THRESHOLD` override still lets an operator choose a lower value knowingly, and it is recorded per assessment. Cost: the default alert path is inert, honest only with FR-022a; the delivery stage is proven end to end only at non-default thresholds (journeys at 0.4) |
 | **R1 lower the default to ≤ 0.78** | Pre-T027: **still zero alerts** (0 of 51 live replay cases, 0 of 48 grid points at 0.78); only ≤ 0.45 lets size-only signals qualify (16 of 48 grid points). Post-T027: unknown-age wallets in niche markets with ratio ≥ 0.06 qualify (7 of 51 at 0.78; 16 of 48 grid points) | Changes what an alert means with no outcome data; contradicts FR-002/US-3 "0.80 everywhere" (every doc, example, skill and the journey fixtures change); the scorer comment's backtest cannot be re-derived |
 | **R2 raise the unknown-age base to ≥ 0.541** | Pre-T027: no effect (wallet non-scoring). Post-T027: keeps 0.80 reachable | Rejected as a default: an unknown-age wallet would score above a known-age 24 h wallet's base 0.50, i.e. less evidence scores higher; breaks FR-008 |
 | **R3 two tiers**: keep 0.80 as the alert, add a lower persisted/visible "research watch" tier | Pre-T027 the watch floor must be ≤ 0.45 to show anything; post-T027 surfaces the 0.78-ceiling class without calling it an alert | New product surface and wording; needs its own spec, not a tweak |
 | **R4 re-weight / remove niche double counting** | Would change every ceiling | A model change that needs calibration data; out of scope for this slice |
-| **R5 defer an alert-capable release (assessment-only)** | Assessments are recorded and inspectable; README, configuration summary and the FR-022a report state that this release produces no alert | Truthful about what ships; no deliverable alerts, stated rather than discovered. Alerting returns under a later approved spec once a qualified evidence class can reach the threshold |
+| **R5 assessment-only release with structural delivery suppression** (FR-022b, SC-010, T030) | Assessments are recorded with their computed `should_alert`; under the code constant `release_posture = assessment_only` the pipeline never formats or dispatches at any threshold, dry-run or real (disposition `assessment_only`); FR-022a reports `assessment_only` | "No alert" is a tested guarantee; costs a constant, a disposition value (no migration), T030, and the operator's threshold override no longer alerts. Alerting returns only under a later reviewed spec |
 
-**Recommended default: R5** (R0's configuration, released and described as assessment-only, with
-FR-022a). The hard consequence stays visible to Patrick in [decision-packet.md](decision-packet.md):
-the product records assessments but produces no deliverable alert at default settings.
+**Recommended default: R0** with FR-022a (until round 4 this was labelled "R5, R0's configuration",
+which conflated the two; see the decision packet's correction). R5 is the option if "no alert" must hold
+under any configuration. The hard consequence stays visible to Patrick in
+[decision-packet.md](decision-packet.md): the product records assessments but produces no deliverable
+alert at default settings.
 
 ### Live-realistic replay
 

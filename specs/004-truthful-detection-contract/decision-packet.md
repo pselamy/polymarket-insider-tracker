@@ -17,15 +17,16 @@ contract only, not a merge, deployment, real notification, trading or calibratio
 |---|---|---|---|
 | **D1a** | Wallet-age source (current main has none) | **O1** (none) for this slice; O2 or O6 as the first follow-up | O2/O3/O6 add a source task and a qualification receipt; O4 is an unverified lead |
 | **D1b** | May nonce or activity evidence score before qualification? | **G1** (former O5): wallet group non-scoring until T027 (FR-007c) | G2 scores an unvalidated proxy-nonce heuristic; G3 needs D1a = O6 |
-| **D2** | What 0.80 means while nothing live can reach it (pre-T027 ceiling 0.450; post-T027 unknown-age ceiling 0.780) | **R5 assessment-only release** (R0's configuration, described as assessment-only), with the runtime "default alert path unreachable" report (FR-022a, T029) | R1 to 0.78 still yields zero alerts pre-T027; R3 needs a new spec |
+| **D2** | What 0.80 means while nothing live can reach it (pre-T027 ceiling 0.450; post-T027 unknown-age ceiling 0.780) | **R0**: keep 0.80; the default configuration cannot alert, an operator threshold override still can, and FR-022a/T029 report `default alert path unreachable` | **R5** makes "no alert" a guarantee: delivery structurally suppressed at every threshold (FR-022b, T030); R1 to 0.78 still yields zero alerts pre-T027; R3 needs a new spec |
 | **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata | (a) keeps invented evidence; (b) silences the size group on any outage |
 
 **Consequence to accept knowingly**: in the default pre-T027 posture only the size group scores, so the
 highest attainable score of **any** trade is **0.450** (`0.75 × (0.35 + 0.25)`, no two-group bonus).
 The default configuration records assessments but **no assessment can qualify as an alert**, and
 lowering the threshold to 0.78 changes nothing; only a threshold ≤ 0.45 would let a size-only signal
-alert. After T027 qualifies the wallet group, the unknown-age ceiling is 0.780, still below 0.80. An
-operator can still lower `DETECTOR_ALERT_THRESHOLD`; the value is recorded per assessment.
+alert. After T027 qualifies the wallet group, the unknown-age ceiling is 0.780, still below 0.80. Under
+R0 an operator can still lower `DETECTOR_ALERT_THRESHOLD`, and a qualifying assessment is then delivered
+normally (the value is recorded per assessment); under R5 nothing is delivered at any threshold.
 
 ## DECISIONS FOR PATRICK (open; none is settled by this revision)
 
@@ -96,25 +97,39 @@ replay (51 cases): pre-T027, 0 qualify at 0.80 and 0 at 0.78 (maximum 0.450); po
 
 | Option | Pre-T027 (default posture) | Post-T027 | Main trade-off |
 |---|---|---|---|
-| **R0** keep 0.80 and exact-0.50; publish the ceilings | nothing qualifies (0.450 < 0.80) | nothing qualifies while age is unknown (0.780 < 0.80) | no unsupported calibration claim, but it presents an alert path that cannot fire; honest only with FR-022a visibility |
+| **R0** keep 0.80 and exact-0.50; publish the ceilings; delivery path unchanged | at the default nothing qualifies (0.450 < 0.80); an operator override ≤ 0.450 qualifies size-only signals and **delivers them** (subject to `--dry-run`); FR-022a reports `unreachable` at the default and `reachable` at such an override | same, with ceiling 0.780 while age is unknown | no unsupported calibration claim and no new behavior; the default alert path is inert, so it is honest only with FR-022a visibility; the delivery stage is proven end to end only at non-default thresholds (T021–T026 journeys at 0.4) |
 | **R1** lower the default to ≤ 0.78 | **still zero alerts** (0.450 < 0.78); only ≤ 0.45 would let size-only signals alert, which makes an "alert" mean "large trade in a niche market" | saturated niche unknown-age cases alert | changes what an alert means with no outcome data; the scorer comment's "cost-adjusted backtest" justification has no reproducible evidence in the repo (G-028); every threshold surface and journey changes |
 | **R2** unknown-age base ≥ 0.541 | no effect (the wallet group does not score) | keeps 0.80 reachable | unknown age would outscore a known 24 h wallet; breaks FR-008 |
 | **R3** two tiers (alert 0.80 + lower "research watch") | a watch tier needs a floor ≤ 0.45 to show anything | surfaces the 0.78 class without calling it an alert | new product surface; needs its own spec |
 | **R4** re-weight / remove niche double counting | changes every ceiling | changes every ceiling | model change needing calibration data |
-| **R5** defer an alert-capable release: ship 004 as **assessment-only** | assessments are recorded and inspectable; README, configuration summary and FR-022a state that no alert can be produced in this release | same until a qualified evidence class can reach the threshold under a later approved spec | truthful about what ships; no deliverable alerts, stated as such rather than discovered |
+| **R5** ship 004 as **assessment-only**: delivery structurally suppressed regardless of threshold or overrides (FR-022b, SC-010, T030) | assessments are recorded with their computed `should_alert`; the pipeline never formats or dispatches (zero sends, zero dedup keys) at any `DETECTOR_ALERT_THRESHOLD`, dry-run or real; qualifying rows carry disposition `assessment_only`; FR-022a reports `assessment_only` | same until a later reviewed spec sets `release_posture = alert_capable` | "no alert" is a tested guarantee, not a property of the default; costs a code constant, a new disposition value (no migration, `VARCHAR(32)`), T030, and removes the operator's ability to alert by lowering the threshold; the delivery stage is not exercised by the pipeline at all in this release (dispatcher unit tests remain) |
 
-**Recommended default: R5, an assessment-only release** (configuration as in R0, threshold 0.80
-retained and recorded), together with FR-022a/T029 so the startup log, the `Alert Path:` configuration-summary line and the
-`/health` `alert_path` field report `default alert path unreachable` (evaluated over the classes the
-configured live sources can produce, so it fires on the shipped configuration). It adds no unvalidated claim and does not describe an alert path that
-cannot fire. You should decide knowingly that the default configuration produces no deliverable alert
-in this slice.
+**Recommended default: R0** (threshold 0.80 retained and recorded; delivery path unchanged), together
+with FR-022a/T029 so the startup log, the `Alert Path:` configuration-summary line and the `/health`
+`alert_path` field report `default alert path unreachable` (evaluated over the classes the configured
+live sources can produce, so it fires on the shipped configuration). It adds no unvalidated claim, no new
+behavior and keeps the existing threshold override. You should decide knowingly that the default
+configuration produces no deliverable alert in this slice, and that an operator who lowers the threshold
+to 0.45 or below gets size-only alerts. Pick **R5** instead if "assessment-only" must hold as a guarantee
+under any configuration; then FR-022b, SC-010 and T030 become obligations.
+
+**Correction (round 4)**: until round 4 this packet recommended "R5, configuration as in R0". That was
+internally inconsistent: R0's configuration keeps the override and T021 proves a deliverable-eligible
+assessment at threshold 0.4, so it is not assessment-only. R0 and R5 are now distinct options with stated
+delivery behavior; the recommended substance (R0's configuration with FR-022a) is unchanged, its label
+is corrected.
 
 **Reviewer positions (input, not decisions)**: codex round 2 objected that R0 leaves the default alert
 path inert and misleading unless visible; codex round 3 chooses **R3** if an operational surface is
 required, otherwise assessment-only (R5), and says R0 should not be presented as alert-capable. The
 round-3 Claude reviewer chooses R0 framed as an **assessment-only** release (R5 in substance) and would
-not pull R3 into this slice because a research-watch tier needs its own spec.
+not pull R3 into this slice because a research-watch tier needs its own spec. Round 4: codex chooses
+**R0 for this slice**, described as "default alert path unreachable", not "assessment-only", and says
+true assessment-only behavior needs hard delivery suppression with tests (now FR-022b/T030); it would
+defer R3 to a separate spec. The round-4 Claude reviewer chooses **R5** and would fold R0 into R5 as the
+same configuration framed differently; that fold is not adopted here because, with overrides kept, the
+two differ in delivery behavior. Claude adds the trade-off now recorded in the R0 row: with defaults
+unreachable, the delivery stage is proven only at non-default thresholds.
 
 ### D3 — Category fallback when volume is not usable (DECISION FOR PATRICK)
 

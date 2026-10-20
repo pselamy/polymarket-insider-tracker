@@ -151,6 +151,24 @@ Named files, entry points, dependency order:
   ceiling `0.972`, `reachable`; (e) the `/health` overall status, HTTP code, `/ready`, `/live` and
   `/metrics` are identical with and without an unreachable path; (f) `--config-check` prints the line
   without network access. Lands with T028.
+- [ ] T030 [US3] **Only if DECISION D2 selects R5** — assessment-only delivery suppression (FR-022b,
+  SC-010). Add the typed code constant `release_posture` (`alert_capable` | `assessment_only`; no
+  setting, no environment variable) and make `_score_and_alert` / `_handle_above_threshold`
+  (`pipeline.py`) skip formatting and `AlertDispatcher.dispatch` entirely under `assessment_only`,
+  persisting the scored row once with `delivery_disposition = assessment_only` (or `below_threshold`).
+  Add `assessment_only` to the 003 disposition vocabulary in
+  `specs/003-safe-observable-operation/contracts/assessment-storage.md` in the same change. Extend the
+  T029 report with status `assessment_only`. Tests (no mocks; the channel-scoped `FakeChannel` pattern of
+  `tests/alerter/test_deduplication.py:34` and the shared Redis fake, plus one real-Redis service journey):
+  table-driven over threshold {0.80, 0.45, 0.40, 0.000} × {dry-run, real mode} on the T021 stamped-volume
+  fixture, assert zero channel sends, zero deduplication keys, `alerts_sent == 0`, the persisted
+  disposition, the computed `should_alert` and `threshold_at_eval`; plus the three FR-022a surfaces
+  showing `assessment_only` and an unchanged `/health` status/HTTP code. Under R5 the T021–T026
+  qualifying journeys assert disposition `assessment_only` instead of `dry_run` (`dry_run_assessment`,
+  `tests/integration/_journey_harness.py:166`, gains the expected disposition as a parameter, still
+  strict). **If D2 selects R0 this task is dropped**, delivery stays unchanged, and the T021 journeys at
+  `alert_threshold=0.4` are the only end-to-end proof of the delivery stage; no journey proves delivery
+  on the shipped 0.80 configuration, because nothing live reaches it.
 - [ ] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
   `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md` for both
   wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:
@@ -219,7 +237,7 @@ it (same rule as T009c/T009d/T015).
 
 T009a → T009b/T009c/T009d; T011 → T010/T017; T012a → T012b/T012c → T012d; T012a–c → T011 (market side); T013 → T014; T015–T017 → T019; T021 → T022–T026; T027 gates every change that lets the wallet group score: T009c/T009d (post-T027
 wallet rules), T015, T019 and the post-T027 literals of T021–T026 (their pre-T027 literals land with
-the 004 implementation); T022–T026 → T019;
+the 004 implementation); T022–T026 → T019; T029 → T030 (R5 only), and T030 lands with or before the T021–T026 disposition change;
 foundational contract (T003–T008) precedes all implementation. Tests that pin a behavior
 (T009c/T009d/T015) land with or before the implementation change they cover — never after
 as a separate unblocking layer. Parallel-safe pairs after their prerequisites:
@@ -231,7 +249,7 @@ Full per-requirement table with implementation task(s), named test/scenario obli
 future evidence receipt lives in `evidence/implementation-validation.md` §Traceability.
 Summary: FR-001–011 → T009a–d/T011/T012a–d/T013/T015/T016; FR-012–014 → T013/T014;
 FR-015/016 → T009d/T010; FR-017/018 → T014; FR-019 → T002/T019; FR-020 → T006/T017/T020;
-FR-021 → T010; FR-007c → T027; FR-022/FR-022a/SC-009 → T028/T029; SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
+FR-021 → T010; FR-007c → T027; FR-022/FR-022a/SC-009 → T028/T029; FR-022b/SC-010 → T030 (R5 only); SC-001–008 → T009d/T010/T013/T015/T017/T019; 12 acceptance scenarios
 (US1-1..4, US2-1..4, US3-1..4) → T009d/T010/T013/T014/T015/T017/T019 with journey
 scenarios 1–10 in `quickstart.md`. No FR/SC/scenario is covered by nominal reference —
 each names its task, test file, and evidence receipt.

@@ -229,8 +229,30 @@ persisted assessment fields, sample output, README, example environment, and the
     `threshold`, `ceiling`, `wallet_group_status`, `wallet_age_source`; decimal strings) in
     `HealthMonitor._build_health_body` (`ingestor/health.py:658-679`), set once by the pipeline on the
     monitor it creates (`pipeline.py:175`). It is informational: it MUST NOT change the overall health
-    status, the HTTP status code, `/ready`, `/live` or `/metrics`, because an assessment-only release
-    (DECISION D2 R5) is a deliberate posture, not a fault. (T029)
+    status, the HTTP status code, `/ready`, `/live` or `/metrics`, because an unreachable default
+    (DECISION D2 R0) or an assessment-only release (D2 R5, FR-022b) is a deliberate posture, not a
+    fault. (T029)
+- **FR-022b** *(assessment-only delivery suppression; applies only if DECISION D2 selects R5)*: A typed
+  code constant `release_posture` (`alert_capable` | `assessment_only`) decides whether the delivery stage
+  exists. It is not an environment variable or setting: an operator override would turn R5 back into R0.
+  With `assessment_only`, for **every** assessment, whatever `DETECTOR_ALERT_THRESHOLD`, `should_alert`,
+  `--dry-run` or the configured channels are:
+  - the pipeline MUST NOT format an alert or call `AlertDispatcher.dispatch`
+    (`pipeline.py:_handle_above_threshold` → `_send_or_dry_run_alert`), so it makes zero channel calls,
+    writes zero deduplication keys and increments `alerts_sent` by zero, in dry-run and in real mode;
+  - a scored assessment still persists with its computed `should_alert`, `threshold_at_eval` and score,
+    so the record stays truthful about score against threshold. Its `delivery_disposition` is
+    `assessment_only` when `should_alert` is true and `below_threshold` otherwise. Detector-failure rows
+    keep `detector_failure`. The column is `VARCHAR(32)` with no enumerated constraint
+    (`specs/003-safe-observable-operation/contracts/assessment-storage.md` §1), so the new value needs no
+    migration; it is added to the 003 disposition vocabulary by the change that implements this FR;
+  - the FR-022a report takes a third status `assessment_only`, which overrides `reachable` and
+    `unreachable` on all three surfaces (startup `WARNING` `assessment-only release: no alert is delivered
+    at any threshold`, the `Alert Path:` line and the `/health` `alert_path.status`), still informational
+    for health.
+  With `alert_capable` (R0 and every other D2 option) the delivery path is unchanged from main: a
+  threshold override at or below the ceiling delivers normally, subject to dry-run, and FR-022a reports
+  `reachable`. Changing `release_posture` back to `alert_capable` requires a reviewed spec. (T030)
 
 ### Key Entities
 
@@ -271,6 +293,12 @@ persisted assessment fields, sample output, README, example environment, and the
 - **SC-009**: The published maximum score of every evidence class equals the maximum the real scorer produces
   over the reachability grid, and the live-realistic replay (unknown age, every volume state) is checked in
   beside the original corpus with a reproducible command.
+- **SC-010** *(only if DECISION D2 selects R5)*: With `release_posture = assessment_only`, a qualifying
+  assessment at every tested threshold (0.80, 0.45, 0.40, 0.000), in dry-run and real mode, with recording
+  fake channels configured, produces zero channel sends, zero deduplication keys, `alerts_sent == 0` and a
+  persisted row with `delivery_disposition = assessment_only` (FR-022b, T030). Under R0 this criterion does
+  not apply, and the delivery stage is proven only at non-default thresholds (the T021–T026 journeys at
+  0.4).
 
 ## Assumptions
 
