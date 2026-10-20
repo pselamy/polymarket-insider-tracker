@@ -633,23 +633,21 @@ message), `tests/ingestor/test_retry_policy.py` (attempt limit, doubling, caps),
 `tests/ingestor/test_attempt_budget_validation.py` (validation messages, window boundaries,
 real default clock and sleep). The 20 `endpoints.py` survivors, 1 `_retry.py` survivor and the
 11 survivors plus 1 untested mutant in `_attempt_budget.py` are all killed by them, except the
-equivalent mutants below. Final run: `endpoints.py` 36 killed / 0 survived, `_retry.py` 22 / 0,
+equivalent mutants below. Final run: `endpoints.py` 36 killed / 0 survived (count re-checked after the re.sub change), `_retry.py` 22 / 0,
 `_attempt_budget.py` 62 killed + 2 timeout / 0 survived, `_cycle_cutoff.py` 21 / 0.
 
 Equivalent mutants (8 in `is_official_v1_trades_url`), each removed by a behaviour-preserving
-simplification rather than skipped, so the gate needs no skip list:
+change to the code under test, not skipped or hidden from mutmut, so the gate needs no skip list:
 
-- `rstrip(".")` on the *constant* v1 hostname and `rstrip("/")` on the constant v1 path (four
-  string-argument and `None`/`lstrip` variants): the constants `data-api.polymarket.com` and
-  `/trades` have no trailing dot or slash, so the call was a no-op. They are now plain module
-  constants `_V1_HOST` and `_V1_PATH`.
-- `(parts.hostname or "")` and `(_V1_PARTS.hostname or "")` with `""` mutated to `"XXXX"`: a URL with
-  no hostname can never equal the v1 host either way, and the v1 host is never empty. The `or ""`
-  default is replaced by an early `return False` when `parts.hostname is None`.
-- `rstrip("XX.XX")` on the parsed hostname: `urlsplit().hostname` is lower-cased, so it never
-  ends in `X`, making the mutated argument equivalent to `"."`. The dot is now the module
-  constant `_ROOT_DOT`, which mutmut does not mutate; `rstrip(None)` and `lstrip` variants of it
-  stay killed by the trailing-dot test.
+- `rstrip(".")` on the *constant* v1 hostname and `rstrip("/")` on the constant v1 path (six
+  variants): the constants `data-api.polymarket.com` and `/trades` have no trailing dot or slash,
+  so the call was a no-op; the comparison now uses `_V1_PARTS.hostname` / `_V1_PARTS.path` directly.
+- `(parts.hostname or "")` with `""` mutated to `"XXXX"`: a URL with no hostname can never equal the
+  v1 host. The default is replaced by an early `return False` when `parts.hostname is None`.
+- `rstrip("XX.XX")` on the parsed hostname: `urlsplit().hostname` is lower-cased so it never ends
+  in `X`, making the mutant equivalent to `rstrip(".")`. The trailing-dot strip is now
+  `re.sub(r"\.+$", "", host)`, identical behaviour, whose pattern mutants are all killed by the
+  trailing-dot test.
 
 `mutmut` classes `timeout` mutants as detected (the mutated `AttemptBudget` hangs the existing
 cancellation test); the gate accepts `killed` and `timeout` only.

@@ -51,3 +51,16 @@ def test_an_enrolled_module_without_mutants_fails() -> None:
 def test_unenrolled_modules_do_not_affect_the_gate() -> None:
     lines = [*_all_killed(), f"    {PACKAGE}.redaction.x_g__mutmut_3: survived"]
     assert gate.evaluate(lines) == []
+
+
+def test_real_mutmut_result_lines_are_parsed() -> None:
+    """Lines copied verbatim from ``mutmut results --all true`` (mutmut 3.8.0)."""
+    real = [
+        "    polymarket_insider_tracker.endpoints.x_is_official_v1_trades_url__mutmut_16: killed",
+        "    polymarket_insider_tracker.ingestor._retry.xǁRetryPolicyǁattempt_limit__mutmut_2: survived",
+        "    polymarket_insider_tracker.ingestor._attempt_budget.x__default_sleep__mutmut_1: no tests",
+    ]
+    problems = gate.evaluate(real)
+    assert f"{STEP_1_MODULES[1]}: 1 mutant(s) survived" in problems
+    assert f"{STEP_1_MODULES[2]}: 1 mutant(s) no tests" in problems
+    assert f"{STEP_1_MODULES[0]}: no mutants were generated" not in problems
