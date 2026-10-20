@@ -3,6 +3,7 @@
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TypeGuard
 
 import pytest
 
@@ -27,10 +28,15 @@ from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, Tr
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
 
+def _is_field_list(value: object) -> TypeGuard[list[dict[str, str]]]:
+    """Narrow the untyped embed ``fields`` payload to Discord's list of name/value mappings."""
+    return isinstance(value, list)
+
+
 def _embed_field(alert: FormattedAlert, name: str) -> dict[str, str] | None:
     """Return the named field of the Discord embed, narrowing the untyped embed payload."""
     fields = alert.discord_embed["fields"]
-    assert isinstance(fields, list)
+    assert _is_field_list(fields)
     return next((f for f in fields if f["name"] == name), None)
 
 

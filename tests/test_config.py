@@ -5,9 +5,9 @@ from __future__ import annotations
 import contextlib
 import os
 import warnings
-from collections.abc import Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 import pytest
 from pydantic import ValidationError
@@ -34,6 +34,13 @@ if TYPE_CHECKING:
 
     from pydantic_settings import BaseSettings
 
+SettingsT = TypeVar("SettingsT", bound="BaseSettings")
+
+
+def _load_from_environment(settings_class: type[SettingsT]) -> SettingsT:
+    """Construct a settings group purely from the environment, as the application does."""
+    return settings_class()
+
 
 def _clear_environment(mp: pytest.MonkeyPatch) -> None:
     for k in list(os.environ.keys()):
@@ -47,7 +54,7 @@ def _apply_environment(mp: pytest.MonkeyPatch, env: Mapping[str, str] | None) ->
 
 
 @contextlib.contextmanager
-def env_context(env: Mapping[str, str] | None = None, *, clear: bool = False) -> Iterator[None]:
+def env_context(env: Mapping[str, str] | None = None, *, clear: bool = False) -> Generator[None]:
     """Isolated environment context using pytest monkeypatch."""
     with pytest.MonkeyPatch.context() as mp:
         if clear:
@@ -87,14 +94,14 @@ class TestSharedDotenvContract:
         """Pydantic consumes `model_config` by name; pin the loading policy it reads."""
         loading_policy = settings_class.model_config
 
-        assert loading_policy["env_file"] == ".env"
-        assert loading_policy["env_file_encoding"] == "utf-8"
-        assert loading_policy["extra"] == "ignore"
-        assert loading_policy["env_prefix"] == env_prefix
+        assert loading_policy.get("env_file") == ".env"
+        assert loading_policy.get("env_file_encoding") == "utf-8"
+        assert loading_policy.get("extra") == "ignore"
+        assert loading_policy.get("env_prefix") == env_prefix
 
     def test_database_settings_hide_credential_bearing_input_in_errors(self) -> None:
         """A rejected DATABASE_URL must not be echoed back with its credential."""
-        assert DatabaseSettings.model_config["hide_input_in_errors"] is True
+        assert DatabaseSettings.model_config.get("hide_input_in_errors") is True
 
     def test_one_dotenv_serves_every_group(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -135,7 +142,7 @@ class TestDatabaseSettings:
             env_context({"DATABASE_URL": "postgresql://user:pass@localhost/db"}),
             pytest.warns(DatabaseUrlMigrationWarning, match="postgresql.*psycopg"),
         ):
-            settings = DatabaseSettings()
+            settings = _load_from_environment(DatabaseSettings)
         assert settings.url == "postgresql+psycopg://user:pass@localhost/db"
 
     def test_valid_asyncpg_url(self) -> None:
@@ -144,7 +151,7 @@ class TestDatabaseSettings:
             env_context({"DATABASE_URL": "postgresql+asyncpg://user:pass@localhost/db"}),
             pytest.warns(DatabaseUrlMigrationWarning, match="asyncpg.*psycopg"),
         ):
-            settings = DatabaseSettings()
+            settings = _load_from_environment(DatabaseSettings)
         assert settings.url == "postgresql+psycopg://user:pass@localhost/db"
 
     def test_canonical_url_does_not_warn(self) -> None:
@@ -154,7 +161,7 @@ class TestDatabaseSettings:
             warnings.catch_warnings(record=True) as caught,
         ):
             warnings.simplefilter("always")
-            settings = DatabaseSettings()
+            settings = _load_from_environment(DatabaseSettings)
 
         assert settings.url == "postgresql+psycopg://user:pass@localhost/db"
         assert caught == []
@@ -165,7 +172,7 @@ class TestDatabaseSettings:
             env_context({"DATABASE_URL": "mysql://user:pass@localhost/db"}),
             pytest.raises(ValidationError, match="DATABASE_URL"),
         ):
-            DatabaseSettings()
+            _load_from_environment(DatabaseSettings)
 
     def test_incompatible_legacy_query_is_redacted(self) -> None:
         """Test that driver migration failures never echo credentials."""
@@ -181,7 +188,7 @@ class TestDatabaseSettings:
             ),
             pytest.raises(ValidationError) as exc_info,
         ):
-            DatabaseSettings()
+            _load_from_environment(DatabaseSettings)
 
         message = str(exc_info.value)
         assert "prepared_statement_cache_size" in message
@@ -433,10 +440,10 @@ class TestScannableUrlValidation:
     @pytest.mark.parametrize("char", ["\x00", "\x1b", "\x7f"])
     def test_control_characters_are_rejected_by_the_shared_check(self, char: str) -> None:
         """Control bytes cannot be set through the environment but must still fail closed."""
-        import polymarket_insider_tracker.config as config_module
-
         with pytest.raises(ValueError) as exc_info:
-            config_module._validate_http_url(f"https://rpc.invalid/v2/k{char}{self.SECRET}")
+            PolygonSettings.model_validate(
+                {"POLYGON_RPC_URL": f"https://rpc.invalid/v2/k{char}{self.SECRET}"}
+            )
 
         assert self.SECRET not in str(exc_info.value)
 

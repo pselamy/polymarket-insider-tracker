@@ -29,6 +29,7 @@ from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from tests.fakes import resist_cancellation_for
 from tests.fakes.alerts import discord_webhook
+from tests.fakes.redis_await import key_count
 
 
 class FakeChannel:
@@ -211,7 +212,7 @@ class TestChannelScopedDeduplication:
         assert result.disposition == "dry_run"
         assert len(discord.calls) == 0
         assert len(telegram.calls) == 0
-        assert await fake_redis.dbsize() == 0
+        assert await key_count(fake_redis) == 0
 
     @pytest.mark.asyncio
     async def test_ambiguity_timeout_sets_60s_key_and_suppresses_then_allows(
@@ -394,7 +395,7 @@ class TestConcurrentDispatchAtomicity:
         result = await dispatcher.dispatch(alert, assessment=assessment)
 
         assert result.channel_statuses["discord"] == "failed"
-        assert await fake_redis.dbsize() == 0
+        assert await key_count(fake_redis) == 0
 
         channel.should_fail = False
         retry = await dispatcher.dispatch(alert, assessment=assessment)
@@ -452,7 +453,7 @@ class TestClaimOwnershipAndLease:
         token = await alert_history.claim_channel_send("discord", "0xW", "0xM")
         assert token is not None
         assert await alert_history.release_channel_claim("discord", "0xW", "0xM", token) is True
-        assert await fake_redis.dbsize() == 0
+        assert await key_count(fake_redis) == 0
 
     @pytest.mark.asyncio
     async def test_expired_claim_leaves_identity_eligible_again(

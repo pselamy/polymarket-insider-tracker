@@ -1,7 +1,6 @@
 """Tests for alert dispatcher and channels."""
 
 import asyncio
-from datetime import UTC, datetime
 from typing import Literal
 
 import httpx
@@ -138,7 +137,7 @@ class TestChannelErrorRedaction:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        channel, server = wired_channel(
+        channel, _ = wired_channel(
             "discord",
             monkeypatch,
             max_retries=1,
@@ -159,7 +158,7 @@ class TestChannelErrorRedaction:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         token = "12345:SECRET-BOT-TOKEN"
-        channel, server = wired_channel(
+        channel, _ = wired_channel(
             "telegram",
             monkeypatch,
             max_retries=1,
@@ -327,7 +326,7 @@ class TestChannelErrorRedaction:
             webhook = f"https://discord.invalid/api/webhooks/987654/public?token={secret}"
         if style == "json-unicode-escape":
             echo = "\\u0052" + secret[1:]
-        config = DiscordSettings(_env_file=None, DISCORD_WEBHOOK_URL=webhook)
+        config = DiscordSettings.model_validate({"DISCORD_WEBHOOK_URL": webhook})
         assert config.enabled
         assert config.webhook_url is not None
         body = ('{"message":"' + echo + '"}').encode()
@@ -642,8 +641,7 @@ class TestAlertDispatcher:
         """Test dispatcher initialization."""
         dispatcher = AlertDispatcher(channels=[fake_discord_channel, fake_telegram_channel])
         assert len(dispatcher.channels) == 2
-        assert "discord" in dispatcher._circuit_state
-        assert "telegram" in dispatcher._circuit_state
+        assert set(dispatcher.get_circuit_status()) == {"discord", "telegram"}
 
     @pytest.mark.asyncio
     async def test_dispatch_all_success(
@@ -713,8 +711,9 @@ class TestAlertDispatcher:
             await dispatcher.dispatch(sample_alert)
 
         # Circuit should be open now
-        assert dispatcher._circuit_state["discord"].is_open is True
-        assert dispatcher._circuit_state["discord"].failure_count == 3
+        status = dispatcher.get_circuit_status()["discord"]
+        assert status["is_open"] is True
+        assert status["failure_count"] == 3
 
     @pytest.mark.asyncio
     async def test_circuit_skips_when_open(
@@ -723,20 +722,22 @@ class TestAlertDispatcher:
         fake_discord_channel: FakeAlertChannel,
     ) -> None:
         """Test that open circuit skips delivery."""
+        fake_discord_channel.accepting = False
         dispatcher = AlertDispatcher(
             channels=[fake_discord_channel],
-            failure_threshold=3,
+            failure_threshold=1,
             recovery_timeout_seconds=3600,
         )
 
-        # Manually open the circuit
-        dispatcher._circuit_state["discord"].is_open = True
-        dispatcher._circuit_state["discord"].last_failure_time = datetime.now(UTC)
+        # One failed delivery opens the circuit
+        await dispatcher.dispatch(sample_alert)
+        assert dispatcher.get_circuit_status()["discord"]["is_open"] is True
+        fake_discord_channel.accepting = True
 
         result = await dispatcher.dispatch(sample_alert)
 
         assert result.channel_results["discord"] is False
-        assert len(fake_discord_channel.deliveries) == 0
+        assert len(fake_discord_channel.deliveries) == 1
 
     @pytest.mark.asyncio
     async def test_circuit_closes_on_success(
@@ -750,22 +751,21 @@ class TestAlertDispatcher:
         dispatcher = AlertDispatcher(
             channels=[fake_discord_channel],
             failure_threshold=2,
+            recovery_timeout_seconds=0,
         )
 
         # Cause failures to open circuit
         await dispatcher.dispatch(sample_alert)
         await dispatcher.dispatch(sample_alert)
-        assert dispatcher._circuit_state["discord"].is_open is True
+        assert dispatcher.get_circuit_status()["discord"]["is_open"] is True
 
-        # Now succeed
+        # Now succeed; a zero recovery timeout makes the next attempt a half-open probe
         fake_discord_channel.accepting = True
-        # Force half-open by resetting last_failure to past
-        dispatcher._circuit_state["discord"].last_failure_time = datetime(2020, 1, 1, tzinfo=UTC)
 
         result = await dispatcher.dispatch(sample_alert)
 
         assert result.channel_results["discord"] is True
-        assert dispatcher._circuit_state["discord"].is_open is False
+        assert dispatcher.get_circuit_status()["discord"]["is_open"] is False
 
     @pytest.mark.asyncio
     async def test_dispatch_batch(
@@ -798,23 +798,26 @@ class TestAlertDispatcher:
         assert status["discord"]["is_open"] is False
         assert status["discord"]["failure_count"] == 0
 
-    def test_reset_circuit(
+    @pytest.mark.asyncio
+    async def test_reset_circuit(
         self,
+        sample_alert: FormattedAlert,
         fake_discord_channel: FakeAlertChannel,
     ) -> None:
         """Test manual circuit reset."""
-        dispatcher = AlertDispatcher(channels=[fake_discord_channel])
-
-        # Set up failure state
-        dispatcher._circuit_state["discord"].failure_count = 5
-        dispatcher._circuit_state["discord"].is_open = True
+        fake_discord_channel.accepting = False
+        dispatcher = AlertDispatcher(channels=[fake_discord_channel], failure_threshold=2)
+        await dispatcher.dispatch(sample_alert)
+        await dispatcher.dispatch(sample_alert)
+        assert dispatcher.get_circuit_status()["discord"]["is_open"] is True
 
         # Reset
         result = dispatcher.reset_circuit("discord")
 
         assert result is True
-        assert dispatcher._circuit_state["discord"].failure_count == 0
-        assert dispatcher._circuit_state["discord"].is_open is False
+        status = dispatcher.get_circuit_status()["discord"]
+        assert status["failure_count"] == 0
+        assert status["is_open"] is False
 
     def test_reset_circuit_unknown_channel(
         self,

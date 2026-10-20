@@ -58,17 +58,7 @@ def test_sample_trade_event_values_are_pinned() -> None:
     assert _sample_fields(inspect.unwrap(unit_pipeline.sample_trade_event)()) == expected
     assert _sample_fields(make_sample_trade_event()) == expected
     assert _sample_fields(inspect.unwrap(pipeline_persistence.sample_trade)()) == expected
-
-
-def test_persist_assessment_trade_is_a_different_trade() -> None:
-    """Its asset, price, size and title differ on purpose; the other fields match."""
-    fields = _sample_fields(inspect.unwrap(persist_assessment.sample_trade)())
-    assert (fields["asset_id"], fields["price"], fields["size"], fields["event_title"]) == (
-        "asset_xyz",
-        Decimal("0.42"),
-        Decimal("1000"),
-        "Test Event",
-    )
+    assert _sample_fields(inspect.unwrap(persist_assessment.sample_trade)()) == expected
 
 
 def test_market_for_trade_values_are_pinned() -> None:
