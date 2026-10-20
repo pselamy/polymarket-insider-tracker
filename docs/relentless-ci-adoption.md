@@ -567,3 +567,35 @@ to slice 004 (PR #167). It waits for that slice; the file is unchanged from main
 
 Defect-fails: appending an unexercised two-branch function to `endpoints.py` drops it to 83% and
 `coverage report` exits 2; the reverted tree exits 0 (100%, 1687 statements, 276 branches).
+
+## REF-CMD-20 step 3: alerter, config and persist-assessment roots (2026-10-21)
+
+Measured from `origin/main` at `adf809b`; enrolled in `[tool.pyright].include` with zero
+suppressions: `tests/alerter` (30 → 0), `tests/test_config.py` (12 → 0),
+`tests/test_persist_assessment.py` (5 → 0).
+
+Honest fixes, no suppression, cast, or `Any`:
+
+- Circuit-breaker tests read and drive state through `get_circuit_status()` and real failing
+  deliveries (a zero recovery timeout makes the next attempt the half-open probe) instead of
+  `_circuit_state`.
+- `AlertHistory.retention_ttl` is a new read-only property next to the existing `dedup_ttl`
+  (the sibling accessor was already public; the private `_retention_ttl` was the only asymmetry).
+- The duplicate-detection test records a real sent alert instead of hand-building a dedup key
+  through `_get_dedup_key`.
+- `test_persist_assessment.py` drives `Pipeline.process_trade` with a real fresh wallet and
+  market (`FakeEth`, `market_for_trade`) instead of calling private `_score_and_alert` with
+  hand-built signals; expected scores are the real scorer's (0.20 weighted / 0.50 confidence for
+  the below-threshold row, 0.38 for the alert in the failure test, whose threshold is lowered to
+  0.1 because the persistence contract does not depend on the threshold).
+- `test_config.py` constructs settings through a typed `_load_from_environment` helper and
+  `model_validate`, uses `.get` for optional `SettingsConfigDict` keys, a `Generator` return for
+  the context manager, and exercises the control-character URL check through the public
+  `PolygonSettings` validator rather than `_validate_http_url`.
+- `key_count` in `tests/fakes/redis_await.py` replaces the untyped `dbsize()` calls; a
+  `TypeGuard` narrows the Discord embed `fields` payload (it checks only `isinstance(..., list)`;
+  the element shape is trusted and each lookup is asserted by the tests that read it).
+
+Still unenrolled: `tests/test_shutdown.py` (17; signal-handler internals), `tests/test_terminal_error_durable.py`,
+`tests/fakes`, `tests/detector`, `tests/profiler`, `tests/test_redaction.py`, `tests/integration`,
+`tests/test_pipeline.py`, `tests/ingestor`, `tests/test_main.py`, `tests/tooling`.

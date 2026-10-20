@@ -84,6 +84,11 @@ class AlertHistory:
         """Effective channel delivery deduplication TTL in seconds."""
         return self._dedup_ttl
 
+    @property
+    def retention_ttl(self) -> int:
+        """Retention TTL in seconds for stored alert records and their indexes."""
+        return self._retention_ttl
+
     @classmethod
     def get_channel_dedup_key(cls, channel: str, wallet: str, market: str) -> str:
         """Get channel-scoped delivery deduplication Redis key."""

@@ -30,6 +30,7 @@ from redis.exceptions import WatchError
 
 from polymarket_insider_tracker.alerter import _channel_delivery
 from polymarket_insider_tracker.alerter.history import AlertHistory
+from tests.fakes.redis_await import key_count
 
 CHANNEL = "discord"
 WALLET = "0xW"
@@ -208,7 +209,7 @@ class TestCompareAndDeleteSequence:
             ("get", (_ambiguous_key(),)),
             ("unwatch", ()),
         ]
-        assert await fake.dbsize() == 0
+        assert await key_count(fake) == 0
 
 
 class TestCompareAndExpireSequence:
@@ -267,7 +268,7 @@ class TestCompareAndExpireSequence:
             ("get", (_ambiguous_key(),)),
             ("unwatch", ()),
         ]
-        assert await fake.dbsize() == 0
+        assert await key_count(fake) == 0
 
 
 class TestWatchErrorIsNotRetried:

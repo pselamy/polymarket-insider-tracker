@@ -242,8 +242,8 @@ class TestAlertHistoryInit:
 
         assert history.dedup_window_hours == 1
         assert history.retention_days == 30
-        assert history._dedup_ttl == 3600
-        assert history._retention_ttl == 30 * 86400
+        assert history.dedup_ttl == 3600
+        assert history.retention_ttl == 30 * 86400
 
     def test_custom_settings(self, fake_redis: FakeAsyncRedis) -> None:
         """Test custom configuration."""
@@ -255,8 +255,8 @@ class TestAlertHistoryInit:
 
         assert history.dedup_window_hours == 2
         assert history.retention_days == 7
-        assert history._dedup_ttl == 7200
-        assert history._retention_ttl == 7 * 86400
+        assert history.dedup_ttl == 7200
+        assert history.retention_ttl == 7 * 86400
 
 
 class TestShouldSend:
@@ -283,8 +283,11 @@ class TestShouldSend:
     ) -> None:
         """Test that duplicate returns False."""
         history = AlertHistory(fake_redis)
-        dedup_key = history._get_dedup_key(high_risk_assessment)
-        await fake_redis.set(f"{history.KEY_PREFIX_DEDUP}{dedup_key}", "1")
+        await history.record_sent(
+            high_risk_assessment,
+            channels_attempted=["discord"],
+            channels_succeeded={"discord": True},
+        )
 
         result = await history.should_send(high_risk_assessment)
 
@@ -324,7 +327,7 @@ class TestRecordFeedback:
     @pytest.mark.asyncio
     async def test_feedback_success(self, fake_redis: FakeAsyncRedis) -> None:
         """Test recording feedback for existing alert."""
-        existing_record = {
+        existing_record: dict[str, object] = {
             "alert_id": "test-123",
             "wallet_address": "0x1234",
             "market_id": "market_abc",
@@ -362,7 +365,7 @@ class TestGetAlert:
     @pytest.mark.asyncio
     async def test_get_existing(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting existing alert."""
-        existing_record = {
+        existing_record: dict[str, object] = {
             "alert_id": "test-123",
             "wallet_address": "0x1234",
             "market_id": "market_abc",
