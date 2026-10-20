@@ -1,13 +1,14 @@
 ---
 cluster: 18
 status: resolved
+resolved-by: PR #178
 ---
 
 # Cluster 18
 
 - **Files:** test_sniper.py
 - **Knowledge:** **Resolved**: the five-wallet 30-second cluster feed has one home (`clustered_detector`)
-- **Verdict:** resolved (this card)
+- **Verdict:** resolved (PR #178)
 - **Counts when first grouped (historical):** 0 clones, 0 duplicated lines. Current counts are generated, see [the README](../README.md).
 
 ## 2026-10-19 resolution update: clusters 18, 20, 23, 24, 26, 27, 29, 30 and 32 (remaining small test-construction duplicates)

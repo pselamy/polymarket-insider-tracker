@@ -1,6 +1,7 @@
 ---
 cluster: 22
 status: resolved
+resolved-by: PR #158
 watch: src/polymarket_insider_tracker/detector/fresh_wallet.py <-> src/polymarket_insider_tracker/detector/size_anomaly.py
 ---
 

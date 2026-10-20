@@ -1,6 +1,7 @@
 ---
 cluster: 1
 status: real
+resolved-by: PR #164 (partial; clones remain)
 files: tests/alerter/test_formatter.py, tests/alerter/test_history.py, tests/detector/test_scorer.py, tests/detector/test_size_anomaly.py
 ---
 

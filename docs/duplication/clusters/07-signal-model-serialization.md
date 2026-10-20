@@ -1,6 +1,7 @@
 ---
 cluster: 7
 status: incidental
+resolved-by: PR #159 (residual groups remain incidental)
 files: src/polymarket_insider_tracker/detector/models.py, src/polymarket_insider_tracker/storage/repos.py
 ---
 

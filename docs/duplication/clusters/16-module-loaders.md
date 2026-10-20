@@ -1,13 +1,14 @@
 ---
 cluster: 16
 status: resolved
+resolved-by: PR #177
 ---
 
 # Cluster 16
 
 - **Files:** tests/tooling/module_loading.py
 - **Knowledge:** **Resolved**: the isolated-interpreter `load(name, path)` program and the `from scripts import X` prologue have one home (`LOAD_PROGRAM`, `scripts_program`)
-- **Verdict:** resolved (this card)
+- **Verdict:** resolved (PR #177)
 - **Counts when first grouped (historical):** 0 clones, 0 duplicated lines. Current counts are generated, see [the README](../README.md).
 
 ## 2026-10-19 resolution update: clusters 16, 17 and 19 (verifier/spec module loaders, test_main wiring)

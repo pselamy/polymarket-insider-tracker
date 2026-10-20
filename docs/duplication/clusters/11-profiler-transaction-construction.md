@@ -1,13 +1,14 @@
 ---
 cluster: 11
 status: resolved
+resolved-by: PR #175
 ---
 
 # Cluster 11
 
 - **Files:** profiler/test_models.py
 - **Knowledge:** **Resolved**: the `Transaction` construction shared by the equality and hashing tests now has one home (`TestTransactionEquality._transaction`)
-- **Verdict:** resolved (this card)
+- **Verdict:** resolved (PR #175)
 - **Counts when first grouped (historical):** 0 clones, 0 duplicated lines. Current counts are generated, see [the README](../README.md).
 
 ## 2026-10-19 resolution update: clusters 11, 14 and 15 (small test-construction duplicates)
