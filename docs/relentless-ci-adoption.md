@@ -633,7 +633,7 @@ message), `tests/ingestor/test_retry_policy.py` (attempt limit, doubling, caps),
 `tests/ingestor/test_attempt_budget_validation.py` (validation messages, window boundaries,
 real default clock and sleep). The 20 `endpoints.py` survivors, 1 `_retry.py` survivor and the
 11 survivors plus 1 untested mutant in `_attempt_budget.py` are all killed by them, except the
-equivalent mutants below. Final run: `endpoints.py` 36 killed / 0 survived (count re-checked after the re.sub change), `_retry.py` 22 / 0,
+equivalent mutants below. Final run: `endpoints.py` 42 killed / 0 survived, `_retry.py` 22 / 0,
 `_attempt_budget.py` 62 killed + 2 timeout / 0 survived, `_cycle_cutoff.py` 21 / 0.
 
 Equivalent mutants (8 in `is_official_v1_trades_url`), each removed by a behaviour-preserving
