@@ -128,12 +128,25 @@ Named files, entry points, dependency order:
   authorization for read-only anonymous probes; none were run in this revision). No implementation task
   that lets the wallet group contribute to a score (T009d wallet rules, T015, T019) may merge until this
   receipt exists and records what the proxy-address nonce measures; until then the wallet group is
-  non-scoring (spec FR-007c). Probe plan: bounded sample of proxy addresses, compare
-  `eth_getTransactionCount` with public trade counts and record whether the nonce moves with trading;
-  if DECISION D1a selects O2 or O6 (or D1b selects G3), also qualify the per-user trades query (ordering, `takerOnly`,
-  10,000-row offset cap, maker visibility). Until it exists the wallet group stays described as
-  "low transaction count on the proxy address" (spec FR-007a/b). If the receipt shows the nonce does not
-  track trading, the wallet group stays non-scoring and D1a/D1b must be re-decided. (F01, F02)
+  non-scoring (spec FR-007c). **Acceptance rule: `research.md` R09a**, fixed before any probe runs.
+  Part A (nonce): random sample of N = 200 proxy addresses from the ≥ $1,000-trade frame of the first
+  hour of a 24 h window; ground truth = trades captured by the supported all-participant ingestion
+  (`takerOnly=false`) over intervals proven complete (≥ 20 h, loss intervals excluded); per address
+  `n0`/`n1` (`eth_getTransactionCount` at sampling and at +24 h), `eth_getCode`, and counted trades `k`.
+  Coverage: ≥ 150 complete, ≥ 50 with `k ≥ 1`, ≥ 30 with `k ≥ 6`. **PASS** iff tracking rate
+  M1 = share of active addresses with `n1 − n0 ≥ 1` is ≥ 0.95 **and** false low-activity rate
+  M2 = share of `k ≥ 6` addresses with `n1 ≤ 5` is ≤ 0.02, overall and in every contract/EOA stratum
+  of ≥ 20 addresses. Part B (only if D1a selects O2 or O6, or D1b selects G3): per-user query
+  (`takerOnly=false`, ≤ 1,000 requests) recall ≥ 0.99 aggregate and ≥ 0.95 per active address, zero
+  ordering violations, truncation always detectable, earliest trade stable across two runs.
+  **FAIL or INCONCLUSIVE keeps the gate closed** (`unqualified_pre_T027`, shipped posture unchanged);
+  the nonce is never scored and the recommended path becomes D1b G3 with D1a O6 (needs Part B PASS and
+  O6's own spec text and source task); if Part B also fails, D1a/D1b go back to Patrick. Only a Part A
+  PASS (or, under G3, a Part B PASS together with O6's reviewed spec text) lets a reviewed change set
+  `wallet_group_status = qualified`. The receipt (parameters, window,
+  coverage intervals, seed, per-address table, per-stratum metrics, request counts, verdict) is checked
+  in under `evidence/`. Until it exists the wallet group stays described as "low transaction count on
+  the proxy address" (spec FR-007a/b). (F01, F02, R4-B2)
 - [ ] T029 [US3] Default-alert-path disclosure (FR-022a). Add the typed live evidence capability value
   (`wallet_group_status` and `wallet_age_source` as code constants, `unqualified_pre_T027` and `none` on
   main; book depth `non_operational`) and one pure function that returns the alert-path report

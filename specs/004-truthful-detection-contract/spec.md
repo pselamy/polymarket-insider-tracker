@@ -154,8 +154,10 @@ persisted assessment fields, sample output, README, example environment, and the
   count are still recorded as observations, but `wallet.confidence` is null, `wallet.factors` is empty, the
   wallet contribution is `0`, the group is not counted in `signals_triggered`, and the 1.2 two-group bonus
   never applies. The size group alone scores, so the highest attainable score is **0.450**
-  (`0.75 × (0.35 + 0.25)`). After a T027 receipt shows the nonce tracks trading, a reviewed change citing
-  the receipt sets `group_status = qualified` and the FR-007/FR-008 wallet rules score. The gate is not an
+  (`0.75 × (0.35 + 0.25)`). Only a T027 receipt with verdict PASS under the
+  fixed protocol in [research.md](research.md) R09a (Part A, nonce tracking; or Part B under D1b G3)
+  allows a reviewed change citing the receipt to set `group_status = qualified` so the FR-007/FR-008
+  wallet rules score; FAIL or INCONCLUSIVE keeps the gate closed and the shipped posture unchanged. The gate is not an
   environment knob. Allowing the wallet group to score before T027 is DECISION D1b in
   [decision-packet.md](decision-packet.md); the spec is written for the gated default.
 - **FR-008**: When age is unknown and transaction count is below the boundary, the detector MAY emit a

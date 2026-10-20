@@ -68,6 +68,16 @@ is withdrawn: before the T027 receipt the wallet group is non-scoring and the sp
 reachability table and replay are written for that posture. Choosing G2 is an explicit choice to accept
 an unvalidated heuristic; choosing G3 moves the wallet group's activity measure to D1a O6.
 
+**What opens the gate (added after codex round 4, blocker 2)**: T027 now has a fixed, objective
+acceptance rule, `research.md` R09a. Part A samples 200 proxy addresses from the ≥ $1,000-trade frame,
+uses the supported all-participant ingestion as ground truth over ≥ 20 h of proven coverage, and passes
+only if the nonce moved for ≥ 95 % of addresses that traded and stayed ≤ 5 for ≤ 2 % of addresses with
+more than five trades that day, overall and in each contract/EOA stratum. Part B (only for O2/O6/G3)
+qualifies the per-user query (recall ≥ 0.99, ordering, truncation, stability). **FAIL or INCONCLUSIVE
+keeps the gate closed**, the nonce is never scored, and the recommended path becomes G3 with D1a O6; if
+Part B also fails, D1a/D1b come back to you. The thresholds (N = 200, 0.95, 0.02) are spec choices you
+may tighten or loosen; they are not presented as settled facts about provider behaviour.
+
 **Reviewer positions on D1a/D1b (input, not decisions)**:
 
 - *codex round 2*: scoring a proxy-wallet nonce as "low activity" before T027 says more than it

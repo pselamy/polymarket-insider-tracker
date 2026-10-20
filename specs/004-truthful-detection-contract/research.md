@@ -270,10 +270,71 @@ keeps FR-007/FR-008 truthful without adding a network surface to the detection p
 
 The unknown-age rule is identical under every option: exactly 0.50, factors `{base}`, no bonuses.
 
-**Qualification receipt T027 (not performed; needs explicit authorization)**: for a bounded sample of
-proxy addresses, compare `eth_getTransactionCount` against the address's public trade count and record
-whether the nonce moves with trading. Until then every statement about proxy-address nonce meaning is
-labelled UNVERIFIED.
+**Qualification receipt T027 (not performed; needs explicit authorization)**: the protocol below is
+the objective acceptance rule (added 2026-10-21 after codex round 4, blocker 2). Until a receipt with
+verdict PASS exists every statement about proxy-address nonce meaning is labelled UNVERIFIED, and the
+wallet group stays non-scoring (FR-007c).
+
+### R09a — T027 qualification protocol (the pass/fail rule for the wallet gate)
+
+The protocol is fixed before any probe runs; a receipt that deviates from it is INCONCLUSIVE, not a
+PASS. Parameters are named so a reviewer can check the receipt against them. Every probe is read-only
+and anonymous; none is authorized by this revision.
+
+**Part A — does the proxy-address nonce track trading? (opens the wallet gate under D1b G1 with an
+O1/O2/O3 age source)**
+
+| Item | Rule |
+|---|---|
+| Ground truth for trading | Trades captured by the supported ingestion (`takerOnly=false`, all-participant coverage, the default: `ingestor/trades_source.py:141`, `:192`) during the observation window. Only intervals the poller proved complete count: any interval covered by a `possible-data-loss` event is excluded, and the window must keep ≥ 20 h of proven coverage. Trades are counted per address by the slice-001 observation identity (`ingestor/trade_rows.py:227`), so a re-observed fill counts once. |
+| Frame | Distinct lowercased `proxy_wallet` values seen in a trade with notional ≥ $1,000 (the population the wallet detector actually evaluates) during the first hour `[t0, t0 + 1 h)` of the window. |
+| Sample | Simple random sample of `N = 200` addresses from the frame, with the RNG seed and the frame size recorded; if the frame has fewer than 200, all of it. |
+| Observations per address | `n0` = `eth_getTransactionCount(address, "latest")` read when the address is sampled (time `ts`); `n1` = the same at `t1 = t0 + 24 h`; `code` = whether `eth_getCode(address)` is non-empty at `t1` (contract account vs EOA); `k` = counted trades for the address in `(ts, t1]`. Three RPC reads per address (≤ 600 total) and no Data API request beyond the ingestion poll already running. |
+| Coverage (else INCONCLUSIVE) | ≥ 150 of the sampled addresses have `n0`, `n1`, `code` and `k`; ≥ 50 have `k ≥ 1` ("active"); ≥ 30 have `k ≥ 6` ("heavy": more trades in 24 h than the low-activity rule `nonce ≤ 5`, `detector/fresh_wallet.py:20`, `:159`, allows). |
+| Metric M1 — tracking rate | Among active addresses, the fraction with `n1 − n0 ≥ 1`. |
+| Metric M2 — false low-activity rate | Among heavy addresses, the fraction with `n1 ≤ 5`, i.e. addresses the current rule would call "low activity" although they made more than five public trades in one day. |
+| Strata | M1 and M2 are computed for all addresses and separately for contract and EOA addresses. A stratum with fewer than 20 addresses is reported but not judged. |
+| PASS | Coverage met, **and** in the whole sample and in every judged stratum `M1 ≥ 0.95` **and** `M2 ≤ 0.02`. The runtime cannot condition on the stratum, so a failing judged stratum fails the whole receipt. |
+| FAIL | Coverage met and any PASS inequality violated. |
+| INCONCLUSIVE | Coverage not met, the window was not proven for ≥ 20 h, or the protocol was deviated from. It keeps the gate closed exactly as FAIL does; it may be re-run with a new seed and window, and both receipts are retained. |
+
+Maker and taker visibility: the ground truth is the all-participant capture, so maker fills that the
+public query returns are counted; fills hidden from that query are not, and the receipt states this
+limit rather than claiming them. A hidden fill can only lower `k`, so it makes PASS harder for M2 (fewer
+heavy addresses) but never manufactures a PASS on M1. Relayer behavior is what M1 tests: if relayers
+submit the address's transactions, its nonce does not move and M1 fails. The receipt does not explain
+why a nonce moved; it only measures whether it tracks trading well enough to be scored.
+
+**Part B — is the per-user trades query usable? (required only if D1a selects O2 or O6, or D1b selects
+G3)**
+
+| Item | Rule |
+|---|---|
+| Sample | The Part A sample (same window), so ground truth is shared. |
+| Query | The documented per-user form of the trades query with `takerOnly=false`, paginated newest-first within the documented `limit`/`offset` maxima (offset ≤ 10,000; `specs/001-supported-trade-ingestion/evidence/feasibility.md:13-15`), at ≤ 2 requests/s and ≤ 1,000 requests in total. |
+| Q1 — recall | For each active address, the fraction of its ground-truth window trades (matched by observation identity) that the per-user query also returns. |
+| Q2 — ordering | Order violations against newest-first across every returned page. |
+| Q3 — truncation detectability | Every address whose history reaches the offset cap is flagged truncated by the responses themselves (the page at the maximum allowed offset is full); such an address must yield age and trade count `unknown`, never a value. |
+| Q4 — stability | For addresses not truncated, the earliest returned trade is identical in two runs at least 1 h apart. |
+| PASS | ≥ 50 active addresses queried; aggregate `Q1 ≥ 0.99` and no active address below `0.95`; `Q2 = 0`; every Q3 case detectable; `Q4` identical for 100 % of non-truncated addresses. |
+| FAIL / INCONCLUSIVE | As in Part A. On FAIL, O2, O6 and G3 are unavailable and D1a stays O1. |
+
+**Outcomes for the wallet gate**
+
+- **Part A PASS**: a reviewed change citing the receipt may set `wallet_group_status = qualified`
+  (FR-007c); it is never an environment knob. Which age source and wording then apply is D1a.
+- **Part B PASS under D1b G3** (whatever Part A found): a reviewed change that lands O6's spec text and
+  source task may set `wallet_group_status = qualified` with the Polymarket trade count as the activity
+  measure; the nonce stays an observation and is never scored.
+- **Part A FAIL or INCONCLUSIVE**: the gate stays closed (`unqualified_pre_T027`) and the shipped
+  posture is unchanged. The nonce is never scored; the recommended path becomes D1b **G3** with D1a
+  **O6**, which needs Part B PASS plus O6's own spec text and source task. If Part B also fails, the
+  wallet group stays non-scoring and D1a/D1b go back to Patrick.
+- **Receipt contents** (checked in under `evidence/`): the protocol parameters above, window bounds,
+  proven-coverage intervals and excluded loss intervals, seed, frame size, the per-address table
+  (address, `n0`, `n1`, `code`, `k`, and for Part B per-address Q1/Q3/Q4), the metrics per stratum, the
+  request and RPC counts, and the verdict. Addresses are public trade-row identities already stored by
+  the ingestion; no credential or credential-bearing URL is recorded.
 
 ## R10 — Threshold reachability under live evidence (added 2026-10-19; resolves F03, F04, F05)
 
