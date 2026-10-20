@@ -17,6 +17,9 @@ OFFICIAL_V2_TRADES_URL = "https://data-api.polymarket.com/v2/trades"
 V1_RETIREMENT_DATE = "2026-10-24"
 
 _V1_PARTS = urlsplit(OFFICIAL_V1_TRADES_URL)
+_V1_HOST = _V1_PARTS.hostname or ""
+_V1_PATH = _V1_PARTS.path
+_ROOT_DOT = "."
 
 
 def is_official_v1_trades_url(url: str) -> bool:
@@ -35,11 +38,13 @@ def is_official_v1_trades_url(url: str) -> bool:
         port = parts.port
     except ValueError:
         return False
+    if parts.hostname is None:
+        return False
     default_port = {"http": 80, "https": 443}.get(parts.scheme)
     return (
         port in (None, default_port)
-        and (parts.hostname or "").rstrip(".") == (_V1_PARTS.hostname or "").rstrip(".")
-        and parts.path.rstrip("/") == _V1_PARTS.path.rstrip("/")
+        and parts.hostname.rstrip(_ROOT_DOT) == _V1_HOST
+        and parts.path.rstrip("/") == _V1_PATH
     )
 
 

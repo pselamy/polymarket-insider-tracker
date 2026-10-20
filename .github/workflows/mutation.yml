@@ -1,4 +1,4 @@
-name: Mutation (mutmut, redaction target)
+name: Mutation (mutmut, staged zero-survivor gate)
 
 # ONE genuine trusted-OSS mutation-runner integration under HOSTED CI.
 # No local install is performed or required by this file; hosted runners
@@ -9,10 +9,12 @@ name: Mutation (mutmut, redaction target)
 # scoping is via [tool.mutmut] config, NOT CLI flags; the CI-stats
 # command is `export-cicd-stats`, hyphen form, from bare
 # @cli.command() on `def export_cicd_stats`).
-# Target: src/polymarket_insider_tracker/redaction.py in
+# Targets: redaction.py (measured, survivors displayed) plus four modules enrolled in the
+# zero-survivor gate (endpoints.py, _retry.py, _attempt_budget.py, _cycle_cutoff.py); see
+# scripts/mutation_gate.py. The enrolled list only grows. Target repository:
 # pselamy/polymarket-insider-tracker, exercised by the existing
 # tests/test_redaction.py (pure-Python secret-redaction behavior, no services).
-# Scope is intentionally ONE file so the run stays bounded on hosted CI.
+# Scope is five small files so the run stays bounded on hosted CI (about two minutes locally).
 #
 # Fail-closed controls (all enforced by the script's own exit code):
 # - syntax / import / test-collection errors NEVER count as kills: the
@@ -57,7 +59,7 @@ permissions:
 
 jobs:
   mutation:
-    name: Mutation (mutmut redaction target)
+    name: Mutation (mutmut staged zero-survivor gate)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -74,8 +76,9 @@ jobs:
       - name: Install mutmut 3.8.0
         run: uv pip install --python 3.11 "mutmut==3.8.0"
       - name: Baseline must be green (else nothing counts as killed)
-        run: uv run --python 3.11 pytest tests/test_redaction.py -q -p no:cacheprovider
-      - name: Run mutmut on the redaction target
+        run: |
+          uv run --python 3.11 python -c "import subprocess, sys, tomllib; sel = tomllib.load(open('pyproject.toml', 'rb'))['tool']['mutmut']['pytest_add_cli_args_test_selection']; sys.exit(subprocess.call([sys.executable, '-m', 'pytest', *sel]))"
+      - name: Run mutmut on the mutated modules
         run: |
           set -euo pipefail
           uv run --python 3.11 mutmut run
@@ -88,3 +91,7 @@ jobs:
       - name: Report survivors for triage (display-only, exit code preserved)
         run: uv run --python 3.11 mutmut results
 
+      - name: Gate - no enrolled module may have an undetected mutant
+        run: |
+          set -euo pipefail
+          uv run --python 3.11 mutmut results --all true | uv run --python 3.11 python scripts/mutation_gate.py

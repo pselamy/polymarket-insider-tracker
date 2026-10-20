@@ -146,6 +146,9 @@ include = [
     "tests/test_sample_fixtures.py",
     "tests/test_setup.py",
     "tests/test_trades_v2_config.py",
+    "tests/test_endpoints.py",
+    "tests/ingestor/test_retry_policy.py",
+    "tests/ingestor/test_attempt_budget_validation.py",
 ]
 pythonVersion = "3.11"
 stubPath = "typings"
@@ -223,6 +226,9 @@ also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
 pytest_add_cli_args_test_selection = [
     "tests/test_redaction.py",
     "tests/test_trades_v2_config.py",
+    "tests/test_endpoints.py",
+    "tests/ingestor/test_retry_policy.py",
+    "tests/ingestor/test_attempt_budget_validation.py",
     "tests/ingestor/test_attempt_budget.py",
     "tests/ingestor/test_attempt_budget_properties.py",
     "tests/ingestor/test_trades_source.py",
