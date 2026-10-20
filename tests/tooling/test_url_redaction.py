@@ -1,6 +1,6 @@
 """Characterization and property tests for URL credential redaction at both verifier call sites.
 
-Cluster 5 of ``docs/duplication-inventory.md`` duplicated one URL credential
+Cluster 5 of ``docs/duplication/clusters`` duplicated one URL credential
 parser between ``scripts/_service_redaction.py`` (used by
 ``scripts/runtime_services.py``) and ``scripts/_verify_redaction.py`` (used by
 ``scripts/verify.py``). The characterization tests pin the observable behaviour

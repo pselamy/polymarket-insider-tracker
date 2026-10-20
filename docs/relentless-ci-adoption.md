@@ -223,7 +223,7 @@ policy: `--mode mild --format python --min-tokens 50 --min-lines 4 --threshold 0
 --no-gitignore --workers 1`, empty config, no ignore lists). Result: **90 clone
 groups, 1214 duplicated lines, 2.19% duplication** — the measured count recorded in
 the ledger row above. The full clone inventory lives in
-[`docs/duplication-inventory.md`](duplication-inventory.md). REF-CMD-16 therefore
+[`docs/duplication/`](duplication/README.md). REF-CMD-16 therefore
 remains **unenrolled** (US-004's zero-clone condition is not met), and the
 `399-line` size gate must be paid down before `duplication_main` can reach the
 scanner and a clean enrollment is possible.
@@ -261,7 +261,7 @@ byte-identically; the two additions come from the v1->v2 endpoint work merged to
 main (`tests/ingestor/test_endpoint_switch_resume.py` bootstrap, 67 tokens;
 `tests/ingestor/_v2_walk_harness.py` <-> `tests/ingestor/test_v2_cursor_walk.py`
 harness construction, 50 tokens). The regenerated inventory is
-[`docs/duplication-inventory.md`](duplication-inventory.md).
+[`docs/duplication/`](duplication/README.md).
 
 REF-CMD-16 / REF-HOOK-01 coupling: `python -m quality.duplication_main` cannot
 reach the scanner on this tree, and enrollment additionally depends on the

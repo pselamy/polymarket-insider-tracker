@@ -3,7 +3,7 @@
 These tests pin the exact published payload and key order of every signal
 model's ``to_dict``, the shared confidence-threshold and trade-identity
 property behaviour, and the delivery/observation defaults, so the duplicated
-knowledge recorded for cluster 7 in docs/duplication-inventory.md can move to
+knowledge recorded for cluster 7 in docs/duplication/clusters can move to
 a single home without any observable change.
 """
 
