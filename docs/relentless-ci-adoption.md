@@ -691,3 +691,9 @@ over 399 lines) and would stop `verify_security` before any scan:
 Open questions for the reviewer (no suppression is permitted): the gitleaks history findings are in
 immutable commits and cannot be fixed by a code change; the gate also cannot run end to end until
 REF-HOOK-01 is enrolled.
+
+Correction/receipt (step 2): the 6 opengrep findings above were fixed in tests, with no suppression.
+The five `pickle.loads` round trips now assert the module and name `pickle.dumps` references
+(`tests/pickle_reference.py` reads the opcode stream with `pickletools`, never unpickling) and that
+resolving that name yields the same object; `yaml.load` became
+`BaseLoader(...).get_single_data()`. The 6 findings in the table are the pre-fix measurement.

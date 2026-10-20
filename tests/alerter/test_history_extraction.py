@@ -9,11 +9,10 @@ channel-scoped delivery helpers from :mod:`...alerter._channel_delivery` onto
   same objects (so monkeypatch seams and pickle references keep working),
 - the pure dedup-key helper's format and hour-scoping contract,
 - the extracted channel-delivery coroutines' observable Redis behaviour,
-- ``AlertRecord`` pickle round-trips through the historical module path.
+- ``AlertRecord`` pickle pickles by reference to the historical module path.
 """
 
 import copy
-import pickle
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -27,6 +26,7 @@ from polymarket_insider_tracker.alerter.history import (
     _generate_dedup_key,
     _get_signals_from_assessment,
 )
+from tests.pickle_reference import pickled_global, resolve_pickled_global
 
 DEDUP_KEY_PATTERN = re.compile(r"^(?P<wallet>[^:]+):(?P<market>[^:]+):(?P<hour>\d{10})$")
 
@@ -83,16 +83,16 @@ class TestImportIdentity:
 
     def test_alert_record_pickle_round_trip(self) -> None:
         record = _sample_record()
-        assert b"polymarket_insider_tracker.alerter.history" in pickle.dumps(record)
-        restored = copy.deepcopy(record)
-        assert restored == record
-        assert type(restored) is AlertRecord
+        module = "polymarket_insider_tracker.alerter.history"
+        assert pickled_global(record) == (module, "AlertRecord")
+        assert resolve_pickled_global(record) is AlertRecord
+        assert copy.deepcopy(record) == record
 
     def test_pure_helpers_pickle_round_trip_through_historical_name(self) -> None:
-        # pickle.dumps raises PicklingError unless the historical name resolves to the same object.
+        module = "polymarket_insider_tracker.alerter.history"
         for helper in (_generate_dedup_key, _get_signals_from_assessment):
-            assert b"polymarket_insider_tracker.alerter.history" in pickle.dumps(helper)
-            assert copy.deepcopy(helper) is helper
+            assert pickled_global(helper) == (module, helper.__qualname__)
+            assert resolve_pickled_global(helper) is helper
 
 
 class TestGenerateDedupKeyProperty:
