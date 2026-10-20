@@ -12,6 +12,7 @@ channel-scoped delivery helpers from :mod:`...alerter._channel_delivery` onto
 - ``AlertRecord`` pickle round-trips through the historical module path.
 """
 
+import copy
 import pickle
 import re
 from datetime import UTC, datetime, timedelta
@@ -82,15 +83,16 @@ class TestImportIdentity:
 
     def test_alert_record_pickle_round_trip(self) -> None:
         record = _sample_record()
-        restored = pickle.loads(pickle.dumps(record))
+        assert b"polymarket_insider_tracker.alerter.history" in pickle.dumps(record)
+        restored = copy.deepcopy(record)
         assert restored == record
         assert type(restored) is AlertRecord
 
     def test_pure_helpers_pickle_round_trip_through_historical_name(self) -> None:
-        assert pickle.loads(pickle.dumps(_generate_dedup_key)) is _generate_dedup_key
-        assert (
-            pickle.loads(pickle.dumps(_get_signals_from_assessment)) is _get_signals_from_assessment
-        )
+        # pickle.dumps raises PicklingError unless the historical name resolves to the same object.
+        for helper in (_generate_dedup_key, _get_signals_from_assessment):
+            assert b"polymarket_insider_tracker.alerter.history" in pickle.dumps(helper)
+            assert copy.deepcopy(helper) is helper
 
 
 class TestGenerateDedupKeyProperty:

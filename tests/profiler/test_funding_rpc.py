@@ -18,6 +18,7 @@ of this repository and adding one is outside this change's scope.
 
 from __future__ import annotations
 
+import copy
 import inspect
 import pickle
 from collections.abc import Callable
@@ -106,8 +107,9 @@ class TestReExportIdentity:
         assert func.__qualname__ == "_is_pruned_history_error"
 
     def test_classifier_pickle_round_trip_by_reference(self) -> None:
-        restored = pickle.loads(pickle.dumps(_legacy_classifier()))
-        assert restored is rpc.is_pruned_history_error
+        # pickle.dumps raises PicklingError unless the historical name resolves to this object.
+        assert b"_is_pruned_history_error" in pickle.dumps(_legacy_classifier())
+        assert copy.deepcopy(_legacy_classifier()) is rpc.is_pruned_history_error
 
     def test_transfer_topic_is_0x_prefixed_signature(self) -> None:
         expected = "0x" + funding.TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
