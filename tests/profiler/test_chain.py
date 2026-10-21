@@ -156,7 +156,7 @@ class TestPolygonClient:
             "https://polygon-rpc.com",
             redis=fake_redis,
             cache_ttl_seconds=600,
-            max_requests_per_second=50,
+            max_requests_per_second=1000,
             max_retries=5,
             retry_delay_seconds=0.0,
             web3=FakeAsyncWeb3(eth),
@@ -166,9 +166,9 @@ class TestPolygonClient:
         assert eth.call_count == 5
         assert await fake_redis.ttl(_cache_key("nonce", VALID_ADDRESS)) == 600
         start = time.monotonic()
-        for _ in range(40):
+        for _ in range(100):
             await client.acquire_rate_limit()
-        assert time.monotonic() - start < 0.5
+        assert time.monotonic() - start < 1.0
 
     async def test_cache_key_layout_and_default_ttl(self, fake_redis: FakeAsyncRedis) -> None:
         """Lookups persist under ``polygon:<kind>:<lowercased address>`` for the default TTL."""

@@ -134,14 +134,10 @@ class PolygonClient:
             fallback_rpc_url: Optional fallback RPC URL for failover.
             redis: Optional Redis client for caching.
             cache_ttl_seconds: Cache TTL in seconds.
-            max_requests_per_second: Rate limit for RPC calls.
+            max_requests_per_second: Rate limit; ``rate_limiter`` replaces it and can be shared.
             max_retries: Maximum retry attempts on failure.
             retry_delay_seconds: Initial delay between retries.
-            web3: Optional primary RPC handle replacing the HTTP one built from ``rpc_url``.
-            fallback_web3: Optional fallback RPC handle replacing the HTTP one built from
-                ``fallback_rpc_url``.
-            rate_limiter: Optional request limiter replacing the one built from
-                ``max_requests_per_second``, so several consumers can share one budget.
+            web3, fallback_web3: Optional RPC handles replacing the HTTP ones built from the URLs.
         """
         self._redis = redis
         self._cache_ttl = cache_ttl_seconds

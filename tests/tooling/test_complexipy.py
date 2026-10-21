@@ -212,8 +212,7 @@ def test_no_forbidden_complexipy_escape_hatches() -> None:
     assert complexipy_config["no-ignore"] is True
     assert complexipy_config["check-script"] is True
     paths = complexipy_config["paths"]
-    assert is_array(paths)
-    assert tuple(paths) == CANONICAL_SCOPE
+    assert is_array(paths) and tuple(paths) == CANONICAL_SCOPE
 
 
 def test_no_complexipy_config_or_snapshot_anywhere_in_the_tracked_tree() -> None:

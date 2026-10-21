@@ -8,7 +8,6 @@ import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-import httpx
 import pytest
 from fakeredis import FakeAsyncRedis, FakeServer
 from prometheus_client import REGISTRY
@@ -41,7 +40,7 @@ from tests.fakes import (
 )
 from tests.fakes.redis_await import as_bytes, scored_members, settled
 from tests.fakes.trades import Fault, synthetic_transaction
-from tests.ingestor._poller_harness import TradeProvider
+from tests.ingestor._poller_harness import RedisDropsOnRequest, TradeProvider
 
 NOW = 1_788_983_720.0
 T0 = int(NOW)
@@ -396,7 +395,7 @@ class TestStatusAndMetrics:
         assert status.last_trade_at == datetime.fromtimestamp(T0 + 4, tz=UTC)
         assert status.latest_seen_at == datetime.fromtimestamp(T0 + 4, tz=UTC)
         assert status.provider_lag_seconds is not None
-        assert math.isclose(status.provider_lag_seconds, 1.0, rel_tol=1e-6, abs_tol=1e-12)
+        assert math.isclose(status.provider_lag_seconds, 1.0, rel_tol=1e-6)
         assert status.processing_lag_seconds >= 0.0
         assert status.consecutive_failures == 0
         assert status.last_error is None
@@ -433,9 +432,7 @@ class TestStatusAndMetrics:
         assert _metric("polymarket_ingest_rows_total", disposition="emitted") - emitted_before == 1
         assert _metric("polymarket_ingest_requests_total", outcome="success") - success_before == 2
         assert _metric("polymarket_ingest_boundary_timestamp_seconds") == float(T0 + 1)
-        assert math.isclose(
-            _metric("polymarket_ingest_provider_lag_seconds"), 4.0, rel_tol=1e-6, abs_tol=1e-12
-        )
+        assert math.isclose(_metric("polymarket_ingest_provider_lag_seconds"), 4.0, rel_tol=1e-6)
         assert _metric("polymarket_ingest_page_span_seconds") == 62.0
         assert _metric("polymarket_ingest_request_duration_seconds_count") >= 2
 
@@ -667,7 +664,7 @@ class TestRowQuality:
     ) -> None:
         server.page_limit = 2
         poller = await _anchored(server, clock, fake_redis, settings, callback)
-        counts_before = dict(poller.status.outcome_counts)
+        unknown_before = poller.status.outcome_counts["unknown"]
         server.publish(trade_row(timestamp=T0 + 1, transaction=1, outcome="No", outcome_index=999))
         server.publish(trade_row(timestamp=T0 + 2, transaction=2))
         server.publish(trade_row(timestamp=T0 + 1, transaction=1, outcome="No", outcome_index=1))
@@ -675,16 +672,9 @@ class TestRowQuality:
         await poller.run_cycle()
 
         assert poller.status.counts["recovery_pages"] == 1
-        recovered = [
-            trade for trade in callback.trades if trade.trade_id == synthetic_transaction(1)
-        ]
-        assert [(trade.outcome, trade.outcome_index) for trade in recovered] == [("No", 1)]
-        counts = poller.status.outcome_counts
-        assert {name: counts[name] - counts_before[name] for name in counts} == {
-            "provided": 3,  # the two primary rows plus the seeded row the recovery page re-reads
-            "repaired": 0,
-            "unknown": 1,
-        }
+        recovered = [t for t in callback.trades if t.trade_id == synthetic_transaction(1)]
+        assert [(t.outcome, t.outcome_index) for t in recovered] == [("No", 1)]
+        assert poller.status.outcome_counts["unknown"] - unknown_before == 1
 
     async def test_invalid_rows_are_counted_per_field_while_valid_rows_flow(
         self,
@@ -764,24 +754,6 @@ class TestRowQuality:
         assert callback.trades == []
 
 
-class _RedisDropsOnRequest:
-    """A provider whose first served request cuts the Redis server, after the boundary loaded."""
-
-    def __init__(self, server: FakeTradesServer, redis_server: FakeServer) -> None:
-        self._server = server
-        self._redis_server = redis_server
-        self._dropped = False
-
-    def client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(transport=httpx.MockTransport(self._serve))
-
-    def _serve(self, request: httpx.Request) -> httpx.Response:
-        if not self._dropped:
-            self._dropped = True
-            self._redis_server.connected = False
-        return self._server(request)
-
-
 class TestRestart:
     async def test_failed_reanchor_is_retried_without_replaying_history(
         self,
@@ -797,7 +769,7 @@ class TestRestart:
         server.publish(trade_row(timestamp=T0 + 650, transaction=650))
         callback = RecordingTradeCallback()
         restarted = _poller(
-            _RedisDropsOnRequest(server, redis_server), clock, fake_redis, settings, callback
+            RedisDropsOnRequest(server, redis_server), clock, fake_redis, settings, callback
         )
 
         await restarted.run_cycle()

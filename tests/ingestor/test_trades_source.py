@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -242,8 +241,7 @@ class TestRequestShape:
         page = await client.fetch_primary(boundary_time=None, horizon_seconds=600)
 
         assert page.request.end == int(NOW) + 6
-        assert len(clock.sleeps) == 1
-        assert math.isclose(clock.sleeps[0], int(NOW) + 6 - NOW, rel_tol=1e-6, abs_tol=1e-12)
+        assert [round(delay, 6) for delay in clock.sleeps] == [round(int(NOW) + 6 - NOW, 6)]
 
     async def test_recovery_request_reuses_the_window_at_the_documented_offset(
         self, server: FakeTradesServer, clock: FakeClock
