@@ -796,3 +796,11 @@ groups; the earlier "16 packages" count omitted one: the list above it names 17)
 scan found 8 matches in the current files (also present in history, so part of the 11 above), all
 removed by renaming test identifiers (see `docs/security.md`). The vendored `quality/security.py` is
 unchanged; the deviations are documented in `docs/security.md`.
+
+## Pre-commit hooks
+
+The `black`, `ruff` and `mypy` hooks in `.pre-commit-config.yaml` are `repo: local` hooks that run the
+locked project tools (`uv run --locked --all-extras ...`) with the same commands and scopes as
+`quality/checks.json`, so versions come from `uv.lock` and cannot drift from CI. The generic
+`pre-commit-hooks` checks remain remote. `tests/tooling/test_precommit_drift.py` fails if a hook's
+command differs from the enrolled CI command or a remote repo re-pins one of these tools.
