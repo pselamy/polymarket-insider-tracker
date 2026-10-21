@@ -244,9 +244,6 @@ class MarketMetadataSync:
         except TimeoutError:
             pass
 
-        if self._stop_event.is_set():
-            return False
-
         await self._sync_all_markets()
         return True
 
@@ -381,10 +378,9 @@ class MarketMetadataSync:
         # Cache miss - fetch from API
         try:
             market = await asyncio.to_thread(self._clob.get_market, condition_id)
-            if market:
-                metadata = MarketMetadata.from_market(market)
-                await self._cache_market_if_absent(metadata)
-                return await self._volumes.merge(metadata, no_record_reason="clob_miss_path")
+            metadata = MarketMetadata.from_market(market)
+            await self._cache_market_if_absent(metadata)
+            return await self._volumes.merge(metadata, no_record_reason="clob_miss_path")
         except Exception as e:
             logger.warning(
                 "Failed to fetch market %s: %s", condition_id, redact_exception_message(e)

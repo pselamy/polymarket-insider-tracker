@@ -60,6 +60,9 @@ class FakeBaseClobClient:
         self.health_error: Exception | None = None
         self.market_error: Exception | None = None
         self.midpoint_error: Exception | None = None
+        self.orderbook_error: Exception | None = None
+        self.price_error: Exception | None = None
+        self.server_time_error: Exception | None = None
         self.page_requests: list[str | None] = []
         self.health_requests = 0
 
@@ -69,8 +72,9 @@ class FakeBaseClobClient:
             raise self.health_error
         return "OK"
 
-    @staticmethod
-    def get_server_time() -> int:
+    def get_server_time(self) -> int:
+        if self.server_time_error is not None:
+            raise self.server_time_error
         return 1704067200000
 
     def get_simplified_markets(self, next_cursor: str | None = None) -> dict[str, Any]:
@@ -93,8 +97,9 @@ class FakeBaseClobClient:
             ],
         }
 
-    @staticmethod
-    def get_order_book(token_id: str) -> OrderBookSummary:
+    def get_order_book(self, token_id: str) -> OrderBookSummary:
+        if self.orderbook_error is not None:
+            raise self.orderbook_error
         return order_book_summary(
             "0xmarket",
             token_id,
@@ -112,7 +117,8 @@ class FakeBaseClobClient:
             raise self.midpoint_error
         return {"mid": "0.55"}
 
-    @staticmethod
-    def get_price(token_id: str, side: str = "BUY") -> dict[str, str]:
+    def get_price(self, token_id: str, side: str = "BUY") -> dict[str, str]:
         _ = token_id
+        if self.price_error is not None:
+            raise self.price_error
         return {"price": "0.53" if side == "BUY" else "0.51"}

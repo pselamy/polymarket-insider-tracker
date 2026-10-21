@@ -500,7 +500,7 @@ class HealthMonitor:
 
     async def _health_check_loop(self) -> None:
         """Background task for periodic health checks."""
-        while self._running:
+        while True:
             try:
                 await self._run_health_check_step()
             except asyncio.CancelledError:
@@ -526,11 +526,11 @@ class HealthMonitor:
 
         self._running = False
 
-        if self._health_task:
-            self._health_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._health_task
-            self._health_task = None
+        assert self._health_task is not None  # start() sets it whenever _running is set
+        self._health_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._health_task
+        self._health_task = None
 
         await self.stop_http_server()
         logger.info("Health monitor stopped")
