@@ -53,6 +53,8 @@ class AlertHistory:
 
     def __init__(
         self,
+        # The one confined ``Any`` of the escape sweep: redis-py's ``zrangebyscore`` stub is
+        # partially unknown under strict Pyright and the tests inject partial Redis doubles.
         redis: Any,
         *,
         dedup_window_hours: int = 1,

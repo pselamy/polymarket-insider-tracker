@@ -1376,3 +1376,42 @@ a block timestamp that is not an integer is rejected; a transfer log with missin
 topics, data, transaction hash or block number raises `ValueError`; a WebSocket frame that is
 valid JSON but not an object is logged and dropped; a DML result that is not a cursor result
 raises `TypeError`.
+
+## Escape sweep step 1: typing escapes in seven production modules (2026-10-21)
+
+Inventory before the sweep (`cast(`, `Any`, `# type: ignore`, `# pyright: ignore`, `# noqa`; the
+last three were already absent). 23 escape sites in total.
+
+| File | Line | Escape | Why it exists | Honest replacement |
+| --- | --- | --- | --- | --- |
+| `ingestor/trade_rows.py` | 172-179 | 8 × `cast` | parsed identity values held in `dict[str, object]` | generic `_required` parser call per field, `_IdentityFields` built from typed values |
+| `ingestor/trade_rows.py` | 200, 210, 242 | `dict[str, Any]` rows | raw provider row | `Mapping[object, object]` (values are only read through `object` parsers) |
+| `ingestor/trade_rows.py` | 277 | `cast(dict[str, Any], raw)` | narrowed `dict[Unknown, Unknown]` | `shapes.object_mapping` (non-string keys stay accepted, as pinned by `test_non_string_key_is_carried_through_exactly_like_the_v1_parser`) |
+| `ingestor/v2_page.py` | 135, 157 | 2 × `cast` | `isinstance(x, dict/list)` leaves `Unknown` element types | `shapes.string_keyed` / `shapes.object_list` (`TypeGuard` re-typing, then per-item checks) |
+| `alerter/channels/response_values.py` | 74 | `cast` | same | `shapes.string_keyed` |
+| `alerter/_history_records.py` | 49, 65 | `dict[str, Any]` | stored JSON record | `Mapping[str, object]` in, `dict[str, object]` out, typed field readers that raise `ValueError` on a wrong type |
+| `alerter/history.py` | 56 | `redis: Any` | duck-typed Redis | kept as the single confined boundary `Any` (see below) |
+| `ingestor/publisher.py` | 116, 196, 225, 356 | `Any`, 2 × `cast` | XREADGROUP reply, invariant redis-py dict, XINFO | `_stream_reply` validates the reply shape by shape, `_encodable_fields` builds the invariant dict, `dict[str, object]` |
+| `ingestor/alert_path_health.py` | 60 | `dict[str, Any]` | overrides `HealthMonitor._build_health_body` | `dict[str, object]` |
+
+After the sweep one escape site remains in the seven modules: `AlertHistory.__init__(redis: Any)`.
+redis-py's `zrangebyscore` stub is partially unknown under strict Pyright (`score_cast_func`), so
+typing the client as `redis.asyncio.Redis` reports `reportUnknownMemberType`, and the existing
+tests inject partial Redis doubles (`BrokenRedis`, `RacingRedis`, `RecordingRedis`) that a
+structural Protocol of the whole call surface (including `pipeline` and the WATCH/MULTI/EXEC
+sequence) would force into a rewrite. It is the one confined, documented `Any`.
+
+Behaviour notes:
+
+- `AlertRecord.from_dict` still raises `KeyError` for a missing required key; a present value of
+  the wrong type now raises `ValueError` (it was previously stored unchecked).
+- `response_json_object`, `parse_v2_page` and `parse_trade_row` treat a mapping with non-string
+  keys the same way as before except where noted: response bodies and v2 envelopes (JSON never
+  produces such keys) now fail closed to `{}` / `V2EnvelopeError`; trade rows still accept them.
+- A malformed `XREADGROUP` reply raises `PublisherError`; a malformed row inside a valid reply is
+  logged and skipped like any other entry that cannot be deserialized.
+- `trade_rows.py` and `response_values.py` have mutation survivors under mutmut, so they are not
+  enrolled; `_history_records.py` stays at zero survivors. `shapes.py` and `_stream_reply.py` are
+  added to the 100 % coverage include list.
+- Pinned clone scan (`quality.duplication_clusters_main`): 6 groups / 69 lines on `main` and on
+  this branch (delta 0).

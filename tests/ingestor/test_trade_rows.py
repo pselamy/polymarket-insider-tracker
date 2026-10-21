@@ -39,6 +39,16 @@ def _observation(row: dict[str, object]) -> TradeObservation:
 
 
 class TestStrictParsing:
+    def test_the_first_failing_identity_field_in_order_names_the_invalid_row(self) -> None:
+        row = trade_row(timestamp=NOW - 5)
+        row["price"] = "not-a-number"
+        row["asset"] = ""
+
+        parsed = _parse(row)
+
+        assert isinstance(parsed, InvalidRow)
+        assert (parsed.field, parsed.disposition) == ("asset", RowDisposition.INVALID_ASSET)
+
     def test_valid_row_preserves_every_field(self) -> None:
         row = trade_row(timestamp=NOW - 5, transaction=7, wallet=3, price="0.65", size="5000")
         row.update({"name": "Trader", "pseudonym": "Pseudo"})

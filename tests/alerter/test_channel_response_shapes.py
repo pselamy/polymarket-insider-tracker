@@ -10,6 +10,7 @@ import pytest
 from polymarket_insider_tracker.alerter.channels.discord import DiscordChannel
 from polymarket_insider_tracker.alerter.channels.response_values import (
     DEFAULT_RETRY_AFTER_SECONDS,
+    response_json_object,
 )
 from polymarket_insider_tracker.alerter.channels.telegram import TelegramChannel
 from polymarket_insider_tracker.alerter.models import FormattedAlert
@@ -114,3 +115,20 @@ async def test_telegram_connect_timeout_is_retried_because_nothing_was_sent(
 
     assert len(server.requests) == 2
     assert "connect timeout" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (b'{"code": 7, "retry_after": 1.5}', {"code": 7, "retry_after": 1.5}),
+        (b"{}", {}),
+        (b"[1, 2]", {}),
+        (b'"text"', {}),
+        (b"null", {}),
+        (b"not json", {}),
+    ],
+)
+def test_response_json_object_returns_only_a_json_object(
+    content: bytes, expected: dict[str, object]
+) -> None:
+    assert response_json_object(httpx.Response(200, content=content)) == expected

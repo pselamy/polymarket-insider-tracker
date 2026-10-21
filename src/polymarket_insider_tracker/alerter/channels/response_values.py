@@ -12,9 +12,10 @@ fixed placeholder or default.
 from __future__ import annotations
 
 import math
-from typing import cast
 
 import httpx
+
+from polymarket_insider_tracker.shapes import string_keyed
 
 DEFAULT_RETRY_AFTER_SECONDS = 1.0
 
@@ -70,6 +71,4 @@ def response_json_object(response: httpx.Response) -> dict[str, object]:
         payload: object = response.json()
     except Exception:
         return {}
-    if isinstance(payload, dict):
-        return cast(dict[str, object], payload)
-    return {}
+    return string_keyed(payload) or {}
