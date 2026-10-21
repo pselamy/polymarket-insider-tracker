@@ -148,3 +148,40 @@ class TestCachedMetadataProvenance:
 
     def test_volume_null_key_overrides_the_legacy_value(self) -> None:
         assert MarketMetadata.from_dict(self._cached(volume=None, daily_volume="5")).volume is None
+
+
+def test_the_marker_hash_uses_sorted_compact_unescaped_utf8() -> None:
+    value = {"z": 1, "é": "é", "$truncated": False}
+    body = '{"$truncated":false,"z":1,"é":"é"}'.encode()
+
+    stored = bound_raw(value)
+
+    assert isinstance(stored, dict)
+    assert (stored["bytes"], stored["sha256"]) == (len(body), hashlib.sha256(body).hexdigest())
+
+
+def test_a_value_of_an_unknown_json_type_is_marked_null() -> None:
+    stored = bound_raw(("x" * 300,))
+
+    assert isinstance(stored, dict)
+    assert (stored["reason"], stored["type"]) == ("oversize", "null")
+
+
+@pytest.mark.parametrize(
+    ("raw", "oversize_numeric"),
+    [("9" * 300, True), ("x" * 300, False), (int("9" * 300), False), ("9", False)],
+)
+def test_only_an_oversize_numeric_string_is_remembered_as_numeric(
+    raw: JsonValue, oversize_numeric: bool
+) -> None:
+    record = VolumeObservation.from_page(present=True, raw=raw, acquired_at=AT).to_record()
+
+    assert record["oversize_numeric"] is oversize_numeric
+
+
+def test_a_remembered_numeric_flag_is_read_back_from_a_record() -> None:
+    record: JsonValue = {"present": True, "raw": OVERSIZE_300, "oversize_numeric": True}
+
+    restored = VolumeObservation.from_record(record)
+
+    assert restored == VolumeObservation(True, OVERSIZE_300, None, None, oversize_numeric=True)

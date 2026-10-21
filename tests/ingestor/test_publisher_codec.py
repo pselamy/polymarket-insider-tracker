@@ -134,6 +134,26 @@ class TestWireContract:
         assert event.size == Decimal("0")
         assert event.market_id == ""
 
+    def test_a_missing_text_field_decodes_as_the_empty_string(self) -> None:
+        event = codec.deserialize_trade_event({})
+        assert [
+            event.market_id,
+            event.trade_id,
+            event.wallet_address,
+            event.outcome,
+            event.asset_id,
+            event.market_slug,
+            event.event_slug,
+            event.event_title,
+            event.trader_name,
+            event.trader_pseudonym,
+        ] == [""] * 10
+
+    def test_a_missing_timestamp_falls_back_to_now(self) -> None:
+        before = datetime.now(UTC)
+        event = codec.deserialize_trade_event({})
+        assert before <= event.timestamp <= datetime.now(UTC)
+
     def test_side_normalization(self) -> None:
         assert codec.deserialize_trade_event({"side": "sell"}).side == "SELL"
         assert codec.deserialize_trade_event({"side": "BUY"}).side == "BUY"

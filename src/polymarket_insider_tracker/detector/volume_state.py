@@ -82,7 +82,7 @@ class VolumeVerdict:
 
 
 def _plain(value: Decimal) -> str:
-    return format(value, "f")
+    return f"{value:f}"
 
 
 def exact_seconds(delta: timedelta) -> Decimal:
@@ -125,12 +125,11 @@ def _numeric_text(raw: object) -> str | None:
     return str(raw) if isinstance(raw, int | float) else None
 
 
-def _truncated_reason(observation: VolumeObservation) -> str:
+def _truncated_reason(marker: dict[str, JsonValue], oversize_numeric: bool) -> str:
     """Reason for a stored ``$truncated`` marker: an oversize number or numeric token is
     out of range, everything else is not a number (decided from the original, section 1.1a)."""
-    raw = observation.raw
-    kind = raw.get("type") if isinstance(raw, dict) else None
-    oversize_number = kind == "number" or (kind == "string" and observation.oversize_numeric)
+    kind = marker.get("type")
+    oversize_number = kind == "number" or (kind == "string" and oversize_numeric)
     return OUT_OF_RANGE if oversize_number else NOT_A_NUMBER
 
 
@@ -138,7 +137,7 @@ def _parse_raw(observation: VolumeObservation) -> Decimal | str:
     """The finite value of the raw volume, or the P4 reason it is not usable as a number."""
     raw = observation.raw
     if isinstance(raw, dict):
-        return _truncated_reason(observation)
+        return _truncated_reason(raw, observation.oversize_numeric)
     text = _numeric_text(raw)
     if text is None:
         return NOT_A_NUMBER
@@ -200,15 +199,19 @@ def _observed_outcome(observation: VolumeObservation, stamp: Stamp) -> Outcome:
 
 
 def _verdict(
-    outcome: Outcome, observation: VolumeObservation | None, stamp: Stamp, source: str | None
+    outcome: Outcome,
+    stamp: Stamp,
+    source: str | None,
+    present: bool = False,
+    raw: JsonValue = None,
 ) -> VolumeVerdict:
     state, reason, volume = outcome
     return VolumeVerdict(
         state,
         reason,
         volume,
-        observation is not None and observation.present,
-        None if observation is None else observation.raw,
+        present,
+        raw,
         source,
         None if stamp.acquired_at is None else stamp.acquired_at.isoformat(),
         _age_text(stamp.age),
@@ -225,8 +228,7 @@ def _explicit_verdict(explicit: Decimal, evaluated_at: datetime) -> VolumeVerdic
     """Section 1.3: a caller assertion, stamped ``evaluated_at`` (age 0), never Gamma data."""
     outcome = _explicit_outcome(explicit)
     stamp = Stamp(evaluated_at, Decimal(0), None)
-    observation = VolumeObservation(True, str(explicit), evaluated_at.isoformat(), CALLER_SOURCE)
-    return _verdict(outcome, observation, stamp, CALLER_SOURCE)
+    return _verdict(outcome, stamp, CALLER_SOURCE, True, str(explicit))
 
 
 def classify_volume(
@@ -241,10 +243,11 @@ def classify_volume(
     if explicit is not None:
         return _explicit_verdict(explicit, instant)
     if observation is None:
-        outcome = (VolumeState.UNAVAILABLE, unavailable_reason or NO_VOLUME_RECORD, None)
-        return _verdict(outcome, None, Stamp(None, None, None), None)
+        outcome: Outcome = (VolumeState.UNAVAILABLE, unavailable_reason or NO_VOLUME_RECORD, None)
+        return _verdict(outcome, Stamp(None, None, None), None)
     stamp = read_stamp(observation.acquired_at, instant)
-    return _verdict(_observed_outcome(observation, stamp), observation, stamp, observation.source)
+    outcome = _observed_outcome(observation, stamp)
+    return _verdict(outcome, stamp, observation.source, observation.present, observation.raw)
 
 
 def volume_ratio(notional: Decimal, volume: Decimal) -> Decimal:

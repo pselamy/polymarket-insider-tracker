@@ -201,6 +201,11 @@ source_paths = [
     "src/polymarket_insider_tracker/ingestor/trade_row_v2.py",
     "src/polymarket_insider_tracker/alerter/channels/pacing.py",
     "src/polymarket_insider_tracker/alerter/_history_records.py",
+    "src/polymarket_insider_tracker/ingestor/_publisher_codec.py",
+    "src/polymarket_insider_tracker/detector/evaluation_clock.py",
+    "src/polymarket_insider_tracker/detector/volume_state.py",
+    "src/polymarket_insider_tracker/ingestor/volume_observation.py",
+    "src/polymarket_insider_tracker/detector/alert_path.py",
 ]
 only_mutate = [
     "*/redaction.py",
@@ -211,8 +216,13 @@ only_mutate = [
     "*/trade_row_v2.py",
     "*/pacing.py",
     "*/_history_records.py",
+    "*/_publisher_codec.py",
+    "*/evaluation_clock.py",
+    "*/volume_state.py",
+    "*/volume_observation.py",
+    "*/alert_path.py",
 ]
-also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
+also_copy = ["src/polymarket_insider_tracker/", "conftest.py", "specs/", "scripts/"]
 pytest_add_cli_args_test_selection = [
     "tests/test_redaction.py",
     "tests/test_redaction_url_shapes.py",
@@ -232,6 +242,19 @@ pytest_add_cli_args_test_selection = [
     "tests/alerter/test_history_gaps.py",
     "tests/alerter/test_alert_record_serialization.py",
     "tests/alerter/test_history.py",
+    "tests/ingestor/test_publisher_codec.py",
+    "tests/ingestor/test_publisher.py",
+    "tests/ingestor/test_publisher_edges.py",
+    "tests/detector/test_scoring_config.py",
+    "tests/detector/test_evaluation_clock_messages.py",
+    "tests/detector/test_volume_state_records.py",
+    "tests/detector/test_volume_state.py",
+    "tests/detector/test_alert_path.py",
+    "tests/detector/test_reachability.py",
+    "tests/detector/test_size_volume_evidence.py",
+    "tests/ingestor/test_volume_observation.py",
+    "tests/ingestor/test_volume_store.py",
+    "tests/ingestor/test_gamma_stamps.py",
     "-q",
     "-p",
     "no:cacheprovider",

@@ -33,6 +33,8 @@ from polymarket_insider_tracker.detector.size_anomaly import (
 WALLET_AGE_SOURCE_NONE = "none"
 LIVE_WALLET_AGE_SOURCE = WALLET_AGE_SOURCE_NONE
 AlertPathStatus = Literal["reachable", "unreachable"]
+# (saturated confidence, niche modifier applies) for each size class the live sources can produce.
+_PRODUCIBLE_SIZE_CLASSES = ((MAX_NICHE_CONFIDENCE, True), (MAX_VOLUME_CONFIDENCE, False))
 
 
 @dataclass(frozen=True)
@@ -88,9 +90,11 @@ def _best_case_ceiling(weights: Mapping[str, float]) -> Decimal:
     While the wallet group is unqualified it contributes nothing, so the producible classes are
     the size group with and without the niche modifier at their saturated confidences.
     """
-    niche, _ = size_group_score(weights, MAX_NICHE_CONFIDENCE, niche=True)
-    plain, _ = size_group_score(weights, MAX_VOLUME_CONFIDENCE, niche=False)
-    return quantize_score_value(max(niche, plain))
+    scores = (
+        size_group_score(weights, confidence, niche=niche)[0]
+        for confidence, niche in _PRODUCIBLE_SIZE_CLASSES
+    )
+    return quantize_score_value(max(scores))
 
 
 def alert_path_report(
