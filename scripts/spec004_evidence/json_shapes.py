@@ -56,6 +56,8 @@ def as_decimal(value: object) -> Decimal:
     """``Decimal(value)`` for the types ``Decimal`` accepts from JSON: str, int and float."""
     if isinstance(value, str | int | float):
         return Decimal(value)
+    if isinstance(value, list | tuple):
+        raise ValueError("cannot convert a sequence to Decimal")
     raise TypeError(f"cannot convert {type(value).__name__} to Decimal")
 
 

@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from polymarket_insider_tracker.shapes import string_keyed
+from polymarket_insider_tracker.shapes import object_mapping
 from scripts.spec004_evidence.cli import print_or_check
 from scripts.spec004_evidence.json_shapes import Obj, as_array, as_int, as_object, at
 from scripts.spec004_evidence.reachability import verify_constants
@@ -185,11 +185,11 @@ RAW_BUILDERS: dict[str, Callable[[str], object]] = {
 
 def decoded_raw(raw: dict[str, object]) -> object:
     """The decoded volume24hr value; ``raw_spec`` builds values plain JSON cannot hold."""
-    spec = string_keyed(raw.get("raw_spec"))
+    spec = object_mapping(raw.get("raw_spec"))
     if spec is None:
         return raw.get("raw")
     kind, arg = next(iter(spec.items()))
-    return RAW_BUILDERS[kind](str(arg))
+    return RAW_BUILDERS[str(kind)](str(arg))
 
 
 def build_observation(raw: dict[str, object]) -> Observation:

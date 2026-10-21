@@ -1373,6 +1373,12 @@ the four `--check` tools exit 0. Newly checked shapes, each with a test in `test
 a schema node, `oneOf` member, `items` or `$ref` target that is not an object, a non-string `$ref`,
 `pattern` or non-numeric bound, evidence that is not an object, a non-string timestamp, a
 non-numeric amount, and a corpus case or observation that is not an object each raise `TypeError`.
+Outcome classes that change, stated rather than hidden: a non-object `observation` in a corpus case
+was an `AttributeError` and is now a `TypeError`; a non-list `enum` or a non-object `oneOf` member
+now raises `TypeError` instead of a substring test or a later failure; and `check_envelope.is_object`
+requires string keys, so a raw value with a non-string key (impossible from decoded JSON) skips the
+tag and reserved-key checks. A list or tuple amount stays a `ValueError`, and a non-string-key
+`raw_spec` stays a `KeyError`.
 
 ## Escape sweep step 2: typing escapes out of the profiler, clients, health and storage (2026-10-21)
 

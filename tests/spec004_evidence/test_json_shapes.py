@@ -60,18 +60,26 @@ def test_a_missing_path_is_a_key_error_and_a_non_object_step_a_type_error() -> N
         at({"a": 1}, "a")
 
 
+@pytest.mark.parametrize("bad", [[1], (1, 2, 3)])
+def test_a_sequence_amount_is_a_value_error_like_decimal(bad: object) -> None:
+    with pytest.raises(ValueError, match="to Decimal"):
+        as_decimal(bad)
+
+
 def test_a_boolean_is_not_an_integer_for_schema_types() -> None:
     assert not matches_type(True, "integer")
     assert matches_type(1, "integer")
     assert matches_type(None, "null")
 
 
-def test_a_raw_spec_with_non_string_keys_is_ignored_for_the_plain_raw_value() -> None:
-    assert rl.decoded_raw({"raw_spec": {1: "3"}, "raw": "5"}) == "5"
+def test_a_raw_spec_with_a_non_string_key_is_an_unknown_builder() -> None:
+    with pytest.raises(KeyError):
+        rl.decoded_raw({"raw_spec": {1: "3"}, "raw": "5"})
+    assert rl.decoded_raw({"raw_spec": "text", "raw": "5"}) == "5"
     assert rl.decoded_raw({"raw_spec": {"float": "2.5"}, "raw": "5"}) == 2.5
 
 
-def test_merging_a_malformed_observation_is_a_type_error() -> None:
+def test_merging_a_non_object_observation_is_a_type_error_not_an_attribute_error() -> None:
     defaults: dict[str, object] = {"observation": {"kind": "observed"}}
     with pytest.raises(TypeError):
         rl.merged(defaults, {"observation": "text"})
