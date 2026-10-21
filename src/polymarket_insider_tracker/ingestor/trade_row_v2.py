@@ -15,7 +15,7 @@ https://docs.polymarket.com/api-reference/feeds/list-trades.
 
 from __future__ import annotations
 
-from typing import Any, TypeGuard
+from typing import TypeGuard
 
 from polymarket_insider_tracker.ingestor.trade_rows import (
     InvalidRow,
@@ -35,11 +35,16 @@ V2_TO_V1_FIELDS: dict[str, str] = {
 }
 
 
-def _is_row(raw: object) -> TypeGuard[dict[str, Any]]:
+def _is_row(raw: object) -> TypeGuard[dict[object, object]]:
+    """Report whether ``raw`` is a dict; its keys and values are only claimed to be objects.
+
+    That claim holds for every dict, so the runtime check verifies the whole narrowed type. Keys
+    are deliberately not asserted to be ``str``: the v1 parser owns the treatment of malformed rows.
+    """
     return isinstance(raw, dict)
 
 
-def _translate_row(row: dict[str, Any]) -> dict[str, Any]:
+def _translate_row(row: dict[object, object]) -> dict[object, object]:
     translated = dict(row)
     for v2_name, v1_name in V2_TO_V1_FIELDS.items():
         if v2_name in row:
