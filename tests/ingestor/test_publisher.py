@@ -9,12 +9,10 @@ from fakeredis import FakeAsyncRedis
 from polymarket_insider_tracker.ingestor import _publisher_codec as codec
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.publisher import (
-    DEFAULT_MAX_LEN,
     DEFAULT_STREAM_NAME,
     ConsumerGroupExistsError,
     EventPublisher,
     StreamEntry,
-    _parse_stream_results,
 )
 
 
@@ -121,19 +119,17 @@ class TestSerializationFunctions:
 class TestEventPublisher:
     """Tests for the EventPublisher class."""
 
-    def test_init(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test initialization."""
-        publisher = EventPublisher(fake_redis)
-
-        assert publisher.stream_name == DEFAULT_STREAM_NAME
-        assert publisher._max_len == DEFAULT_MAX_LEN
-
-    def test_init_custom_config(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test initialization with custom config."""
-        publisher = EventPublisher(fake_redis, stream_name="custom-stream", max_len=50_000)
-
-        assert publisher.stream_name == "custom-stream"
-        assert publisher._max_len == 50_000
+    async def test_init(self, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent) -> None:
+        """Defaults keep a handful of events; a custom name and cap bound their own stream."""
+        default = EventPublisher(fake_redis)
+        custom = EventPublisher(fake_redis, stream_name="custom-stream", max_len=2)
+        for _ in range(3):
+            await default.publish(sample_trade_event)
+            await custom.publish(sample_trade_event)
+        assert await default.trim_stream() == 0
+        await custom.trim_stream()
+        assert await fake_redis.xlen("custom-stream") == 2
+        assert (default.stream_name, custom.stream_name) == (DEFAULT_STREAM_NAME, "custom-stream")
 
     @pytest.mark.asyncio
     async def test_publish(
@@ -358,15 +354,6 @@ class TestEventPublisher:
 
         assert await fake_redis.xlen(DEFAULT_STREAM_NAME) == 1
 
-    @pytest.mark.asyncio
-    async def test_trim_stream_default(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test trimming stream with default max_len."""
-        publisher = EventPublisher(fake_redis)
-
-        await publisher.trim_stream()
-
-        assert await fake_redis.xlen(DEFAULT_STREAM_NAME) == 0
-
 
 class TestStreamEntry:
     """Tests for the StreamEntry dataclass."""
@@ -379,6 +366,18 @@ class TestStreamEntry:
         assert entry.event == sample_trade_event
 
 
+async def _read_scripted(
+    monkeypatch: pytest.MonkeyPatch, redis: FakeAsyncRedis, results: object
+) -> list[StreamEntry]:
+    """Read events while ``XREADGROUP`` replies with ``results`` as the wire would."""
+
+    async def reply(*_args: object, **_kwargs: object) -> object:
+        return results
+
+    monkeypatch.setattr(redis, "xreadgroup", reply)
+    return await EventPublisher(redis).read_events("test-group", "worker-1")
+
+
 class TestEmptyEntryHandling:
     """Pending re-reads skip trimmed or deleted (empty) entries; new-entry reads never skip.
 
@@ -386,25 +385,26 @@ class TestEmptyEntryHandling:
     the ``None`` payload is a parser-robustness fixture that no Redis produces.
     """
 
-    def test_read_events_keeps_entries_with_empty_data(self) -> None:
+    async def test_read_events_keeps_entries_with_empty_data(
+        self, fake_redis: FakeAsyncRedis, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """New-entry reads never skip: an empty record still yields a defaulted entry."""
-        results: list[tuple[str, list[tuple[str, dict[str, str]]]]] = [
-            ("trades", [("1704369600000-0", {})])
-        ]
-
-        entries = _parse_stream_results(results, context="entry", skip_empty=False)
+        results = [("trades", [("1704369600000-0", dict[str, str]())])]
+        entries = await _read_scripted(monkeypatch, fake_redis, results)
 
         assert [entry.entry_id for entry in entries] == ["1704369600000-0"]
         assert entries[0].event.trade_id == ""
 
-    def test_read_events_drops_undecodable_entries_and_keeps_the_rest(
-        self, sample_trade_event: TradeEvent
+    async def test_read_events_drops_undecodable_entries_and_keeps_the_rest(
+        self,
+        fake_redis: FakeAsyncRedis,
+        monkeypatch: pytest.MonkeyPatch,
+        sample_trade_event: TradeEvent,
     ) -> None:
         """A malformed record with no field mapping is dropped without losing its siblings."""
         serialized = codec.serialize_trade_event(sample_trade_event)
         results = [("trades", [("1704369600000-0", None), (b"1704369600000-1", serialized)])]
-
-        entries = _parse_stream_results(results, context="entry", skip_empty=False)
+        entries = await _read_scripted(monkeypatch, fake_redis, results)
 
         assert [entry.entry_id for entry in entries] == ["1704369600000-1"]
 

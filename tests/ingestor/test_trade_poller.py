@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -21,7 +22,6 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
 from polymarket_insider_tracker.ingestor.trade_poller import (
     IngestionState,
     IngestionStatus,
-    PageAnalysis,
     TradePoller,
 )
 from polymarket_insider_tracker.ingestor.trade_rows import RowDisposition
@@ -38,8 +38,9 @@ from tests.fakes import (
     timeout,
     trade_row,
 )
-from tests.fakes.redis_await import as_bytes, settled
-from tests.fakes.trades import Fault
+from tests.fakes.redis_await import as_bytes, scored_members, settled
+from tests.fakes.trades import Fault, synthetic_transaction
+from tests.ingestor._poller_harness import RedisDropsOnRequest, TradeProvider
 
 NOW = 1_788_983_720.0
 T0 = int(NOW)
@@ -111,7 +112,7 @@ async def anchored(
 
 
 def _poller(
-    server: FakeTradesServer,
+    server: TradeProvider,
     clock: FakeClock,
     fake_redis: FakeAsyncRedis,
     settings: PolymarketSettings,
@@ -267,9 +268,7 @@ class TestHealthyCycles:
         assert len(callback.trades) == 3
         assert dict(poller.boundary.window) == {
             member.decode(): int(score)
-            for member, score in await fake_redis.zrangebyscore(
-                poller.boundary.identities_key, "-inf", "+inf", withscores=True
-            )
+            for member, score in await scored_members(fake_redis, poller.boundary.identities_key)
         }
 
     async def test_exact_repeats_are_suppressed_while_multi_wallet_rows_are_distinct(
@@ -395,7 +394,8 @@ class TestStatusAndMetrics:
         assert status.last_success_at == datetime.fromtimestamp(T0 + 5, tz=UTC)
         assert status.last_trade_at == datetime.fromtimestamp(T0 + 4, tz=UTC)
         assert status.latest_seen_at == datetime.fromtimestamp(T0 + 4, tz=UTC)
-        assert status.provider_lag_seconds == pytest.approx(1.0)
+        assert status.provider_lag_seconds is not None
+        assert math.isclose(status.provider_lag_seconds, 1.0, rel_tol=1e-6)
         assert status.processing_lag_seconds >= 0.0
         assert status.consecutive_failures == 0
         assert status.last_error is None
@@ -432,7 +432,7 @@ class TestStatusAndMetrics:
         assert _metric("polymarket_ingest_rows_total", disposition="emitted") - emitted_before == 1
         assert _metric("polymarket_ingest_requests_total", outcome="success") - success_before == 2
         assert _metric("polymarket_ingest_boundary_timestamp_seconds") == float(T0 + 1)
-        assert _metric("polymarket_ingest_provider_lag_seconds") == pytest.approx(4.0)
+        assert math.isclose(_metric("polymarket_ingest_provider_lag_seconds"), 4.0, rel_tol=1e-6)
         assert _metric("polymarket_ingest_page_span_seconds") == 62.0
         assert _metric("polymarket_ingest_request_duration_seconds_count") >= 2
 
@@ -662,21 +662,19 @@ class TestRowQuality:
         settings: PolymarketSettings,
         callback: RecordingTradeCallback,
     ) -> None:
-        poller = _poller(server, clock, fake_redis, settings, callback)
-        analysis = PageAnalysis(cutoff=T0)
-        analysis.add_rows([trade_row(timestamp=T0, outcome="No", outcome_index=1)], now=T0)
-        await poller._resolve_and_count_outcomes(analysis)
-        analysis.add_rows([trade_row(timestamp=T0, outcome="No", outcome_index=999)], now=T0)
+        server.page_limit = 2
+        poller = await _anchored(server, clock, fake_redis, settings, callback)
+        unknown_before = poller.status.outcome_counts["unknown"]
+        server.publish(trade_row(timestamp=T0 + 1, transaction=1, outcome="No", outcome_index=999))
+        server.publish(trade_row(timestamp=T0 + 2, transaction=2))
+        server.publish(trade_row(timestamp=T0 + 1, transaction=1, outcome="No", outcome_index=1))
 
-        await poller._resolve_and_count_outcomes(analysis)
+        await poller.run_cycle()
 
-        observation = next(iter(analysis.observations.values()))
-        assert (observation.event.outcome, observation.event.outcome_index) == ("No", 1)
-        assert poller.status.outcome_counts == {
-            "provided": 1,
-            "repaired": 0,
-            "unknown": 1,
-        }
+        assert poller.status.counts["recovery_pages"] == 1
+        recovered = [t for t in callback.trades if t.trade_id == synthetic_transaction(1)]
+        assert [(t.outcome, t.outcome_index) for t in recovered] == [("No", 1)]
+        assert poller.status.outcome_counts["unknown"] - unknown_before == 1
 
     async def test_invalid_rows_are_counted_per_field_while_valid_rows_flow(
         self,
@@ -770,16 +768,17 @@ class TestRestart:
         clock.advance(700)
         server.publish(trade_row(timestamp=T0 + 650, transaction=650))
         callback = RecordingTradeCallback()
-        restarted = _poller(server, clock, fake_redis, settings, callback)
-        await restarted._ensure_loaded()
-        vars(redis_server)["connected"] = False
+        restarted = _poller(
+            RedisDropsOnRequest(server, redis_server), clock, fake_redis, settings, callback
+        )
 
         await restarted.run_cycle()
 
+        assert not redis_server.connected
         assert restarted.status.state is IngestionState.DEGRADED
         assert restarted.status.loss_events == ()
         assert callback.trades == []
-        vars(redis_server)["connected"] = True
+        redis_server.connected = True
         await restarted.run_cycle()
 
         assert IngestionState(restarted.status.state) is IngestionState.RUNNING

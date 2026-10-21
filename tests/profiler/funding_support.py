@@ -22,17 +22,15 @@ PRUNED_HISTORY_ERROR = RuntimeError(
 
 def polygon_client_on(eth: FakeEth, *, fallback: FakeEth | None = None) -> PolygonClient:
     """A real PolygonClient with its web3 providers bound to fakes and no retry delays."""
-    client = PolygonClient(
+    return PolygonClient(
         "https://polygon-rpc.com",
         fallback_rpc_url="https://fallback.invalid" if fallback else None,
         max_requests_per_second=10_000.0,
         max_retries=1,
         retry_delay_seconds=0.0,
+        web3=FakeAsyncWeb3(eth),
+        fallback_web3=None if fallback is None else FakeAsyncWeb3(fallback),
     )
-    client._w3 = FakeAsyncWeb3(eth)
-    if fallback is not None:
-        client._w3_fallback = FakeAsyncWeb3(fallback)
-    return client
 
 
 def transfer_to(

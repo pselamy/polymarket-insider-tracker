@@ -23,6 +23,7 @@ from tests.fakes import (
     trade_row,
     v2_row,
 )
+from tests.fakes.redis_await import scored_members
 from tests.ingestor._poller_harness import (
     RecordingTradeCallback,
 )
@@ -80,7 +81,7 @@ def _v2_server_after_v1(clock: FakeClock) -> FakeV2TradesServer:
 
 
 async def _zset(redis: FakeAsyncRedis, key: str) -> dict[str, int]:
-    members = await redis.zrangebyscore(key, "-inf", "+inf", withscores=True)
+    members = await scored_members(redis, key)
     return {member.decode(): int(score) for member, score in members}
 
 

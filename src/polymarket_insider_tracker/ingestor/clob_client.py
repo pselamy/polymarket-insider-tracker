@@ -189,9 +189,10 @@ class ClobClient:
         self._client = BaseClobClient(host)
 
         logger.info(
-            "Initialized ClobClient with host=%s, rate_limit=%.1f req/s",
+            "Initialized ClobClient with host=%s, rate_limit=%.1f req/s, api_key_set=%s",
             host,
             requests_per_second,
+            bool(self._api_key),
         )
 
     def _fetch_simplified_markets(self, cursor: str | None) -> dict[str, Any]:

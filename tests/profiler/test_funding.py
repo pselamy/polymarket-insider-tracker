@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import pytest
 
+from polymarket_insider_tracker.profiler._funding_rpc import TransferLogScanner
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.entities import EntityRegistry
 from polymarket_insider_tracker.profiler.entity_data import EntityType
@@ -23,7 +25,7 @@ from polymarket_insider_tracker.profiler.funding import (
     FundingTracer,
 )
 from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer
-from tests.fakes import FakeEth, TransferLogIndex, transfer_log
+from tests.fakes import FakeEth, TransferLogIndex
 from tests.profiler.funding_support import (
     CHAIN_HEAD,
     PRUNED_HISTORY_ERROR,
@@ -39,6 +41,10 @@ BINANCE_HOT_WALLET = "0x28c6c06298d514db089934071355e5743bf21d60"
 
 def _tracer(logs: TransferLogIndex, *, block_number: int = CHAIN_HEAD) -> FundingTracer:
     return _polygon_tracer(FakeEth(block_number=block_number, logs=logs))
+
+
+def _scanner(logs: TransferLogIndex, *, block_number: int = CHAIN_HEAD) -> TransferLogScanner:
+    return TransferLogScanner(polygon_client_on(FakeEth(block_number=block_number, logs=logs)))
 
 
 def _polygon_tracer(eth: FakeEth, *, fallback: FakeEth | None = None) -> FundingTracer:
@@ -90,28 +96,34 @@ def funding_tracer(polygon_client: PolygonClient, entity_registry: EntityRegistr
     return FundingTracer(polygon_client=polygon_client, entity_registry=entity_registry, max_hops=3)
 
 
+async def _queried_tokens(**tracer_options: Any) -> list[str]:
+    """The token contracts a first-transfer lookup for the test wallet scanned, in order."""
+    logs = TransferLogIndex()
+    tracer = FundingTracer(polygon_client_on(FakeEth(logs=logs)), **tracer_options)
+    await tracer.get_first_usdc_transfer(TEST_WALLET)
+    return list(dict.fromkeys(query.address.lower() for query in logs.queries))
+
+
 class TestFundingTracerInit:
     """Tests for FundingTracer initialization."""
 
-    def test_init_with_defaults(self, polygon_client: PolygonClient) -> None:
+    async def test_init_with_defaults(self, polygon_client: PolygonClient) -> None:
         """Test initialization with default parameters."""
         tracer = FundingTracer(polygon_client)
 
         assert tracer.polygon_client is polygon_client
         assert tracer.max_hops == 3
-        assert USDC_BRIDGED.lower() in tracer._usdc_addresses
-        assert USDC_NATIVE.lower() in tracer._usdc_addresses
+        assert await _queried_tokens() == [USDC_BRIDGED.lower(), USDC_NATIVE.lower()]
 
     def test_init_with_custom_max_hops(self, polygon_client: PolygonClient) -> None:
         """Test initialization with custom max_hops."""
         tracer = FundingTracer(polygon_client, max_hops=5)
         assert tracer.max_hops == 5
 
-    def test_init_with_custom_usdc_addresses(self, polygon_client: PolygonClient) -> None:
+    async def test_init_with_custom_usdc_addresses(self) -> None:
         """Test initialization with custom USDC addresses."""
-        custom_addresses = ["0x1111111111111111111111111111111111111111"]
-        tracer = FundingTracer(polygon_client, usdc_addresses=custom_addresses)
-        assert tracer._usdc_addresses == [custom_addresses[0].lower()]
+        custom = "0x1111111111111111111111111111111111111111"
+        assert await _queried_tokens(usdc_addresses=[custom.upper()]) == [custom]
 
     def test_init_with_custom_entity_registry(self, polygon_client: PolygonClient) -> None:
         """Test initialization with custom entity registry."""
@@ -261,14 +273,14 @@ class TestFirstTokenTransferFailure:
 
 
 class TestGetTransferLogs:
-    """Tests for _get_transfer_logs method."""
+    """Tests for the transfer-log scan the tracer delegates to."""
 
     async def test_get_transfer_logs_formats_topics_correctly(self) -> None:
         """Test that transfer logs query is formatted correctly."""
         logs = TransferLogIndex()
-        tracer = _tracer(logs)
+        scanner = _scanner(logs)
 
-        await tracer._get_transfer_logs(
+        await scanner.get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1,
@@ -292,9 +304,9 @@ class TestGetTransferLogs:
             logs.add_transfer(
                 USDC_BRIDGED, transfer_to(TEST_WALLET, TEST_SOURCE, block_number=100 + i, seed=i)
             )
-        tracer = _tracer(logs)
+        scanner = _scanner(logs)
 
-        result = await tracer._get_transfer_logs(
+        result = await scanner.get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             limit=3,
@@ -304,31 +316,12 @@ class TestGetTransferLogs:
 
         assert len(result) == 3
 
-    async def test_get_transfer_logs_uses_fallback_when_primary_unhealthy(self) -> None:
-        """Once the primary RPC has failed over, log scans go to the fallback provider."""
-        primary_logs, fallback_logs = TransferLogIndex(), TransferLogIndex()
-        primary = FakeEth(always_fail=True, logs=primary_logs)
-        fallback = FakeEth(logs=fallback_logs)
-        client = polygon_client_on(primary, fallback=fallback)
-        await client.get_transaction_count(TEST_WALLET)
-        tracer = FundingTracer(client)
-
-        await tracer._get_transfer_logs(
-            to_address=TEST_WALLET,
-            token_address=USDC_BRIDGED,
-            from_block=1,
-            to_block=8_000,
-        )
-
-        assert primary_logs.queries == []
-        assert len(fallback_logs.queries) == 1
-
     async def test_get_transfer_logs_chunks_large_ranges(self) -> None:
         """Ranges wider than chunk_size are split into multiple eth_getLogs calls."""
         logs = TransferLogIndex()
-        tracer = _tracer(logs)
+        scanner = _scanner(logs)
 
-        await tracer._get_transfer_logs(
+        await scanner.get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1_000_000,
@@ -352,9 +345,9 @@ class TestGetTransferLogs:
                 USDC_BRIDGED,
                 transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_100 + i, seed=i),
             )
-        tracer = _tracer(logs)
+        scanner = _scanner(logs)
 
-        result = await tracer._get_transfer_logs(
+        result = await scanner.get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             limit=2,
@@ -371,9 +364,9 @@ class TestGetTransferLogs:
         logs.fail_chunk(1_000_000, RuntimeError("RPC hiccup"))
         good_log = transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_009_500, seed=0xAA)
         logs.add_transfer(USDC_BRIDGED, good_log)
-        tracer = _tracer(logs)
+        scanner = _scanner(logs)
 
-        result = await tracer._get_transfer_logs(
+        result = await scanner.get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1_000_000,
@@ -386,9 +379,9 @@ class TestGetTransferLogs:
     async def test_get_transfer_logs_resolves_latest_via_block_number(self) -> None:
         """to_block='latest' resolves via eth.block_number and from_block=0 is clamped."""
         logs = TransferLogIndex()
-        tracer = _tracer(logs, block_number=5_000)
+        scanner = _scanner(logs, block_number=5_000)
 
-        await tracer._get_transfer_logs(to_address=TEST_WALLET, token_address=USDC_BRIDGED)
+        await scanner.get_transfer_logs(to_address=TEST_WALLET, token_address=USDC_BRIDGED)
 
         assert [(query.from_block, query.to_block) for query in logs.queries] == [(0, 5_000)]
 
@@ -401,9 +394,9 @@ class TestGetTransferLogs:
         logs.add_transfer(
             USDC_BRIDGED, transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_018_500, seed=0xBB)
         )
-        tracer = _tracer(logs)
+        scanner = _scanner(logs)
 
-        result = await tracer._get_transfer_logs(
+        result = await scanner.get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1_000_000,
@@ -420,9 +413,9 @@ class TestGetTransferLogs:
     async def test_get_transfer_logs_topic_is_0x_prefixed(self) -> None:
         """The Transfer event topic passed to eth_getLogs must begin with 0x."""
         logs = TransferLogIndex()
-        tracer = _tracer(logs)
+        scanner = _scanner(logs)
 
-        await tracer._get_transfer_logs(
+        await scanner.get_transfer_logs(
             to_address=TEST_WALLET,
             token_address=USDC_BRIDGED,
             from_block=1,
@@ -436,45 +429,36 @@ class TestGetTransferLogs:
 
 
 class TestLogToFundingTransfer:
-    """Tests for _log_to_funding_transfer method."""
+    """Tests for the FundingTransfer built from the first matching log."""
 
-    async def test_log_to_funding_transfer_parses_correctly(
-        self, funding_tracer: FundingTracer
-    ) -> None:
+    async def test_log_to_funding_transfer_parses_correctly(self) -> None:
         """Test correct parsing of log to FundingTransfer."""
-        log = transfer_log(
-            from_address=TEST_SOURCE,
-            to_address=TEST_WALLET,
-            amount=1500000,
-            tx_hash="0x" + "ee" * 32,
+        logs = TransferLogIndex()
+        logs.add_transfer(USDC_BRIDGED, transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xEE))
+
+        result = await _tracer(logs).get_first_usdc_transfer(TEST_WALLET)
+
+        assert result == FundingTransfer(
+            from_address=TEST_SOURCE.lower(),
+            to_address=TEST_WALLET.lower(),
+            amount=Decimal(1_000_000),
+            token="USDC",
+            tx_hash=f"{0xEE:064x}",
             block_number=CHAIN_HEAD,
+            timestamp=datetime.fromtimestamp(1704369600, tz=UTC),
         )
-
-        result = await funding_tracer._log_to_funding_transfer(log, USDC_BRIDGED)
-
-        assert result.from_address == TEST_SOURCE.lower()
-        assert result.to_address == TEST_WALLET.lower()
-        assert result.amount == Decimal(1500000)
-        assert result.token == "USDC"
-        assert result.tx_hash == "ee" * 32
-        assert result.block_number == CHAIN_HEAD
-        assert result.timestamp == datetime.fromtimestamp(1704369600, tz=UTC)
 
     async def test_log_to_funding_transfer_handles_block_error(self) -> None:
         """Test graceful handling when block fetch fails."""
-        tracer = _polygon_tracer(FakeEth(always_fail=True))
-        log = transfer_log(
-            from_address=TEST_SOURCE,
-            to_address=TEST_WALLET,
-            amount=1000000,
-            tx_hash="0x" + "ff" * 32,
-            block_number=CHAIN_HEAD,
-        )
+        logs = TransferLogIndex()
+        logs.add_transfer(USDC_BRIDGED, transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xFF))
+        eth = FakeEth(block_number=CHAIN_HEAD, logs=logs, block_lookup_fails=True)
 
-        result = await tracer._log_to_funding_transfer(log, USDC_BRIDGED)
+        result = await _polygon_tracer(eth).get_first_usdc_transfer(TEST_WALLET)
 
+        assert result is not None
         assert result.from_address == TEST_SOURCE.lower()
-        assert result.timestamp is not None
+        assert abs((datetime.now(UTC) - result.timestamp).total_seconds()) < 60
 
 
 class TestGetFundingChainsBatch:

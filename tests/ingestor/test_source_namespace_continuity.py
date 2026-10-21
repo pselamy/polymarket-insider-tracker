@@ -19,7 +19,7 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     ObservationBoundary,
     source_id,
 )
-from tests.fakes.redis_await import settled
+from tests.fakes.redis_await import write_hash
 
 OFFICIAL_V1 = "https://data-api.polymarket.com/trades"
 OFFICIAL_V2 = "https://data-api.polymarket.com/v2/trades"
@@ -87,7 +87,7 @@ class TestCorruptCheckpointFailsVisibly:
         self, fake_redis: FakeAsyncRedis
     ) -> None:
         key = f"polymarket:ingest:{_namespace(OFFICIAL_V1, 'all')}:checkpoint"
-        await settled(fake_redis.hset(key, mapping={"schema_version": "999", "boundary_time": "1"}))
+        await write_hash(fake_redis, key, {"schema_version": "999", "boundary_time": "1"})
 
         boundary = _boundary(fake_redis, OFFICIAL_V2)
 
