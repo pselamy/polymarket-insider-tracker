@@ -17,7 +17,8 @@ import logging.config
 import re
 import sys
 from collections.abc import Callable, Mapping
-from typing import NoReturn
+from types import TracebackType
+from typing import NoReturn, Protocol, runtime_checkable
 
 from pydantic import ValidationError
 
@@ -543,12 +544,17 @@ def _redact_record_exc_info(record: logging.LogRecord) -> None:
     if record.exc_text:
         record.exc_text = None
     if record.exc_info and record.exc_info[0] is not None:
-        record.__dict__["exc_info"] = _sanitized_exc_info(record.exc_info)
+        # The stubs type ``exc_info`` as a paired tuple, but callers may log
+        # ``(Type, None, None)``; the wider shape is kept exactly as before.
+        setattr(record, _EXC_INFO_ATTR, _sanitized_exc_info(record.exc_info))
 
 
-def _sanitized_exc_info(
-    exc_info: tuple[type[BaseException] | None, BaseException | None, object | None],
-) -> tuple[type[BaseException] | None, BaseException | None, object | None]:
+_EXC_INFO_ATTR = "exc_info"
+_STATUS_ATTR = "status"
+_ExcInfo = tuple[type[BaseException] | None, BaseException | None, TracebackType | None]
+
+
+def _sanitized_exc_info(exc_info: _ExcInfo) -> _ExcInfo:
     """Clone the exception graph with redacted messages, preserving types."""
     exc_type, exc_value, _traceback = exc_info
     if exc_value is None:
@@ -677,16 +683,25 @@ def _fallback_sanitized_error(exc: BaseException) -> BaseException:
     return RuntimeError(redact_exception_message(exc))
 
 
+@runtime_checkable
+class _StatusCarrier(Protocol):
+    """An exception exposing a mutable ``status`` attribute."""
+
+    status: object
+
+
 def _carry_status(clone: BaseException, exc: BaseException) -> None:
     """Copy a ``status`` attribute onto the sanitized clone when present."""
-    if exc.__dict__.get("status") is not None:
+    if isinstance(exc, _StatusCarrier) and exc.status is not None:
         _set_cloned_status(clone, exc)
 
 
-def _set_cloned_status(clone: BaseException, exc: BaseException) -> None:
+def _set_cloned_status(clone: BaseException, exc: _StatusCarrier) -> None:
     """Copy the status attribute without disturbing the clone's type."""
     with contextlib.suppress(AttributeError, TypeError):
-        object.__setattr__(clone, "status", exc.__dict__.get("status"))
+        # The clone may be built without ``status`` (set after construction on
+        # the original), so the attribute is created rather than only updated.
+        setattr(clone, _STATUS_ATTR, exc.status)
 
 
 async def run_pipeline(

@@ -1402,7 +1402,8 @@ Newly checked shapes, each with a test: a cached block that is not a JSON object
 a block timestamp that is not an integer is rejected; a transfer log with missing or mistyped
 topics, data, transaction hash or block number raises `ValueError`; a WebSocket frame that is
 valid JSON but not an object is logged and dropped; a DML result that is not a cursor result
-raises `TypeError`.
+raises `TypeError`; every new Redis reply validator has accept/reject tests in
+`tests/alerter/test_redis_port.py`.
 
 ## Escape sweep step 1: typing escapes in seven production modules (2026-10-21)
 
@@ -1441,3 +1442,23 @@ Behaviour notes:
   added to the 100 % coverage include list.
 - Pinned clone scan (`quality.duplication_clusters_main`): 6 groups / 69 lines on `main` and on
   this branch (delta 0).
+
+## Escape sweep step 3: typing escapes out of the poller, dispatcher, CLI, metadata sync and tooling (2026-10-21)
+
+Scope: seven files. Lines matching `cast(`, `Any`, `type: ignore`, `pyright: ignore`, `noqa`,
+`setattr` or `__dict__` writes, before and after. `ingestor/trade_poller.py` and
+`alerter/dispatcher.py` carried none (matches there are prose). `quality/incomplete.py` matches
+only inside its own policy data (the escape-detection regex and the approved-cast table naming
+other files); it contains no escape itself.
+
+| File | Before | After | Reason it existed and the replacement |
+| --- | --- | --- | --- |
+| `__main__.py` | 2 | 0 | `record.__dict__["exc_info"]` write and `object.__setattr__` for `status`. Now a typed `_ExcInfo` assignment and a runtime-checked `_StatusCarrier` protocol. |
+| `ingestor/observation_boundary.py` | 3 | 0 | Decoded loss-event JSON was `cast(dict[str, Any])`; now `shapes.string_keyed` plus field checks (bad shape raises `ValueError`). The `cast(BoundaryRedis, redis)` is gone: the constructor takes the `BoundaryRedis` protocol (replies typed `object`, now in `alerter/_redis_port.py`), real `redis.asyncio.Redis` satisfies it structurally, and each reply is checked by `reply_byte_hash`, `reply_scored_members`, `reply_ids` and `reply_bytes` (malformed reply raises `TypeError`). |
+| `ingestor/metadata_sync.py` | 1 | 0 | `cast(RedisScanner, ...)` removed with the `RedisScanner` protocol: `scan_page` in `alerter/_redis_port.py` takes the `ScanRedis` protocol and validates the reply with `reply_scan`. |
+| `scripts/_entry_bootstrap.py` | 2 | 0 | `dict[str, Any]` namespace is `dict[str, object]`; `__file__` is checked to be a string. |
+
+Newly checked shapes, each with a test: a loss event that is not a JSON object, or has a
+non-integer count/time or non-string reason, raises `ValueError`; an entry namespace without a
+string `__file__` raises `TypeError`. Each new Redis reply validator has accept/reject tests in
+`tests/alerter/test_redis_port.py`.

@@ -25,18 +25,20 @@ from contextlib import contextmanager
 from importlib.machinery import ModuleSpec
 from importlib.util import module_from_spec
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
 
 __all__ = ["sibling_imports"]
 
 
 @contextmanager
-def sibling_imports(namespace: dict[str, Any], prefix: str) -> Generator[None, None, None]:
+def sibling_imports(namespace: dict[str, object], prefix: str) -> Generator[None, None, None]:
     """Point ``namespace``'s relative imports at a fresh package for this entry point."""
+    script_file = namespace["__file__"]
+    if not isinstance(script_file, str):
+        raise TypeError("the entry namespace has no string __file__")
     helper_name = f"{prefix}_{uuid4().hex}"
     helper_package = module_from_spec(ModuleSpec(helper_name, loader=None, is_package=True))
-    helper_package.__path__.append(str(Path(namespace["__file__"]).resolve().parent))
+    helper_package.__path__.append(str(Path(script_file).resolve().parent))
     sys.modules[helper_name] = helper_package
     package_before = namespace["__package__"]
     spec_before = namespace["__spec__"]

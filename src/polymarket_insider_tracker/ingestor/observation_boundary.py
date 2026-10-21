@@ -12,15 +12,21 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from abc import abstractmethod
-from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
-from typing import Any, Protocol, cast
 
-from redis.asyncio import Redis
-
+from polymarket_insider_tracker.alerter._redis_port import (
+    BoundaryPipeline,
+    BoundaryRedis,
+    reply_byte_hash,
+    reply_bytes,
+    reply_ids,
+    reply_scored_members,
+    settle,
+)
 from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL, OFFICIAL_V2_TRADES_URL
+from polymarket_insider_tracker.shapes import string_keyed
 
 SCHEMA_VERSION = 2
 LOSS_EVENT_RETENTION = 50
@@ -34,80 +40,6 @@ _REQUIRED_FIELDS = (
     "coverage",
     "last_request_end",
 )
-
-
-class BoundaryPipeline(Protocol):
-    """The transactional pipeline surface the boundary queues commands on."""
-
-    @abstractmethod
-    def watch(self, *names: str) -> Awaitable[bool]:
-        """Watch ``names`` for modification before the transaction."""
-
-    @abstractmethod
-    def type(self, name: str) -> Awaitable[bytes]:
-        """Redis type of ``name``."""
-
-    @abstractmethod
-    def multi(self) -> None:
-        """Begin queuing commands for the transaction."""
-
-    @abstractmethod
-    def hset(self, name: str, *, mapping: Mapping[str, str | int]) -> object:
-        """Queue a hash write."""
-
-    @abstractmethod
-    def zadd(self, name: str, mapping: Mapping[str, float]) -> object:
-        """Add scored members to a sorted set."""
-
-    @abstractmethod
-    def zremrangebyscore(self, name: str, min: str, max: str) -> object:
-        """Remove sorted-set members whose score is within ``min``..``max``."""
-
-    @abstractmethod
-    def lpush(self, name: str, *values: str) -> object:
-        """Push ``values`` onto the head of a list."""
-
-    @abstractmethod
-    def ltrim(self, name: str, start: int, end: int) -> object:
-        """Trim a list to ``start``..``end``."""
-
-    @abstractmethod
-    def execute(self) -> Awaitable[list[object]]:
-        """Execute the queued commands atomically."""
-
-    @abstractmethod
-    async def __aenter__(self) -> BoundaryPipeline:
-        """Enter the pipeline context."""
-
-    @abstractmethod
-    async def __aexit__(self, *args: object) -> None:
-        """Leave the pipeline context."""
-
-
-class BoundaryRedis(Protocol):
-    """The concrete ``redis.asyncio.Redis`` surface the boundary uses."""
-
-    @abstractmethod
-    def hgetall(self, name: str) -> Awaitable[dict[bytes, bytes]]:
-        """All fields of a hash."""
-
-    @abstractmethod
-    def zadd(self, name: str, mapping: Mapping[str, float]) -> Awaitable[int]:
-        """Add scored members to a sorted set."""
-
-    @abstractmethod
-    def zrangebyscore(
-        self, name: str, min: str, max: str, **kwargs: bool
-    ) -> Awaitable[list[tuple[bytes, float]]]:
-        """Sorted-set members within a score range."""
-
-    @abstractmethod
-    def lrange(self, name: str, start: int, end: int) -> Awaitable[list[bytes]]:
-        """A slice of a list."""
-
-    @abstractmethod
-    def pipeline(self, transaction: bool) -> BoundaryPipeline:
-        """Open a pipeline."""
 
 
 class BoundaryOrigin(StrEnum):
@@ -180,6 +112,27 @@ class Checkpoint:
         )
 
 
+def _json_object(payload: bytes | str) -> dict[str, object]:
+    decoded = string_keyed(json.loads(payload))
+    if decoded is None:
+        raise ValueError("loss event is not a JSON object")
+    return decoded
+
+
+def _str_field(data: Mapping[str, object], name: str) -> str:
+    value = data[name]
+    if not isinstance(value, str):
+        raise ValueError(f"loss event field {name} is not a string")
+    return value
+
+
+def _int_field(data: Mapping[str, object], name: str) -> int:
+    value = data[name]
+    if not isinstance(value, int | str):
+        raise ValueError(f"loss event field {name} is not an integer")
+    return int(value)
+
+
 @dataclass(frozen=True)
 class LossEvent:
     """An interval the tracker could not prove it covered."""
@@ -196,14 +149,14 @@ class LossEvent:
 
     @classmethod
     def from_json(cls, payload: bytes | str) -> LossEvent:
-        data = cast(dict[str, Any], json.loads(payload))
+        data = _json_object(payload)
         return cls(
-            from_time=int(data["from_time"]),
-            to_time=int(data["to_time"]),
-            reason=LossReason(data["reason"]),
-            detected_at=int(data["detected_at"]),
-            recorded_at=int(data["recorded_at"]),
-            pages_examined=int(data["pages_examined"]),
+            from_time=_int_field(data, "from_time"),
+            to_time=_int_field(data, "to_time"),
+            reason=LossReason(_str_field(data, "reason")),
+            detected_at=_int_field(data, "detected_at"),
+            recorded_at=_int_field(data, "recorded_at"),
+            pages_examined=_int_field(data, "pages_examined"),
         )
 
 
@@ -241,14 +194,14 @@ class ObservationBoundary:
 
     def __init__(
         self,
-        redis: Redis,
+        redis: BoundaryRedis,
         *,
         trades_url: str,
         coverage: str,
         horizon_seconds: int,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        self._redis = cast(BoundaryRedis, redis)
+        self._redis = redis
         self._coverage = coverage
         self._horizon = horizon_seconds
         self._clock = clock
@@ -277,7 +230,7 @@ class ObservationBoundary:
 
     async def load(self) -> Checkpoint | None:
         """Read the checkpoint; reload the identity window and loss events when it is usable."""
-        raw = await self._redis.hgetall(self.checkpoint_key)
+        raw = reply_byte_hash(await settle(self._redis.hgetall(self.checkpoint_key)))
         if not raw:
             return None
         checkpoint = Checkpoint.from_mapping(raw)
@@ -289,13 +242,18 @@ class ObservationBoundary:
         return checkpoint
 
     async def _reload_window(self) -> None:
-        members = await self._redis.zrangebyscore(
-            self.identities_key, "-inf", "+inf", withscores=True
+        withscores = True
+        members = reply_scored_members(
+            await self._redis.zrangebyscore(
+                self.identities_key, "-inf", "+inf", withscores=withscores
+            )
         )
         self._window = {member.decode(): int(score) for member, score in members}
 
     async def _reload_loss_events(self) -> None:
-        stored = await self._redis.lrange(self.loss_events_key, 0, LOSS_EVENT_RETENTION - 1)
+        stored = reply_ids(
+            await settle(self._redis.lrange(self.loss_events_key, 0, LOSS_EVENT_RETENTION - 1))
+        )
         self._loss_events = tuple(LossEvent.from_json(item) for item in stored)
 
     def prove(
@@ -401,7 +359,7 @@ class ObservationBoundary:
         await pipe.watch(*keys)
         expected = ((b"hash", not require_checkpoint), (b"zset", True), (b"list", True))
         for key, (kind, allow_none) in zip(keys, expected, strict=True):
-            self._validate_key_type(key, await pipe.type(key), kind, allow_none)
+            self._validate_key_type(key, reply_bytes(await pipe.type(key)), kind, allow_none)
 
     @staticmethod
     def _validate_key_type(key: str, actual: bytes, expected: bytes, allow_none: bool) -> None:

@@ -12,6 +12,7 @@ behaviour for both call sites before the knowledge moves to one home.
 from __future__ import annotations
 
 import json
+import runpy
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,7 @@ ENTRY_POINTS = (
 LOADER = """
 import importlib.util
 import json
+import runpy
 import sys
 
 def helpers(prefix):
@@ -155,3 +157,11 @@ def test_copied_standalone_scripts_load_their_own_siblings(
     assert payload["package"] == "standalone"
     assert payload["spec"] == "standalone.entry"
     assert payload["paths"] == [[str(copy_root)]]
+
+
+def test_a_namespace_without_a_string_file_is_rejected() -> None:
+    bootstrap = runpy.run_path(str(SCRIPTS / "_entry_bootstrap.py"))
+    namespace: dict[str, object] = {"__file__": None, "__package__": None, "__spec__": None}
+
+    with pytest.raises(TypeError, match="string __file__"):
+        bootstrap["sibling_imports"](namespace, "_polymarket_probe").__enter__()

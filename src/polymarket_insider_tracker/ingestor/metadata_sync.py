@@ -12,10 +12,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Protocol, cast
 
 from redis.asyncio import Redis
 
+from polymarket_insider_tracker.alerter._redis_port import scan_page
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 from .clob_client import ClobClient
@@ -25,18 +25,6 @@ from .models import Market, MarketMetadata
 from .volume_store import VolumeStore
 
 logger = logging.getLogger(__name__)
-
-
-class RedisScanner(Protocol):
-    """Concrete Redis SCAN surface used by the metadata synchronizer."""
-
-    async def scan(
-        self,
-        cursor: int = 0,
-        *,
-        match: str | None = None,
-        count: int | None = None,
-    ) -> tuple[int, list[bytes | str]]: ...
 
 
 # Default configuration
@@ -444,9 +432,8 @@ class MarketMetadataSync:
         pattern = f"{self._key_prefix}*"
 
         cursor = 0
-        scanner = cast(RedisScanner, self._redis)
         while True:
-            cursor, keys = await scanner.scan(cursor, match=pattern, count=100)
+            cursor, keys = await scan_page(self._redis, cursor, pattern, 100)
             page_results = await self._collect_page_markets(keys, category)
             results.extend(page_results)
             if cursor == 0:
