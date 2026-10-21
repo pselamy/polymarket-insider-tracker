@@ -48,16 +48,21 @@ RAW_BUILDERS: dict[str, Callable[[str], JsonValue]] = {
 }
 
 
+def _merge_case(defaults: dict[str, JsonValue], case: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """A case over the corpus defaults; an ``unavailable`` observation inherits nothing."""
+    merged = {**defaults, **{k: v for k, v in case.items() if k != "observation"}}
+    observed = case.get("observation", {})
+    assert isinstance(observed, dict)
+    default_observation = defaults["observation"]
+    assert isinstance(default_observation, dict)
+    base = {} if observed.get("kind") == "unavailable" else default_observation
+    merged["observation"] = {**base, **observed}
+    return merged
+
+
 def _corpus() -> list[dict[str, JsonValue]]:
     corpus = json.loads((EVIDENCE / "cases.json").read_text())
-    cases: list[dict[str, JsonValue]] = []
-    for case in corpus["cases"]:
-        merged = {**corpus["defaults"], **{k: v for k, v in case.items() if k != "observation"}}
-        observed = case.get("observation", {})
-        base = {} if observed.get("kind") == "unavailable" else corpus["defaults"]["observation"]
-        merged["observation"] = {**base, **observed}
-        cases.append(merged)
-    return cases
+    return [_merge_case(corpus["defaults"], case) for case in corpus["cases"]]
 
 
 def _expected() -> dict[str, dict[str, str]]:

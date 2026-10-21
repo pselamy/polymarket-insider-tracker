@@ -93,19 +93,24 @@ def _age_text(age: Decimal | None) -> str | None:
     return None if age is None else _plain(age.normalize())
 
 
-def read_stamp(text: str | None, evaluated_at: datetime) -> Stamp:
-    """Read the stored stamp text; a defect names why the stamp is unusable (P6 reasons)."""
+def _aware_stamp(text: str | None) -> datetime | str:
+    """The stored stamp as an aware UTC instant, or the P6 defect that makes it unusable."""
     if text is None:
-        return Stamp(None, None, "absent")
+        return "absent"
     try:
         acquired = datetime.fromisoformat(text)
     except ValueError:
-        return Stamp(None, None, "unparseable")
-    if acquired.tzinfo is None or acquired.utcoffset() is None:
-        return Stamp(None, None, "naive")
-    if acquired <= _EPOCH:
-        return Stamp(None, None, "nonpositive_epoch")
-    acquired = acquired.astimezone(UTC)
+        return "unparseable"
+    if acquired.utcoffset() is None:
+        return "naive"
+    return "nonpositive_epoch" if acquired <= _EPOCH else acquired.astimezone(UTC)
+
+
+def read_stamp(text: str | None, evaluated_at: datetime) -> Stamp:
+    """Read the stored stamp text against ``evaluated_at`` (age is signed; future stays stored)."""
+    acquired = _aware_stamp(text)
+    if isinstance(acquired, str):
+        return Stamp(None, None, acquired)
     age = exact_seconds(evaluated_at - acquired)
     return Stamp(acquired, age, "future" if age < 0 else None)
 
@@ -261,14 +266,17 @@ class SizeVolumeEvidence:
     category_source: str
 
 
+def _category_basis(verdict: VolumeVerdict, category: str, category_source: str) -> str:
+    no_value_observed = verdict.state in (VolumeState.UNAVAILABLE, VolumeState.MISSING)
+    real_category = category_source == "metadata" and category in NICHE_PRONE_CATEGORIES
+    return "category" if no_value_observed and real_category else "none"
+
+
 def niche_basis(verdict: VolumeVerdict, category: str, category_source: str) -> str:
     """``numeric``, ``category`` (DECISION D3 (d)) or ``none`` (data-model section 3)."""
-    if verdict.state is VolumeState.AVAILABLE and verdict.daily_volume is not None:
+    if verdict.daily_volume is not None:  # set only in state ``available``
         return "numeric" if verdict.daily_volume < NICHE_VOLUME_THRESHOLD else "none"
-    no_value = verdict.state in (VolumeState.UNAVAILABLE, VolumeState.MISSING)
-    if no_value and category_source == "metadata" and category in NICHE_PRONE_CATEGORIES:
-        return "category"
-    return "none"
+    return _category_basis(verdict, category, category_source)
 
 
 def size_volume_evidence(
