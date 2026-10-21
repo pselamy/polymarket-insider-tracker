@@ -52,7 +52,8 @@ in report-only mode (pinned by `mise --locked`, `quality/osv-scanner.toml`).
 
 At enforcement the tree has 0 advisory groups, after the six scoped family upgrades listed in
 `docs/dependency-upgrades.md` (60 groups in 17 packages on `main` before them). "Groups" are osv
-alias groups, one per underlying advisory; that document's "Advisories" column counts every
+alias groups, one per underlying advisory (four later virtualenv advisories were cleared by a
+scoped follow-up to 21.14.7, keeping the count at 0); that document's "Advisories" column counts every
 GHSA/PYSEC record separately, so its numbers are larger.
 
 When a new advisory appears, handle it with a scoped upgrade PR for the affected package family
