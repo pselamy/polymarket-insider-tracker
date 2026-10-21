@@ -63,12 +63,17 @@ def _narrow_topic(topic: object) -> str | None:
 
 
 def _record(filter_params: FilterParams) -> LogQuery:
-    topics = filter_params["topics"]
+    topics = filter_params.get("topics")
+    address = filter_params.get("address")
+    from_block = filter_params.get("fromBlock")
+    to_block = filter_params.get("toBlock")
+    assert topics is not None and address is not None, "eth_getLogs needs address and topics"
+    assert from_block is not None and to_block is not None, "eth_getLogs needs a block window"
     return LogQuery(
-        address=str(filter_params["address"]),
+        address=str(address),
         topics=tuple(_narrow_topic(topic) for topic in topics),
-        from_block=_block(filter_params["fromBlock"]),
-        to_block=_block(filter_params["toBlock"]),
+        from_block=_block(from_block),
+        to_block=_block(to_block),
     )
 
 
