@@ -26,7 +26,15 @@ STEP_3_MODULES = (
     f"{PACKAGE}.alerter.channels.pacing",
     f"{PACKAGE}.alerter._history_records",
 )
-ENROLLED = (*STEP_1_MODULES, REDACTION, *STEP_3_MODULES)
+# The step-4 enrollment: the codec, the evaluation clock, volume state/observation, alert path.
+STEP_4_MODULES = (
+    f"{PACKAGE}.ingestor._publisher_codec",
+    f"{PACKAGE}.detector.evaluation_clock",
+    f"{PACKAGE}.detector.volume_state",
+    f"{PACKAGE}.ingestor.volume_observation",
+    f"{PACKAGE}.detector.alert_path",
+)
+ENROLLED = (*STEP_1_MODULES, REDACTION, *STEP_3_MODULES, *STEP_4_MODULES)
 
 
 def _all_killed() -> list[str]:

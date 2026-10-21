@@ -32,18 +32,19 @@ _JSON_TYPE_NAMES: dict[type, str] = {
     str: "string",
     list: "array",
 }
+_CANONICAL_ENCODER = json.JSONEncoder(sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+_STRICT_ENCODER = json.JSONEncoder(allow_nan=False)
 
 
 def _canonical(value: object) -> bytes:
-    """Canonical UTF-8 text; non-finite floats keep Python's ``NaN``/``Infinity`` tokens."""
-    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return text.encode("utf-8")
+    """Canonical UTF-8 bytes; non-finite floats keep Python's ``NaN``/``Infinity`` tokens."""
+    return _CANONICAL_ENCODER.encode(value).encode()
 
 
 def _has_nonfinite(value: object) -> bool:
     """True when any float inside ``value`` is NaN or infinite (strict JSON refuses it)."""
     try:
-        json.dumps(value, allow_nan=False)
+        _STRICT_ENCODER.encode(value)
     except ValueError:
         return True
     return False
@@ -62,9 +63,8 @@ def _truncation_reason(value: object, size: int) -> str | None:
 
 
 def _nonfinite_tag(value: float) -> str:
-    if math.isnan(value):
-        return "NaN"
-    return "Infinity" if value > 0 else "-Infinity"
+    """Python's JSON token for a non-finite float: ``NaN``, ``Infinity`` or ``-Infinity``."""
+    return json.dumps(value)
 
 
 def bound_raw(value: object) -> object:

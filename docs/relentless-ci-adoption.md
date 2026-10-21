@@ -1039,6 +1039,75 @@ Gate: `ENROLLED_MODULES` gained the three modules (list only grows; the test pin
 Planted weakening: narrowing the boundary test to a single 61s age made the gate exit 1
 (`pacing: 2 mutant(s) survived`); restored.
 
+## Mutation step 4: `_publisher_codec`, `evaluation_clock`, `volume_state`, `volume_observation`, `alert_path` enrolled (2026-10-21)
+
+Measurement (mutmut 3.8.0, Python 3.11, `--max-children 8`) over the eight remaining candidates, all
+already at 100% coverage. `constants.py` has no function, so mutmut generates no mutants for it.
+One run of 2239 mutants took 2m29s locally (the selection also needs `specs/` and `scripts/` in
+`also_copy`: the 004 replay corpus and the reachability script are read from disk).
+
+| Module | Killed | Survived | No tests | Decision |
+| --- | --- | --- | --- | --- |
+| `detector/evaluation_clock.py` | 13 | 4 | 0 | enrolled |
+| `detector/alert_path.py` | 70 | 3 | 0 | enrolled |
+| `ingestor/volume_observation.py` | 152 | 16 | 0 | enrolled |
+| `detector/volume_state.py` | 300 | 25 | 0 | enrolled |
+| `ingestor/_publisher_codec.py` | 178 | 25 | 0 | enrolled |
+| `ingestor/trade_rows.py` | 297 | 21 | 0 | later step |
+| `storage/database_url.py` | 15 | 53 | 1 | later step |
+| `detector/scoring_config.py` | 370 | 135 | 0 | later step |
+
+Not chosen: `trade_rows.py` has 11 survivors that are `cast(None, ...)` runtime no-ops in the typed
+identity parsing (killing them needs a typed redesign of `_IdentityFields.from_parsed`, not a test);
+`database_url.py` and `scoring_config.py` have 53 and 135 survivors, too many to review with this
+step. `detector/scorer.py` stays frozen.
+
+Final run: 0 survived, 0 untested; whole job 1285 mutants in 1m27s locally (step 3: 563 mutants in
+1m11s). The hosted job took about 2m on main before this step; the hosted time after is in the PR.
+No `# pragma: no mutate`, skip list or exclusion is used.
+
+Killed by new tests (no `src` logic change): `tests/detector/test_evaluation_clock_messages.py`
+(exact messages, a tzinfo that reports no offset), `tests/detector/test_volume_state_records.py`
+(every recorded verdict field for observed/absent/explicit evidence, non-finite float raws,
+`exact_seconds` beyond float precision, `measured_impact` guard, the metadata-lookup reason, niche
+threshold, category), `tests/detector/test_alert_path.py` (log message passed as an argument, plain
+class as ceiling under a negative niche weight), `tests/ingestor/test_volume_observation.py`
+(canonical bytes, unknown-type marker, `oversize_numeric`), `tests/ingestor/test_publisher_codec.py`
+(empty-string defaults).
+
+Equivalent mutants, each removed by a behaviour-preserving restructure (output identical for every
+input the code can receive):
+
+- `alert_path._best_case_ceiling`: `niche=False` mutated to `niche=None` (`size_group_score` only
+  tests truthiness). The two producible classes are now a module-level table of
+  `(confidence, niche)` pairs.
+- `volume_observation._canonical`: `ensure_ascii=None` equals `False`, and `"UTF-8"` equals
+  `"utf-8"`. The encoder is a module-level `json.JSONEncoder` constant and `.encode()` uses the
+  UTF-8 default (a mutant of a module constant is not generated).
+- `volume_observation._has_nonfinite`: `allow_nan=None` equals `False`. The strict encoder is a
+  module-level `json.JSONEncoder(allow_nan=False)` constant.
+- `volume_observation._nonfinite_tag`: `value > 0` mutated to `>= 0`/`> 1` is unreachable for
+  `inf`. Now `json.dumps(value)`, which already yields `NaN`/`Infinity`/`-Infinity`.
+- `volume_state._plain`: `"f"` vs `"F"` differ only for non-finite decimals, which never reach it.
+  Written as `f"{value:f}"`.
+- `volume_state._truncated_reason`: the `isinstance(raw, dict) ... else None` branch was dead (only
+  called with a dict). It now takes the marker dict, narrowed by the caller.
+- `volume_state._explicit_verdict`: the `VolumeObservation` it built had `acquired_at` and `source`
+  that `_verdict` never read. `_verdict` now takes `present` and `raw` directly.
+- `_publisher_codec.deserialize_trade_event`: the `""` default for `timestamp` and `"BUY"`/`"buy"`
+  default for `side` are equal in effect (fallback to now; `.upper()`). The timestamp is passed as
+  `str | None` with no default; the side default is the `_DEFAULT_SIDE` constant.
+
+Hosted-CI correction: the first push passed locally (CEST) but the hosted runner (local zone UTC)
+left three `astimezone(UTC)` -> `astimezone(None)` mutants alive (`utc_instant`, `_aware_stamp`,
+`VolumeObservation.from_page`), because the local zone equals UTC there. Killed by
+`tests/detector/test_utc_normalisation.py`, which runs under a UTC+9 local zone; the gate was
+re-verified locally with `TZ=UTC`.
+
+Gate: `ENROLLED_MODULES` gained the five modules (list only grows; the test pins the prefix).
+Planted weakening: shrinking the `exact_seconds` test to a one-day delta made the gate exit 1
+(`volume_state: 1 mutant(s) survived`); restored.
+
 ## REF-CMD-20 step 6: rest of `tests/detector` and `tests/ingestor` (2026-10-21)
 
 Measured from `origin/main` at `e7ff163` with strict pyright `1.1.411`, path passed explicitly:

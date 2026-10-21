@@ -146,6 +146,27 @@ def test_unreachable_logs_a_warning_and_reachable_an_info(
     ]
 
 
+def test_the_log_message_is_an_argument_never_a_format_string(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    report = alert_path_report(0.8, capability=LiveEvidenceCapability(wallet_age_source="100%s"))
+    logger = logging.getLogger("alert-path-format-test")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        log_alert_path(logger, report)
+
+    (record,) = caplog.records
+    assert (record.msg, record.args) == ("%s", (report.log_message(),))
+    assert record.getMessage().endswith("wallet_age_source=100%s")
+
+
+def test_a_negative_niche_weight_leaves_the_plain_class_as_the_ceiling() -> None:
+    weights = {"size_anomaly": 0.5, "niche_market": -0.4}
+
+    report = alert_path_report(0.1, weights)
+
+    assert (report.ceiling, report.status) == (Decimal("0.250"), "reachable")
+
+
 def test_the_capability_is_a_code_constant_not_a_setting() -> None:
     assert LiveEvidenceCapability().wallet_age_source == "none"
     assert not hasattr(make_test_settings().detector, "wallet_group_status")
