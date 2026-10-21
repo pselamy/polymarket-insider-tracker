@@ -7,13 +7,18 @@ written as its 004.1 document, composed here from the captured assessment and ev
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Awaitable, Callable
 from decimal import Decimal
 
 from polymarket_insider_tracker.detector.evidence_document import row_scoring_config
 from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.detector.scorer import quantize_score_value
 from polymarket_insider_tracker.detector.scoring_config import DetectorConfig
-from polymarket_insider_tracker.storage.repos import RiskAssessmentDTO
+from polymarket_insider_tracker.redaction import redact_exception_message
+from polymarket_insider_tracker.shutdown import DEFAULT_SHUTDOWN_TIMEOUT, wait_bounded
+from polymarket_insider_tracker.storage.database import DatabaseManager
+from polymarket_insider_tracker.storage.repos import RiskAssessmentDTO, RiskAssessmentRepository
 
 
 def assessment_dto(
@@ -70,3 +75,48 @@ def assessment_dto(
         wallet_tx_count=assessment.wallet_tx_count,
         wallet_age_known=assessment.wallet_age_known,
     )
+
+
+async def insert_despite_cancellation(
+    db_manager: DatabaseManager, dto: RiskAssessmentDTO, on_error: Callable[[str], None]
+) -> None:
+    """Insert one assessment row; a cancelled caller still gets the row (bounded wait)."""
+    await complete_despite_cancellation(_insert_assessment(db_manager, dto), on_error)
+
+
+async def _insert_assessment(db_manager: DatabaseManager, dto: RiskAssessmentDTO) -> None:
+    """Insert one assessment row in its own committed session."""
+    async with db_manager.get_async_session() as session:
+        await RiskAssessmentRepository(session).insert(dto)
+
+
+async def complete_despite_cancellation(
+    write: Awaitable[None],
+    on_error: Callable[[str], None],
+    timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
+) -> None:
+    """Await ``write`` to completion even if the awaiting task is cancelled meanwhile.
+
+    The write runs as its own shielded task. A cancellation of the caller waits at most
+    ``timeout`` seconds (the graceful-shutdown bound) for the write, reports a late failure
+    or an overrun through ``on_error``, and is then re-raised: deferred, never swallowed.
+    """
+    task = asyncio.ensure_future(write)
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        await _finish_cancelled_write(task, on_error, timeout)
+        raise
+
+
+async def _finish_cancelled_write(
+    task: asyncio.Future[None], on_error: Callable[[str], None], timeout: float
+) -> None:
+    """Let the shielded write finish within ``timeout``; report what cannot be raised."""
+    try:
+        finished = await wait_bounded(task, timeout)
+    except Exception as e:
+        on_error(f"Durable write failed after cancellation: {redact_exception_message(e)}")
+        return
+    if not finished:
+        on_error(f"Durable write abandoned after the {timeout:g}s cancellation bound")
