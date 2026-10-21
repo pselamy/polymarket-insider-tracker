@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
+from urllib.parse import SplitResult, parse_qsl, quote, unquote, urlsplit, urlunsplit
 
 MASK = "***"
 # Emitted when rendering an exception itself fails (a raising ``args``
@@ -56,6 +56,13 @@ _PATH_CREDENTIAL_MARKER = "***path***"
 # repeated redaction: re-running the policy over its own placeholder yields
 # the identical string, and no input bytes are re-emitted.
 _AMBIGUOUS_MASK = _PATH_CREDENTIAL_MARKER
+# ``quote`` leaves ``/`` readable unless told nothing is safe; every reserved character of a
+# credential spelling must be percent-encoded.
+_NOTHING_SAFE = ""
+# Non-alphanumeric characters a readable host label may carry (dots, hyphens, port colon).
+_HOST_PUNCTUATION = ".-:"
+# Printable characters that still end a text-scan match (see ``_URL_PATTERN``).
+_URL_SCAN_BOUNDARY = '"<>'
 
 
 def _redacted_userinfo(username: str | None, password: str | None) -> str:
@@ -105,16 +112,16 @@ def _fallback_redaction(url: str) -> str:
 
     Fail closed and deterministic: no part of the input is re-emitted. The
     placeholder keeps the output URL-shaped so downstream ``://`` handling
-    cannot re-derive structure from it.
+    cannot re-derive structure from it. A string without ``://`` is its own
+    scheme candidate, and a candidate holding ``/`` is never plain ASCII
+    alphanumerics, so it contributes no prefix.
     """
-    scheme = url.split("://", 1)[0] if "://" in url else ""
-    prefix = _safe_scheme_prefix(scheme)
-    return prefix + _AMBIGUOUS_MASK
+    return _safe_scheme_prefix(url.partition("://")[0]) + _AMBIGUOUS_MASK
 
 
 def _safe_scheme_prefix(scheme: str) -> str:
     """The scheme label is readable only when it is plain ASCII alphanumerics."""
-    if scheme and all(char.isascii() and char.isalnum() for char in scheme):
+    if scheme.isascii() and scheme.isalnum():
         return f"{scheme.lower()}://"
     return ""
 
@@ -153,94 +160,73 @@ def redact_url(url: str) -> str:
         parts = urlsplit(url)
     except ValueError:
         return _fallback_redaction(url)
-    if _is_invalid_port_shape(parts):
-        return _fail_closed_label(url, parts)
-    if _is_fail_closed_shape(parts):
-        return _fail_closed_label(url, parts)
+    closed = _fail_closed_label(url, parts)
+    if closed is not None:
+        return closed
     netloc = _masked_netloc(parts.netloc, parts.username, parts.password)
     query = _redacted_query(parts.query) if parts.query else ""
     fragment = MASK if parts.fragment else ""
     return urlunsplit((parts.scheme, netloc, _masked_path(parts.path), query, fragment))
 
 
-def _is_invalid_port_shape(parts: object) -> bool:
+def _fail_closed_label(url: str, parts: SplitResult) -> str | None:
+    """The deterministic masked label for an ambiguous structured shape, else None.
+
+    Every ambiguous structured shape fails closed without emitting input. The
+    checks run in a fixed order because the first match decides which label
+    (bare placeholder, safe-host label) is emitted.
+    """
+    if _has_split_nested_scheme(parts.netloc, parts.path):
+        return _fallback_redaction(url)
+    if _has_invalid_port(parts):
+        return _port_fail_closed_label(parts)
+    if _is_unparseable_netloc(parts.netloc, parts.hostname):
+        return _fallback_redaction(url)
+    if _has_nested_scheme_shape(parts.path, parts.netloc, parts.hostname):
+        return _nested_masked_label(parts.scheme, parts.netloc)
+    return None
+
+
+def _has_invalid_port(parts: SplitResult) -> bool:
     """A netloc whose port is non-numeric or out of range is fail-closed.
 
     The token after the host colon may itself be the credential (a mistyped
-    ``host:key`` for ``host/key``); accessing ``parts.port`` raises
-    ``ValueError`` for exactly this shape, so probing it is both the detector
-    and the proof that the port is not a diagnosable endpoint label. The probe
-    attributes the colon correctly through userinfo and bracketed IPv6 hosts,
-    so no netloc shape is exempt: ``user@host:KEY`` and ``[::1]:KEY`` must
-    never re-emit the port-position token through the netloc mask.
+    ``host:key`` for ``host/key``); reading ``parts.port`` raises
+    ``ValueError`` for exactly this shape (non-numeric or outside 0-65535),
+    so probing it is both the detector and the proof that the port is not a
+    diagnosable endpoint label. The probe attributes the colon correctly
+    through userinfo and bracketed IPv6 hosts, so no netloc shape is exempt:
+    ``user@host:KEY`` and ``[::1]:KEY`` must never re-emit the port-position
+    token through the netloc mask.
     """
-    return _port_probe_fails(parts)
-
-
-def _port_probe_fails(parts: object) -> bool:
-    """The port probe raises, or resolves outside the valid range."""
     try:
-        port = getattr(parts, "port", None)
+        _ = parts.port
     except ValueError:
         return True
-    return port is not None and not 0 <= port <= 65535
+    return False
 
 
-def _is_fail_closed_shape(parts: object) -> bool:
-    """Any ambiguous structured shape fails closed without emitting input."""
-    netloc = str(getattr(parts, "netloc", ""))
-    path = str(getattr(parts, "path", ""))
-    hostname = getattr(parts, "hostname", None)
-    if _has_split_nested_scheme(netloc, path):
-        return True
-    if _is_malformed_bracket_netloc(netloc, hostname):
-        return True
-    if _is_unparseable_netloc(parts):
-        return True
-    return _nested_scheme_kind(path, netloc, hostname) is not None
-
-
-def _fail_closed_label(url: str, parts: object) -> str:
-    """The deterministic masked label for an ambiguous structured shape."""
-    scheme = str(getattr(parts, "scheme", ""))
-    netloc = str(getattr(parts, "netloc", ""))
-    path = str(getattr(parts, "path", ""))
-    hostname = getattr(parts, "hostname", None)
-    if _has_split_nested_scheme(netloc, path):
-        return _fallback_redaction(url)
-    if _is_malformed_bracket_netloc(netloc, hostname):
-        return _fallback_redaction(url)
-    if _is_invalid_port_shape(parts):
-        return _port_fail_closed_label(parts)
-    if _is_unparseable_netloc(parts):
-        return _fallback_redaction(url)
-    return _nested_masked_label(scheme, netloc)
-
-
-def _port_fail_closed_label(parts: object) -> str:
+def _port_fail_closed_label(parts: SplitResult) -> str:
     """Mask an invalid-port shape without re-emitting the port token.
 
     The scheme stays readable (it names which setting produced the label) and
-    the host resolves only through the safe outer-host check; a host the check
+    the host resolves only through the safe host check; a host the check
     cannot prove safe collapses to the bare placeholder.
     """
-    scheme = str(getattr(parts, "scheme", ""))
-    hostname = getattr(parts, "hostname", None)
-    prefix = _safe_scheme_prefix(scheme)
-    if isinstance(hostname, str) and _safe_outer_host(hostname) == hostname:
-        return f"{prefix}{hostname}/{_PATH_CREDENTIAL_MARKER}"
-    return prefix + _AMBIGUOUS_MASK
+    prefix = _safe_scheme_prefix(parts.scheme)
+    host = None if parts.hostname is None else _validated_host_label(parts.hostname)
+    if host is None:
+        return prefix + _AMBIGUOUS_MASK
+    return f"{prefix}{host}/{_PATH_CREDENTIAL_MARKER}"
 
 
-def _is_malformed_bracket_netloc(netloc: str, hostname: str | None) -> bool:
-    """An unbalanced bracket netloc is ambiguous: fail closed without echo."""
-    return ("[" in netloc or "]" in netloc) and hostname is None
+def _is_unparseable_netloc(netloc: str, hostname: str | None) -> bool:
+    """A netloc with no usable host is not a diagnosable endpoint label.
 
-
-def _is_unparseable_netloc(parts: object) -> bool:
-    """A netloc with no usable host is not a diagnosable endpoint label."""
-    hostname = getattr(parts, "hostname", None)
-    netloc = str(getattr(parts, "netloc", ""))
+    A bracketed netloc whose host cannot be read lands here too: ``urlsplit``
+    rejects unbalanced or non-address brackets itself, and any other bracket
+    shape without a hostname is a netloc with no usable host.
+    """
     return bool(netloc) and not hostname and "@" not in netloc
 
 
@@ -256,16 +242,18 @@ def _nested_masked_label(scheme: str, netloc: str) -> str:
 def _safe_outer_host(netloc: str) -> str | None:
     """The readable outer host of a nested shape, or None when ambiguous."""
     host = netloc.split("@")[-1]
-    if not host or "://" in host or "@" in host:
-        return None
-    if "[" in host or "]" in host:
+    if not host:
         return None
     return _validated_host_label(host)
 
 
 def _validated_host_label(host: str) -> str | None:
-    """A host label with only safe characters and, when present, a real port tail."""
-    if not all(char.isascii() and (char.isalnum() or char in ".-:") for char in host):
+    """A host label with only safe characters and, when present, a real port tail.
+
+    The character set excludes ``@``, ``/``, ``:`` runs and brackets, so a
+    nested URL or bracketed fragment can never pass as a host.
+    """
+    if not all(char.isascii() and (char.isalnum() or char in _HOST_PUNCTUATION) for char in host):
         return None
     if not _has_valid_port_tail(host):
         return None
@@ -273,37 +261,30 @@ def _validated_host_label(host: str) -> str | None:
 
 
 def _has_valid_port_tail(host: str) -> bool:
-    """Any colon tail in an outer-host label must be a real port number.
+    """Any colon tail in an outer-host label must be a number.
 
-    A non-numeric tail is credential-shaped under this policy's contract and
-    must not survive as a fake port; more than one bare colon is not an
-    attributable host:port shape at all.
+    An empty or non-numeric tail is credential-shaped under this policy's
+    contract and must not survive as a fake port; more than one colon leaves
+    a colon in the tail, which is not numeric, so it is not an attributable
+    host:port shape at all. The range was already enforced by the port probe
+    of the caller's parsed result, which runs before any label is built.
     """
-    if ":" not in host:
-        return True
-    head, _, tail = host.rpartition(":")
-    if ":" in head:
-        return False
-    return tail.isdigit() and int(tail) <= 65535
+    _, colon, tail = host.partition(":")
+    return not colon or tail.isdigit()
 
 
-def _nested_scheme_kind(path: str, netloc: str, hostname: str | None) -> str | None:
-    """Classify a malformed nested-scheme/userinfo shape, else None.
+def _has_nested_scheme_shape(path: str, netloc: str, hostname: str | None) -> bool:
+    """A malformed nested-scheme/userinfo shape (the split shape is checked earlier).
 
     Every ``@``-bearing shape the structured parser cannot attribute to a real
     netloc userinfo is credential-shaped under this policy's contract and must
     go through the shape-based fallback instead of emitting any part of it.
-    Single-condition predicates keep each check flat and explicit.
     """
-    if _has_smuggled_userinfo(path, netloc):
-        return "smuggled-userinfo"
-    if _has_split_nested_scheme(netloc, path):
-        return "split-nested-scheme"
-    if _has_embedded_nested_scheme(path):
-        return "embedded-nested-scheme"
-    if _has_hostless_userinfo(netloc, hostname):
-        return "hostless-userinfo"
-    return None
+    return (
+        _has_smuggled_userinfo(path, netloc)
+        or _has_embedded_nested_scheme(path)
+        or _has_hostless_userinfo(netloc, hostname)
+    )
 
 
 def _has_smuggled_userinfo(path: str, netloc: str) -> bool:
@@ -379,10 +360,8 @@ def _is_safe_message_argument(arg: object) -> bool:
 
 def _split_trailing_delimiters(match: str) -> tuple[str, str]:
     """Split prose delimiters off the end of a URL-shaped match."""
-    end = len(match)
-    while end > 0 and match[end - 1] in _URL_TRAILING_TRIM:
-        end -= 1
-    return match[:end], match[end:]
+    url = match.rstrip(_URL_TRAILING_TRIM)
+    return url, match[len(url) :]
 
 
 def redact_text(text: str) -> str:
@@ -409,7 +388,7 @@ def is_scannable_url_text(value: str) -> bool:
 
 def _is_scan_boundary_char(char: str) -> bool:
     """A character the text scanner cannot keep inside a URL-shaped match."""
-    return char.isspace() or not char.isprintable() or char in '"<>'
+    return char.isspace() or not char.isprintable() or char in _URL_SCAN_BOUNDARY
 
 
 def redact_text_with_secrets(text: str, secrets: Iterable[str]) -> str:
@@ -466,7 +445,7 @@ def _component_spellings(component: str) -> set[str]:
     forms = {component, unquote(component)}
     spellings = set(forms)
     for form in forms:
-        spellings.add(quote(form, safe=""))
+        spellings.add(quote(form, safe=_NOTHING_SAFE))
         spellings.add(form.replace("/", "\\/"))
     return {spelling for spelling in spellings if spelling.strip()}
 
@@ -505,6 +484,4 @@ def _query_credential_tokens(query: str) -> list[str]:
 def _redact_url_match(matched: str) -> str:
     """Redact one URL-shaped match, preserving surrounding prose delimiters."""
     url, trailing = _split_trailing_delimiters(matched)
-    if not url or "://" not in url:
-        return matched
     return redact_url(url) + trailing

@@ -1,0 +1,5402 @@
+[
+{
+"input": "\"@&<,)",
+"redact_url": "***path***",
+"redact_text": "echo \"@&<,) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[?a",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,=\u00e9';=a,",
+"redact_url": "x://,=\u00e9';=a,",
+"redact_text": "echo x://,=\u00e9';=a, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'< ",
+"redact_url": "x://'< ",
+"redact_text": "echo x:'<  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<<",
+"redact_url": "x://<<",
+"redact_text": "echo x://<< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\"#\u00e9]=",
+"redact_url": "x://\"#***",
+"redact_text": "echo x://\"#\u00e9]= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<=@:&<!.\"/?",
+"redact_url": "x://***path***",
+"redact_text": "echo x://<=@:&<!.\"/? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:@h:65536/a b?%26=1#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** b?%26=1# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u@]/@?x#y#",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<?.",
+"redact_url": "***path***?***",
+"redact_text": "echo <?. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "# #  =,;[=@",
+"redact_url": "#***",
+"redact_text": "echo # #  =,;[=@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "!,'b:)<b",
+"redact_url": "***path***",
+"redact_text": "echo !,'b:)<b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";]>,a!",
+"redact_url": "***path***",
+"redact_text": "echo ;]>,a! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "??#),<",
+"redact_url": "?***#***",
+"redact_text": "echo ??#),< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b:=/#,<@&",
+"redact_url": "b:***path***#***",
+"redact_text": "echo b:=/#,<@& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://:p@h:8080/a@b?a%3Db=1",
+"redact_url": "h:8080/***path***",
+"redact_text": "echo h:8080/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://@[::1]/x@y://z?a%3Db=1",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://@[::1]/x@y://z?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>) ?.;'\",",
+"redact_url": "x://>) ?***",
+"redact_text": "echo x://>) ?.;'\", end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://a@b@host",
+"redact_url": "http://***@host",
+"redact_text": "echo http://***@host end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://a_b/a://b?=v",
+"redact_url": "wss://a_b/***path***?=***",
+"redact_text": "echo wss://a_b/***path***?=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:@h:-1/a'b?k=a+b#f",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://#a<[a> !",
+"redact_url": "x:#***",
+"redact_text": "echo x:#***<[a> ! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>@ <\"b>",
+"redact_url": "x://***@ <\"b>",
+"redact_text": "echo x://>@ <\"b> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b;b# ",
+"redact_url": "***path***#***",
+"redact_text": "echo b;b#  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://ba>>\"#:.a=",
+"redact_url": "x://ba>>\"#***",
+"redact_text": "echo x://ba>>\"#:.a= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:p@h:8080/x@y://z?%26=1",
+"redact_url": "http://h:8080/***path***",
+"redact_text": "echo http://h:8080/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")a[\u00e9<",
+"redact_url": "***path***",
+"redact_text": "echo )a[\u00e9< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]? #<'",
+"redact_url": "***path***?***#***",
+"redact_text": "echo ]? #<' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,ba'':;=?[@!",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]\"aa\"]:[b",
+"redact_url": "***path***",
+"redact_text": "echo ]\"aa\"]:[b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "] >",
+"redact_url": "***path***",
+"redact_text": "echo ] > end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\"/\"!%b,=,>\"%",
+"redact_url": "***path***",
+"redact_text": "echo \"/\"!%b,=,>\"% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "&<&) '%!;",
+"redact_url": "***path***",
+"redact_text": "echo &<&) '%!; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://a@b@[::1]:key/v2/KEY?SECRET",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://a@b@[::1]:key/v2/KEY?SECRET end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///@%>b",
+"redact_url": "x:***path***",
+"redact_text": "echo x:***path***>b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:@host/a%2Fb?k=v#",
+"redact_url": "***path***",
+"redact_text": "echo ://u:@host/a%2Fb?k=v# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">]'#/:?;\"",
+"redact_url": "***path***#***",
+"redact_text": "echo >]'#/:?;\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://u:@wss:/v2/KEY?a=&b=c#",
+"redact_url": "postgresql+asyncpg://u:***@wss:/***path***?***&b=***",
+"redact_text": "echo postgresql+asyncpg://u:***@wss:/***path***?***&b=*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "ws+x://a@b@[::1/v2/KEY?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u@wss:/v2/KEY?SECRET#f",
+"redact_url": "x1://***@wss:/***path***?***#***",
+"redact_text": "echo x1://***@wss:/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@host:99999//x#",
+"redact_url": "http://host/***path***",
+"redact_text": "echo http://host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p%40q@wss:/?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p%40q@wss:/?k=a+b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a/%&]/!;,",
+"redact_url": "x://a/***path***",
+"redact_text": "echo x://a/***path***!;, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://\u00e9@]//u:p@h/z?SECRET#",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?.#[\"\"\u00e9]=[a",
+"redact_url": "?***#***",
+"redact_text": "echo ?.#[\"\"\u00e9]=[a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)/=#&#&",
+"redact_url": "x://)/***path***#***",
+"redact_text": "echo x://)/***path***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:p@[::1]:80/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "x://b&=='].\"",
+"redact_url": "x://***path***",
+"redact_text": "echo x://b&=='].\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%] :=<>!>",
+"redact_url": "***path***",
+"redact_text": "echo %] :=<>!> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u:p@/v2/KEY?SECRET#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:p@/v2/KEY?SECRET# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]'%!.:#]",
+"redact_url": "***path***#***",
+"redact_text": "echo ]'%!.:#] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://\u00e9@[]/x@y://z?a=1&b=2&c",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[]%",
+"redact_url": "***path***",
+"redact_text": "echo []% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u@10.0.0.1:0",
+"redact_url": "a-b://***@10.0.0.1:0",
+"redact_text": "echo a-b://***@10.0.0.1:0 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#[;)#'&=?;",
+"redact_url": "#***",
+"redact_text": "echo #[;)#'&=?; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:p@h:1:2/a@b?k=a+b#f",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;]#% ",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@h:bad/a%2Fb?k=a+b#f",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@h:bad/a%2Fb?k=a+b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a!\u00e9",
+"redact_url": "x://a!\u00e9",
+"redact_text": "echo x://a!\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\",/,)>,",
+"redact_url": "***path***",
+"redact_text": "echo \",/,)>, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://@h:65535//u:p@h/z?a%3Db=1#f",
+"redact_url": "x1://h:65535/***path***",
+"redact_text": "echo x1://h:65535/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/\"\u00e9",
+"redact_url": "***path***",
+"redact_text": "echo /\"\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://] #%>//\"@#",
+"redact_url": "x://***path***",
+"redact_text": "echo x:] #%>//\"@# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://h:1:2/v2/KEY?%26=1",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[<a?,:=[",
+"redact_url": "***path***?,:=***",
+"redact_text": "echo [<a?,:=[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://a@b@[]/a@b?a%3Db=1",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:@h:",
+"redact_url": "ws+x://u:***@h:",
+"redact_text": "echo ws+x://u:***@h: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@#a\" ##=",
+"redact_url": "***path***#***",
+"redact_text": "echo @#a\" ##= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://\u00e9@[::1]:80/a b?x#y#f",
+"redact_url": "wss://***@[::1]:80/***path***?***#***",
+"redact_text": "echo wss://***@[::1]:80/***path*** b?x#y#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///:>><]b=>':",
+"redact_url": "x:***path***",
+"redact_text": "echo x:/:>><]b=>': end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@10.0.0.1:0/a%2Fb?SECRET#f",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@10.0.0.1:0/a%2Fb?SECRET#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://:p@host/a://b?a=&b=c",
+"redact_url": "wss://:***@host/***path***?***&b=***",
+"redact_text": "echo wss://:***@host/***path***?***&b=*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x1://tok@h:bad/@?k=a+b",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b/",
+"redact_url": "***path***",
+"redact_text": "echo b/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://=! \"',=?\u00e9",
+"redact_url": "x://=! \"',=?***",
+"redact_text": "echo x://=! \"',=?\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://a@b@h:/v2/KEY?SECRET#",
+"redact_url": "a-b://***@h:/***path***?***",
+"redact_text": "echo a-b://***@h:/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://''#!",
+"redact_url": "x://''#***",
+"redact_text": "echo x://''! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:p@HOST.example.com//u:p@h/z?SECRET",
+"redact_url": "http://HOST.example.com/***path***",
+"redact_text": "echo http://HOST.example.com/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://\u00e9@h:-1/#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9,/\"",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9,/\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@:80/a://b?a=1&b=2&c",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@:80/a://b?a=***&b=***&*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "https://tok@h:65536/\u00e9?a%3Db=1#f",
+"redact_url": "https://h/***path***",
+"redact_text": "echo https://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://, ='[&@'?%/?",
+"redact_url": "x://***path***",
+"redact_text": "echo x:, ='[&@'?%/? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@h:-1/a@b?k=v",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://@a b/a b?k=v",
+"redact_url": "ws+x://***@a b/***path***?k=***",
+"redact_text": "echo ws+x://***@a b/a b?k=v end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://tok@h:/@?k=a+b",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://tok@h:/@?k=a+b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://[]/\u00e9#f",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">@&;#.>;?;",
+"redact_url": "***path***#***",
+"redact_text": "echo >@&;#.>;?; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<b&",
+"redact_url": "***path***",
+"redact_text": "echo <b& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b\"\u00e9\"\"@))[",
+"redact_url": "x://***path***",
+"redact_text": "echo x://b\"\u00e9\"\"@))[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">/#b)]@",
+"redact_url": "***path***#***",
+"redact_text": "echo >/#b)]@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "! ::&<>\u00e9& .b",
+"redact_url": "***path***",
+"redact_text": "echo ! ::&<>\u00e9& .b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://tok@[/a@b?a=&b=c#",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "!\u00e9? ]",
+"redact_url": "***path***?***",
+"redact_text": "echo !\u00e9? ] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?]a<ab)=>",
+"redact_url": "x:?]a<ab)=***",
+"redact_text": "echo x:?***<ab)=> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p%40q@h:-1/x@y://z?k=v#",
+"redact_url": "redis://h/***path***",
+"redact_text": "echo redis://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[@@@?#'%",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9=@&@b&",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9=@&@b& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://:p@[::1]:80/a@b?a=1&b=2&c",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "postgresql+asyncpg://@::1]",
+"redact_url": "***path***",
+"redact_text": "echo ***path***] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@a_b/a@b?x#y",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:@h:65536",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p%40q@https:/a@b://c?k=v",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "http://a@b@wss:/a://b?x#y#",
+"redact_url": "http://***@wss:/***path***?***#***",
+"redact_text": "echo http://***@wss:/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/a]",
+"redact_url": "***path***",
+"redact_text": "echo /a] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// ?:#/&\"[)!a;",
+"redact_url": "x:// ?***#***",
+"redact_text": "echo x:// ?:#/&\"[)!a; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://tok@h:\u00b2//u:p@h/z?a%3Db=1",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://@::1]/a%2Fb?a=&b=c#f",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:p@h:65535/a b?SECRET#",
+"redact_url": "wss://u:***@h:65535/***path***?***",
+"redact_text": "echo wss://u:***@h:65535/***path*** b?SECRET# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'[.#![<)#/)",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***<)#/) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@h:bad/a'b?k=a/b#f",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@h:bad/a'b?k=a/b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@host/@?k=a+b#f",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@host/@?k=a+b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:@:80/a%2Fb?SECRET#f",
+"redact_url": ":80/***path***",
+"redact_text": "echo :80/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]'b@'.&a",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%= ",
+"redact_url": "x://%= ",
+"redact_text": "echo x://%=  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a, ",
+"redact_url": "***path***",
+"redact_text": "echo a,  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://a@b@:80/a@b?SECRET#",
+"redact_url": ":80/***path***",
+"redact_text": "echo :80/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "!b!:=:!",
+"redact_url": "***path***",
+"redact_text": "echo !b!:=:! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";/\"b\"@",
+"redact_url": "***path***",
+"redact_text": "echo ;/\"b\"@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:p@host/@?%26=1#f",
+"redact_url": "host/***path***",
+"redact_text": "echo host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ",/a",
+"redact_url": "***path***",
+"redact_text": "echo ,/a end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "x://=:?;:\"'.",
+"redact_url": "x://=:?***",
+"redact_text": "echo x://=:?;:\"'. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://a_b/?=v#",
+"redact_url": "x1://a_b/?=***",
+"redact_text": "echo x1://a_b/?=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";@=.b",
+"redact_url": "***path***",
+"redact_text": "echo ;@=.b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,'!=[",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@[/a%2Fb?k=a+b#f",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">\u00e9 );<<[@&",
+"redact_url": "***path***",
+"redact_text": "echo >\u00e9 );<<[@& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?b%[/\u00e9%<[aa",
+"redact_url": "?***",
+"redact_text": "echo ?b%[/\u00e9%<[aa end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a[.a",
+"redact_url": "***path***",
+"redact_text": "echo a[.a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://@h:65535/a%2Fb?=v",
+"redact_url": "postgresql+asyncpg://***@h:65535/***path***?=***",
+"redact_text": "echo postgresql+asyncpg://***@h:65535/***path***?=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]b%<;!,!",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***<;!,! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@aa?,\u00e9?)!)",
+"redact_url": "***path***?***",
+"redact_text": "echo @aa?,\u00e9?)!) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p%40q@HOST.example.com/@?k=v#f",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p%40q@HOST.example.com/@?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://tok@h:65536/a'b?a=1&b=2&c#",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "ws+x://a_b/a b?k=v",
+"redact_url": "ws+x://a_b/***path***?k=***",
+"redact_text": "echo ws+x://a_b/***path*** b?k=v end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "&&\"a",
+"redact_url": "***path***",
+"redact_text": "echo &&\"a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?,@a'",
+"redact_url": "?***",
+"redact_text": "echo ?,@a' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:p%40q@h:-1",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:@h:bad/a'b?a%3Db=1#f",
+"redact_url": "***path***",
+"redact_text": "echo ://u:@h:bad/a'b?a%3Db=1#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://tok@\u00e9.com/v2/KEY?a=1&b=2&c#",
+"redact_url": "https://***@\u00e9.com/***path***?a=***&b=***&***",
+"redact_text": "echo https://***@\u00e9.com/***path***?a=***&b=***&*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x1://u:@[]/a://b#f",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">a%b/)]&@=",
+"redact_url": "***path***",
+"redact_text": "echo >a%b/)]&@= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "&, a>)%<;>[:",
+"redact_url": "***path***",
+"redact_text": "echo &, a>)%<;>[: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)b?,'>;'",
+"redact_url": "x://)b?***",
+"redact_text": "echo x://)b?,'>;' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'= b%!>",
+"redact_url": "x://'= b%!>",
+"redact_text": "echo x://'= b%!> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:p%40q@h:65535/x@y://z?x#y",
+"redact_url": "http://h:65535/***path***",
+"redact_text": "echo http://h:65535/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@https:/\u00e9?a=1&b=2&c#f",
+"redact_url": "***path***?a=***&b=***&***#***",
+"redact_text": "echo @https:/\u00e9?a=1&b=2&c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "://@::1]/a%2Fb?=v#f",
+"redact_url": "***path***",
+"redact_text": "echo ://@::1]/a%2Fb?=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:p@/@?a%3Db=1#",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "&a]!= ]",
+"redact_url": "***path***",
+"redact_text": "echo &a]!= ] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://:p@host/a%2Fb?a=&b=c#f",
+"redact_url": "x1://:***@host/***path***?***&b=***#***",
+"redact_text": "echo x1://:***@host/***path***?***&b=***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "http://:p@a b?%26=1#",
+"redact_url": "http://:***@a b?***",
+"redact_text": "echo http://:***@a b?%26=1# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%/=@ )",
+"redact_url": "***path***",
+"redact_text": "echo %/=@ ) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":<# b,<\u00e9:%?)",
+"redact_url": "***path***#***",
+"redact_text": "echo :<# b,<\u00e9:%?) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://@wss:/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "wss://tok@h:-1/\u00e9?x#y#f",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!:\"/#?'",
+"redact_url": "x://***path***",
+"redact_text": "echo x:!:\"/#?' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://:p@[]/?a=&b=c",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://:p@[]/?a=&b=c end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "\u00e9://@h:8080/a@b?=v#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://@h:8080/a@b?=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:p@/a b?=v",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** b?=v end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":p@h:65536//x?k=a+b",
+"redact_url": "***path***?k=***",
+"redact_text": "echo :p@h:65536//x?k=a+b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";]/!=#[%:?",
+"redact_url": "***path***#***",
+"redact_text": "echo ;]/!=#[%:? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9<;=)/\"/%aa",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9<;=)/\"/%aa end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://:p@a b//x?x#y#",
+"redact_url": "a-b://:***@a b/***path***?***#***",
+"redact_text": "echo a-b://:***@a b//x?x#y# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:p@HOST.example.com/a%2Fb?%26=1",
+"redact_url": "a-b://u:***@HOST.example.com/***path***?***",
+"redact_text": "echo a-b://u:***@HOST.example.com/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// / [))%",
+"redact_url": "x:// /***path***",
+"redact_text": "echo x:// / [))% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// !ba b/#",
+"redact_url": "x:// !ba b/",
+"redact_text": "echo x:// !ba b/# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\";>\"<@;)",
+"redact_url": "x://***@;)",
+"redact_text": "echo x://\";>\"<@;) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b,#]@",
+"redact_url": "x://b,#***",
+"redact_text": "echo x://b,#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>:<!b",
+"redact_url": "x://***path***",
+"redact_text": "echo x://>:<!b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://a@b@a b/a'b?x#y#f",
+"redact_url": "x1://***@a b/***path***?***#***",
+"redact_text": "echo x1://***@a b/a'b?x#y#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "'',@>%<.a \";",
+"redact_url": "***path***",
+"redact_text": "echo '',@>%<.a \"; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%#\u00e9!'",
+"redact_url": "x://%#***",
+"redact_text": "echo x://%#***!' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?''/@",
+"redact_url": "x:?***",
+"redact_text": "echo x:?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://:p@h:/?a=&b=c#",
+"redact_url": "***path***",
+"redact_text": "echo ://:p@h:/?a=&b=c# end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://</b.!@]b)[",
+"redact_url": "x://</***path***",
+"redact_text": "echo x://</b.!@]b)[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://:p@[::1]:80/a b?k=v#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://:p@[::1]:80/a b?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b;@<]\"[;<=",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***<]\"[;<= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:p%40q@host/a%2Fb?a=1&b=2&c",
+"redact_url": "wss://u:***@host/***path***?a=***&b=***&***",
+"redact_text": "echo wss://u:***@host/***path***?a=***&b=***&*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "wss://:p@h:",
+"redact_url": "wss://:***@h:",
+"redact_text": "echo wss://:***@h: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://:p@\u00e9.com/x@y://z?a=1&b=2&c#f",
+"redact_url": "***path***",
+"redact_text": "echo ://:p@\u00e9.com/x@y://z?a=***&b=***&***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://[#'=][#",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@h:/a://b?x#y#f",
+"redact_url": "wss://***@h:/***path***?***#***",
+"redact_text": "echo wss://***@h:/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@\u00e9, \u00e9;",
+"redact_url": "x://***@\u00e9, \u00e9;",
+"redact_text": "echo x://***@\u00e9, \u00e9; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://u:@host/v2/KEY?a=&b=c#f",
+"redact_url": "postgresql+asyncpg://u:***@host/***path***?***&b=***#***",
+"redact_text": "echo postgresql+asyncpg://u:***@host/***path***?***&b=***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "http://u:@h:65536//u:p@h/z?x#y#f",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ",,@",
+"redact_url": "***path***",
+"redact_text": "echo ,,@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b\"\"&,;a [\u00e9#",
+"redact_url": "x://***path***",
+"redact_text": "echo x://b\"\"&,;a [\u00e9# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://..b% ;",
+"redact_url": "x://..b% ;",
+"redact_text": "echo x://..b% ; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:p%40q@]/v2/KEY?k=a+b#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ": b#!=[&@#/#",
+"redact_url": "***path***#***",
+"redact_text": "echo : b#!=[&@#/# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://''a>]/')[ ",
+"redact_url": "x://***path***",
+"redact_text": "echo x://''a>]/')[  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://  .;\u00e9",
+"redact_url": "x://  .;\u00e9",
+"redact_text": "echo x://  .;\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://&!]\u00e9'\u00e9>/:[#.",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>/:[#. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:@HOST.example.com//x?k=v",
+"redact_url": "ws+x://u:***@HOST.example.com/***path***?k=***",
+"redact_text": "echo ws+x://u:***@HOST.example.com/***path***?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9>b>]#/%;%\"",
+"redact_url": "***path***#***",
+"redact_text": "echo \u00e9>b>]#/%;%\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@host:99999/a@b?k=a/b#f",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@host:99999/a@b?k=a/b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:p@\u00e9.com/?%26=1#f",
+"redact_url": "x1://u:***@\u00e9.com/?***#***",
+"redact_text": "echo x1://u:***@\u00e9.com/?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://:p@::1]/a@b#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:@\u00e9.com//x?a=1&b=2&c#",
+"redact_url": "a-b://u:***@\u00e9.com/***path***?a=***&b=***&***",
+"redact_text": "echo a-b://u:***@\u00e9.com/***path***?a=***&b=***&*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://?a))",
+"redact_url": "x:?***",
+"redact_text": "echo x:?***)) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@wss:?k=v",
+"redact_url": "wss://***@wss:?k=***",
+"redact_text": "echo wss://***@wss:?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:p%40q@h:65535/?SECRET#f",
+"redact_url": "https://u:***@h:65535/?***#***",
+"redact_text": "echo https://u:***@h:65535/?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/\"[;]]/ !.]",
+"redact_url": "***path***",
+"redact_text": "echo /\"[;]]/ !.] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9:?>;\"",
+"redact_url": "x://\u00e9:?***",
+"redact_text": "echo x://\u00e9:?>;\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b!\u00e9a]a\"",
+"redact_url": "***path***",
+"redact_text": "echo b!\u00e9a]a\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://@h:\u00b2/?k=v#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#]\u00e9]?)/=<\".>",
+"redact_url": "#***",
+"redact_text": "echo #]\u00e9]?)/=<\".> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " :/=#\u00e9",
+"redact_url": "***path***#***",
+"redact_text": "echo  :/=#\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!@.; . '/.",
+"redact_url": "x://***@.; . '/***path***",
+"redact_text": "echo x://***path***.; . '/. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u@host/a@b?k=a+b#f",
+"redact_url": "host/***path***",
+"redact_text": "echo host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a/<[]]ba.\u00e9/",
+"redact_url": "x://a/***path***",
+"redact_text": "echo x://a/<[]]ba.\u00e9/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a_b/x@y://z",
+"redact_url": "***path***",
+"redact_text": "echo ://a_b/x@y://z end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9@a ",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9@a  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:p@h:-1/@?a%3Db=1#f",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://\u00e9@h:1:2/?x#y#f",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a@b@h:/a%2Fb?%26=1#f",
+"redact_url": "***path***?***#***",
+"redact_text": "echo a@b@h:/a%2Fb?%26=1#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ".\"'/>:",
+"redact_url": "***path***",
+"redact_text": "echo .\"'/>: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// ]\u00e9@\u00e9@",
+"redact_url": "x://***path***",
+"redact_text": "echo x:// ]\u00e9@\u00e9@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]#,\u00e9\u00e9&?=\u00e9!@%",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://&&.!",
+"redact_url": "x://&&.!",
+"redact_text": "echo x://&&.! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?\"'",
+"redact_url": "?***",
+"redact_text": "echo ?\"' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://\u00e9@a b/a@b?k=a/b#f",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***@a b/a@b?k=a/b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u@h:bad/x@y://z?k=a+b",
+"redact_url": "***path***",
+"redact_text": "echo u@h:bad/x@y://z?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://@a_b/a b?x#y",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://@a_b/a b?x#y end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://tok@h:65536//x?%26=1#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]'>.&?  [%\u00e9:",
+"redact_url": "***path***?***",
+"redact_text": "echo ]'>.&?  [%\u00e9: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:@[::1]/a b?a%3Db=1",
+"redact_url": "x1://u:***@[::1]/***path***?***",
+"redact_text": "echo x1://u:***@[::1]/***path*** b?a%3Db=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@host//u:p@h/z?x#y#f",
+"redact_url": "redis://host/***path***",
+"redact_text": "echo redis://host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://:p@h:65536//x?a=&b=c#f",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": ":a",
+"redact_url": "***path***",
+"redact_text": "echo :a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\"[)\u00e9!].,",
+"redact_url": "***path***",
+"redact_text": "echo \"[)\u00e9!]., end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://:p@h:8080//u:p@h/z?SECRET#",
+"redact_url": "redis://h:8080/***path***",
+"redact_text": "echo redis://h:8080/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://:p@host/\u00e9?SECRET#f",
+"redact_url": "wss://:***@host/***path***?***#***",
+"redact_text": "echo wss://:***@host/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:@/@?%26=1#f",
+"redact_url": "https://***path***",
+"redact_text": "echo https://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://@host/a b#",
+"redact_url": "a-b://***@host/***path***",
+"redact_text": "echo a-b://***@host/***path*** b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@[::1]:80//x?%26=1#",
+"redact_url": "redis://***@[::1]:80/***path***?***",
+"redact_text": "echo redis://***@[::1]:80/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>:%b!')b..",
+"redact_url": "x://***path***",
+"redact_text": "echo x://>:%b!')b.. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/;#'?/[>\"@b",
+"redact_url": "***path***#***",
+"redact_text": "echo /;#'?/[>\"@b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,]]''.[=,;/",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:@h:65536/a://b?=v",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://tok@h:-1/?%26=1",
+"redact_url": "redis://h/***path***",
+"redact_text": "echo redis://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/\u00e9!",
+"redact_url": "***path***",
+"redact_text": "echo /\u00e9! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://tok@[::1/a@b?SECRET#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://tok@[::1/a@b?SECRET#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]ab@?!) ",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***?!)  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://tok@https:",
+"redact_url": "redis://***@https:",
+"redact_text": "echo redis://***@https: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]@a,b@>,",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b/\"#:[",
+"redact_url": "***path***#***",
+"redact_text": "echo b/\"#:[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=b>b>",
+"redact_url": "***path***",
+"redact_text": "echo =b>b> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://&:>&'",
+"redact_url": "x://***path***",
+"redact_text": "echo x://&:>&' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ",''@/",
+"redact_url": "***path***",
+"redact_text": "echo ,''@/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:p@h:65536//x?k=v#f",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#a>",
+"redact_url": "#***",
+"redact_text": "echo #a> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://u@[/a'b?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://tok@h:bad/a%2Fb#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://tok@h:bad/a%2Fb#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[>.",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[!\"@%#/&",
+"redact_url": "***path***#***",
+"redact_text": "echo [!\"@%#/& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[\".>\u00e9",
+"redact_url": "***path***",
+"redact_text": "echo [\".>\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://a@b@a b",
+"redact_url": "wss://***@a b",
+"redact_text": "echo wss://***@a b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u:p@host:99999/v2/KEY?a=1&b=2&c",
+"redact_url": "u:***path***?a=***&b=***&***",
+"redact_text": "echo u:p@host:99999/v2/KEY?a=1&b=2&c end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "a-b://u:p@HOST.example.com/\u00e9?a=&b=c#f",
+"redact_url": "a-b://u:***@HOST.example.com/***path***?***&b=***#***",
+"redact_text": "echo a-b://u:***@HOST.example.com/***path***?***&b=***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": " %;b/ /''':b",
+"redact_url": "***path***",
+"redact_text": "echo  %;b/ /''':b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>=<@b<>b'\"[",
+"redact_url": "x://***path***",
+"redact_text": "echo x://>=<@b<>b'\"[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@[]/a%2Fb",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;# a;\u00e9![?;?b",
+"redact_url": "x://;#***",
+"redact_text": "echo x://; a;\u00e9![?;?b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://a@b@wss:/a%2Fb?=v#",
+"redact_url": "x1://***@wss:/***path***?=***",
+"redact_text": "echo x1://***@wss:/***path***?=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?;a.",
+"redact_url": "?***",
+"redact_text": "echo ?;a. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://:p@h:-1/a@b://c?k=v",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "://:p@h:65535/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ://:p@h:65535/a@b://c?k=*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "a@b@h:\u00b2/a://b?a%3Db=1",
+"redact_url": "***path***",
+"redact_text": "echo a@b@h:\u00b2/a://b?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://\u00e9@]/\u00e9?a=1&b=2&c#f",
+"redact_url": "***path***",
+"redact_text": "echo ://\u00e9@]/\u00e9?a=1&b=2&c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "ws+x://u:p@a_b/a b?x#y#f",
+"redact_url": "ws+x://u:***@a_b/***path***?***#***",
+"redact_text": "echo ws+x://u:***@a_b/***path*** b?x#y#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/a%&",
+"redact_url": "***path***",
+"redact_text": "echo /a%& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@ =<ab] 'a",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** =<ab] 'a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://&[\u00e9=,)<",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***,)< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@b!%",
+"redact_url": "***path***",
+"redact_text": "echo @b!% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p@h:65535/x@y://z?x#y#",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p@h:65535/x@y://z?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@;'=b#?",
+"redact_url": "x://***@;'=b#***",
+"redact_text": "echo x://***@;'=b? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://:)):=",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<b! ",
+"redact_url": "x://<b! ",
+"redact_text": "echo x://<b!  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://host:99999/?a=&b=c#",
+"redact_url": "***path***?***&b=***",
+"redact_text": "echo \u00e9://host:99999/?a=&b=c# end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "??@@% % ",
+"redact_url": "?***",
+"redact_text": "echo ??@@% %  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/?# ",
+"redact_url": "/#***",
+"redact_text": "echo /?#  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a '=?>\"),&:",
+"redact_url": "x://a '=?***&***",
+"redact_text": "echo x://a '=?>\"),&: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://tok@h:/a@b?k=a+b#",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?@\"=]%,",
+"redact_url": "?@\"=***",
+"redact_text": "echo ?@\"=]%, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%<\" '<;[?,>>",
+"redact_url": "***path***?***",
+"redact_text": "echo %<\" '<;[?,>> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://\u00e9@h:\u00b2/a'b?=v#",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ", &[&>)\u00e9';#",
+"redact_url": "***path***",
+"redact_text": "echo , &[&>)\u00e9';# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://# @>?",
+"redact_url": "x:#***",
+"redact_text": "echo x: @>? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://@[/a b?%26=1#",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** b?%26=1# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@\">#@/:@",
+"redact_url": "***path***#***",
+"redact_text": "echo @\">#@/:@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[<;##.a/",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***<;##.a/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://@[::1/a%2Fb?%26=1",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b['. : =&",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***'. : =& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a;:<>%=]'b",
+"redact_url": "x://***path***",
+"redact_text": "echo x://a;:<>%=]'b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b>?>b!% %=<'",
+"redact_url": "x://b>?***",
+"redact_text": "echo x://b>?>b!% %=<' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://#%=;/",
+"redact_url": "x:#***",
+"redact_text": "echo x:#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " \u00e9#<,[%",
+"redact_url": "***path***#***",
+"redact_text": "echo  \u00e9#<,[% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://a@b@[::1]:80/a'b?a=&b=c#",
+"redact_url": "ws+x://***@[::1]:80/***path***?***&b=***",
+"redact_text": "echo ws+x://***@[::1]:80/***path***?***&b=*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "#,?!'",
+"redact_url": "#***",
+"redact_text": "echo #,?!' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u:p%40q@10.0.0.1:0/?x#y#",
+"redact_url": "u:***path***?***#***",
+"redact_text": "echo u:p%40q@10.0.0.1:0/?x#y# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p%40q@HOST.example.com/a b?SECRET",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p%40q@HOST.example.com/a b?SECRET end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@\u00e9.com/x@y://z?%26=1#f",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///>%'?",
+"redact_url": "x:***path***",
+"redact_text": "echo x:/>%'? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://:p@h:?x#y#f",
+"redact_url": "***path***",
+"redact_text": "echo ://:p@h:?x#y#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://a@b@[::1]:key?a%3Db=1#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://a@b@[::1]:key?a%3Db=1#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ".@a: a>",
+"redact_url": "***path***",
+"redact_text": "echo .@a: a> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<b;%&>\"/:",
+"redact_url": "***path***",
+"redact_text": "echo <b;%&>\"/: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@https:",
+"redact_url": "redis://***@https:",
+"redact_text": "echo redis://***@https: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9a/,][[",
+"redact_url": "x://\u00e9a/***path***",
+"redact_text": "echo x://\u00e9a/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.>%=[\":",
+"redact_url": "x://***path***",
+"redact_text": "echo x:.>%=[\": end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%%@/b]>\u00e9?\"%",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***]>\u00e9?\"% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<<a#;,/",
+"redact_url": "***path***#***",
+"redact_text": "echo <<a#;,/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://=)#",
+"redact_url": "x://=)",
+"redact_text": "echo x://=) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "& b %[b[[/",
+"redact_url": "***path***",
+"redact_text": "echo & b %[b[[/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<&':<; ??.= ",
+"redact_url": "***path***?***",
+"redact_text": "echo <&':<; ??.=  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@\u00e9&!?):?;/\u00e9",
+"redact_url": "x://***@\u00e9&!?***",
+"redact_text": "echo x://***@\u00e9&!?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@a b/\u00e9?k=a+b",
+"redact_url": "wss://***@a b/***path***?k=***",
+"redact_text": "echo wss://***@a b/\u00e9?k=a+b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,%&%\u00e9%=@,",
+"redact_url": "x://***@,",
+"redact_text": "echo x://***path***, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<[).",
+"redact_url": "x://***path***",
+"redact_text": "echo x://<[). end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>)&a&\u00e9;b,a;",
+"redact_url": "x://>)&a&\u00e9;b,a;",
+"redact_text": "echo x://>)&a&\u00e9;b,a; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://tok@[::1]:key/@?%26=1#f",
+"redact_url": "https://***path***",
+"redact_text": "echo https://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:p@h:-1/a@b://c?k=v",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "\u00e9://https:/a'b?x#y#f",
+"redact_url": "***path***?***#***",
+"redact_text": "echo \u00e9://https:/a'b?x#y#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "!.=!\u00e9>\u00e9,a",
+"redact_url": "***path***",
+"redact_text": "echo !.=!\u00e9>\u00e9,a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://[::1//u:p@h/z?k=v#f",
+"redact_url": "***path***",
+"redact_text": "echo ://[::1//u:p@h/z?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://tok@[?a=&b=c#f",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":.]]@): '<>",
+"redact_url": "***path***",
+"redact_text": "echo :.]]@): '<> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://tok@h:65536/a@b?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://tok@h:65536/a@b?k=a+b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9%&::#<]",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***<] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\"/),== ,?<%%",
+"redact_url": "***path***?***",
+"redact_text": "echo \"/),== ,?<%% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b=.;;b:",
+"redact_url": "x://b=.;;b:",
+"redact_text": "echo x://b=.;;b: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///!#'< /),&",
+"redact_url": "x:***path***#***",
+"redact_text": "echo x:***path***'< /),& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")ab,]",
+"redact_url": "***path***",
+"redact_text": "echo )ab,] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://[::1]:key?a%3Db=1#f",
+"redact_url": "***path***?***#***",
+"redact_text": "echo ://[::1]:key?a%3Db=1#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://u@host:99999//x?SECRET#f",
+"redact_url": "host/***path***",
+"redact_text": "echo host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%@ \"@\u00e9,%%#",
+"redact_url": "x://***@\u00e9,%%",
+"redact_text": "echo x://***path*** \"@\u00e9,%%# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://h:8080/a@b://c?k=v",
+"redact_url": "http://h:8080/***path***",
+"redact_text": "echo http://h:8080/***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "a-b://@[::1]:80/\u00e9#",
+"redact_url": "a-b://***@[::1]:80/***path***",
+"redact_text": "echo a-b://***@[::1]:80/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%,@?",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\"):,@.);",
+"redact_url": "x://\"):***@.);",
+"redact_text": "echo x://\"):,@.); end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://\u00e9@host/a b?SECRET#",
+"redact_url": "http://***@host/***path***?***",
+"redact_text": "echo http://***@host/***path*** b?SECRET# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://=><?",
+"redact_url": "x://=><",
+"redact_text": "echo x://=><? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:p%40q@[]/x@y://z?a%3Db=1",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a#:a\u00e9:?/??",
+"redact_url": "***path***#***",
+"redact_text": "echo a#:a\u00e9:?/?? end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "]]a]/",
+"redact_url": "***path***",
+"redact_text": "echo ]]a]/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%,;",
+"redact_url": "***path***",
+"redact_text": "echo %,; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ",@![,? ,&",
+"redact_url": "***path***?***",
+"redact_text": "echo ,@![,? ,& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://% )]#b<'",
+"redact_url": "x://***path***",
+"redact_text": "echo x://% )]#b<' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://:p@::1]/x@y://z?a%3Db=1#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://tok@wss:/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "<=[>)\"@b",
+"redact_url": "***path***",
+"redact_text": "echo <=[>)\"@b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#b)@[@?,#/;;",
+"redact_url": "#***",
+"redact_text": "echo #b)@[@?,#/;; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u@a b/a://b?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo u@a b/a://b?***&b=***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "ws+x://@h:\u00b2/\u00e9?%26=1",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b\",,?",
+"redact_url": "***path***",
+"redact_text": "echo b\",,? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9<'[\"[ /#]",
+"redact_url": "***path***#***",
+"redact_text": "echo \u00e9<'[\"[ /#] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9 )>=./",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9 )>=./ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/'a .??<?b",
+"redact_url": "***path***?***",
+"redact_text": "echo /'a .??<?b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9#. ",
+"redact_url": "***path***#***",
+"redact_text": "echo \u00e9#.  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:p%40q@HOST.example.com/v2/KEY?SECRET",
+"redact_url": "ws+x://u:***@HOST.example.com/***path***?***",
+"redact_text": "echo ws+x://u:***@HOST.example.com/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:p@h:8080/a@b?k=a/b#f",
+"redact_url": "h:8080/***path***",
+"redact_text": "echo h:8080/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ".=!,%\u00e9,@",
+"redact_url": "***path***",
+"redact_text": "echo .=!,%\u00e9,@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[::1]/a'b?k=v#f",
+"redact_url": "***path***?k=***#***",
+"redact_text": "echo [::1]/a'b?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]<>]= ",
+"redact_url": "x://***path***",
+"redact_text": "echo x:]<>]=  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://@h:65536/a@b://c?k=v",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "ws+x://u:p%40q@\u00e9.com/v2/KEY?a=&b=c#",
+"redact_url": "ws+x://u:***@\u00e9.com/***path***?***&b=***",
+"redact_text": "echo ws+x://u:***@\u00e9.com/***path***?***&b=*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "ws+x://u:@a_b/a@b?x#y#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:p@h:1:2//x?k=v#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#=.\u00e9/\":!&</",
+"redact_url": "#***",
+"redact_text": "echo #=.\u00e9/\":!&</ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/[\"<#<]\u00e9",
+"redact_url": "***path***#***",
+"redact_text": "echo /[\"<#<]\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://h:1:2/a b?a=&b=c#f",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** b?a=&b=c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "\"\"/\"<:\u00e9<'",
+"redact_url": "***path***",
+"redact_text": "echo \"\"/\"<:\u00e9<' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://\u00e9@[::1]/a@b?k=a+b",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://\u00e9@::1]/a'b?a=1&b=2&c",
+"redact_url": "***path***",
+"redact_text": "echo ://\u00e9@::1]/a'b?a=1&b=2&c end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "ws+x://u:p@[]/a'b?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u@[::1?%26=1#f",
+"redact_url": "https://***path***",
+"redact_text": "echo https://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?>]@@",
+"redact_url": "x:?***",
+"redact_text": "echo x:?>]@@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/\u00e9:?;a!#\"%]&",
+"redact_url": "***path***?***#***",
+"redact_text": "echo /\u00e9:?;a!#\"%]& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://host/a@b?x#y",
+"redact_url": "wss://host/***path***?***#***",
+"redact_text": "echo wss://host/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p@[::1]/v2/KEY?a%3Db=1#f",
+"redact_url": "redis://u:***@[::1]/***path***?***#***",
+"redact_text": "echo redis://u:***@[::1]/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">\"@<:=:\u00e9\"%",
+"redact_url": "***path***",
+"redact_text": "echo >\"@<:=:\u00e9\"% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")b\u00e9a<];\u00e9,",
+"redact_url": "***path***",
+"redact_text": "echo )b\u00e9a<];\u00e9, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[=\u00e9%\",%#!",
+"redact_url": "***path***#***",
+"redact_text": "echo [=\u00e9%\",%#! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">?,>>'a.&\u00e9! ",
+"redact_url": "***path***?***&***",
+"redact_text": "echo >?,>>'a.&\u00e9!  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?&<)/].",
+"redact_url": "?***",
+"redact_text": "echo ?&<)/]. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=)\"&:=',",
+"redact_url": "***path***",
+"redact_text": "echo =)\"&:=', end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:@[]",
+"redact_url": "***path***",
+"redact_text": "echo ***path***] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9a??b[",
+"redact_url": "x://\u00e9a?***",
+"redact_text": "echo x://\u00e9a?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9:=@]].%\u00e9> ",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!\u00e9]/:/b>, ",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>,  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p%40q@a b",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p%40q@a b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://h:/a%2Fb?k=v#f",
+"redact_url": "x1://h:/***path***?k=***#***",
+"redact_text": "echo x1://h:/***path***?k=***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://\u00e9@wss:#",
+"redact_url": "https://***@wss:",
+"redact_text": "echo https://***@wss: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@a b/a%2Fb?k=a+b",
+"redact_url": "redis://***@a b/***path***?k=***",
+"redact_text": "echo redis://***@a b/a%2Fb?k=a+b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";b]&'?[! ,;",
+"redact_url": "***path***?***",
+"redact_text": "echo ;b]&'?[! ,; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://tok@[::1]/\u00e9?k=a/b",
+"redact_url": "http://***@[::1]/***path***?k=***",
+"redact_text": "echo http://***@[::1]/***path***?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://:.<",
+"redact_url": "x://***path***",
+"redact_text": "echo x::.< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<[;<",
+"redact_url": "***path***",
+"redact_text": "echo <[;< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:@a_b//u:p@h/z?k=a+b",
+"redact_url": "https://***path***",
+"redact_text": "echo https://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://=&,:;%# b\u00e9=>",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** b\u00e9=> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a?@#%:[&!&",
+"redact_url": "x://a?***#***",
+"redact_text": "echo x://a?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://\u00e9@h:\u00b2",
+"redact_url": "https://h/***path***",
+"redact_text": "echo https://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a[)!; )b)",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***)!; )b) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'#>\"b",
+"redact_url": "x://'#***",
+"redact_text": "echo x://'>\"b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)/!=<[\u00e9:a@",
+"redact_url": "x://)/***path***",
+"redact_text": "echo x://)/***path***<[\u00e9:a@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://tok@10.0.0.1:0/a b?%26=1",
+"redact_url": "wss://***@10.0.0.1:0/***path***?***",
+"redact_text": "echo wss://***@10.0.0.1:0/***path*** b?%26=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/?.",
+"redact_url": "/?***",
+"redact_text": "echo /?. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:@[]/@?a%3Db=1#",
+"redact_url": "***path***",
+"redact_text": "echo ://u:@[]/@?a%3Db=1# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b/ \"\u00e9b#",
+"redact_url": "x://b/***path***",
+"redact_text": "echo x://b/ \"\u00e9b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?\u00e9?):%a?>]>b",
+"redact_url": "x:?***",
+"redact_text": "echo x:?***?>]>b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://a@b@[::1/v2/KEY?x#y#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://\u00e9@::1]/@#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://\u00e9@::1]/@#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a>;!<:!a\u00e9/>)",
+"redact_url": "x://***path***",
+"redact_text": "echo x://a>;!<:!a\u00e9/>) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://h:-1/@?%26=1#f",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u@h:65535/\u00e9?a%3Db=1#f",
+"redact_url": "https://***@h:65535/***path***?***#***",
+"redact_text": "echo https://***@h:65535/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">&..]@/'b[)[",
+"redact_url": "***path***",
+"redact_text": "echo >&..]@/'b[)[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://\u00e9@\u00e9.com/a'b?%26=1",
+"redact_url": "redis://***@\u00e9.com/***path***?***",
+"redact_text": "echo redis://***@\u00e9.com/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;@)\u00e9",
+"redact_url": "x://***@)\u00e9",
+"redact_text": "echo x://***@)\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://\u00e9@/@?x#y#",
+"redact_url": "***path***",
+"redact_text": "echo ://\u00e9@/@?x#y# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9>[! /\"b]&",
+"redact_url": "x://***path***",
+"redact_text": "echo x://\u00e9>[! /\"b]& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://\u00e9@h:bad//x?a=1&b=2&c",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://\u00e9@h:bad//x?a=1&b=2&c end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": ";,]%.a",
+"redact_url": "***path***",
+"redact_text": "echo ;,]%.a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a@b@h:\u00b2//x?a=1&b=2&c#",
+"redact_url": "***path***?a=***&b=***&***",
+"redact_text": "echo a@b@h:\u00b2//x?a=1&b=2&c# end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x:// !''b!#'&!]=",
+"redact_url": "x:// !''b!#***",
+"redact_text": "echo x:// !''b!#'&!]= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "&'@\"\".",
+"redact_url": "***path***",
+"redact_text": "echo &'@\"\". end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?'>/)a=!%&[",
+"redact_url": "x:?'>/)a=***&***",
+"redact_text": "echo x:?'>/)a=!%&[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@ = ',&='';",
+"redact_url": "***path***",
+"redact_text": "echo @ = ',&=''; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9\"#!",
+"redact_url": "x://\u00e9\"#***",
+"redact_text": "echo x://\u00e9\"#! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]=b?%\u00e9",
+"redact_url": "***path***?***",
+"redact_text": "echo ]=b?%\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://a@b@[::1]:80/a://b?a=1&b=2&c#f",
+"redact_url": "postgresql+asyncpg://***@[::1]:80/***path***?a=***&b=***&***#***",
+"redact_text": "echo postgresql+asyncpg://***@[::1]:80/***path***?a=***&b=***&***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://[,\u00e9&?b'\";b%@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***'\";b%@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u:p%40q@]/x@y://z?SECRET#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:p%40q@]/x@y://z?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p@h:65535/a://b?=v",
+"redact_url": "redis://u:***@h:65535/***path***?=***",
+"redact_text": "echo redis://u:***@h:65535/***path***?=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'&<@/\u00e9/,!'b,",
+"redact_url": "x://***path***",
+"redact_text": "echo x://'&<@/\u00e9/,!'b, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p%40q@h:8080/a@b",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p%40q@h:8080/a@b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://tok@a b?k=a+b#f",
+"redact_url": "***path***",
+"redact_text": "echo ://tok@a b?k=a+b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@'a@",
+"redact_url": "***path***",
+"redact_text": "echo @'a@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p@\u00e9.com/a://b?a%3Db=1",
+"redact_url": "redis://u:***@\u00e9.com/***path***?***",
+"redact_text": "echo redis://u:***@\u00e9.com/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://][ [].\"<,>",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** [].\"<,> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///)=&/\u00e9&@#",
+"redact_url": "x:***path***",
+"redact_text": "echo x:***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9#;\"<<[.<?",
+"redact_url": "x://\u00e9#***",
+"redact_text": "echo x://\u00e9;\"<<[.<? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://#b)=%>\u00e9!&)=",
+"redact_url": "x:#***",
+"redact_text": "echo x:#***>\u00e9!&)= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://a@b@a b/a%2Fb?a=&b=c#f",
+"redact_url": "wss://***@a b/***path***?***&b=***#***",
+"redact_text": "echo wss://***@a b/a%2Fb?a=&b=c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "postgresql+asyncpg://u:p@https:?a%3Db=1",
+"redact_url": "postgresql+asyncpg://u:***@https:?***",
+"redact_text": "echo postgresql+asyncpg://u:***@https:?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a@b@[::1]:key/v2/KEY?x#y",
+"redact_url": "***path***?***#***",
+"redact_text": "echo a@b@[::1]:key/v2/KEY?x#y end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://h:8080/a@b?=v#",
+"redact_url": "***path***",
+"redact_text": "echo ://h:8080/a@b?=v# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?!@,.,[=.?",
+"redact_url": "?!@,.,[=***",
+"redact_text": "echo ?!@,.,[=.? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://];? >@&",
+"redact_url": "x://***path***",
+"redact_text": "echo x:];? >@& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#[\u00e9%/':b",
+"redact_url": "#***",
+"redact_text": "echo #[\u00e9%/':b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)@@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9?b",
+"redact_url": "***path***?***",
+"redact_text": "echo \u00e9?b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "] #=#/a<",
+"redact_url": "***path***#***",
+"redact_text": "echo ] #=#/a< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!?,)",
+"redact_url": "x://!?***",
+"redact_text": "echo x:!?,) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ". @>=!' /<;",
+"redact_url": "***path***",
+"redact_text": "echo . @>=!' /<; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u:@h:bad//u:p@h/z?a%3Db=1#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:@h:bad//u:p@h/z?a%3Db=1# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<'\u00e9>?[##,",
+"redact_url": "***path***?***#***",
+"redact_text": "echo <'\u00e9>?[##, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]@ >/!,[&",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** >/!,[& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.%> #]'!",
+"redact_url": "x://.%> #***",
+"redact_text": "echo x://.%> #]'! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@[//x?a%3Db=1",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:@h:8080/\u00e9?x#y#",
+"redact_url": "x1://u:***@h:8080/***path***?***#***",
+"redact_text": "echo x1://u:***@h:8080/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/b[>&?%",
+"redact_url": "***path***?***",
+"redact_text": "echo /b[>&?% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.a>;# ",
+"redact_url": "x://.a>;#***",
+"redact_text": "echo x://.a>;#  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<\u00e9!::]'[:?/",
+"redact_url": "x://***path***",
+"redact_text": "echo x://<\u00e9!::]'[:?/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://:p@h:bad//x?SECRET#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")[",
+"redact_url": "***path***",
+"redact_text": "echo )[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\": >=",
+"redact_url": "x://***path***",
+"redact_text": "echo x://\": >= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:p@host:99999/a%2Fb?a=&b=c#f",
+"redact_url": "https://host/***path***",
+"redact_text": "echo https://host/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://%#.%!/>?>&",
+"redact_url": "x://%#***",
+"redact_text": "echo x://%#***>?>& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u@host:99999/\u00e9#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u@host:99999/\u00e9#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a@#=:'&?",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***? end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "[#%",
+"redact_url": "***path***#***",
+"redact_text": "echo [#% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=\u00e9)&b/",
+"redact_url": "***path***",
+"redact_text": "echo =\u00e9)&b/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<a>b",
+"redact_url": "x://<a>b",
+"redact_text": "echo x://<a>b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "'??; ?.b>",
+"redact_url": "***path***?***",
+"redact_text": "echo '??; ?.b> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "< ;",
+"redact_url": "***path***",
+"redact_text": "echo < ; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#",
+"redact_url": "",
+"redact_text": "echo # end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " a.=a?a;[:#",
+"redact_url": "***path***?***",
+"redact_text": "echo  a.=a?a;[:# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:p@host:99999",
+"redact_url": "host/***path***",
+"redact_text": "echo host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)=b)@.]",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***.] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u@h:/a@b?x#y#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:p%40q@:80/a b?a=&b=c#",
+"redact_url": "x1://:80/***path***",
+"redact_text": "echo x1://:80/***path*** b?a=&b=c# end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": ".)&?&%'&#",
+"redact_url": "***path***?***",
+"redact_text": "echo .)&?&%'&# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/\u00e9=)%b;b",
+"redact_url": "***path***",
+"redact_text": "echo /\u00e9=)%b;b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://==!%?.<:?['",
+"redact_url": "x://==!%?***",
+"redact_text": "echo x://==!%?.<:?[' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://./\"@\".&)=:",
+"redact_url": "x://./***path***",
+"redact_text": "echo x://./\"@\".&)=: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@:80/x@y://z?SECRET",
+"redact_url": "http://:80/***path***",
+"redact_text": "echo http://:80/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://https://u:p@h/z",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://\u00e9@h:-1/@?k=v#f",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ",\u00e9>' a#[:",
+"redact_url": "***path***#***",
+"redact_text": "echo ,\u00e9>' a#[: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:p%40q@wss:/a%2Fb?k=a/b#",
+"redact_url": "https://u:***@wss:/***path***?k=***",
+"redact_text": "echo https://u:***@wss:/***path***?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@https:",
+"redact_url": "wss://***@https:",
+"redact_text": "echo wss://***@https: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%//]]\u00e9 ;b@\"",
+"redact_url": "x://%/***path***",
+"redact_text": "echo x://%/***path*** ;b@\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]#)>))@ >a",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***)>))@ >a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p%40q@10.0.0.1:0",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p%40q@10.0.0.1:0 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://a b/\u00e9?=v",
+"redact_url": "postgresql+asyncpg://a b/***path***?=***",
+"redact_text": "echo postgresql+asyncpg://a b/\u00e9?=v end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://#<=.],< '",
+"redact_url": "x:#***",
+"redact_text": "echo x:<=.],< ' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u@wss://x#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<@!#'\u00e9'",
+"redact_url": "x://***@!#***",
+"redact_text": "echo x://<@!#'\u00e9' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]. #@;;",
+"redact_url": "***path***#***",
+"redact_text": "echo ]. #@;; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://\u00e9@:80/a@b?k=v#f",
+"redact_url": "***path***",
+"redact_text": "echo ://\u00e9@:80/a@b?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u:p@wss:/a@b?k=v#f",
+"redact_url": "u:***path***?k=***#***",
+"redact_text": "echo u:p@wss:/a@b?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">a?> %,]]#!>",
+"redact_url": "***path***?***#***",
+"redact_text": "echo >a?> %,]]#!> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?':%?=>\"a",
+"redact_url": "x:?***",
+"redact_text": "echo x:?***>\"a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ".]!",
+"redact_url": "***path***",
+"redact_text": "echo .]! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9<))",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9<)) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!!'",
+"redact_url": "x://!!'",
+"redact_text": "echo x:!!' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u:p@[::1]:80?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:p@[::1]:80?a=&b=c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://a\"\u00e9''=&?@ba ",
+"redact_url": "x://a\"\u00e9''=&?***",
+"redact_text": "echo x://a\"\u00e9''=&?@ba  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:p%40q@host/a%2Fb?x#y",
+"redact_url": "a-b://u:***@host/***path***?***#***",
+"redact_text": "echo a-b://u:***@host/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u:p@h:/v2/KEY?k=a+b#",
+"redact_url": "u:***path***?k=***",
+"redact_text": "echo u:p@h:/v2/KEY?k=a+b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://><,%/,//<]/",
+"redact_url": "x://><,%/***path***",
+"redact_text": "echo x://><,%/,//<]/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a@b@h:65535/\u00e9?%26=1#f",
+"redact_url": "***path***?***#***",
+"redact_text": "echo a@b@h:65535/\u00e9?%26=1#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%@%#',a",
+"redact_url": "***path***#***",
+"redact_text": "echo %@%#',a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[b'! ",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***'!  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://tok@https://x?x#y",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@h:\u00b2?x#y",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:/// )[:",
+"redact_url": "x:***path***",
+"redact_text": "echo x:/ )[: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://tok@h:\u00b2/a@b://c?k=v",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "<\u00e9;",
+"redact_url": "***path***",
+"redact_text": "echo <\u00e9; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b>.: [&[ )[\u00e9",
+"redact_url": "***path***",
+"redact_text": "echo b>.: [&[ )[\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://h:\u00b2//u:p@h/z?k=v#",
+"redact_url": "wss://h/***path***",
+"redact_text": "echo wss://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9<   )",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9<   ) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p%40q@[::1/a'b?a%3Db=1",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9;>\"a/:%@,&@",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9;>\"a/:%@,&@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "??a,#a",
+"redact_url": "?***#***",
+"redact_text": "echo ??a,#a end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "'\"?)!]",
+"redact_url": "***path***?***",
+"redact_text": "echo '\"?)!] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;a\",>'b%'?",
+"redact_url": "x://;a\",>'b%'",
+"redact_text": "echo x://;a\",>'b%'? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/<@.\"",
+"redact_url": "***path***",
+"redact_text": "echo /<@.\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\"\u00e9a\"]\"",
+"redact_url": "***path***",
+"redact_text": "echo \"\u00e9a\"]\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":/#%?",
+"redact_url": "***path***#***",
+"redact_text": "echo :/#%? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://=\"&b;[ )b",
+"redact_url": "x://***path***",
+"redact_text": "echo x://=\"&b;[ )b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%]\"']) :]%",
+"redact_url": "***path***",
+"redact_text": "echo %]\"']) :]% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@[::1]/?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@[::1]/?k=v end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// \".,[/ :/:'",
+"redact_url": "x://***path***",
+"redact_text": "echo x:// \".,[/ :/:' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@10.0.0.1:0//u:p@h/z?a=&b=c",
+"redact_url": "http://10.0.0.1:0/***path***",
+"redact_text": "echo http://10.0.0.1:0/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "@:;b\u00e9,,b'\"):",
+"redact_url": "***path***",
+"redact_text": "echo @:;b\u00e9,,b'\"): end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]#@%",
+"redact_url": "***path***#***",
+"redact_text": "echo ]#@% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.\"!>)/! ;",
+"redact_url": "x://.\"!>)/***path***",
+"redact_text": "echo x:.\"!>)/! ; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://::1]/a@b?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://::1]/a@b?a=&b=c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "]ba\u00e9,'>a!a\"",
+"redact_url": "***path***",
+"redact_text": "echo ]ba\u00e9,'>a!a\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///ab",
+"redact_url": "x:***path***",
+"redact_text": "echo x:***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://# =/;@",
+"redact_url": "x:#***",
+"redact_text": "echo x: =/;@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://:p@::1]/a b?%26=1#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** b?%26=1#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;?%:?<;:>",
+"redact_url": "x://;?***",
+"redact_text": "echo x://;?***:?<;:> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " =!)/a #",
+"redact_url": "***path***",
+"redact_text": "echo  =!)/a # end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9,,\u00e9",
+"redact_url": "x://\u00e9,,\u00e9",
+"redact_text": "echo x://\u00e9,,\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://@host:99999/a@b?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo ://@host:99999/a@b?k=a+b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://a@b@[/a@b://c?k=v",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=@a)]",
+"redact_url": "***path***",
+"redact_text": "echo =@a)] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "'?=a",
+"redact_url": "***path***?=***",
+"redact_text": "echo '?=a end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": ".b=:=[",
+"redact_url": "***path***",
+"redact_text": "echo .b=:=[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://a@b@[::1]:key/a@b#f",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p@a b/a'b#f",
+"redact_url": "redis://u:***@a b/***path***#***",
+"redact_text": "echo redis://u:***@a b/a'b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!/#%",
+"redact_url": "x://!/#***",
+"redact_text": "echo x://!/#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " &;.?@&@.,%",
+"redact_url": "***path***?***&***",
+"redact_text": "echo  &;.?@&@.,% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://@[?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo ://@[?k=a+b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a:,",
+"redact_url": "x://a/***path***",
+"redact_text": "echo x://a:, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":)]aa",
+"redact_url": "***path***",
+"redact_text": "echo :)]aa end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@h:8080//u:p@h/z?=v#f",
+"redact_url": "redis://h:8080/***path***",
+"redact_text": "echo redis://h:8080/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":.,>\u00e9 !:b,",
+"redact_url": "***path***",
+"redact_text": "echo :.,>\u00e9 !:b, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ".#])[",
+"redact_url": "***path***#***",
+"redact_text": "echo .#])[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://\u00e9@h:65535/@?k=a/b",
+"redact_url": "https://h:65535/***path***",
+"redact_text": "echo https://h:65535/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\";@<@",
+"redact_url": "***path***",
+"redact_text": "echo \";@<@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:p@:80/a://b?=v#",
+"redact_url": "https://:80/***path***",
+"redact_text": "echo https://:80/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")\"@.b",
+"redact_url": "***path***",
+"redact_text": "echo )\"@.b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// /!b@=,# [b",
+"redact_url": "x:// /***path***#***",
+"redact_text": "echo x:// /!b@=,# [b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://a@b@h:-1//u:p@h/z?%26=1#f",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "&a)",
+"redact_url": "***path***",
+"redact_text": "echo &a) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://:p@h:-1//u:p@h/z?a=1&b=2&c",
+"redact_url": "https://h/***path***",
+"redact_text": "echo https://h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": " ,;<#,),=",
+"redact_url": "***path***#***",
+"redact_text": "echo  ,;<#,),= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a>",
+"redact_url": "x://a>",
+"redact_text": "echo x://a> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?[b>:<<<[.,",
+"redact_url": "?***",
+"redact_text": "echo ?[b>:<<<[., end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9=b .]@!'",
+"redact_url": "x://***path***",
+"redact_text": "echo x://\u00e9=b .]@!' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/<#,%?,@; ",
+"redact_url": "***path***#***",
+"redact_text": "echo /<#,%?,@;  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@]/x@y://z?a=1&b=2&c",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]'.:,b\"",
+"redact_url": "***path***",
+"redact_text": "echo ]'.:,b\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p%40q@:80/v2/KEY?x#y#",
+"redact_url": "redis://:80/***path***",
+"redact_text": "echo redis://:80/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a)? ) %",
+"redact_url": "***path***?***",
+"redact_text": "echo a)? ) % end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://@h:/\u00e9?SECRET",
+"redact_url": "***path***",
+"redact_text": "echo ://@h:/\u00e9?SECRET end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@h:-1//u:p@h/z?a%3Db=1",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@h:-1//u:p@h/z?a%3Db=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9a&!),\"",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9a&!),\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?b>)b>;a.a;[",
+"redact_url": "?***",
+"redact_text": "echo ?b>)b>;a.a;[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!>]<",
+"redact_url": "x://***path***",
+"redact_text": "echo x:!>]< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%!.",
+"redact_url": "***path***",
+"redact_text": "echo %!. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b&'b>[)/",
+"redact_url": "x://***path***",
+"redact_text": "echo x://b&'b>[)/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://a@b@https:/v2/KEY?SECRET#",
+"redact_url": "https://***@https:/***path***?***",
+"redact_text": "echo https://***@https:/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://[::1]/a%2Fb?k=a+b#",
+"redact_url": "redis://[::1]/***path***?k=***",
+"redact_text": "echo redis://[::1]/***path***?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@ ;.![",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** ;.![ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///!/a;?[. ",
+"redact_url": "x:***path***?***",
+"redact_text": "echo x:***path***?***.  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://\u00e9@https:/a://b?=v",
+"redact_url": "wss://***@https:/***path***?=***",
+"redact_text": "echo wss://***@https:/***path***?=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:@[/a@b://c?k=v",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://:a\u00e9# <@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** <@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")?&.?=<.",
+"redact_url": "***path***?***",
+"redact_text": "echo )?&.?=<. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a.a=[)!",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***)! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://\u00e9@a_b/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "ws+x://u:@h:\u00b2/@?a=&b=c#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "a-b://a@b@a_b/a@b?a=&b=c",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "a?%\"<b",
+"redact_url": "***path***?***",
+"redact_text": "echo a?%\"<b end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "&%&&! \"'",
+"redact_url": "***path***",
+"redact_text": "echo &%&&! \"' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@h:65536#",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@h:65536# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u@h:8080/a://b?a=1&b=2&c",
+"redact_url": "wss://***@h:8080/***path***?a=***&b=***&***",
+"redact_text": "echo wss://***@h:8080/***path***?a=***&b=***&*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "http://a@b@h://x?k=v",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[)..:\u00e9%)'a!",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://:@[:;%>= ?;",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>= ?; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@h:/a@b?a=&b=c",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@h:/a@b?a=&b=c end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "ws+x://\u00e9@h:\u00b2//u:p@h/z?a%3Db=1#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:p%40q@[::1]/a%2Fb?k=a/b#f",
+"redact_url": "x1://u:***@[::1]/***path***?k=***#***",
+"redact_text": "echo x1://u:***@[::1]/***path***?k=***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://[/\u00e9?k=a+b#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u@[::1/a://b?x#y",
+"redact_url": "***path***",
+"redact_text": "echo ://u@[::1/a://b?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:p%40q@[::1/a://b?%26=1#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@ ;)\u00e9",
+"redact_url": "x://***@ ;)\u00e9",
+"redact_text": "echo x://***path*** ;)\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u@[]/a://b?=v#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u@[]/a://b?=***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u@wss:/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u@wss:/a@b://c?k=*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "?\u00e9<a",
+"redact_url": "?***",
+"redact_text": "echo ?\u00e9<a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://#@'.\u00e9",
+"redact_url": "x:#***",
+"redact_text": "echo x:#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://@h:65536/x@y://z?a=1&b=2&c",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "[!= ]]\")@=",
+"redact_url": "***path***",
+"redact_text": "echo [!= ]]\")@= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%\u00e9b=?",
+"redact_url": "***path***",
+"redact_text": "echo %\u00e9b=? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://a_b//x?=v#",
+"redact_url": "wss://a_b/***path***?=***",
+"redact_text": "echo wss://a_b/***path***?=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "##% =)/\u00e9 =!",
+"redact_url": "#***",
+"redact_text": "echo ##% =)/\u00e9 =! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'!%!b]<a'",
+"redact_url": "x://***path***",
+"redact_text": "echo x://'!%!b]<a' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@>[)/",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>[)/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:@/a b?k=a/b#f",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** b?k=a/b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\"=[<=&]b\">",
+"redact_url": "***path***",
+"redact_text": "echo \"=[<=&]b\"> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]?%)\u00e9\u00e9 \u00e9",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** \u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://\u00e9@]/a://b?a=&b=c#f",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")!a!!\"]?=b",
+"redact_url": "***path***?=***",
+"redact_text": "echo )!a!!\"]?=b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u@h:8080?x#y#f",
+"redact_url": "x1://***@h:8080?***#***",
+"redact_text": "echo x1://***@h:8080?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">\u00e9<);.b[!:<.",
+"redact_url": "***path***",
+"redact_text": "echo >\u00e9<);.b[!:<. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://&.a;a<,\"",
+"redact_url": "x://&.a;a<,\"",
+"redact_text": "echo x://&.a;a<,\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "'><b%",
+"redact_url": "***path***",
+"redact_text": "echo '><b% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://:p@h://u:p@h/z?k=v#",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://:<! [",
+"redact_url": "x://***path***",
+"redact_text": "echo x::<! [ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,=\"\u00e9%[<\u00e9 >@;",
+"redact_url": "x://***path***",
+"redact_text": "echo x://,=\"\u00e9%[<\u00e9 >@; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "'!",
+"redact_url": "***path***",
+"redact_text": "echo '! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=;b:&]abb",
+"redact_url": "***path***",
+"redact_text": "echo =;b:&]abb end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%>;a;),.",
+"redact_url": "x://%>;a;),.",
+"redact_text": "echo x://%>;a;),. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://@10.0.0.1:0/a@b?a=&b=c#f",
+"redact_url": "10.0.0.1:0/***path***",
+"redact_text": "echo 10.0.0.1:0/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "= /\"]\u00e9'a?.%",
+"redact_url": "***path***?***",
+"redact_text": "echo = /\"]\u00e9'a?.% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://:p@[/?=v#",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[)#],&:",
+"redact_url": "***path***#***",
+"redact_text": "echo [)#],&: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/'&a>;\u00e9!),:",
+"redact_url": "***path***",
+"redact_text": "echo /'&a>;\u00e9!),: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,\u00e9%[<'?!",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***<'?! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://:p@[::1]:key/a'b?SECRET#",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.:#",
+"redact_url": "x://.:",
+"redact_text": "echo x://.: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p@host//u:p@h/z#",
+"redact_url": "redis://host/***path***",
+"redact_text": "echo redis://host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?.=<!&&<\">",
+"redact_url": "x:?.=***&***",
+"redact_text": "echo x:?***<!&&<\"> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,%/##a",
+"redact_url": "x://,%/#***",
+"redact_text": "echo x://,%/#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " :\u00e9\"[].",
+"redact_url": "***path***",
+"redact_text": "echo  :\u00e9\"[]. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://:p@a_b/a@b?SECRET#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p@host:99999/\u00e9#",
+"redact_url": "redis://host/***path***",
+"redact_text": "echo redis://host/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";,:)#b",
+"redact_url": "***path***#***",
+"redact_text": "echo ;,:)#b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[.;#\"b':>?@!",
+"redact_url": "***path***#***",
+"redact_text": "echo [.;#\"b':>?@! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://% ,>/=@''/:&",
+"redact_url": "x://% ,>/***path***",
+"redact_text": "echo x://% ,>/=@''/:& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\")\"&:\u00e9:",
+"redact_url": "x://***path***",
+"redact_text": "echo x://\")\"&:\u00e9: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9@\u00e9.com/a://b?a%3Db=1#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9@\u00e9.com/a://b?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://a@b@a b/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ws+x://***@a b/a@b://c?k=*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "#@) b",
+"redact_url": "#***",
+"redact_text": "echo #@) b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://:p@::1]",
+"redact_url": "***path***",
+"redact_text": "echo ***path***] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u:@h:1:2/#f",
+"redact_url": "u:***path***#***",
+"redact_text": "echo u:@h:1:2/#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:p@[::1]:80//u:p@h/z#",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "!?.;> ",
+"redact_url": "***path***?***",
+"redact_text": "echo !?.;>  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p%40q@[::1]/?x#y#",
+"redact_url": "redis://u:***@[::1]/?***#***",
+"redact_text": "echo redis://u:***@[::1]/?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://h:-1/@?a%3Db=1#f",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":p@[::1]/@?a=&b=c",
+"redact_url": "***path***?***&b=***",
+"redact_text": "echo :p@[::1]/@?a=&b=c end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "postgresql+asyncpg://\u00e9.com//x?k=a+b#",
+"redact_url": "postgresql+asyncpg://\u00e9.com/***path***?k=***",
+"redact_text": "echo postgresql+asyncpg://\u00e9.com/***path***?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@a b/x@y://z?SECRET",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@a b/x@y://z?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">] .# ) b",
+"redact_url": "***path***#***",
+"redact_text": "echo >] .# ) b end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://tok@[::1/a@b?a=1&b=2&c",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u@\u00e9.com?x#y",
+"redact_url": "***path***?***#***",
+"redact_text": "echo u@\u00e9.com?x#y end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[;[:# '",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** ' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:@h:\u00b2/?%26=1",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>)a[/<",
+"redact_url": "x://***path***",
+"redact_text": "echo x://>)a[/< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?b'.,%%>",
+"redact_url": "x:?***",
+"redact_text": "echo x:?***> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://&>/!a!==?.",
+"redact_url": "x://&>/***path***?***",
+"redact_text": "echo x://&>/!a!==?. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":,: !))",
+"redact_url": "***path***",
+"redact_text": "echo :,: !)) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a/[)a# ;",
+"redact_url": "***path***#***",
+"redact_text": "echo a/[)a# ; end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "a-b://@10.0.0.1:0/a@b?a%3Db=1#",
+"redact_url": "10.0.0.1:0/***path***",
+"redact_text": "echo 10.0.0.1:0/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://:p@h:bad/a'b?k=a/b",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]\" %;;]!",
+"redact_url": "x://***path***",
+"redact_text": "echo x:]\" %;;]! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " :%;!&.. %",
+"redact_url": "***path***",
+"redact_text": "echo  :%;!&.. % end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a !=#!%=",
+"redact_url": "x://a !=#***",
+"redact_text": "echo x://a !=#!%= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@#''a']!)",
+"redact_url": "***path***#***",
+"redact_text": "echo @#''a']!) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://:p@host/a'b?a=1&b=2&c#",
+"redact_url": "postgresql+asyncpg://:***@host/***path***?a=***&b=***&***",
+"redact_text": "echo postgresql+asyncpg://:***@host/***path***?a=***&b=***&*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "\u00e9://\u00e9@[::1]:80//u:p@h/z?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://\u00e9@[::1]:80//u:p@h/z?k=a+b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:@:80/?k=v",
+"redact_url": "http://:80/***path***",
+"redact_text": "echo http://:80/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]&; \"'?<;)@?",
+"redact_url": "***path***?***",
+"redact_text": "echo ]&; \"'?<;)@? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\"b#.",
+"redact_url": "***path***#***",
+"redact_text": "echo \"b#. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<!].\u00e9",
+"redact_url": "x://***path***",
+"redact_text": "echo x://<!].\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<>@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://<>@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://@a_b/a b?k=v#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://@a_b/a b?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://::\u00e9)&'b\"=b;'",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***\"=b;' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%%)!<\"[,>]=",
+"redact_url": "***path***",
+"redact_text": "echo %%)!<\"[,>]= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]b/:@@!:!\u00e9@a",
+"redact_url": "***path***",
+"redact_text": "echo ]b/:@@!:!\u00e9@a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a@\u00e9>>:.#b;]",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***@\u00e9>>:.#b;] end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "x://%:&,%,') ,",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***,') , end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "%\"'",
+"redact_url": "***path***",
+"redact_text": "echo %\"' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://',\"\"\"",
+"redact_url": "x://',\"\"\"",
+"redact_text": "echo x:',\"\"\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://@]/\u00e9?%26=1#f",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)!a=]",
+"redact_url": "x://***path***",
+"redact_text": "echo x://)!a=] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9.com/\u00e9?x#y#f",
+"redact_url": "***path***?***#***",
+"redact_text": "echo \u00e9.com/\u00e9?x#y#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]b\"::# <",
+"redact_url": "***path***#***",
+"redact_text": "echo ]b\"::# < end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u:p@h:bad/\u00e9?k=a/b#",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://u:p@a b//u:p@h/z?a%3Db=1",
+"redact_url": "wss://***path***",
+"redact_text": "echo wss://u:***@a b//u:p@h/z?a%3Db=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://h:65535/a://b?SECRET#",
+"redact_url": "***path***?***",
+"redact_text": "echo ://h:65535/a://b?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9@:@ %>%<@>%",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9@:@ %>%<@>% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9?=#?#,\"",
+"redact_url": "***path***?***#***",
+"redact_text": "echo \u00e9?=#?#,\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=ba&[",
+"redact_url": "***path***",
+"redact_text": "echo =ba&[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'.:",
+"redact_url": "x://'.:",
+"redact_text": "echo x:'.: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<\u00e9:!>:.% a",
+"redact_url": "x://***path***",
+"redact_text": "echo x://<\u00e9:!>:.% a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.:b",
+"redact_url": "x://./***path***",
+"redact_text": "echo x://./***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:@h:8080/a://b?k=a+b#",
+"redact_url": "https://u:***@h:8080/***path***?k=***",
+"redact_text": "echo https://u:***@h:8080/***path***?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://:p@wss:/a b?a%3Db=1",
+"redact_url": "postgresql+asyncpg://:***@wss:/***path***?***",
+"redact_text": "echo postgresql+asyncpg://:***@wss:/***path*** b?a%3Db=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a@b@wss:/a@b?=v#f",
+"redact_url": "***path***?=***#***",
+"redact_text": "echo a@b@wss:/a@b?=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://a@b@h:1:2/?k=v#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://a@b@h:1:2/?k=v# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://[::1]:key/a%2Fb?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://@h:bad//u:p@h/z?SECRET#",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u@[::1]/a b?a%3Db=1#",
+"redact_url": "http://***@[::1]/***path***?***",
+"redact_text": "echo http://***@[::1]/***path*** b?a%3Db=1# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://a@b@h:-1/a@b?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo ://a@b@h:-1/a@b?a=&b=c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x:// :]=[",
+"redact_url": "x://***path***",
+"redact_text": "echo x:// :]=[ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://\u00e9@host//x?x#y#",
+"redact_url": "redis://***@host/***path***?***#***",
+"redact_text": "echo redis://***@host/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=/[:",
+"redact_url": "***path***",
+"redact_text": "echo =/[: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://h:65535/a'b?%26=1",
+"redact_url": "ws+x://h:65535/***path***?***",
+"redact_text": "echo ws+x://h:65535/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://\u00e9@h:8080/?=v#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://\u00e9@h:8080/?=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%%a:>",
+"redact_url": "x://***path***",
+"redact_text": "echo x://%%a:> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.;@<%. '!;",
+"redact_url": "x://***@<%. '!;",
+"redact_text": "echo x://***path***<%. '!; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://tok@[/a%2Fb?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]?@!!\"a%\"@[.",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***!!\"a%\"@[. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://a@b@[::1]?x#y#",
+"redact_url": "x1://***@[::1]?***#***",
+"redact_text": "echo x1://***@[::1]?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://tok@/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "b [",
+"redact_url": "***path***",
+"redact_text": "echo b [ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/,[,",
+"redact_url": "***path***",
+"redact_text": "echo /,[, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\"%./\u00e9b\u00e9)\u00e9\u00e9)",
+"redact_url": "x://\"%./***path***",
+"redact_text": "echo x://\"%./\u00e9b\u00e9)\u00e9\u00e9) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\" )<!\"",
+"redact_url": "x://\" )<!\"",
+"redact_text": "echo x://\" )<!\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://ab?",
+"redact_url": "x://ab",
+"redact_text": "echo x://ab? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://h:1:2//u:p@h/z?a=1&b=2&c#f",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "?;[<!<",
+"redact_url": "?***",
+"redact_text": "echo ?;[<!< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]))\">\"",
+"redact_url": "***path***",
+"redact_text": "echo ]))\">\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://@h:65536/@?a=1&b=2&c#f",
+"redact_url": "redis://h/***path***",
+"redact_text": "echo redis://h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "\u00e9:@.=%",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9:@.=% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://=;,%\u00e9>",
+"redact_url": "x://=;,%\u00e9>",
+"redact_text": "echo x://=;,%\u00e9> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://10.0.0.1:0/a://b?SECRET#f",
+"redact_url": "***path***?***#***",
+"redact_text": "echo \u00e9://10.0.0.1:0/a://b?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@h://x?=v#f",
+"redact_url": "***path***",
+"redact_text": "echo @h://x?=***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p@::1]/x@y://z?SECRET#",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p@::1]/x@y://z?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[ [\";\"b<@=<",
+"redact_url": "***path***",
+"redact_text": "echo [ [\";\"b<@=< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b?: #",
+"redact_url": "***path***?***",
+"redact_text": "echo b?: # end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!]>\")%\"",
+"redact_url": "x://***path***",
+"redact_text": "echo x:!]>\")%\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;b/]&'.\"",
+"redact_url": "x://;b/***path***",
+"redact_text": "echo x://;b/***path***'.\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")?[';\u00e9<#?<<'",
+"redact_url": "***path***?***#***",
+"redact_text": "echo )?[';\u00e9<#?<<' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!!', a%a.'.!",
+"redact_url": "x://!!', a%a.'.!",
+"redact_text": "echo x:!!', a%a.'.! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://a@b@h:/a'b?a=&b=c#",
+"redact_url": "x1://***@h:/***path***?***&b=***",
+"redact_text": "echo x1://***@h:/***path***?***&b=*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": ">b#",
+"redact_url": "***path***",
+"redact_text": "echo >b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://[::1]:key/?%26=1",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:@h:/x@y://z?%26=1#f",
+"redact_url": "http://***path***",
+"redact_text": "echo http://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\"a!\"[<[\u00e9)",
+"redact_url": "x://***path***",
+"redact_text": "echo x://\"a!\"[<[\u00e9) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'\"]';\u00e9!<=>;>",
+"redact_url": "x://***path***",
+"redact_text": "echo x:'\"]';\u00e9!<=>;> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@wss:/?a=&b=c#f",
+"redact_url": "redis://***@wss:/?***&b=***#***",
+"redact_text": "echo redis://***@wss:/?***&b=***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "\u00e9://u:@a_b/a@b://c?k=v",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:@a_b/a@b://c?k=*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": "http://h:65535/@?a%3Db=1",
+"redact_url": "http://h:65535/***path***?***",
+"redact_text": "echo http://h:65535/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "/   #')",
+"redact_url": "***path***#***",
+"redact_text": "echo /   #') end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";/&&[,,!",
+"redact_url": "***path***",
+"redact_text": "echo ;/&&[,,! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;<:!\">\u00e9&#\"a",
+"redact_url": "x://***path***",
+"redact_text": "echo x:;<:!\">\u00e9&#\"a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";..<)&][a&a",
+"redact_url": "***path***",
+"redact_text": "echo ;..<)&][a&a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#,:@&.\";>=?/",
+"redact_url": "#***",
+"redact_text": "echo #,:@&.\";>=?/ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?&&@@'",
+"redact_url": "x:?***",
+"redact_text": "echo x:?***' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://@h:\u00b2/?a=&b=c",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "?=>%=<#&[)",
+"redact_url": "?=***#***",
+"redact_text": "echo ?=>%=<#&[) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">b\u00e9b.\u00e9]>&&",
+"redact_url": "***path***",
+"redact_text": "echo >b\u00e9b.\u00e9]>&& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://@\u00e9.com",
+"redact_url": "x1://***@\u00e9.com",
+"redact_text": "echo x1://***@\u00e9.com end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;&>]a=\":>\">",
+"redact_url": "x://***path***",
+"redact_text": "echo x://;&>]a=\":>\"> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#\u00e9>=;?=",
+"redact_url": "#***",
+"redact_text": "echo #\u00e9>=;?= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://u:p@h:\u00b2/a@b?x#y#",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u:p@h:65536//u:p@h/z?=v#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:p@h:65536//u:p@h/z?=v# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://tok@https:/x@y://z?k=v#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,#[ \u00e9@\u00e9&.",
+"redact_url": "x://,#***",
+"redact_text": "echo x://,#*** \u00e9@\u00e9&. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%%:.?[b",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///&<'/ ",
+"redact_url": "x:***path***",
+"redact_text": "echo x:***path***<'/  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u:p%40q@a b/a://b?a=&b=c#f",
+"redact_url": "http://u:***@a b/***path***?***&b=***#***",
+"redact_text": "echo http://u:***@a b/a://b?***&b=***#*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://=:?a@:",
+"redact_url": "x://=:?***",
+"redact_text": "echo x://=:?***: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://[)=#,,&>",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://@wss:/v2/KEY?SECRET#f",
+"redact_url": "wss://***@wss:/***path***?***#***",
+"redact_text": "echo wss://***@wss:/***path***?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u@[::1]:80",
+"redact_url": "redis://***@[::1]:80",
+"redact_text": "echo redis://***@[::1]:80 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";'",
+"redact_url": "***path***",
+"redact_text": "echo ;' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)::.')!'",
+"redact_url": "x://***path***",
+"redact_text": "echo x:)::.')!' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>@[:",
+"redact_url": "x://***path***",
+"redact_text": "echo x://>@[: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ";]@/:>\",",
+"redact_url": "***path***",
+"redact_text": "echo ;]@/:>\", end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "=#'a,,b&'",
+"redact_url": "***path***#***",
+"redact_text": "echo =#'a,,b&' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.a?a,',&@#)/",
+"redact_url": "x://.a?***&***#***",
+"redact_text": "echo x://.a?***&***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://tok@h:-1/v2/KEY",
+"redact_url": "https://h/***path***",
+"redact_text": "echo https://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!=\u00e9;a\"?!",
+"redact_url": "x://!=\u00e9;a\"?***",
+"redact_text": "echo x://!=\u00e9;a\"?! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://:p@h:\u00b2/?k=v#f",
+"redact_url": "https://h/***path***",
+"redact_text": "echo https://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">%>=a .",
+"redact_url": "***path***",
+"redact_text": "echo >%>=a . end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://a@b@a b/a%2Fb?%26=1",
+"redact_url": "a-b://***@a b/***path***?***",
+"redact_text": "echo a-b://***@a b/a%2Fb?%26=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "@<\"b,)b&",
+"redact_url": "***path***",
+"redact_text": "echo @<\"b,)b& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9)ba.",
+"redact_url": "x://\u00e9)ba.",
+"redact_text": "echo x://\u00e9)ba. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "http://u@h:1:2/a@b://c?k=v",
+"redact_url": "http://h/***path***",
+"redact_text": "echo http://h/***path*** end.",
+"with_secrets": "e***ho *** and ***"
+},
+{
+"input": ",\u00e9];#<",
+"redact_url": "***path***#***",
+"redact_text": "echo ,\u00e9];#< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://tok@h:-1?x#y#",
+"redact_url": "x1://h/***path***",
+"redact_text": "echo x1://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://a@b@a_b/a@b?%26=1",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://a@b@a_b/a@b?%26=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// &>=[[[!:<",
+"redact_url": "x://***path***",
+"redact_text": "echo x:// &>=[[[!:< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "!<:a%' ",
+"redact_url": "***path***",
+"redact_text": "echo !<:a%'  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@/])!\"/,%[')",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***])!\"/,%[') end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://u:p%40q@a b/a'b#f",
+"redact_url": "postgresql+asyncpg://u:***@a b/***path***#***",
+"redact_text": "echo postgresql+asyncpg://u:***@a b/a'b#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://\u00e9@[::1]/a'b?k=v",
+"redact_url": "ws+x://***@[::1]/***path***?k=***",
+"redact_text": "echo ws+x://***@[::1]/***path***?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":80/x@y://z?k=a+b",
+"redact_url": "***path***",
+"redact_text": "echo :80/x@y://z?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9 [' \u00e9])[a@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://\u00e9 [' \u00e9])[a@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://u:p%40q@:80/a b?SECRET#",
+"redact_url": ":80/***path***",
+"redact_text": "echo :80/***path*** b?SECRET# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://10.0.0.1:0",
+"redact_url": "x1://10.0.0.1:0",
+"redact_text": "echo x1://10.0.0.1:0 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:p@[::1]:key/a@b?x#y#",
+"redact_url": "https://***path***",
+"redact_text": "echo https://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a\",[&b;:>\"&a",
+"redact_url": "***path***",
+"redact_text": "echo a\",[&b;:>\"&a end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]=/#",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// b)",
+"redact_url": "x:// b)",
+"redact_text": "echo x:// b) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "u:@https://x?SECRET#f",
+"redact_url": "u://***path***",
+"redact_text": "echo u:@https://x?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a=:;!&a=%]=",
+"redact_url": "***path***",
+"redact_text": "echo a=:;!&a=%]= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://\u00e9@h:8080/a b?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://\u00e9@h:8080/a b?a=&b=c#f end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "b)",
+"redact_url": "***path***",
+"redact_text": "echo b) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://)=]!,)\"]#",
+"redact_url": "x://***path***",
+"redact_text": "echo x://)=]!,)\"]# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]>[>? '",
+"redact_url": "***path***?***",
+"redact_text": "echo ]>[>? ' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://%:a",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://@h:bad?%26=1",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@&]@)]> \",",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***)]> \", end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://@https:/\u00e9?%26=1#",
+"redact_url": "a-b://***@https:/***path***?***",
+"redact_text": "echo a-b://***@https:/***path***?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ":a<&]",
+"redact_url": "***path***",
+"redact_text": "echo :a<&] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?%): /'",
+"redact_url": "?***",
+"redact_text": "echo ?%): /' end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;  ]!",
+"redact_url": "x://***path***",
+"redact_text": "echo x:;  ]! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://@h:\u00b2/\u00e9?a=&b=c#",
+"redact_url": "redis://h/***path***",
+"redact_text": "echo redis://h/***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "://h:1:2/a b?=v#f",
+"redact_url": "***path***?=***#***",
+"redact_text": "echo ://h:1:2/a b?=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// a[,)??;",
+"redact_url": "x://***path***",
+"redact_text": "echo x:// a[,)??; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://@h:-1/a://b?%26=1#f",
+"redact_url": "h/***path***",
+"redact_text": "echo h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a!.& =\"]",
+"redact_url": "***path***",
+"redact_text": "echo a!.& =\"] end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://h:65535/?SECRET#f",
+"redact_url": "https://h:65535/?***#***",
+"redact_text": "echo https://h:65535/?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "://u:p@a b/a%2Fb?k=v#f",
+"redact_url": "***path***",
+"redact_text": "echo ://u:p@a b/a%2Fb?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://&?]?/#']]a",
+"redact_url": "x://&?***#***",
+"redact_text": "echo x://&?***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://]b)b?\u00e9/",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "), :",
+"redact_url": "***path***",
+"redact_text": "echo ), : end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://https:/@?k=v#f",
+"redact_url": "redis://https:/***path***?k=***#***",
+"redact_text": "echo redis://https:/***path***?k=***#*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://<b%\"",
+"redact_url": "x://<b%\"",
+"redact_text": "echo x://<b%\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://\u00e9@[::1]:key/a'b?a=&b=c#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "\"<@a<",
+"redact_url": "***path***",
+"redact_text": "echo \"<@a< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://b??",
+"redact_url": "x://b?***",
+"redact_text": "echo x://b?? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u@h:65536/x@y://z?%26=1#f",
+"redact_url": "https://h/***path***",
+"redact_text": "echo https://h/***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://\u00e9@wss:/a@b?k=a+b#",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "ws+x://u:@\u00e9.com?%26=1#",
+"redact_url": "ws+x://u:***@\u00e9.com?***",
+"redact_text": "echo ws+x://u:***@\u00e9.com?*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u:@[]?k=v#f",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:@[]?k=v#f end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u@[::1]/x@y://z?x#y#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://@[::1]:80",
+"redact_url": "x1://***@[::1]:80",
+"redact_text": "echo x1://***@[::1]:80 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://?]%[!",
+"redact_url": "x:?***",
+"redact_text": "echo x:?***! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.:\u00e9];,]&\u00e9",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": " !)\u00e9=b[b.[/=",
+"redact_url": "***path***",
+"redact_text": "echo  !)\u00e9=b[b.[/= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "]b<:\u00e9:",
+"redact_url": "***path***",
+"redact_text": "echo ]b<:\u00e9: end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@'@ /,\u00e9b]?,",
+"redact_url": "x://***@ /***path***?***",
+"redact_text": "echo x://***path*** /,\u00e9b]?, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b&%)<,b).",
+"redact_url": "***path***",
+"redact_text": "echo b&%)<,b). end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://u:p%40q@h://x?=v#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "!b/[>\"'! ",
+"redact_url": "***path***",
+"redact_text": "echo !b/[>\"'!  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://#[':&> ,",
+"redact_url": "x:#***",
+"redact_text": "echo x:#***> , end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;?[\"?",
+"redact_url": "x://;?***",
+"redact_text": "echo x://;?***\"? end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "[&a\"",
+"redact_url": "***path***",
+"redact_text": "echo [&a\" end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "https://u:p@\u00e9.com//u:p@h/z?k=v#",
+"redact_url": "https://***path***",
+"redact_text": "echo https://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:///\"[\"@",
+"redact_url": "x:***path***",
+"redact_text": "echo x:/\"[\"@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?\u00e9%::a\u00e9,",
+"redact_url": "?***",
+"redact_text": "echo ?\u00e9%::a\u00e9, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@\u00e9a%=<;",
+"redact_url": "x://***@\u00e9a%=<;",
+"redact_text": "echo x://***@\u00e9a%=<; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ">&%\"#;/'&\" .",
+"redact_url": "***path***#***",
+"redact_text": "echo >&%\"#;/'&\" . end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://u:p%40q@HOST.example.com/a%2Fb?a=&b=c#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://u:p%40q@HOST.example.com/a%2Fb?a=&b=c# end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "x://%[!%,[>%",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***>% end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://u@/a%2Fb?a=1&b=2&c",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "e***ho *** ***nd ***"
+},
+{
+"input": "'!a!\u00e9",
+"redact_url": "***path***",
+"redact_text": "echo '!a!\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>,ab@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://>,ab@ end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "tok@a b/a@b?k=a/b#",
+"redact_url": "***path***?k=***",
+"redact_text": "echo tok@a b/a@b?k=a/b# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "#?\u00e9=>",
+"redact_url": "#***",
+"redact_text": "echo #?\u00e9=> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://\u00e9?<&/,[=",
+"redact_url": "x://\u00e9?***&***",
+"redact_text": "echo x://\u00e9?<&/,[= end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>;= /#&%'\u00e9.",
+"redact_url": "x://>;= /#***",
+"redact_text": "echo x://>;= /#&%'\u00e9. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://,<?)ab&a#)!>",
+"redact_url": "x://,<?***&***#***",
+"redact_text": "echo x:,<?)ab&a#)!> end.",
+"with_secrets": "echo *** ***nd ***"
+},
+{
+"input": "postgresql+asyncpg://tok@[::1//u:p@h/z?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://'b=,\"=<b) ;,",
+"redact_url": "x://'b=,\"=<b) ;,",
+"redact_text": "echo x://'b=,\"=<b) ;, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://!&.\u00e9;a@",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://a;):\u00e9[ # b;",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path*** # b; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://@host:99999/a b?SECRET#",
+"redact_url": "wss://host/***path***",
+"redact_text": "echo wss://host/***path*** b?SECRET# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://>%%:]/[\"'!,",
+"redact_url": "x://***path***",
+"redact_text": "echo x://>%%:]/[\"'!, end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\"@#.!&",
+"redact_url": "***path***#***",
+"redact_text": "echo \"@#.!& end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://@) ]=@..\u00e9.",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***) ]=@..\u00e9. end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://@h:65535",
+"redact_url": "wss://***@h:65535",
+"redact_text": "echo wss://***@h:65535 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://;=;&\u00e9)",
+"redact_url": "x://;=;&\u00e9)",
+"redact_text": "echo x://;=;&\u00e9) end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "?#<\u00e9'.\"a?<",
+"redact_url": "#***",
+"redact_text": "echo ?#<\u00e9'.\"a?< end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "Redis://u:p%40q@]/v2/KEY?a%3Db=1",
+"redact_url": "redis://***path***",
+"redact_text": "echo redis://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "'b@#\u00e9",
+"redact_url": "***path***#***",
+"redact_text": "echo 'b@#\u00e9 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://==;=[;",
+"redact_url": "x://***path***",
+"redact_text": "echo x://***path***; end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "wss://a@b@h:8080/a b?a%3Db=1",
+"redact_url": "wss://***@h:8080/***path***?***",
+"redact_text": "echo wss://***@h:8080/***path*** b?a%3Db=1 end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x:// '<:,< ",
+"redact_url": "x://***path***",
+"redact_text": "echo x:// '<:,<  end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "postgresql+asyncpg://@[]/a b?a=1&b=2&c#",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** b?a=1&b=2&c# end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "<<[#&>",
+"redact_url": "***path***#***",
+"redact_text": "echo <<[#&> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "b! \u00e9![>",
+"redact_url": "***path***",
+"redact_text": "echo b! \u00e9![> end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": ")&]!",
+"redact_url": "***path***",
+"redact_text": "echo )&]! end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "\u00e9://\u00e9@https://x?k=a+b#",
+"redact_url": "***path***",
+"redact_text": "echo \u00e9://\u00e9@https://x?k=*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x1://\u00e9@a_b/a@b?%26=1#",
+"redact_url": "x1://***path***",
+"redact_text": "echo x1://***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "a-b://\u00e9@[]/a'b?%26=1#f",
+"redact_url": "***path***",
+"redact_text": "echo ***path*** end.",
+"with_secrets": "echo *** and ***"
+},
+{
+"input": "x://.<,",
+"redact_url": "x://.<,",
+"redact_text": "echo x:.<, end.",
+"with_secrets": "echo *** and ***"
+}
+]

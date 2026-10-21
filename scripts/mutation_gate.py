@@ -4,8 +4,7 @@ Reads ``mutmut results --all true`` on stdin. Every mutant of an enrolled module
 ``killed`` or ``timeout`` (a mutant that hangs the suite is detected); ``survived``,
 ``no tests``, ``suspicious``, ``segfault`` and anything else fail the gate. An enrolled
 module with no mutants at all also fails, so a misconfigured run cannot pass silently.
-The module list only ever grows; ``redaction`` is mutated by the same job but is not yet
-enrolled because it still has survivors (see ``docs/relentless-ci-adoption.md``).
+The module list only ever grows (see ``docs/relentless-ci-adoption.md``).
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ ENROLLED_MODULES = (
     "polymarket_insider_tracker.ingestor._retry",
     "polymarket_insider_tracker.ingestor._attempt_budget",
     "polymarket_insider_tracker.ingestor._cycle_cutoff",
+    "polymarket_insider_tracker.redaction",
 )
 DETECTED_STATUSES = frozenset({"killed", "timeout"})
 _MUTANT_LINE = re.compile(r"^\s*(?P<module>[\w.]+)\.x[^.\s:]*__mutmut_\d+: (?P<status>.+?)\s*$")

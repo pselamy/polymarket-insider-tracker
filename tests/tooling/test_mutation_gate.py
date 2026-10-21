@@ -18,14 +18,17 @@ STEP_1_MODULES = (
     f"{PACKAGE}.ingestor._attempt_budget",
     f"{PACKAGE}.ingestor._cycle_cutoff",
 )
+# The step-2 enrollment: the secret-redaction module.
+REDACTION = f"{PACKAGE}.redaction"
+ENROLLED = (*STEP_1_MODULES, REDACTION)
 
 
 def _all_killed() -> list[str]:
-    return [f"    {module}.x_f__mutmut_{n}: killed" for module in STEP_1_MODULES for n in (1, 2)]
+    return [f"    {module}.x_f__mutmut_{n}: killed" for module in ENROLLED for n in (1, 2)]
 
 
 def test_enrollment_only_grows() -> None:
-    assert gate.ENROLLED_MODULES[: len(STEP_1_MODULES)] == STEP_1_MODULES
+    assert gate.ENROLLED_MODULES[: len(ENROLLED)] == ENROLLED
 
 
 def test_all_enrolled_mutants_detected_passes() -> None:
@@ -49,8 +52,14 @@ def test_an_enrolled_module_without_mutants_fails() -> None:
 
 
 def test_unenrolled_modules_do_not_affect_the_gate() -> None:
-    lines = [*_all_killed(), f"    {PACKAGE}.redaction.x_g__mutmut_3: survived"]
+    lines = [*_all_killed(), f"    {PACKAGE}.detector.scorer.x_g__mutmut_3: survived"]
     assert gate.evaluate(lines) == []
+
+
+@pytest.mark.parametrize("status", ["survived", "no tests"])
+def test_a_redaction_mutant_nobody_caught_fails_the_gate(status: str) -> None:
+    lines = [*_all_killed(), f"    {REDACTION}.x_redact_url__mutmut_3: {status}"]
+    assert gate.evaluate(lines) == [f"{REDACTION}: 1 mutant(s) {status}"]
 
 
 def test_real_mutmut_result_lines_are_parsed() -> None:
