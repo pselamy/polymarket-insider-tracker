@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from types import ModuleType
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 
@@ -179,6 +179,16 @@ def test_redis_verifier_uses_the_same_scheme_contract_as_the_application(
         module.validate_redis_url(redis_url)
 
 
+class FakeEngine:
+    disposed = False
+
+    def create(self, _database_url: str) -> FakeEngine:
+        return self
+
+    async def dispose(self) -> None:
+        self.disposed = True
+
+
 @pytest.mark.asyncio
 async def test_redis_construction_failure_disposes_engine_and_redacts_url(
     monkeypatch: pytest.MonkeyPatch,
@@ -187,16 +197,10 @@ async def test_redis_construction_failure_disposes_engine_and_redacts_url(
     secret = "never-print-this-redis-password"
     redis_url = f"redis://tracker:{secret}@localhost:6379/0"
 
-    class FakeEngine:
-        disposed = False
-
-        async def dispose(self) -> None:
-            self.disposed = True
-
     engine = FakeEngine()
-    monkeypatch.setattr(module, "create_async_db_engine", lambda _database_url: engine)
+    monkeypatch.setattr(module, "create_async_db_engine", engine.create)
 
-    def fail_from_url(value: str) -> Any:
+    def fail_from_url(value: str) -> NoReturn:
         raise RuntimeError(f"redis setup failed for {value}")
 
     monkeypatch.setattr(module.Redis, "from_url", staticmethod(fail_from_url))
@@ -210,6 +214,22 @@ async def test_redis_construction_failure_disposes_engine_and_redacts_url(
     assert "***" in str(caught.value)
 
 
+class FakeResult:
+    def scalar_one(self) -> int:
+        return 1
+
+
+class FakeConnection:
+    async def __aenter__(self) -> FakeConnection:
+        return self
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+    async def execute(self, _statement: object) -> FakeResult:
+        return FakeResult()
+
+
 @pytest.mark.asyncio
 async def test_redis_cleanup_failure_still_disposes_engine_and_redacts_url(
     monkeypatch: pytest.MonkeyPatch,
@@ -218,31 +238,15 @@ async def test_redis_cleanup_failure_still_disposes_engine_and_redacts_url(
     secret = "never-print-this-cleanup-password"
     redis_url = f"redis://tracker:{secret}@localhost:6379/0"
 
-    class FakeResult:
-        def scalar_one(self) -> int:
-            return 1
-
-    class FakeConnection:
-        async def __aenter__(self) -> FakeConnection:
-            return self
-
-        async def __aexit__(self, *_args: object) -> None:
-            return None
-
-        async def execute(self, _statement: object) -> FakeResult:
-            return FakeResult()
-
-    class FakeEngine:
-        disposed = False
-
+    class ConnectableEngine(FakeEngine):
         def connect(self) -> FakeConnection:
             return FakeConnection()
 
-        async def dispose(self) -> None:
-            self.disposed = True
-
     class FakeRedis:
         closed = False
+
+        def open(self, _value: str) -> FakeRedis:
+            return self
 
         async def ping(self) -> bool:
             return True
@@ -251,10 +255,10 @@ async def test_redis_cleanup_failure_still_disposes_engine_and_redacts_url(
             self.closed = True
             raise RuntimeError(f"redis cleanup failed for {redis_url}")
 
-    engine = FakeEngine()
+    engine = ConnectableEngine()
     redis = FakeRedis()
-    monkeypatch.setattr(module, "create_async_db_engine", lambda _database_url: engine)
-    monkeypatch.setattr(module.Redis, "from_url", staticmethod(lambda _value: redis))
+    monkeypatch.setattr(module, "create_async_db_engine", engine.create)
+    monkeypatch.setattr(module.Redis, "from_url", redis.open)
 
     with pytest.raises(module.ServiceVerificationError) as caught:
         await module.probe_services(LOCAL_DATABASE_URL, redis_url)

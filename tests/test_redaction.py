@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections import ChainMap, UserDict
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import MappingProxyType
@@ -26,8 +26,11 @@ import aiohttp
 import pytest
 from eth_typing import ChecksumAddress
 from fakeredis import FakeAsyncRedis
+from redis.typing import EncodableT, FieldT
 from websockets.asyncio.client import ClientConnection
 
+from polymarket_insider_tracker import terminal_errors as terminal
+from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.detector.scorer import RiskScorer
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
 from polymarket_insider_tracker.ingestor.models import (
@@ -35,9 +38,13 @@ from polymarket_insider_tracker.ingestor.models import (
     MarketMetadata,
     TradeEvent,
 )
+from polymarket_insider_tracker.ingestor.trade_poller import (
+    CachedMarketLookup,
+    TradeCallback,
+    TradePoller,
+)
 from polymarket_insider_tracker.ingestor.trade_rows import (
     OutcomeResolution,
-    TradeObservation,
 )
 from polymarket_insider_tracker.ingestor.websocket import TradeStreamHandler
 from polymarket_insider_tracker.redaction import (
@@ -47,15 +54,20 @@ from polymarket_insider_tracker.redaction import (
     redact_url,
     url_credential_components,
 )
-from tests.console_capture import capture_console_output
+from tests.console_capture import (
+    capture_console_output,
+    console_capture,
+    production_console_handler,
+)
 from tests.fakes import detector_trade
+from tests.fakes.pipeline_access import PipelineAccess
+from tests.fakes.redis_faults import fail_commands, fail_pipeline
 
 if TYPE_CHECKING:
-    from polymarket_insider_tracker.config import Settings
+    from polymarket_insider_tracker.config import PolymarketSettings, Settings
     from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
-    from polymarket_insider_tracker.ingestor.trade_poller import TradePoller
     from polymarket_insider_tracker.pipeline import Pipeline
-    from tests.fakes import FakeTradesServer
+    from tests.fakes import FailingDetector, FakeTradesServer
 
 DB_SECRET = "db-userinfo-secret"
 QUERY_SECRET = "query-string-secret"
@@ -98,10 +110,36 @@ async def _primed_poller(settings: Settings) -> tuple[TradePoller, FakeTradesSer
     pipeline = await wire_pipeline(
         settings, redis=FakeAsyncRedis(), eth=FakeEth(), trades=server, poll_clock=clock
     )
-    poller = pipeline._trade_poller
-    assert poller is not None
+    poller = PipelineAccess.trade_poller(pipeline)
     server.publish(trade_row(timestamp=1_788_983_719, transaction=1))
     await poller.run_cycle()
+    return poller, server
+
+
+def _standalone_poller(
+    polymarket: PolymarketSettings,
+    *,
+    on_trade: TradeCallback | None = None,
+    metadata: CachedMarketLookup | None = None,
+) -> tuple[TradePoller, FakeTradesServer]:
+    """A real poller over a fresh Redis and an empty trades server, with chosen collaborators."""
+    from tests.fakes import FakeClock, FakeTradesServer
+
+    async def discard(event: TradeEvent) -> None:
+        _ = event
+
+    clock = FakeClock(1_788_983_720.0)
+    server = FakeTradesServer(clock=clock)
+    poller = TradePoller(
+        on_trade or discard,
+        redis=FakeAsyncRedis(),
+        settings=polymarket,
+        metadata=metadata,
+        http_client=server.client(),
+        clock=clock,
+        sleeper=clock.sleep,
+        random_source=lambda: 0.0,
+    )
     return poller, server
 
 
@@ -159,6 +197,20 @@ async def _run_pipeline_with_failing_redis(
     finally:
         target.removeHandler(handler)
     return code, "\n".join(rendered) + "\n" + caplog.text
+
+
+async def _health_response(monitor: HealthMonitor) -> tuple[int, str]:
+    """The status code and text the real ``/health`` endpoint serves for ``monitor``."""
+    await monitor.start_http_server(port=0)
+    try:
+        port = monitor.http_addresses[0][1]
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get(f"http://127.0.0.1:{port}/health") as response,
+        ):
+            return response.status, await response.text()
+    finally:
+        await monitor.stop_http_server()
 
 
 async def _failed_metadata_start(
@@ -567,19 +619,20 @@ class TestPipelineErrorCaptureRedaction:
 
     @pytest.mark.asyncio
     async def test_database_check_failure_embedding_dsn_is_redacted(self) -> None:
-        from polymarket_insider_tracker.pipeline import Pipeline
-        from tests.fakes import make_test_settings
+        from tests.fakes import FakeEth, make_test_settings, wire_pipeline
+        from tests.fakes.database import failing_database
 
-        class LeakyDatabaseManager:
-            def get_async_session(self) -> object:
-                raise RuntimeError(
-                    f"could not connect to postgresql://tracker:{DB_SECRET}@db:5432/research"
-                )
+        leak = RuntimeError(
+            f"could not connect to postgresql://tracker:{DB_SECRET}@db:5432/research"
+        )
+        pipeline = await wire_pipeline(
+            make_test_settings(),
+            redis=FakeAsyncRedis(),
+            eth=FakeEth(),
+            db_manager=failing_database(leak),
+        )
 
-        pipeline = Pipeline(make_test_settings())
-        pipeline.__dict__["_db_manager"] = LeakyDatabaseManager()
-
-        component = await pipeline._check_database()
+        component = (await pipeline.health_monitor.evaluate_components())["database"]
 
         assert component.status == "down"
         assert DB_SECRET not in (component.last_error or "")
@@ -591,7 +644,7 @@ class TestPipelineErrorCaptureRedaction:
         from tests.fakes import make_test_settings
 
         pipeline = Pipeline(make_test_settings())
-        pipeline._record_processing_error(
+        pipeline.record_processing_error(
             f"scoring failed after calling https://{TOKEN_SECRET}@api.example.com?k={QUERY_SECRET}"
         )
 
@@ -604,8 +657,10 @@ class TestPipelineErrorCaptureRedaction:
         from tests.fakes import make_test_settings
 
         pipeline = Pipeline(make_test_settings())
-        pipeline._handle_worker_failure(
-            f"poller died talking to https://user:{DB_SECRET}@trades.example.com?auth={QUERY_SECRET}"
+        terminal.record_terminal_failure(
+            pipeline,
+            f"poller died talking to https://user:{DB_SECRET}@trades.example.com?auth={QUERY_SECRET}",
+            terminal.DEFAULT_TERMINAL_WORKER,
         )
 
         assert DB_SECRET not in (pipeline.stats.last_error or "")
@@ -640,8 +695,9 @@ class TestUpstreamSinkRedaction:
                 _ = (address, kwargs)
                 raise Web3Exception(f"balanceOf failed for https://rpc.internal?k={secret}")
 
-        client = PolygonClient("https://polygon-rpc.com", retry_delay_seconds=0.0)
-        client._w3 = FakeAsyncWeb3(LeakyTokenEth())
+        client = PolygonClient(
+            "https://polygon-rpc.com", retry_delay_seconds=0.0, web3=FakeAsyncWeb3(LeakyTokenEth())
+        )
         analyzer = WalletAnalyzer(client)
 
         with caplog.at_level(logging.WARNING):
@@ -655,7 +711,7 @@ class TestUpstreamSinkRedaction:
 
     @pytest.mark.asyncio
     async def test_analyzer_profile_cache_failures_are_redacted(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
         from polymarket_insider_tracker.profiler.chain import PolygonClient
@@ -665,23 +721,21 @@ class TestUpstreamSinkRedaction:
         write_secret = "upstream-cache-write-secret-r10"
 
         read_redis = FakeAsyncRedis()
-
-        async def leaky_read_get(name: object) -> object:
-            _ = name
-            raise ConnectionError(f"redis get blew up for https://cache.internal?k={read_secret}")
-
-        read_redis.__dict__["get"] = leaky_read_get
-
+        fail_commands(
+            monkeypatch,
+            read_redis,
+            get=ConnectionError(f"redis get blew up for https://cache.internal?k={read_secret}"),
+        )
         write_redis = FakeAsyncRedis()
+        fail_commands(
+            monkeypatch,
+            write_redis,
+            set=ConnectionError(f"redis set blew up for https://cache.internal?k={write_secret}"),
+        )
 
-        async def leaky_write_set(name: object, value: object = None, ex: object = None) -> object:
-            _ = (name, value, ex)
-            raise ConnectionError(f"redis set blew up for https://cache.internal?k={write_secret}")
-
-        write_redis.__dict__["set"] = leaky_write_set
-
-        read_client = PolygonClient("https://polygon-rpc.com", retry_delay_seconds=0.0)
-        read_client._w3 = FakeAsyncWeb3(FakeEth())
+        read_client = PolygonClient(
+            "https://polygon-rpc.com", retry_delay_seconds=0.0, web3=FakeAsyncWeb3(FakeEth())
+        )
         read_analyzer = WalletAnalyzer(read_client, redis=read_redis)
         with caplog.at_level(logging.WARNING):
             caplog.clear()
@@ -691,9 +745,11 @@ class TestUpstreamSinkRedaction:
         assert "Failed to get cached profile" in caplog.text
 
         write_client = PolygonClient(
-            "https://polygon-rpc.com", redis=FakeAsyncRedis(), retry_delay_seconds=0.0
+            "https://polygon-rpc.com",
+            redis=FakeAsyncRedis(),
+            retry_delay_seconds=0.0,
+            web3=FakeAsyncWeb3(FakeEth()),
         )
-        write_client._w3 = FakeAsyncWeb3(FakeEth())
         write_analyzer = WalletAnalyzer(write_client, redis=write_redis)
         with caplog.at_level(logging.WARNING):
             caplog.clear()
@@ -705,7 +761,7 @@ class TestUpstreamSinkRedaction:
 
     @pytest.mark.asyncio
     async def test_chain_cache_failures_are_redacted(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from polymarket_insider_tracker.profiler.chain import PolygonClient
         from tests.fakes import FakeAsyncWeb3, FakeEth
@@ -714,31 +770,30 @@ class TestUpstreamSinkRedaction:
         set_secret = "upstream-chain-set-secret-r10"
 
         get_redis = FakeAsyncRedis()
-
-        async def leaky_chain_get(name: object) -> object:
-            _ = name
-            raise ConnectionError(f"redis get blew up for https://cache.internal?k={get_secret}")
-
-        get_redis.__dict__["get"] = leaky_chain_get
-
+        fail_commands(
+            monkeypatch,
+            get_redis,
+            get=ConnectionError(f"redis get blew up for https://cache.internal?k={get_secret}"),
+        )
         set_redis = FakeAsyncRedis()
+        fail_commands(
+            monkeypatch,
+            set_redis,
+            set=ConnectionError(f"redis set blew up for https://cache.internal?k={set_secret}"),
+        )
 
-        async def leaky_chain_set(name: object, value: object = None, ex: object = None) -> object:
-            _ = (name, value, ex)
-            raise ConnectionError(f"redis set blew up for https://cache.internal?k={set_secret}")
-
-        set_redis.__dict__["set"] = leaky_chain_set
-
-        get_client = PolygonClient("https://polygon-rpc.com", redis=get_redis)
-        get_client._w3 = FakeAsyncWeb3(FakeEth())
+        get_client = PolygonClient(
+            "https://polygon-rpc.com", redis=get_redis, web3=FakeAsyncWeb3(FakeEth())
+        )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
             assert await get_client.get_transaction_count("0x" + "ab" * 20) == 42
         assert get_secret not in caplog.text
         assert "Cache get failed" in caplog.text
 
-        set_client = PolygonClient("https://polygon-rpc.com", redis=set_redis)
-        set_client._w3 = FakeAsyncWeb3(FakeEth())
+        set_client = PolygonClient(
+            "https://polygon-rpc.com", redis=set_redis, web3=FakeAsyncWeb3(FakeEth())
+        )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
             assert await set_client.get_transaction_count("0x" + "ab" * 20) == 42
@@ -762,8 +817,12 @@ class TestUpstreamSinkRedaction:
                 _ = address
                 raise Web3Exception(f"node refused https://rpc.internal?k={secret}")
 
-        client = PolygonClient("https://polygon-rpc.com", max_retries=2, retry_delay_seconds=0.0)
-        client._w3 = FakeAsyncWeb3(LeakyRetryEth())
+        client = PolygonClient(
+            "https://polygon-rpc.com",
+            max_retries=2,
+            retry_delay_seconds=0.0,
+            web3=FakeAsyncWeb3(LeakyRetryEth()),
+        )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
             with pytest.raises(Exception, match="RPC call get_transaction_count failed") as excinfo:
@@ -824,8 +883,9 @@ class TestUpstreamSinkRedaction:
                 _ = (address, kwargs)
                 raise Web3Exception(f"balanceOf failed for https://rpc.internal?k={fresh_secret}")
 
-        client = PolygonClient("https://polygon-rpc.com", retry_delay_seconds=0.0)
-        client._w3 = FakeAsyncWeb3(LeakyTokenEth())
+        client = PolygonClient(
+            "https://polygon-rpc.com", retry_delay_seconds=0.0, web3=FakeAsyncWeb3(LeakyTokenEth())
+        )
         fresh_detector = FreshWalletDetector(WalletAnalyzer(client))
         trade = detector_trade()
         with caplog.at_level(logging.WARNING):
@@ -910,75 +970,69 @@ class TestDetectorFailureRedaction:
         assert trade.trade_id in logs
         assert keep in logs
 
+    async def _assert_failure_redacted_everywhere(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        texts: list[str],
+        install: Callable[[Pipeline, FailingDetector], None],
+        keep: str,
+    ) -> None:
+        from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
+
+        for text in texts:
+            pipeline = await wire_pipeline(
+                make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
+            )
+            install(pipeline, FailingDetector(RuntimeError(text)))
+            trade = detector_trade()
+            with caplog.at_level(logging.WARNING):
+                caplog.clear()
+                await pipeline.process_trade(trade)
+
+            assert pipeline.stats.last_error is not None
+            self._assert_context_preserved(
+                error=pipeline.stats.last_error, trade=trade, keep=keep, logs=caplog.text
+            )
+            for secret in self._secrets():
+                assert secret not in caplog.text
+
     @pytest.mark.asyncio
     async def test_fresh_wallet_failure_is_redacted_everywhere(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
-
-        secrets = self._secrets()
-        for text in self._fresh_exception_texts():
-            pipeline = await wire_pipeline(
-                make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
-            )
-            pipeline._fresh_wallet_detector = FailingDetector(RuntimeError(text))
-            trade = detector_trade()
-            with caplog.at_level(logging.WARNING):
-                caplog.clear()
-                _, error = await pipeline._detect_fresh_wallet(trade, datetime.now(UTC))
-
-            assert error is not None
-            self._assert_context_preserved(
-                error=error.message,
-                trade=trade,
-                keep="fresh wallet detection failed",
-                logs=caplog.text,
-            )
-            for secret in secrets:
-                assert secret not in caplog.text
-            assert "fresh wallet detection failed" in caplog.text
+        await self._assert_failure_redacted_everywhere(
+            caplog,
+            self._fresh_exception_texts(),
+            lambda pipeline, failing: PipelineAccess.replace_components(
+                pipeline, fresh_wallet_detector=failing
+            ),
+            "fresh wallet detection failed",
+        )
 
     @pytest.mark.asyncio
     async def test_size_anomaly_failure_is_redacted_everywhere(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
-
-        secrets = self._secrets()
-        for text in self._size_exception_texts():
-            pipeline = await wire_pipeline(
-                make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
-            )
-            pipeline._size_anomaly_detector = FailingDetector(RuntimeError(text))
-            trade = detector_trade()
-            with caplog.at_level(logging.WARNING):
-                caplog.clear()
-                _, error = await pipeline._detect_size_anomaly(trade, datetime.now(UTC))
-
-            assert error is not None
-            self._assert_context_preserved(
-                error=error.message,
-                trade=trade,
-                keep="size anomaly detection failed",
-                logs=caplog.text,
-            )
-            for secret in secrets:
-                assert secret not in caplog.text
-            assert "size anomaly detection failed" in caplog.text
+        await self._assert_failure_redacted_everywhere(
+            caplog,
+            self._size_exception_texts(),
+            lambda pipeline, failing: PipelineAccess.replace_components(
+                pipeline, size_anomaly_detector=failing
+            ),
+            "size anomaly detection failed",
+        )
 
     @pytest.mark.asyncio
     async def test_detector_failures_stay_redacted_through_stats_and_health(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from polymarket_insider_tracker.ingestor.health import HealthStatus
         from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
 
         pipeline = await wire_pipeline(make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth())
-        pipeline._fresh_wallet_detector = FailingDetector(
-            RuntimeError(self._fresh_exception_texts()[0])
-        )
-        pipeline._size_anomaly_detector = FailingDetector(
-            RuntimeError(self._size_exception_texts()[0])
+        PipelineAccess.replace_components(
+            pipeline,
+            fresh_wallet_detector=FailingDetector(RuntimeError(self._fresh_exception_texts()[0])),
+            size_anomaly_detector=FailingDetector(RuntimeError(self._size_exception_texts()[0])),
         )
         with caplog.at_level(logging.WARNING):
             await pipeline.process_trade(detector_trade())
@@ -990,10 +1044,7 @@ class TestDetectorFailureRedaction:
         assert "***" in last_error
         assert pipeline.stats.errors == 2
 
-        body = pipeline.health_monitor._build_health_body(
-            pipeline.health_monitor.get_health_report(), {}, HealthStatus.HEALTHY, 0.0
-        )
-        health_text = str(body)
+        _, health_text = await _health_response(pipeline.health_monitor)
         for secret in self._secrets():
             assert secret not in health_text
         assert "detection failed" in last_error
@@ -1029,8 +1080,7 @@ class TestTradesBoundaryRedaction:
         pipeline = await wire_pipeline(
             settings, redis=FakeAsyncRedis(), eth=FakeEth(), trades=server
         )
-        poller = pipeline._trade_poller
-        assert poller is not None
+        poller = PipelineAccess.trade_poller(pipeline)
         server.publish(trade_row(timestamp=1_788_983_719, transaction=1))
         await poller.run_cycle()
         assert poller.status.state is not None
@@ -1216,10 +1266,11 @@ class TestInvalidPortShapeRedaction:
             assert self.PORTSHAPED_SECRET not in masked
             assert "invalid request port: '***'" in masked
 
-        settings = make_test_settings(trades_url="https://trades.invalid/trades")
-        poller, server = await _primed_poller(settings)
-
-        poller.__dict__["_client"].__dict__["_url"] = f"https://host:{self.PORTSHAPED_SECRET}/v2/x"
+        # Settings reject a port-shaped URL, so the invalid value is injected past validation.
+        polymarket = make_test_settings().polymarket.model_copy(
+            update={"trades_url": f"https://host:{self.PORTSHAPED_SECRET}/v2/x"}
+        )
+        poller, _ = _standalone_poller(polymarket)
         with caplog.at_level(logging.WARNING):
             caplog.clear()
             await poller.run_cycle()
@@ -1244,22 +1295,11 @@ class TestHandlerBoundaryRedaction:
     SIBLING_SECRET = "SIBLING_LOGGER_SECRET_R18"
 
     def test_sibling_logger_exc_info_is_scrubbed_at_the_console_handler(self) -> None:
-        import io
         import logging as stdlib_logging
 
-        from polymarket_insider_tracker.__main__ import _RedactingLogFilter, configure_logging
+        assert production_console_handler().filters
 
-        configure_logging("INFO")
-        console = next(
-            handler
-            for handler in stdlib_logging.getLogger().handlers
-            if isinstance(handler, stdlib_logging.StreamHandler)
-        )
-        assert any(isinstance(f, _RedactingLogFilter) for f in console.filters)
-
-        capture = io.StringIO()
-        previous = console.setStream(capture)
-        try:
+        with console_capture() as capture:
             sibling = stdlib_logging.getLogger("polymarket_insider_tracker.ingestor.health")
             try:
                 raise RuntimeError(
@@ -1272,9 +1312,6 @@ class TestHandlerBoundaryRedaction:
                     exc_info=True,
                 )
             sibling.info("Health HTTP server started on port %d", 19118)
-        finally:
-            if previous is not None:
-                console.setStream(previous)
 
         output = capture.getvalue()
         assert self.SIBLING_SECRET not in output
@@ -1359,8 +1396,6 @@ class TestNonStringExceptionArgRedaction:
     def _rendered(self, exc: BaseException) -> str:
         import logging as stdlib_logging
 
-        from polymarket_insider_tracker.__main__ import _RedactingLogFilter
-
         record = stdlib_logging.LogRecord(
             name="probe",
             level=stdlib_logging.ERROR,
@@ -1370,18 +1405,18 @@ class TestNonStringExceptionArgRedaction:
             args=("boom",),
             exc_info=(type(exc), exc, None),
         )
-        assert _RedactingLogFilter().filter(record) is True
+        assert production_console_handler().filter(record)
         return stdlib_logging.Formatter("%(message)s %(exc_text)s").format(record)
 
     def test_container_and_bytes_args_become_the_placeholder(self) -> None:
-        exc = RuntimeError(
+        exc = _NonStringNotesError(
             {"url": f"https://x.internal?k={self.NONSTR_SECRET}"},
             [f"https://y.internal/v2/{self.NONSTR_SECRET}"],
             f"prefix-{self.NONSTR_SECRET}-suffix".encode(),
-        )
-        exc.add_note(f"note https://n.internal?k={self.NONSTR_SECRET}")
-        exc.__dict__.setdefault("__notes__", list(exc.__notes__)).append(
-            {"nested": self.NONSTR_SECRET}
+            notes=[
+                f"note https://n.internal?k={self.NONSTR_SECRET}",
+                {"nested": self.NONSTR_SECRET},
+            ],
         )
 
         rendered = self._rendered(exc)
@@ -1394,10 +1429,11 @@ class TestNonStringExceptionArgRedaction:
         inner = ValueError(f"inner https://i.internal/v2/{self.NONSTR_SECRET}")
         middle = RuntimeError({"mid": self.NONSTR_SECRET})
         middle.__cause__ = inner
-        outer = RuntimeError(f"outer https://o.internal?k={self.NONSTR_SECRET}")
+        outer = _NonStringNotesError(
+            f"outer https://o.internal?k={self.NONSTR_SECRET}", notes=[b"bytes-note"]
+        )
         outer.__cause__ = middle
         outer.__context__ = TypeError((f"https://c.internal/{self.NONSTR_SECRET}",))
-        outer.__dict__.setdefault("__notes__", []).append(b"bytes-note")
 
         rendered = self._rendered(outer)
 
@@ -1549,42 +1585,34 @@ class TestAdjacentSinkRedaction:
 
     @pytest.mark.asyncio
     async def test_metadata_sync_cache_failure_is_redacted(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
         from tests.fakes import FakeGammaClient
         from tests.ingestor.test_metadata_sync import FakeClobClient
 
         real = FakeAsyncRedis()
-
-        async def leaky_setex(
-            name: bytes | str,
-            ttl: object,
-            value: object,
-        ) -> bool:
-            _ = (name, ttl, value)
-            raise ConnectionError(
+        fail_commands(
+            monkeypatch,
+            real,
+            setex=ConnectionError(
                 f"redis setex blew up for https://cache.internal?k={METADATA_CACHE_SECRET}"
-            )
-
-        real.__dict__["setex"] = leaky_setex
+            ),
+        )
         sync = MarketMetadataSync(
             redis=real,
-            clob_client=FakeClobClient([]),
+            clob_client=FakeClobClient(_sync_probe_markets()),
             gamma_client=FakeGammaClient(),
         )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            cached = await sync._cache_markets_batch(_sync_probe_markets())
-            assert cached == 0
-            # The batch path swallows the per-market failure into a log line;
-            # the direct path raises the same error. Exercise both real paths.
-            with pytest.raises(ConnectionError):
-                await sync._cache_market(_sync_probe_metadata())
+            # The batch path swallows the per-market failure into a log line.
+            await sync.force_sync()
 
         assert METADATA_CACHE_SECRET not in caplog.text
         assert "***" in caplog.text
         assert "Failed to cache market sync-probe-cond" in caplog.text
+        assert sync.stats.markets_cached == 0
         assert sync.stats.last_error is None
 
     @pytest.mark.asyncio
@@ -1629,13 +1657,14 @@ class TestAdjacentSinkRedaction:
         assert "cond123" in caplog.text
         assert "Failed to fetch market" in caplog.text
 
-    def test_publisher_deserialize_failure_is_redacted(
+    @pytest.mark.asyncio
+    async def test_publisher_deserialize_failure_is_redacted(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from polymarket_insider_tracker.ingestor.publisher import _parse_stream_entry
+        from polymarket_insider_tracker.ingestor.publisher import EventPublisher
 
         secret = f"https://x.internal?k={PUBLISHER_CANARY}"
-        bad_payload: dict[bytes | str, bytes | str] = {
+        bad_payload: dict[FieldT, EncodableT] = {
             "market_id": "mkt-publisher-probe",
             "trade_id": "trade-publisher-probe",
             "wallet_address": "0x" + "a" * 40,
@@ -1648,19 +1677,21 @@ class TestAdjacentSinkRedaction:
             "size": "1",
             "timestamp": datetime.now(UTC).isoformat(),
         }
+        redis = FakeAsyncRedis()
+        publisher = EventPublisher(redis)
+        await publisher.create_consumer_group("redaction-group", start_id="0")
+        await redis.xadd(publisher.stream_name, bad_payload, id="1-1")
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            entry = _parse_stream_entry(
-                "1-1",
-                bad_payload,
-                context="replay",
-                skip_empty=False,
-            )
+            entries = await publisher.read_events("redaction-group", "consumer", block_ms=1)
+            pending = await publisher.read_pending("redaction-group", "consumer")
 
-        assert entry is None
+        assert entries == []
+        assert pending == []
         assert PUBLISHER_CANARY not in caplog.text
         assert "***" in caplog.text
-        assert "Failed to deserialize replay 1-1" in caplog.text
+        assert "Failed to deserialize entry 1-1" in caplog.text
+        assert "Failed to deserialize pending entry 1-1" in caplog.text
 
     def test_clob_retry_warning_is_redacted_and_raises_retry_error(
         self, caplog: pytest.LogCaptureFixture
@@ -1669,6 +1700,7 @@ class TestAdjacentSinkRedaction:
 
         attempts = 0
 
+        @clob_module.with_retry(max_retries=1, base_delay=0.0, retry_on=(RuntimeError,))
         def always_fails() -> str:
             nonlocal attempts
             attempts += 1
@@ -1677,7 +1709,7 @@ class TestAdjacentSinkRedaction:
         with caplog.at_level(logging.WARNING):
             caplog.clear()
             with pytest.raises(clob_module.RetryError):
-                clob_module._execute_with_retry(always_fails, (), {}, 1, 0.0, (RuntimeError,))
+                always_fails()
 
         assert attempts == 2
         assert CLOB_SECRET not in caplog.text
@@ -1691,7 +1723,11 @@ class TestAdjacentSinkRedaction:
         from tests.fakes.clob import FakeBaseClobClient
 
         fake = FakeBaseClobClient()
-        monkeypatch.setattr(clob_module, "BaseClobClient", lambda _host: fake)
+
+        def build_base_client(_host: str) -> FakeBaseClobClient:
+            return fake
+
+        monkeypatch.setattr(clob_module, "BaseClobClient", build_base_client)
         fake.market_error = RuntimeError(f"node refused https://rpc.internal?k={CLOB_SECRET}")
         client = clob_module.ClobClient()
         with caplog.at_level(logging.WARNING):
@@ -1705,69 +1741,53 @@ class TestAdjacentSinkRedaction:
 
     @pytest.mark.asyncio
     async def test_dispatcher_claim_failures_are_redacted(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from fakeredis import FakeAsyncRedis as FakeClaimRedis
-
         from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher
         from polymarket_insider_tracker.alerter.history import AlertHistory
+        from tests.fakes import FakeAlertChannel
 
-        failing_redis = FakeClaimRedis()
-        history = AlertHistory(redis=failing_redis)
-
-        async def leaky_read(_key: str) -> object:
-            raise RuntimeError(f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}")
-
-        failing_redis.__dict__["exists"] = leaky_read
-
-        async def leaky_write(_key: str, *_args: object, **_kwargs: object) -> object:
-            raise RuntimeError(f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}")
-
-        failing_redis.__dict__["set"] = leaky_write
-        dispatcher = AlertDispatcher(channels=[], history=history)
+        leak = f"redis blew up for https://cache.internal?k={DISPATCHER_SECRET}"
+        failing_redis = FakeAsyncRedis()
+        fail_commands(monkeypatch, failing_redis, exists=RuntimeError(leak), set=RuntimeError(leak))
+        channel = FakeAlertChannel("discord")
+        dispatcher = AlertDispatcher(channels=[channel], history=AlertHistory(redis=failing_redis))
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            assert await dispatcher._check_channel_suppression("discord", "w", "m") is None
-            claim, _ = await dispatcher._claim_channel("discord", "w", "m")
-            assert claim == "unverified"
+            await dispatcher.dispatch(_probe_alert(), "w", "m")
 
-        failing_redis.__dict__["set"] = leaky_write
-        await dispatcher._release_claim("discord", "w", "m", "token")
-        await dispatcher._record_channel_outcome("discord", "delivered", "w", "m", "token")
-
+        assert len(channel.deliveries) == 1
         assert DISPATCHER_SECRET not in caplog.text
         assert "***" in caplog.text
         assert "Deduplication check unavailable" in caplog.text
         assert "Delivery claim unavailable" in caplog.text
+        assert "Failed to record delivered outcome" in caplog.text
 
     @pytest.mark.asyncio
     async def test_dispatcher_release_claim_failure_is_redacted(
-        self, caplog: pytest.LogCaptureFixture
+        self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Round-18 N-R18-4: the release-failure warning redacts a raising release path.
 
         ``release_channel_claim`` runs a WATCH/get/delete transaction, so the
         failure must be injected at the Redis ``pipeline`` boundary — the
-        ``exists``/``set`` overrides of the claim test never reach it.
+        ``exists``/``set`` failures of the claim test never reach it. A channel that rejects
+        the alert makes the dispatcher release the claim it acquired.
         """
-        from fakeredis import FakeAsyncRedis as FakeClaimRedis
-
         from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher
         from polymarket_insider_tracker.alerter.history import AlertHistory
+        from tests.fakes import FakeAlertChannel
 
-        failing_redis = FakeClaimRedis()
-        history = AlertHistory(redis=failing_redis)
-
-        def leaky_pipeline(*_args: object, **_kwargs: object) -> object:
-            raise RuntimeError(
-                f"redis pipeline blew up for https://cache.internal?k={DISPATCHER_SECRET}"
-            )
-
-        failing_redis.__dict__["pipeline"] = leaky_pipeline
-        dispatcher = AlertDispatcher(channels=[], history=history)
+        leak = f"redis pipeline blew up for https://cache.internal?k={DISPATCHER_SECRET}"
+        failing_redis = FakeAsyncRedis()
+        fail_pipeline(monkeypatch, failing_redis, RuntimeError(leak))
+        dispatcher = AlertDispatcher(
+            channels=[FakeAlertChannel("discord", accepting=False)],
+            history=AlertHistory(redis=failing_redis),
+        )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            await dispatcher._release_claim("discord", "w", "m", "token")
+            await dispatcher.dispatch(_probe_alert(), "w", "m")
 
         assert DISPATCHER_SECRET not in caplog.text
         assert "***" in caplog.text
@@ -1797,7 +1817,7 @@ class TestAdjacentSinkRedaction:
         with caplog.at_level(logging.ERROR):
             caplog.clear()
             with pytest.raises(websocket_module.ConnectionError, match="Failed to connect"):
-                await handler._connect()
+                await handler.start()
 
         assert WEBSOCKET_SECRET not in caplog.text
         assert "***" in caplog.text
@@ -1872,13 +1892,9 @@ class TestAdjacentSinkRedaction:
     async def test_poller_callback_and_repair_failures_are_redacted(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from tests.fakes import (
-            make_test_settings,
-            trade_row,
-        )
+        from tests.fakes import make_test_settings, trade_row
 
-        settings = make_test_settings(trades_url="https://trades.invalid/trades")
-        poller, server = await _primed_poller(settings)
+        polymarket = make_test_settings(trades_url="https://trades.invalid/trades").polymarket
 
         async def leaky_callback(event: TradeEvent) -> None:
             _ = event
@@ -1886,7 +1902,9 @@ class TestAdjacentSinkRedaction:
                 f"downstream blew up for https://x.internal?k={POLLER_CALLBACK_SECRET}"
             )
 
-        poller.__dict__["_on_trade"] = leaky_callback
+        poller, server = _standalone_poller(polymarket, on_trade=leaky_callback)
+        server.publish(trade_row(timestamp=1_788_983_719, transaction=1))
+        await poller.run_cycle()
         server.publish(trade_row(timestamp=1_788_983_719, transaction=2))
         with caplog.at_level(logging.ERROR):
             caplog.clear()
@@ -1894,7 +1912,7 @@ class TestAdjacentSinkRedaction:
 
         assert POLLER_CALLBACK_SECRET not in caplog.text
         assert "***" in caplog.text
-        assert poller._tallies.counts["callback_errors"] >= 1
+        assert poller.status.counts["callback_errors"] >= 1
 
         class LeakyLookup:
             async def get_cached_market(self, condition_id: str) -> MarketMetadata | None:
@@ -1903,24 +1921,29 @@ class TestAdjacentSinkRedaction:
                     f"lookup blew up for https://x.internal?k={POLLER_REPAIR_SECRET}"
                 )
 
-        poller.__dict__["_metadata"] = LeakyLookup()
-        repair_observation = _eligible_observation()
+        repairing, repair_server = _standalone_poller(polymarket, metadata=LeakyLookup())
+        # A row without an outcome sends the poller to the metadata lookup to repair it.
+        repair_server.publish(
+            trade_row(timestamp=1_788_983_719, transaction=3, outcome=None, outcome_index=None)
+        )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            repaired = await poller._repair(repair_observation)
+            await repairing.run_cycle()
 
         assert POLLER_REPAIR_SECRET not in caplog.text
         assert "metadata lookup failed" in caplog.text
-        assert repaired.outcome_resolution is repair_observation.outcome_resolution
+        assert repairing.status.outcome_counts[OutcomeResolution.UNKNOWN.value] == 1
 
 
-def _eligible_observation() -> TradeObservation:
-    """A real observation whose outcome is unknown so ``_repair`` hits metadata."""
-    return TradeObservation(
-        event=detector_trade(),
-        identity="repair-probe-identity",
-        provider_timestamp=1_788_983_720,
-        outcome_resolution=OutcomeResolution.UNKNOWN,
+def _probe_alert() -> FormattedAlert:
+    """The smallest alert the dispatcher will hand to a channel."""
+    return FormattedAlert(
+        title="Probe",
+        body="probe body",
+        discord_embed={"title": "Probe", "color": 0, "fields": []},
+        telegram_markdown="*Probe*",
+        plain_text="Probe",
+        links={},
     )
 
 
@@ -1942,11 +1965,6 @@ def _sync_probe_markets() -> list[Market]:
             active=True,
         )
     ]
-
-
-def _sync_probe_metadata() -> MarketMetadata:
-    """The cached form of the probe market for the direct ``_cache_market`` path."""
-    return MarketMetadata.from_market(_sync_probe_markets()[0])
 
 
 class TestPollerFailureSinkRedaction:
@@ -1980,8 +1998,7 @@ class TestPollerFailureSinkRedaction:
         from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 
         pipeline, redis = await _idle_pipeline()
-        poller = pipeline._trade_poller
-        assert poller is not None
+        poller = PipelineAccess.trade_poller(pipeline)
 
         async def failing_hgetall(_key: object) -> dict[bytes, bytes]:
             raise BoundarySchemaError(payload) if terminal else RuntimeError(payload)
@@ -2012,10 +2029,6 @@ class TestPollerFailureSinkRedaction:
         self, monkeypatch: pytest.MonkeyPatch, payload: object
     ) -> None:
         """The real ``/health`` body keeps the 503 degradation visible, never the secret."""
-        import io
-        import logging as stdlib_logging
-
-        from polymarket_insider_tracker.__main__ import configure_logging
         from polymarket_insider_tracker.ingestor.observation_boundary import BoundarySchemaError
 
         pipeline, redis = await _idle_pipeline()
@@ -2025,31 +2038,12 @@ class TestPollerFailureSinkRedaction:
 
         monkeypatch.setattr(redis, "hgetall", failing_hgetall)
 
-        configure_logging("WARNING")
-        console = next(
-            handler
-            for handler in stdlib_logging.getLogger().handlers
-            if isinstance(handler, stdlib_logging.StreamHandler)
-        )
-        capture = io.StringIO()
-        previous = console.setStream(capture)
-        monitor = pipeline.health_monitor
-        poller = pipeline._trade_poller
-        assert poller is not None
+        poller = PipelineAccess.trade_poller(pipeline)
         try:
-            await poller.run_cycle()
-            await monitor.start_http_server(port=0)
-            port = monitor.http_addresses[0][1]
-            async with (
-                aiohttp.ClientSession() as session,
-                session.get(f"http://127.0.0.1:{port}/health") as response,
-            ):
-                status_code = response.status
-                body = await response.text()
+            with console_capture("WARNING") as capture:
+                await poller.run_cycle()
+                status_code, body = await _health_response(pipeline.health_monitor)
         finally:
-            if previous is not None:
-                console.setStream(previous)
-            await monitor.stop_http_server()
             await redis.aclose()
 
         assert status_code == 503
@@ -2104,12 +2098,9 @@ class TestQuotedEndpointTextRedaction:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The accepted quote-bearing endpoint stays masked through the real startup path."""
-        import io
-        import logging as stdlib_logging
-
         from redis.asyncio import Redis
 
-        from polymarket_insider_tracker.__main__ import configure_logging, run_pipeline
+        from polymarket_insider_tracker.__main__ import run_pipeline
         from tests.fakes import make_test_settings
 
         endpoint = f"https://rpc.invalid/v2/prefix'{R21_QUOTED_SECRET}"
@@ -2120,19 +2111,8 @@ class TestQuotedEndpointTextRedaction:
 
         monkeypatch.setattr(Redis, "from_url", failing_from_url)
 
-        configure_logging("INFO")
-        console = next(
-            handler
-            for handler in stdlib_logging.getLogger().handlers
-            if isinstance(handler, stdlib_logging.StreamHandler)
-        )
-        capture = io.StringIO()
-        previous = console.setStream(capture)
-        try:
+        with console_capture("INFO") as capture:
             code = await run_pipeline(settings, False)
-        finally:
-            if previous is not None:
-                console.setStream(previous)
 
         output = capture.getvalue()
         assert code == 1
@@ -2156,6 +2136,19 @@ def _natural_reraise_graph() -> RuntimeError:
     wrapper.__suppress_context__ = True
     original.__context__ = wrapper
     return original
+
+
+class _NonStringNotesError(RuntimeError):
+    """An exception whose notes hold non-string values, which ``add_note`` cannot produce."""
+
+    def __init__(self, *args: object, notes: Sequence[object]) -> None:
+        super().__init__(*args)
+        self.hostile_notes = list(notes)
+
+    def __getattribute__(self, name: str) -> object:
+        if name == "__notes__":
+            return self.hostile_notes
+        return super().__getattribute__(name)
 
 
 class _HostileArgsError(RuntimeError):
@@ -2220,15 +2213,19 @@ class TestExceptionGraphSanitization:
         assert "ordinary failure" in output
 
     def test_shared_cause_and_context_node_stays_one_clone(self) -> None:
-        from polymarket_insider_tracker.__main__ import _sanitized_exception
-
         shared = ValueError("shared diagnostic")
         error = RuntimeError("outer failure")
         error.__cause__ = shared
         error.__context__ = shared
+        record = logging.LogRecord(
+            "probe", logging.ERROR, __file__, 1, "failed", (), exc_info=(type(error), error, None)
+        )
 
-        clone = _sanitized_exception(error)
+        assert production_console_handler().filter(record)
 
+        assert record.exc_info is not None
+        clone = record.exc_info[1]
+        assert clone is not None
         assert clone.__cause__ is clone.__context__
         assert clone.__cause__ is not shared
 

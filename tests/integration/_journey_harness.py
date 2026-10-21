@@ -11,7 +11,7 @@ tests (its name does not start with ``test_``).
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncGenerator, Callable, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -32,6 +32,8 @@ from tests.fakes import (
     wire_pipeline,
 )
 from tests.fakes.pipeline import TradesServer
+from tests.fakes.pipeline_access import PipelineAccess
+from tests.fakes.redis_await import keys_matching
 
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
@@ -193,13 +195,10 @@ async def wire_journey_pipeline(
 
 
 @asynccontextmanager
-async def running_pipeline(pipeline: Pipeline) -> AsyncIterator[Pipeline]:
+async def running_pipeline(pipeline: Pipeline) -> AsyncGenerator[Pipeline]:
     """Run the background services for the block, then stop them cleanly."""
-    try:
-        await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+    async with PipelineAccess.background_services(pipeline, timeout=2.0):
         yield pipeline
-    finally:
-        await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
 
 
 def dry_run_assessment(
@@ -251,8 +250,8 @@ async def run_dry_run_journey(
     assert pipeline.stats.alerts_sent == 0
     assert len(discord.deliveries) == 0
     assert len(telegram.deliveries) == 0
-    assert await environment.redis.keys("alert:dedup:*") == []
-    assert await environment.redis.keys("alert:ambiguous:*") == []
+    assert await keys_matching(environment.redis, "alert:dedup:*") == []
+    assert await keys_matching(environment.redis, "alert:ambiguous:*") == []
 
     rows = await persisted_assessments(environment.engine)
     return dry_run_assessment(rows, sample_trade)

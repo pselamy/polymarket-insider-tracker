@@ -28,6 +28,8 @@ from tests.fakes import (
     terminal,
     wire_pipeline,
 )
+from tests.fakes.pipeline_access import PipelineAccess
+from tests.fakes.redis_await import keys_matching
 from tests.integration._journey_harness import (
     POLL_START,
     RecordingFormatter,
@@ -101,11 +103,7 @@ async def _get_ready_until_200(
         await asyncio.sleep(0.01)
 
 
-class FailingDatabaseManager:
-    """DatabaseManager fake that raises an exception when obtaining a session."""
-
-    def get_async_session(self) -> Any:
-        raise RuntimeError("Database connection pool exhausted")
+UNREACHABLE_DATABASE_URL = "postgresql+psycopg://tracker@127.0.0.1:1/unreachable"
 
 
 class TestEndToEndPipelineHarness:
@@ -139,7 +137,7 @@ class TestEndToEndPipelineHarness:
             poll_clock=clock,
         )
         formatter = RecordingFormatter()
-        pipeline._alert_formatter = formatter
+        PipelineAccess.replace_components(pipeline, alert_formatter=formatter)
 
         async with running_pipeline(pipeline):
             await run_until(lambda: len(server.requests) >= 1)
@@ -179,8 +177,8 @@ class TestEndToEndPipelineHarness:
         assert len(telegram.deliveries) == 0
 
         # Zero dedup keys in Redis
-        assert await fake_redis.keys("alert:dedup:*") == []
-        assert await fake_redis.keys("alert:ambiguous:*") == []
+        assert await keys_matching(fake_redis, "alert:dedup:*") == []
+        assert await keys_matching(fake_redis, "alert:ambiguous:*") == []
 
         # Assessment persisted with dry_run disposition and populated diagnostics
         rows = await persisted_assessments(async_engine)
@@ -286,8 +284,7 @@ class TestEndToEndPipelineHarness:
             poll_clock=clock,
         )
 
-        try:
-            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+        async with running_pipeline(pipeline):
             await run_until(lambda: len(server.requests) >= 1)
 
             # 1. First trade delivery
@@ -313,8 +310,6 @@ class TestEndToEndPipelineHarness:
             # No second alert delivery to channels
             assert len(discord.deliveries) == 1
             assert len(telegram.deliveries) == 1
-        finally:
-            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)
 
         rows = await persisted_assessments(async_engine)
         assert len(rows) == 2
@@ -341,7 +336,7 @@ class TestEndToEndPipelineHarness:
             settings,
             redis=fake_redis,
             market=niche_market,
-            db_manager=FailingDatabaseManager(),  # type: ignore[arg-type]
+            db_manager=DatabaseManager(UNREACHABLE_DATABASE_URL),
             channels=[discord],
             trades=server,
             poll_clock=clock,
@@ -377,9 +372,7 @@ class TestEndToEndPipelineHarness:
             poll_clock=clock,
         )
 
-        pipeline._state = PipelineState.RUNNING
-        try:
-            await asyncio.wait_for(pipeline._start_background_services(), timeout=2.0)
+        async with running_pipeline(pipeline):
             await run_until(lambda: len(server.requests) >= 1)
 
             ready_before, _, _ = await _await_readiness(pipeline, True)
@@ -395,5 +388,3 @@ class TestEndToEndPipelineHarness:
             ready_after, reason, _ = await _await_readiness(pipeline, False)
             assert ready_after is False
             assert reason is not None
-        finally:
-            await asyncio.wait_for(pipeline._stop_background_services(), timeout=2.0)

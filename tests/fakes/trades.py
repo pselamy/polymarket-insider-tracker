@@ -310,6 +310,11 @@ class FakeTradesServer(ProviderFake):
     def row_count(self) -> int:
         return len(self._ledger)
 
+    @property
+    def rows(self) -> list[object]:
+        """The raw published rows, in publication order."""
+        return [entry.row for entry in self._ledger]
+
     def __call__(self, request: httpx.Request) -> httpx.Response:
         params = self._http.record(request)
         if self.faults:

@@ -28,6 +28,7 @@ from fakeredis import FakeAsyncRedis, FakeServer
 from redis.asyncio import Redis
 from redis.asyncio.client import Pipeline
 from redis.exceptions import ResponseError, WatchError
+from tests.fakes import redis_await as typed
 from tests.fakes.redis_await import as_bytes, settled
 
 # The services profile selects this file as its only pytest gate, so the real-service
@@ -42,7 +43,7 @@ from tests.integration.test_postgres_journey import (
 from tests.integration.test_postgres_journey import (
     test_earlier_rows_read_back_unchanged_in_disposable_postgres as test_earlier_rows_read_back_unchanged_in_disposable_postgres,
 )
-from tests.integration.test_v2_default_journey_services import _connect_redis
+from tests.integration.test_v2_default_journey_services import connect_redis
 from tests.integration.test_v2_default_journey_services import (
     test_a_real_redis_volume_record_reads_available_then_stale_then_expires as test_a_real_redis_volume_record_reads_available_then_stale_then_expires,
 )
@@ -80,7 +81,7 @@ async def _connect_real_redis() -> Redis:
     url = _runtime_services().validate_loopback_redis_url(
         os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
     )
-    return await _connect_redis(url)
+    return await connect_redis(url)
 
 
 class ContractRedis:
@@ -98,13 +99,13 @@ class ContractRedis:
         return f"{self.prefix}{name}"
 
     async def cleanup(self) -> None:
-        async for key in self.client.scan_iter(match=f"{self.prefix}*"):
+        for key in await typed.scanned_keys(self.client, f"{self.prefix}*"):
             await self.client.delete(key)
 
     async def close(self) -> None:
         try:
             await self.cleanup()
-            remaining = [key async for key in self.client.scan_iter(match=f"{self.prefix}*")]
+            remaining = await typed.scanned_keys(self.client, f"{self.prefix}*")
             assert remaining == []
         finally:
             await self.client.aclose()
@@ -129,10 +130,8 @@ async def contract(request: pytest.FixtureRequest) -> AsyncIterator[ContractRedi
 class FailedHandshakeRedis(FakeAsyncRedis):
     """Inject a setup failure and expose whether the client was closed afterwards."""
 
-    def __init__(self, failure: BaseException) -> None:
-        super().__init__()
-        self.failure = failure
-        self.closed = False
+    failure: BaseException = RuntimeError("no handshake failure injected")
+    closed = False
 
     async def ping(self, **_kwargs: object) -> bool:
         raise self.failure
@@ -141,14 +140,18 @@ class FailedHandshakeRedis(FakeAsyncRedis):
         await super().aclose(close_connection_pool=close_connection_pool)
         self.closed = True
 
+    def open(self, _url: str, **_options: object) -> FailedHandshakeRedis:
+        return self
+
 
 @pytest.mark.parametrize("failure", [ResponseError("rejected"), CancelledError()])
 async def test_failed_real_client_setup_always_closes(
     monkeypatch: pytest.MonkeyPatch, failure: BaseException
 ) -> None:
-    client = FailedHandshakeRedis(failure)
+    client = FailedHandshakeRedis()
+    client.failure = failure
     monkeypatch.setenv("REDIS_URL", LOCAL_REDIS_URL)
-    monkeypatch.setattr(Redis, "from_url", lambda _url, **_options: client)
+    monkeypatch.setattr(Redis, "from_url", client.open)
 
     with pytest.raises(type(failure)):
         await _connect_real_redis()
@@ -162,7 +165,8 @@ class FailedCleanupContract(ContractRedis):
 
 
 async def test_failed_namespace_cleanup_still_closes_client() -> None:
-    client = FailedHandshakeRedis(ResponseError("unused handshake"))
+    client = FailedHandshakeRedis()
+    client.failure = ResponseError("unused handshake")
     scoped = FailedCleanupContract(client, "fake")
 
     with pytest.raises(ResponseError, match="cleanup unavailable"):
@@ -219,15 +223,15 @@ async def test_sorted_set_ranges_and_ordering(contract: ContractRedis) -> None:
     redis, key = contract.client, contract.key("index")
 
     assert await redis.zadd(key, {"b": 5.0, "a": 5.0, "c": 20.0, "d": 30.0}) == 4
-    assert await redis.zrangebyscore(key, "-inf", "+inf") == [b"a", b"b", b"c", b"d"]
-    assert await redis.zrangebyscore(key, 5.0, 20.0) == [b"a", b"b", b"c"]
-    assert await redis.zrangebyscore(key, 6, 25, withscores=True) == [(b"c", 20.0)]
-    assert await redis.zrangebyscore(key, "-inf", "+inf", start=1, num=2) == [b"b", b"c"]
+    assert await typed.ranged_members(redis, key) == [b"a", b"b", b"c", b"d"]
+    assert await typed.ranged_members(redis, key, 5.0, 20.0) == [b"a", b"b", b"c"]
+    assert await typed.scored_members(redis, key, 6, 25) == [(b"c", 20.0)]
+    assert await typed.ranged_members(redis, key, start=1, num=2) == [b"b", b"c"]
     assert await redis.zcount(key, "-inf", "+inf") == 4
     assert await redis.zcount(key, 6, 30) == 2
     assert await redis.zremrangebyscore(key, "-inf", 5) == 2
-    assert await redis.zrangebyscore(key, "-inf", "+inf") == [b"c", b"d"]
-    assert await redis.zrangebyscore(contract.key("absent"), "-inf", "+inf") == []
+    assert await typed.ranged_members(redis, key) == [b"c", b"d"]
+    assert await typed.ranged_members(redis, contract.key("absent")) == []
 
 
 async def test_pipeline_applies_every_command_in_order(contract: ContractRedis) -> None:
@@ -359,13 +363,13 @@ async def test_scan_matches_only_the_requested_pattern(contract: ContractRedis) 
     await redis.set(contract.key("market:two"), "2")
     await redis.set(contract.key("other"), "3")
 
-    matched = [key async for key in redis.scan_iter(match=contract.key("market:*"), count=1)]
+    matched = await typed.scanned_keys(redis, contract.key("market:*"), count=1)
 
     assert sorted(matched) == [
         contract.key("market:one").encode(),
         contract.key("market:two").encode(),
     ]
-    others = [key async for key in redis.scan_iter(match=contract.key("other"), count=1)]
+    others = await typed.scanned_keys(redis, contract.key("other"), count=1)
     assert others == [contract.key("other").encode()]
 
 
@@ -373,25 +377,18 @@ async def test_checkpoint_hash_round_trips_as_bytes(contract: ContractRedis) -> 
     """The ingestion checkpoint is a hash of integer and enum fields read back as bytes."""
     redis, key = contract.client, contract.key("ingest:checkpoint")
 
-    assert await settled(redis.hgetall(key)) == {}
-    assert (
-        await settled(
-            redis.hset(
-                key,
-                mapping={
-                    "schema_version": 2,
-                    "boundary_time": 1788983716,
-                    "emission_floor": 1788983716,
-                    "boundary_origin": "first-start",
-                    "written_at": 1788983720,
-                    "coverage": "all",
-                    "last_request_end": 1788983720,
-                },
-            )
-        )
-        == 7
-    )
-    assert await settled(redis.hgetall(key)) == {
+    assert await typed.read_hash(redis, key) == {}
+    fields: dict[str, str | int] = {
+        "schema_version": 2,
+        "boundary_time": 1788983716,
+        "emission_floor": 1788983716,
+        "boundary_origin": "first-start",
+        "written_at": 1788983720,
+        "coverage": "all",
+        "last_request_end": 1788983720,
+    }
+    assert await typed.write_hash(redis, key, fields) == 7
+    assert await typed.read_hash(redis, key) == {
         b"schema_version": b"2",
         b"boundary_time": b"1788983716",
         b"emission_floor": b"1788983716",
@@ -400,7 +397,7 @@ async def test_checkpoint_hash_round_trips_as_bytes(contract: ContractRedis) -> 
         b"coverage": b"all",
         b"last_request_end": b"1788983720",
     }
-    assert await settled(redis.hset(key, mapping={"boundary_time": 1788983800})) == 0
+    assert await typed.write_hash(redis, key, {"boundary_time": 1788983800}) == 0
     assert await as_bytes(redis.hget(key, "boundary_time")) == b"1788983800"
     assert await as_bytes(redis.hget(key, "absent")) is None
 
@@ -413,12 +410,13 @@ async def test_identity_window_trim_and_cardinality(contract: ContractRedis) -> 
     assert await redis.zadd(key, members) == 6
     assert await redis.zadd(key, {"id-0": 1000.0}) == 0
     assert await redis.zcard(key) == 6
-    assert await redis.zrangebyscore(key, 1003, "+inf") == [b"id-3", b"id-4", b"id-5"]
-    scored = await redis.zrangebyscore(key, "-inf", "+inf", withscores=True)
+    assert await typed.ranged_members(redis, key, 1003, "+inf") == [b"id-3", b"id-4", b"id-5"]
+    scored = await typed.scored_members(redis, key)
     assert scored[:2] == [(b"id-0", 1000.0), (b"id-1", 1001.0)]
     assert await redis.zremrangebyscore(key, "-inf", "(1002") == 2
     assert await redis.zcard(key) == 4
-    assert await redis.zrangebyscore(key, "-inf", "+inf") == [b"id-2", b"id-3", b"id-4", b"id-5"]
+    remaining = await typed.ranged_members(redis, key)
+    assert remaining == [b"id-2", b"id-3", b"id-4", b"id-5"]
     assert await redis.zcard(contract.key("absent")) == 0
 
 
@@ -426,14 +424,14 @@ async def test_loss_event_list_is_newest_first_and_bounded(contract: ContractRed
     """Loss events are pushed newest-first and trimmed to a bounded retention."""
     redis, key = contract.client, contract.key("ingest:loss-events")
 
-    assert await settled(redis.lrange(key, 0, -1)) == []
+    assert await typed.read_list(redis, key) == []
     assert await settled(redis.lpush(key, '{"n": 1}')) == 1
     assert await settled(redis.lpush(key, '{"n": 2}', '{"n": 3}')) == 3
-    assert await settled(redis.lrange(key, 0, -1)) == [b'{"n": 3}', b'{"n": 2}', b'{"n": 1}']
+    assert await typed.read_list(redis, key) == [b'{"n": 3}', b'{"n": 2}', b'{"n": 1}']
     trimmed: object = await settled(redis.ltrim(key, 0, 1))
     assert trimmed is True
-    assert await settled(redis.lrange(key, 0, -1)) == [b'{"n": 3}', b'{"n": 2}']
-    assert await settled(redis.lrange(key, 0, 4)) == [b'{"n": 3}', b'{"n": 2}']
+    assert await typed.read_list(redis, key) == [b'{"n": 3}', b'{"n": 2}']
+    assert await typed.read_list(redis, key, 0, 4) == [b'{"n": 3}', b'{"n": 2}']
     assert await settled(redis.llen(key)) == 2
 
 
@@ -446,7 +444,7 @@ async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedi
     await redis.zadd(identities, {"old": 100.0, "kept": 500.0})
 
     async with redis.pipeline(transaction=True) as pipe:
-        pipe.hset(checkpoint, mapping={"boundary_time": 900, "boundary_origin": "proven"})
+        typed.queue_hash(pipe, checkpoint, {"boundary_time": 900, "boundary_origin": "proven"})
         pipe.zadd(identities, {"new-a": 850.0, "new-b": 900.0})
         pipe.zremrangebyscore(identities, "-inf", "(300")
         pipe.lpush(losses, '{"reason": "horizon-expired"}')
@@ -455,11 +453,12 @@ async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedi
 
     assert results == [2, 2, 1, 1, True]
     assert await as_bytes(redis.hget(checkpoint, "boundary_time")) == b"900"
-    assert await redis.zrangebyscore(identities, "-inf", "+inf") == [b"kept", b"new-a", b"new-b"]
-    assert await settled(redis.lrange(losses, 0, -1)) == [b'{"reason": "horizon-expired"}']
+    members = await typed.ranged_members(redis, identities)
+    assert members == [b"kept", b"new-a", b"new-b"]
+    assert await typed.read_list(redis, losses) == [b'{"reason": "horizon-expired"}']
 
     async with redis.pipeline(transaction=True) as pipe:
-        pipe.hset(checkpoint, mapping={"boundary_time": 950})
+        typed.queue_hash(pipe, checkpoint, {"boundary_time": 950})
         pipe.zadd(identities, {"new-c": 950.0})
         pipe.zremrangebyscore(identities, "-inf", "(350")
         pipe.lpush(losses, '{"reason": "restart-beyond-horizon"}')
@@ -468,7 +467,7 @@ async def test_boundary_advance_pipeline_is_transactional(contract: ContractRedi
 
     assert await as_bytes(redis.hget(checkpoint, "boundary_time")) == b"950"
     assert await redis.zcard(identities) == 4
-    assert await settled(redis.lrange(losses, 0, -1)) == [b'{"reason": "restart-beyond-horizon"}']
+    assert await typed.read_list(redis, losses) == [b'{"reason": "restart-beyond-horizon"}']
 
 
 async def test_watched_type_change_aborts_before_transaction_writes(
@@ -484,7 +483,7 @@ async def test_watched_type_change_aborts_before_transaction_writes(
             assert await pipe.type(watched) == b"none"
             await competitor.set(watched, "wrong-type")
             _begin_multi(pipe)
-            pipe.hset(watched, mapping={"field": "value"})
+            typed.queue_hash(pipe, watched, {"field": "value"})
             pipe.set(transaction_owned, "must-not-exist")
             with pytest.raises(WatchError):
                 await pipe.execute()

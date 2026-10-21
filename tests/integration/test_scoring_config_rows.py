@@ -20,6 +20,7 @@ from scripts.spec004_evidence.replay_envelopes import PRE_T027
 from sqlalchemy.ext.asyncio import AsyncEngine
 from tests.fakes import FailingDetector, FakeAlertChannel, FakeEth, make_test_settings
 from tests.fakes import wire_pipeline as wire
+from tests.fakes.pipeline_access import PipelineAccess
 from tests.integration._journey_harness import (
     make_sample_trade_event,
     market_for_trade,
@@ -190,7 +191,9 @@ async def test_a_wallet_retrieval_failure_is_recorded_beside_the_size_evidence(
     fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
 ) -> None:
     pipeline = await wired(fake_redis, db_manager, stamped_volume_market(make_sample_trade_event()))
-    pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
+    PipelineAccess.replace_components(
+        pipeline, fresh_wallet_detector=FailingDetector(RuntimeError("polygon rpc down"))
+    )
 
     document = read_row(await single_row(async_engine, pipeline))
 
@@ -210,8 +213,11 @@ async def test_a_detector_failure_row_carries_its_failures_and_no_evaluation_evi
 ) -> None:
     """Section 4: the skip row is self-describing without inventing observations."""
     pipeline = await wired(fake_redis, db_manager, None)
-    pipeline._fresh_wallet_detector = FailingDetector(RuntimeError("polygon rpc down"))
-    pipeline._size_anomaly_detector = FailingDetector(ValueError("metadata down"))
+    PipelineAccess.replace_components(
+        pipeline,
+        fresh_wallet_detector=FailingDetector(RuntimeError("polygon rpc down")),
+        size_anomaly_detector=FailingDetector(ValueError("metadata down")),
+    )
 
     row = await single_row(async_engine, pipeline)
     document = read_row(row)
