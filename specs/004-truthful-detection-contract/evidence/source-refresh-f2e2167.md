@@ -208,3 +208,10 @@ no published ceiling, verdict or alert count changes:
   0.2 and scores 0.384 post-T027 (was 0.420), 0.120 pre-T027 (was 0.150).
 - `replay-live/results.csv`, `live-below-wallet-min`: size confidence 0.416 (was 0.417; ratio
   0.033333 -> 0.0333); both scores stay 0.250.
+
+## Thirteenth refresh: POLYMARKET_API_KEY deprecation (2026-10-21)
+
+`base_commit` stays 3aafd0b. Only `pipeline.py` changes: `ClobClient` is constructed without an
+`api_key` argument (the key was never sent to any request; see the deprecation notes in
+`CHANGELOG.md`). No scoring, threshold, detector or envelope change. The `pipeline.py` hash was
+re-pinned from the output of `check_source_hashes`; every other hash is unchanged.
