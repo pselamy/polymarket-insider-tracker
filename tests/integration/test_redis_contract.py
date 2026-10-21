@@ -30,15 +30,21 @@ from redis.asyncio.client import Pipeline
 from redis.exceptions import ResponseError, WatchError
 from tests.fakes.redis_await import as_bytes, settled
 
-# The services profile selects this file as its only pytest gate, so both
-# PostgreSQL journey tests are re-exported here to run in the "PostgreSQL and
-# Redis required checks" job. They skip when DATABASE_URL is scrubbed by the
-# deterministic compatibility suite.
+# The services profile selects this file as its only pytest gate, so the real-service
+# journey tests are re-exported here to run in the "PostgreSQL and Redis required checks"
+# job. They skip when the compatibility suite scrubs DATABASE_URL / REDIS_URL.
 from tests.integration.test_postgres_journey import (
     test_disposable_database_cleanup_runs_when_journey_raises as test_disposable_database_cleanup_runs_when_journey_raises,
 )
 from tests.integration.test_postgres_journey import (
     test_dry_run_journey_persists_in_disposable_postgres as test_dry_run_journey_persists_in_disposable_postgres,
+)
+from tests.integration.test_postgres_journey import (
+    test_earlier_rows_read_back_unchanged_in_disposable_postgres as test_earlier_rows_read_back_unchanged_in_disposable_postgres,
+)
+from tests.integration.test_v2_default_journey_services import _connect_redis
+from tests.integration.test_v2_default_journey_services import (
+    test_a_real_redis_volume_record_reads_available_then_stale_then_expires as test_a_real_redis_volume_record_reads_available_then_stale_then_expires,
 )
 from tests.integration.test_v2_default_journey_services import (
     test_v2_default_journey_through_real_postgres_and_redis as test_v2_default_journey_through_real_postgres_and_redis,
@@ -74,13 +80,7 @@ async def _connect_real_redis() -> Redis:
     url = _runtime_services().validate_loopback_redis_url(
         os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
     )
-    client: Redis = Redis.from_url(url, socket_connect_timeout=2, socket_timeout=2)
-    try:
-        assert await settled(client.ping()) is True
-    except BaseException:
-        await client.aclose()
-        raise
-    return client
+    return await _connect_redis(url)
 
 
 class ContractRedis:

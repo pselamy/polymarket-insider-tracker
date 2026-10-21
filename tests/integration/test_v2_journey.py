@@ -10,6 +10,8 @@ configuration.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 from tests.fakes import FakeClock, make_test_settings
@@ -22,6 +24,7 @@ from tests.integration._journey_harness import (
     run_until,
     seeded_v2_server,
 )
+from tests.integration.test_scoring_config_rows import evidence_of, member, read_row
 
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
@@ -35,7 +38,7 @@ async def test_end_to_end_dry_run_pipeline_v2(
 ) -> None:
     """Dry run over v2: one assessment, zero delivery calls, zero dedup keys."""
     clock = FakeClock(POLL_START)
-    await run_dry_run_journey(
+    row = await run_dry_run_journey(
         journey_environment,
         make_test_settings(
             dry_run=True,
@@ -47,6 +50,17 @@ async def test_end_to_end_dry_run_pipeline_v2(
         clock,
         sample_trade_event,
         niche_market,
+    )
+    # T023: the qualifying row names its algorithm and threshold, and its score recomputes from
+    # the stored document alone (schema + reconstruction rules, then the size-only arithmetic).
+    document = read_row(row)
+    assert (row.scoring_algorithm_version, row.threshold_at_eval) == ("004.1", Decimal("0.400"))
+    assert document.pure.alert_threshold == row.threshold_at_eval
+    weights = document.pure.weights
+    size = Decimal(str(member(evidence_of(document), "size")["confidence"]))
+    recomputed = size * weights["size_anomaly"] + size * weights["niche_market"]
+    assert (
+        recomputed.quantize(document.pure.score_quantum) == row.weighted_score == Decimal("0.450")
     )
 
 

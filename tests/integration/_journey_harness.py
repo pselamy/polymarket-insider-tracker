@@ -34,7 +34,10 @@ from tests.fakes import (
 from tests.fakes.pipeline import TradesServer
 
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel
+from polymarket_insider_tracker.alerter.formatter import AlertFormatter
+from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.config import Settings
+from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.ingestor.volume_observation import GAMMA_SOURCE, VolumeObservation
 from polymarket_insider_tracker.pipeline import Pipeline
@@ -128,6 +131,28 @@ def pipeline_row(sample_trade: TradeEvent, clock: FakeClock, tx_num: int = 9) ->
     )
     row["proxyWallet"] = sample_trade.wallet_address
     return row
+
+
+def second_participant_row(row: dict[str, object], wallet: str) -> dict[str, object]:
+    """FR-021: the same transaction observed for another participant wallet."""
+    return {**row, "proxyWallet": wallet}
+
+
+class RecordingFormatter(AlertFormatter):
+    """The real detailed formatter, keeping each assessment it rendered and the rendering.
+
+    FR-016 same-evidence journeys compare the scored assessment and its dry-run rendering with
+    the stored row; nothing about the formatting itself is replaced.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(verbosity="detailed")
+        self.rendered: list[tuple[RiskAssessment, FormattedAlert]] = []
+
+    def format(self, assessment: RiskAssessment) -> FormattedAlert:
+        alert = super().format(assessment)
+        self.rendered.append((assessment, alert))
+        return alert
 
 
 async def run_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
