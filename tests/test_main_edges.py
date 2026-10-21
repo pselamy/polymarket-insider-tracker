@@ -19,6 +19,7 @@ from polymarket_insider_tracker.__main__ import (
 )
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.pipeline import Pipeline
+from polymarket_insider_tracker.redaction import MASK
 from tests.console_capture import capture_console_output, production_console_handler
 
 SECRET = "EDGESECRET_R7"
@@ -148,10 +149,11 @@ class TestLogRecordShapes:
         assert SECRET not in output
         assert "***" in output
 
-    def test_a_non_string_message_with_a_sole_mapping_argument_stays_redacted(self) -> None:
-        record = _filtered_record(42, {SECRET: SECRET})
+    def test_a_non_string_message_keeps_named_arguments_and_masks_their_containers(self) -> None:
+        record = _filtered_record(42, {"names": [SECRET], "count": 3})
 
-        assert SECRET not in record.getMessage()
+        assert record.msg == 42
+        assert record.args == {"names": MASK, "count": 3}
 
 
 class TestModuleEntryPoint:

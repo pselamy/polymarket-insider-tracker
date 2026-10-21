@@ -1608,12 +1608,12 @@ passed, 17 skipped). Line / partial-branch misses before and the outcome:
 | `ingestor/trade_poller.py` | 8 / 9 | yes |
 | `__main__.py` | 10 / 9 | yes |
 | `alerter/dispatcher.py` | 22 / 12 | no, measured only |
-| `pipeline.py` (spec004-hashed, tests only) | 41 / 15 | no, measured only |
+| `pipeline.py` (spec004-hashed, tests only) | about 40 / 15 | no, measured only |
 
 `dispatcher.py` and `pipeline.py` stay unenrolled so the change remains reviewable; their open lines
-are `dispatcher.py` 54, 167->179, 198, 272, 281-282, 288, 301, 385-388, 448, 458, 467-475, 487,
-490-491, 503, 548 and `pipeline.py` 100, 274-275, 287, 377-378, 408-414, 424->exit, 439, 452-472,
-493->exit, 509-513, 532->535, 669, 678, 702, 729->731, 770, 783, 793-798, 839-847.
+are `dispatcher.py` 54, 167->179, 198, 272, 281-282, 288, 301, 385-388, 448, 458, 467-473, 475, 487,
+490-491, 503, 548 and `pipeline.py` 100, 274-275, 287, 377-378, 408-414, 424->exit, 439, 452, 455-459, 464,
+467-472, 493->exit, 509-513, 532->535, 669, 678, 702, 729->731, 770, 783, 793-798, 839-847.
 
 One source touch, no branch removed or rewritten: the `CachedMarketLookup` `Protocol` stub in
 `trade_poller.py` was a `...` one-liner, reported as a never-completed `->exit` arc. It now follows
@@ -1633,7 +1633,7 @@ the idiom of step 5 (`@abstractmethod` with a docstring body); structural implem
 - `__main__.py`: the database-driver, non-HTTP-endpoint and generic-URL diagnostics (secret never
   printed); configured Discord and Telegram in `--config-check`; a pipeline without a stop event
   stopping on SIGTERM; `KeyboardInterrupt` exiting 130; a non-string log message and a non-string
-  message with a sole mapping argument staying redacted; `python -m` dispatching to `main()`.
+  message keeping named arguments while masking their containers; `python -m` dispatching to `main()`.
 
 Planted-gap check: an `if dto.confidence < 0:` branch added to `RelationshipRepository.upsert`
 made `coverage report --fail-under=100` print `Coverage failure: total of 99 is less than
