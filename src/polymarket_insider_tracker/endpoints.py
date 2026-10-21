@@ -9,6 +9,7 @@ safe to import from ``config`` at module load.
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 OFFICIAL_V1_TRADES_URL = "https://data-api.polymarket.com/trades"
@@ -35,11 +36,13 @@ def is_official_v1_trades_url(url: str) -> bool:
         port = parts.port
     except ValueError:
         return False
+    if parts.hostname is None:
+        return False
     default_port = {"http": 80, "https": 443}.get(parts.scheme)
     return (
         port in (None, default_port)
-        and (parts.hostname or "").rstrip(".") == (_V1_PARTS.hostname or "").rstrip(".")
-        and parts.path.rstrip("/") == _V1_PARTS.path.rstrip("/")
+        and re.sub(r"\.+$", "", parts.hostname) == _V1_PARTS.hostname
+        and parts.path.rstrip("/") == _V1_PARTS.path
     )
 
 

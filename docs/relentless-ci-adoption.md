@@ -599,3 +599,64 @@ Honest fixes, no suppression, cast, or `Any`:
 Still unenrolled: `tests/test_shutdown.py` (17; signal-handler internals), `tests/test_terminal_error_durable.py`,
 `tests/fakes`, `tests/detector`, `tests/profiler`, `tests/test_redaction.py`, `tests/integration`,
 `tests/test_pipeline.py`, `tests/ingestor`, `tests/test_main.py`, `tests/tooling`.
+
+## Mutation step 1: measurement beyond the redaction target (2026-10-20)
+
+mutmut 3.8.0 (`[tool.mutmut]` in `pyproject.toml`, Python 3.11, `--max-children 8`) over the
+redaction module plus four small pure-logic modules that are already under the 100% coverage gate.
+One run mutated 634 mutants in 2m15s locally. "Timeout" mutants are counted by mutmut as caught
+(the mutated code hung or exceeded the time limit); "no tests" means no selected test reached the
+mutated function.
+
+| Module | Killed | Survived | Timeout | No tests |
+| --- | --- | --- | --- | --- |
+| `endpoints.py` | 25 | 20 | 0 | 0 |
+| `ingestor/_retry.py` | 21 | 1 | 0 | 0 |
+| `ingestor/_attempt_budget.py` | 47 | 11 | 5 | 1 |
+| `ingestor/_cycle_cutoff.py` | 21 | 0 | 0 | 0 |
+| `redaction.py` (existing target) | 340 | 137 | 0 | 5 |
+
+Chosen for step 1: `endpoints.py`, `_retry.py`, `_attempt_budget.py` and `_cycle_cutoff.py`. They
+are tiny (40 to 146 lines), pure, deterministic, free of services, and encode safety-relevant
+rules (the v1-retirement route match, the retry and jitter caps, the attempt-start rate budget,
+the strictly increasing cycle cutoff). `detector/scorer.py` is not chosen: it is frozen until the
+slice 004 decisions. `redaction.py` keeps its existing job but is not yet survivor-free (137
+survivors, 5 untested mutants); it stays visibly unenrolled in the zero-survivor gate and is a
+later step. The hypothesis-based `test_v2_cursor_walk_properties.py` cannot run inside mutmut's
+in-process stats run (`FailedHealthCheck: differing_executors`), so it is not in the mutmut test
+selection; the plain suites that exercise the retry and cutoff modules are.
+
+### Mutation step 1: survivors killed and the gate (2026-10-20)
+
+New behavioural tests: `tests/test_endpoints.py` (route-level v1 matching, exact retirement
+message), `tests/ingestor/test_retry_policy.py` (attempt limit, doubling, caps),
+`tests/ingestor/test_attempt_budget_validation.py` (validation messages, window boundaries,
+real default clock and sleep). The 20 `endpoints.py` survivors, 1 `_retry.py` survivor and the
+11 survivors plus 1 untested mutant in `_attempt_budget.py` are all killed by them, except the
+equivalent mutants below. Final run: `endpoints.py` 42 killed / 0 survived, `_retry.py` 22 / 0,
+`_attempt_budget.py` 62 killed + 2 timeout / 0 survived, `_cycle_cutoff.py` 21 / 0.
+
+Equivalent mutants (8 in `is_official_v1_trades_url`), each removed by a behaviour-preserving
+change to the code under test, not skipped or hidden from mutmut, so the gate needs no skip list:
+
+- `rstrip(".")` on the *constant* v1 hostname and `rstrip("/")` on the constant v1 path (six
+  variants): the constants `data-api.polymarket.com` and `/trades` have no trailing dot or slash,
+  so the call was a no-op; the comparison now uses `_V1_PARTS.hostname` / `_V1_PARTS.path` directly.
+- `(parts.hostname or "")` with `""` mutated to `"XXXX"`: a URL with no hostname can never equal the
+  v1 host. The default is replaced by an early `return False` when `parts.hostname is None`.
+- `rstrip("XX.XX")` on the parsed hostname: `urlsplit().hostname` is lower-cased so it never ends
+  in `X`, making the mutant equivalent to `rstrip(".")`. The trailing-dot strip is now
+  `re.sub(r"\.+$", "", host)`, identical behaviour, whose pattern mutants are all killed by the
+  trailing-dot test.
+
+`mutmut` classes `timeout` mutants as detected (the mutated `AttemptBudget` hangs the existing
+cancellation test); the gate accepts `killed` and `timeout` only.
+
+Gate (`scripts/mutation_gate.py`, covered by `tests/tooling/test_mutation_gate.py`): the
+mutation workflow pipes `mutmut results --all true` into the gate, which fails on any mutant of an
+enrolled module that is not `killed`/`timeout`, and on an enrolled module with no mutants. The
+enrolled list (`ENROLLED_MODULES`) only grows; a test pins the step-1 prefix. `redaction.py` is
+still mutated by the same job (kept target) but stays unenrolled: 136 to 137 survivors and 5
+untested mutants (run-to-run variance of one), a later step. Planted weakening: relaxing the
+`attempt_limit` assertions to `>=` made the gate exit 1 (`_retry: 1 mutant(s) survived`); the
+tests were restored. Local job time: mutmut 1m35s to 2m15s over 625 mutants with 8 workers.
