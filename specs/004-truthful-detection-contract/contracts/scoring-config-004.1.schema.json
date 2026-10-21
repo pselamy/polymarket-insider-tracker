@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/polymarket-insider-tracker/scoring-config-004.1.schema.json",
+  "title": "scoring_config document for scoring_algorithm_version 004.1 (pre-T027 wallet posture)",
+  "description": "Proposed. Stored as canonical JSON (sort_keys, separators ',' ':') in the existing assessment scoring_config TEXT column. Decimals are JSON strings in plain notation; floats never appear.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "alert_threshold",
+    "detector_config",
+    "detector_failures",
+    "evaluation_evidence",
+    "evidence_schema",
+    "multi_signal_bonus_2",
+    "multi_signal_bonus_3",
+    "score_quantum",
+    "weights"
+  ],
+  "properties": {
+    "alert_threshold": {"$ref": "#/$defs/score3"},
+    "multi_signal_bonus_2": {"const": "1.2"},
+    "multi_signal_bonus_3": {"const": "1"},
+    "score_quantum": {"const": "0.001"},
+    "weights": {
+      "type": "object",
+      "required": ["fresh_wallet", "niche_market", "size_anomaly"],
+      "additionalProperties": {"$ref": "#/$defs/decimal"}
+    },
+    "evidence_schema": {"const": "004.1"},
+    "detector_config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fresh_min_notional",
+        "fresh_transaction_boundary",
+        "known_age_ceiling_hours",
+        "niche_min_notional",
+        "niche_volume_threshold",
+        "size_volume_threshold",
+        "volume_recency_seconds"
+      ],
+      "properties": {
+        "fresh_transaction_boundary": {"type": "integer", "minimum": 1},
+        "size_volume_threshold": {"$ref": "#/$defs/decimal"},
+        "fresh_min_notional": {"$ref": "#/$defs/decimal"},
+        "known_age_ceiling_hours": {"$ref": "#/$defs/decimal"},
+        "niche_volume_threshold": {"$ref": "#/$defs/decimal"},
+        "niche_min_notional": {"$ref": "#/$defs/decimal"},
+        "volume_recency_seconds": {"const": 600}
+      }
+    },
+    "detector_failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["detector", "error_class", "message"],
+        "properties": {
+          "detector": {"enum": ["fresh_wallet", "size_anomaly"]},
+          "error_class": {"type": "string", "maxLength": 128},
+          "message": {"type": "string", "maxLength": 200}
+        }
+      }
+    },
+    "evaluation_evidence": {
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/evidence"}]
+    }
+  },
+  "$defs": {
+    "decimal": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]+)?$"},
+    "signed_decimal": {"type": "string", "pattern": "^-?[0-9]+(\\.[0-9]+)?$"},
+    "score3": {"type": "string", "pattern": "^(0\\.[0-9]{3}|1\\.000)$"},
+    "impact4": {"type": "string", "pattern": "^[0-9]+\\.[0-9]{4}$"},
+    "utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?\\+00:00$"
+    },
+    "raw_nonfinite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$nonfinite"],
+      "properties": {"$nonfinite": {"enum": ["NaN", "Infinity", "-Infinity"]}}
+    },
+    "raw_truncated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$truncated", "bytes", "reason", "sha256", "type"],
+      "properties": {
+        "$truncated": {"const": true},
+        "bytes": {"type": "integer", "minimum": 1},
+        "reason": {"enum": ["oversize", "reserved_key", "nested_nonfinite"]},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "type": {"enum": ["string", "number", "array", "object"]}
+      }
+    },
+    "factors": {"type": "object", "additionalProperties": {"$ref": "#/$defs/decimal"}},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contributions", "evaluated_at", "notional", "result", "size", "wallet"],
+      "properties": {
+        "evaluated_at": {"$ref": "#/$defs/utc"},
+        "notional": {"$ref": "#/$defs/decimal"},
+        "wallet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "age_basis", "age_hours", "age_state", "boundary", "classification", "confidence",
+            "factors", "group_status", "observation_time", "retrieval_error", "subject_kind", "tx_count"
+          ],
+          "properties": {
+            "subject_kind": {"const": "proxy_wallet"},
+            "group_status": {
+              "description": "FR-007c. unqualified_pre_T027: the wallet group is non-scoring (confidence null, factors empty, contribution 0, not counted in signals_triggered, no two-group bonus); classification and tx_count are still recorded as observations. The qualified posture (T027 has authorized wallet scoring) is a different scoring rule and therefore version 004.2: this schema with evidence_schema const 004.2 and group_status const qualified, nothing else changed (contracts/scoring-config.md section 2a).",
+              "const": "unqualified_pre_T027"
+            },
+            "classification": {
+              "enum": ["fresh", "low_activity_unknown_age", "known_nonqualifying", "not_requested", "retrieval_failed"]
+            },
+            "boundary": {"type": "integer", "minimum": 1},
+            "tx_count": {"type": ["integer", "null"], "minimum": 0},
+            "age_state": {"enum": ["known", "unknown"]},
+            "age_basis": {"enum": ["none", "polymarket_first_trade", "chain_first_transaction"]},
+            "age_hours": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
+            "observation_time": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/utc"}]},
+            "retrieval_error": {"type": ["string", "null"], "maxLength": 128},
+            "confidence": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/score3"}]},
+            "factors": {"$ref": "#/$defs/factors"}
+          }
+        },
+        "size": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "book_impact", "book_state", "category", "category_source", "confidence",
+            "daily_volume", "daily_volume_acquired_at", "daily_volume_age_seconds",
+            "daily_volume_source", "factors", "niche", "niche_basis", "signal_emitted",
+            "volume24hr_present", "volume24hr_raw", "volume_impact", "volume_reason", "volume_state"
+          ],
+          "properties": {
+            "volume_state": {
+              "enum": ["available", "unavailable", "unqualified", "missing", "invalid", "nonpositive", "invalid_time", "stale"]
+            },
+            "volume_reason": {"enum": ["gamma_fetch_failed", "absent_from_complete_crawl", "crawl_truncated", "clob_miss_path", "no_volume_record", "metadata_lookup_failed", "unknown_source", "no_provenance", "null_or_absent", "not_a_finite_number", "out_of_range", "zero", "negative", "absent", "naive", "unparseable", "nonpositive_epoch", "future", "older_than_600s", "gamma", "caller"]},
+            "volume24hr_present": {"type": "boolean"},
+            "volume24hr_raw": {"description": "Not constrained by this schema alone; check_envelope.stored_raw_errors enforces the rule (data-model section 1.1a). Decoded JSON value verbatim (<= 256 canonical UTF-8 bytes, finite numbers only, no reserved top-level key), else exactly one of #/$defs/raw_nonfinite or #/$defs/raw_truncated. Object-shaped values carrying $nonfinite/$truncated are checked against those defs by check_envelope (the validator subset has no conditional keyword)."},
+            "daily_volume": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
+            "daily_volume_acquired_at": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/utc"}]},
+            "daily_volume_age_seconds": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/signed_decimal"}]},
+            "daily_volume_source": {"type": ["string", "null"], "maxLength": 64},
+            "volume_impact": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/impact4"}]},
+            "book_state": {"const": "unavailable"},
+            "book_impact": {"type": "null"},
+            "niche": {"type": "boolean"},
+            "niche_basis": {"enum": ["numeric", "category", "none"]},
+            "category": {"type": ["string", "null"], "maxLength": 64},
+            "category_source": {"enum": ["metadata", "minimal"]},
+            "signal_emitted": {"type": "boolean"},
+            "confidence": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/score3"}]},
+            "factors": {"$ref": "#/$defs/factors"}
+          }
+        },
+        "contributions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bonus", "capped_score", "fresh_wallet", "niche_market", "size_anomaly"],
+          "properties": {
+            "fresh_wallet": {"$ref": "#/$defs/decimal"},
+            "size_anomaly": {"$ref": "#/$defs/decimal"},
+            "niche_market": {"$ref": "#/$defs/decimal"},
+            "bonus": {"enum": ["1", "1.2"]},
+            "capped_score": {"$ref": "#/$defs/decimal"}
+          }
+        },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["should_alert", "signals_triggered", "weighted_score"],
+          "properties": {
+            "signals_triggered": {"type": "integer", "minimum": 0, "maximum": 2},
+            "weighted_score": {"$ref": "#/$defs/score3"},
+            "should_alert": {"type": "boolean"}
+          }
+        }
+      }
+    }
+  }
+}

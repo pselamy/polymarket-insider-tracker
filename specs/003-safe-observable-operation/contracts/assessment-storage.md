@@ -60,12 +60,23 @@ identity:
   (`SCORING_ALGORITHM_VERSION`, currently `003.1`, defined in `detector/models.py`); the
   migration backfills pre-existing rows as exactly `legacy-unversioned` and nothing else may
   produce that label (the column has no insert default).
-- `scoring_config` records the canonical deterministic JSON of the exact active
-  configuration used for the assessment: alert threshold, multi-signal bonuses, score
-  quantum, and the active weights — all as decimal strings, keys sorted, separators fixed,
-  so equal configurations serialize identically. Legacy rows keep `NULL` because their
-  configuration is unknowable; `detector_failure` skip rows record the active configuration
-  under which they were written even though no score was computed.
+- `scoring_config` is a **version-dispatched document**; its content and reader are determined by the
+  row's `scoring_algorithm_version` (the authoritative discriminator):
+
+  | `scoring_algorithm_version` | `scoring_config` content | Reader |
+  |---|---|---|
+  | `legacy-unversioned` | `NULL` (configuration unknowable) | none; never reinterpreted |
+  | `003.1` | canonical deterministic JSON of the exact active configuration: alert threshold, multi-signal bonuses, score quantum, and the active weights — all as decimal strings, keys sorted, separators fixed, so equal configurations serialize identically | the 003 pure-configuration reader, unchanged |
+  | `004.1` | a strict superset of the 003.1 document (the same five configuration keys with the same types) plus the evidence keys defined by slice 004 | the 004.1 reader |
+  | `004.2` (draft) | the 004.1 document for the qualified wallet posture; written only after slice 004's T027 gate opens, which is a combination-rule change and so a version bump | the 004.2 reader, added by that change |
+
+  The normative definition of the `004.1` document, the reader dispatch, and the handling of an
+  unknown version or a column/`evidence_schema` mismatch (reported, never guessed) is
+  `specs/004-truthful-detection-contract/contracts/scoring-config.md`; this section does not
+  restate it. No DDL changes: the column stays `TEXT`. A consumer that rejects unknown keys must be
+  updated to read `004.1` rows. `detector_failure` skip rows record the active configuration under
+  which they were written even though no score was computed (under `004.1` they also carry the
+  failure evidence defined by 004).
 - confidences, the threshold, and the score are quantized to the persisted `NUMERIC(4,3)`
   precision *before* the decision, so replaying from the row plus its `scoring_config`
   reproduces the score and decision exactly.

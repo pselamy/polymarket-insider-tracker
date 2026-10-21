@@ -1,0 +1,13 @@
+{
+  "base_commit": "3d5ab59",
+  "note": "Current-base hashes, regenerated on main f3871cb and re-verified unchanged on 3d5ab59 (src diff vs f3871cb adds only AlertHistory.retention_ttl in alerter/history.py, not hashed; src diff vs 0ddee0b adds Protocol @abstractmethod docstring stubs in fresh_wallet.py and profiler, no scoring change; vs 112a733 renames Pipeline._on_trade to process_trade and adds a database helper; vs f2e2167 Protocol-typing; see source-refresh-f2e2167.md). replay/summary.json stays the immutable receipt of the replay execution checkout.",
+  "source_sha256": {
+    "detector/fresh_wallet.py": "b6e4a7831626eb0597dc01a3b92a2a2427bb6f5ab25e177e9256dc97628bb73f",
+    "detector/models.py": "94901405d4f3322b7633a9029d6c483ec08d41a7ed34546e21d96f25bacd7eb0",
+    "detector/scorer.py": "2fd151ee38dc7e44e55c2b309549cc14aea012e591d6451feb074b4571513904",
+    "detector/size_anomaly.py": "5e5db60a43824bd58a890847fde3ba5770560dbc63d61a4635b163927ba514d5",
+    "ingestor/models.py": "28bdadd9700b75e0e2fe01c6c5ed6c48bdd01a32447ce800fa2e8edb9e6d1c11",
+    "pipeline.py": "50602943d8e7d29cb4f6513bb90f8f353ec69ccfd4d2b120e2feba7b546886cf",
+    "profiler/models.py": "a4a4a0e45b6076763b68592ccc70a0c1ca9e2df1d6c4adf597d12ae9fa95b5be"
+  }
+}

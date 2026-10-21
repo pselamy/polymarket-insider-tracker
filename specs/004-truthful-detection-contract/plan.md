@@ -3,7 +3,9 @@
 **Branch**: `dispatch/polymarket-004-full-plan-20261017-3ae1b398` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
 **Status**: Phase0 complete; Phase1 design proposed. Implementation is not authorized.
-**Baseline**: current upstream main `46e41921ca06b701fece7a17953a666f6873b7e1`.
+**Baseline**: upstream main `f2e21672c9707c927befea8d82b1069171ae38f9`, re-checked against `112a733` (Protocol typing only), `0ddee0b` (callback rename only) `f3871cb` (Protocol stub bodies only) and `3d5ab59` (one unhashed `AlertHistory` property; see source-refresh) (refreshed 2026-10-19; the
+original 2026-10-17 baseline was `46e41921ca06b701fece7a17953a666f6873b7e1`; scoring semantics are
+unchanged between them, see [evidence/source-refresh-f2e2167.md](evidence/source-refresh-f2e2167.md)).
 The existing A4 direction was approved; no new human answer or implementation approval is claimed.
 
 ## Summary
@@ -58,10 +60,19 @@ No constitution exception is requested. Phase1 design is proposed below.
 
 See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
 
-- **Acquisition provenance**: stamp each successful Gamma HTTP page at body acquisition
-  (`daily_volume_acquired_at`, aware UTC, source id); carry through `GammaMarketStats`,
-  enrichment, and Redis unchanged; usable only when `0 <= evaluated_at - acquired_at <= 600s`.
-  Never synthesize from cache reads, TTL, CLOB refresh, or generic `last_updated`.
+- **Acquisition provenance (revised 2026-10-19)**: stamp each successful Gamma HTTP page at body
+  acquisition (`daily_volume_acquired_at`, aware UTC, source id) and carry it through the page tuples to
+  `GammaMarketStats`; store it in a **separate per-market volume record** written by a Gamma loop that is
+  decoupled from the CLOB crawl (the coupled loop's worst-case entry age is `2D + w + S − g`, 688 s with the
+  reported D = 204 s; research R02a); usable only when the single precedence table of data-model §1.2
+  yields `available` (`0 <= evaluated_at - acquired_at <= 600s`). Eight mutually exclusive states; never
+  synthesize the stamp from cache reads, TTL, CLOB refresh, or generic `last_updated`.
+- **Entry gate (revised 2026-10-19, codex round 2)**: task T027 (proxy-wallet nonce qualification) gates the
+  wallet group. Before its receipt exists the wallet group is non-scoring (FR-007c): the scorer records
+  `wallet.group_status = unqualified_pre_T027`, null wallet confidence, contribution 0, the group is not
+  counted and the 1.2 bonus never applies, so the ceiling is 0.450. This is the contract's single default
+  posture (D1b option G1, formerly O5); implementation tasks that let the wallet group score do not merge before the
+  receipt. Opening the gate is a reviewed code change citing the receipt, not an environment knob.
 - **Operator surface**: keep `DETECTOR_ALERT_THRESHOLD` default 0.80 (inclusive `>=`,
   0.001 quantum); add `DETECTOR_FRESH_TRANSACTION_BOUNDARY` default 5, positive integer and
   exclusive nonce bound — every classification rule uses the captured effective boundary
@@ -70,13 +81,25 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   and `DETECTOR_SIZE_VOLUME_THRESHOLD` default 0.02 (strict `>`). Existing wallet minimum
   notional 1000, age ceiling 48h, niche volume 50000 / niche-only minimum 500, confidence
   constants, and weight rules stay fixed.
+- **Alert-path report (revised 2026-10-20, Claude round 3 B2)**: FR-022a is evaluated over the classes the
+  configured live sources can produce, from a typed capability value whose `wallet_group_status` and
+  `wallet_age_source` are code constants (`unqualified_pre_T027`, `none` on main), so it fires on the
+  shipped configuration (ceiling 0.450 < 0.80). One pure function computes the ceiling through the real
+  scorer combination; T028 regenerates `evidence/reachability.md` with it, so the runtime never reads a
+  test table. Surfaces: a startup log record beside `pipeline.py:407-412`, an `Alert Path:` line in
+  `print_config_summary` (`__main__.py:173-189`, also under `--config-check`), and an additive,
+  informational `alert_path` object in `/health` (`ingestor/health.py:658-679`) that does not change any
+  health verdict, status code or probe (T029).
+- **Wallet identity and age (revised 2026-10-19)**: the profiled address is the V2 `proxy_wallet`
+  (FR-007a, nonce meaning unverified); live age is unknown until DECISION D1a selects a qualified
+  source (FR-007b, research R09; recommended default O1); unknown age is exactly 0.50 everywhere.
 - **Wallet/size semantics**: known-age requires notional ≥ 1000, `nonce < B` (effective
   boundary), age ≤ 48h; unknown-age low-activity requires notional ≥ 1000, `nonce < B`,
   confidence exactly 0.50, no age/new-wallet/large-trade additions; missing retrieval
   supplies no freshness fact. The canonical freshness rule in
   [data-model.md](data-model.md) §2a governs signal JSON, assessment evidence, cached
   profiles, and persisted wallet rows coherently, with the legacy
-  `profiler/analyzer.py:210–229` unknown-age-`True` path named as an explicit compatibility
+  `profiler/analyzer.py:223–242` unknown-age-`True` path named as an explicit compatibility
   exception. Usable positive current volume
   enables notional/volume ratio; unavailable/nonpositive/stale/invalid volume yields no
   observed ratio; unavailable volume may use category fallback with basis recorded. Book
