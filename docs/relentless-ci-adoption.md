@@ -1011,9 +1011,10 @@ repository's existing `obj.__setattr__` idiom (`tests/profiler/test_models.py`),
 New public `src` names (read-only observability or an injectable seam, behaviour unchanged):
 `MarketMetadataSync.sync_interval_seconds` / `cache_ttl_seconds` / `key_prefix`,
 `HealthMonitor.health_check_interval` and the keyword-only `HealthMonitor(clock=time.time)`.
-`detector/scorer.py` and `detector/size_anomaly.py` are spec-004 hash-pinned and unchanged: the
-retained `RiskScorer._dedup_window` is read through the `DedupWindowScorer` test subclass
-(`tests/detector/dedup_window.py`), and the book threshold is asserted through detector behaviour.
+`detector/size_anomaly.py` is spec-004 hash-pinned and unchanged; `detector/scorer.py` was refreshed (hash regenerated): the
+unused `RiskScorer` `dedup_window_seconds` constructor argument and its stored `_dedup_window` were
+removed (no scoring change; the setting still drives `AlertHistory` TTL via the pipeline), and the
+book threshold is asserted through detector behaviour.
 
 Defect-fails: appending `PLANTED: int = "a"` to `tests/ingestor/test_health.py` makes the bare
 `pyright` exit 1 (`Type "Literal['a']" is not assignable to declared type "int"`); the clean tree

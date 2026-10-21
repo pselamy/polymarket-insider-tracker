@@ -220,11 +220,7 @@ def _dispatcher(
 
 
 def _scorer(settings: Settings, redis: Redis) -> RiskScorer:
-    return RiskScorer(
-        redis,
-        alert_threshold=settings.detector.alert_threshold,
-        dedup_window_seconds=settings.detector.dedup_window_seconds,
-    )
+    return RiskScorer(redis, alert_threshold=settings.detector.alert_threshold)
 
 
 async def wire_pipeline(

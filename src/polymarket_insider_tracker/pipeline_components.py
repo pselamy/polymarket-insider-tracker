@@ -168,15 +168,10 @@ def _assemble(
     size_detector = SizeAnomalyDetector(metadata_sync)
 
     logger.debug("Initializing risk scorer...")
-    risk_scorer = RiskScorer(
-        redis,
-        alert_threshold=settings.detector.alert_threshold,
-        dedup_window_seconds=settings.detector.dedup_window_seconds,
-    )
+    risk_scorer = RiskScorer(redis, alert_threshold=settings.detector.alert_threshold)
     logger.info(
-        "RiskScorer threshold=%.2f dedup_window=%ds persist=%s",
+        "RiskScorer threshold=%.2f persist=%s",
         settings.detector.alert_threshold,
-        settings.detector.dedup_window_seconds,
         settings.detector.persist_assessments,
     )
 
@@ -184,6 +179,7 @@ def _assemble(
     alert_formatter = AlertFormatter(verbosity="detailed")
     channels = build_alert_channels(settings)
     alert_history = AlertHistory(redis, dedup_window_seconds=settings.detector.dedup_window_seconds)
+    logger.info("AlertHistory dedup_window=%ds", settings.detector.dedup_window_seconds)
     alert_dispatcher = AlertDispatcher(channels, history=alert_history, dry_run=dry_run)
 
     logger.debug("Initializing trade poller...")

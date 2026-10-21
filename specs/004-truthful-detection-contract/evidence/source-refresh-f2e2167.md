@@ -224,3 +224,12 @@ re-pinned from the output of `check_source_hashes`; every other hash is unchange
 `on_ingestion_state`; no scoring change (no scoring rule, literal, ordering or persisted value
 changes). The `pipeline.py` hash was re-pinned from the output of `check_source_hashes`; every other
 hash is unchanged.
+
+## Fifteenth refresh: unused RiskScorer dedup window removed (2026-10-21)
+
+`base_commit` stays 3aafd0b. `detector/scorer.py` drops an unused stored constructor argument
+(`dedup_window_seconds`, kept in `_dedup_window` and never read); no scoring change.
+`pipeline_components.py` (not hashed) stops passing it and logs the window against `AlertHistory`,
+which still receives `settings.detector.dedup_window_seconds` for delivery deduplication. The
+`scorer.py` hash was re-pinned from the output of `check_source_hashes`; every other hash, including
+`pipeline.py`, is unchanged.

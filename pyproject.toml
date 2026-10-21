@@ -170,6 +170,7 @@ include = [
     "tests/test_pipeline.py",
     "tests/test_terminal_error_durable.py",
     "tests/test_main.py",
+    "tests/test_pipeline_components.py",
 ]
 pythonVersion = "3.11"
 stubPath = "typings"
