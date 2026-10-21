@@ -25,6 +25,7 @@ from polymarket_insider_tracker.detector.scorer import (
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from tests.batch_trades import indexed_trades
+from tests.detector.dedup_window import DedupWindowScorer
 from tests.fakes.redis_await import key_count
 
 # ============================================================================
@@ -213,19 +214,17 @@ class TestRiskScorerInit:
 
     def test_default_initialization(self, fake_redis: FakeAsyncRedis) -> None:
         """Test scorer initializes with default values."""
-        scorer = RiskScorer(fake_redis)
+        scorer = DedupWindowScorer(fake_redis)
 
         assert scorer.alert_threshold == DEFAULT_ALERT_THRESHOLD
+        assert scorer.dedup_window == 3600
 
     def test_custom_configuration(self, fake_redis: FakeAsyncRedis) -> None:
         """Test scorer with custom threshold and window configuration."""
-        scorer = RiskScorer(
-            fake_redis,
-            alert_threshold=0.7,
-            dedup_window_seconds=1800,
-        )
+        scorer = DedupWindowScorer(fake_redis, alert_threshold=0.7, dedup_window_seconds=1800)
 
         assert scorer.alert_threshold == 0.7
+        assert scorer.dedup_window == 1800
 
 
 # ============================================================================
