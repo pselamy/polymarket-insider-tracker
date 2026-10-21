@@ -163,7 +163,7 @@ class FakeEth:
 
     ``fail_count`` makes the first N calls raise (transient failures); ``always_fail`` makes every
     call raise. ``call_count`` is the number of RPC calls attempted, the provider-facing contract
-    that retry and failover tests assert.
+    that retry and failover tests assert. ``block_lookup_fails`` fails only ``get_block``.
     """
 
     def __init__(
@@ -176,6 +176,7 @@ class FakeEth:
         token_balance: int = 5000000,
         fail_count: int = 0,
         always_fail: bool = False,
+        block_lookup_fails: bool = False,
         logs: TransferLogIndex | None = None,
     ) -> None:
         self._transaction_count = transaction_count
@@ -185,6 +186,7 @@ class FakeEth:
         self._token_balance = token_balance
         self._fail_count = fail_count
         self._always_fail = always_fail
+        self._block_lookup_fails = block_lookup_fails
         self._logs = logs
         self.call_count = 0
 
@@ -206,6 +208,8 @@ class FakeEth:
     async def get_block(self, block_identifier: Any) -> dict[str, Any]:
         _ = block_identifier
         self._count_call()
+        if self._block_lookup_fails:
+            raise Web3Exception("block lookup failed")
         return {"timestamp": self._block_timestamp, "number": self._block_number}
 
     @property
