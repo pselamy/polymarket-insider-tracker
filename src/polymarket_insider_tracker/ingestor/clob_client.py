@@ -189,20 +189,11 @@ class ClobClient:
         self._client = BaseClobClient(host)
 
         logger.info(
-            "Initialized ClobClient with host=%s, rate_limit=%.1f req/s",
+            "Initialized ClobClient with host=%s, rate_limit=%.1f req/s, api_key_set=%s",
             host,
             requests_per_second,
+            bool(self._api_key),
         )
-
-    @property
-    def max_retries(self) -> int:
-        """Maximum retry attempts configured for failed requests."""
-        return self._max_retries
-
-    @property
-    def has_api_key(self) -> bool:
-        """Whether an API key is configured (explicitly or from ``POLYMARKET_API_KEY``)."""
-        return bool(self._api_key)
 
     def _fetch_simplified_markets(self, cursor: str | None) -> dict[str, Any]:
         if cursor:

@@ -151,32 +151,8 @@ class TestClobClient:
     ) -> None:
         """Test client initialization with defaults."""
         _ = fake_base_client
-        client = ClobClient()
+        ClobClient()
         assert base_hosts == ["https://clob.polymarket.com"]
-        assert client.max_retries == 3
-
-    def test_init_with_env_api_key(
-        self, fake_base_client: FakeBaseClobClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test client reads API key from environment."""
-        _ = fake_base_client
-        monkeypatch.setenv("POLYMARKET_API_KEY", "test-key")
-        client = ClobClient()
-        assert client.has_api_key
-
-    def test_init_without_api_key(
-        self, fake_base_client: FakeBaseClobClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test client has no API key when none is given or in the environment."""
-        _ = fake_base_client
-        monkeypatch.delenv("POLYMARKET_API_KEY", raising=False)
-        assert not ClobClient().has_api_key
-
-    def test_init_with_explicit_api_key(self, fake_base_client: FakeBaseClobClient) -> None:
-        """Test client uses explicitly provided API key."""
-        _ = fake_base_client
-        client = ClobClient(api_key="explicit-key")
-        assert client.has_api_key
 
     def test_health_check_success(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test health check returns True when API responds OK."""
