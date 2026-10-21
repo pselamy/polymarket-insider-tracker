@@ -113,3 +113,12 @@ def test_a_well_formed_loss_event_round_trips() -> None:
 def test_a_loss_event_of_the_wrong_shape_is_rejected(payload: str) -> None:
     with pytest.raises(ValueError, match="loss event"):
         LossEvent.from_json(payload)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [b"[1]", b'"text"', b"null"],
+)
+def test_loss_event_rejects_a_non_object_document(payload: bytes) -> None:
+    with pytest.raises(ValueError, match="not a JSON object"):
+        LossEvent.from_json(payload)

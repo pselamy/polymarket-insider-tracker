@@ -1402,7 +1402,8 @@ Newly checked shapes, each with a test: a cached block that is not a JSON object
 a block timestamp that is not an integer is rejected; a transfer log with missing or mistyped
 topics, data, transaction hash or block number raises `ValueError`; a WebSocket frame that is
 valid JSON but not an object is logged and dropped; a DML result that is not a cursor result
-raises `TypeError`.
+raises `TypeError`; every new Redis reply validator has accept/reject tests in
+`tests/alerter/test_redis_port.py`.
 
 ## Escape sweep step 1: typing escapes in seven production modules (2026-10-21)
 
@@ -1453,10 +1454,11 @@ other files); it contains no escape itself.
 | File | Before | After | Reason it existed and the replacement |
 | --- | --- | --- | --- |
 | `__main__.py` | 2 | 0 | `record.__dict__["exc_info"]` write and `object.__setattr__` for `status`. Now a typed `_ExcInfo` assignment and a runtime-checked `_StatusCarrier` protocol. |
-| `ingestor/observation_boundary.py` | 3 | 1 | Decoded loss-event JSON was `cast(dict[str, Any])`; now `JsonValue` with field checks (bad shape raises `ValueError`). One boundary cast stays: redis-py's stubs are not strict-clean (`Any` replies, untyped `multi`), so the `BoundaryRedis` surface is asserted once. |
-| `ingestor/metadata_sync.py` | 1 | 1 | `scan` cast to `RedisScanner`: redis-py types `scan` with `**kwargs` and an `Any` reply, which fails strict pyright when called directly. Kept as a documented boundary. |
+| `ingestor/observation_boundary.py` | 3 | 0 | Decoded loss-event JSON was `cast(dict[str, Any])`; now `shapes.string_keyed` plus field checks (bad shape raises `ValueError`). The `cast(BoundaryRedis, redis)` is gone: the constructor takes the `BoundaryRedis` protocol (replies typed `object`, now in `alerter/_redis_port.py`), real `redis.asyncio.Redis` satisfies it structurally, and each reply is checked by `reply_byte_hash`, `reply_scored_members`, `reply_ids` and `reply_bytes` (malformed reply raises `TypeError`). |
+| `ingestor/metadata_sync.py` | 1 | 0 | `cast(RedisScanner, ...)` removed with the `RedisScanner` protocol: `scan_page` in `alerter/_redis_port.py` takes the `ScanRedis` protocol and validates the reply with `reply_scan`. |
 | `scripts/_entry_bootstrap.py` | 2 | 0 | `dict[str, Any]` namespace is `dict[str, object]`; `__file__` is checked to be a string. |
 
 Newly checked shapes, each with a test: a loss event that is not a JSON object, or has a
 non-integer count/time or non-string reason, raises `ValueError`; an entry namespace without a
-string `__file__` raises `TypeError`.
+string `__file__` raises `TypeError`. Each new Redis reply validator has accept/reject tests in
+`tests/alerter/test_redis_port.py`.
