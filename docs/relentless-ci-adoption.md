@@ -623,9 +623,8 @@ Chosen for step 1: `endpoints.py`, `_retry.py`, `_attempt_budget.py` and `_cycle
 are tiny (40 to 146 lines), pure, deterministic, free of services, and encode safety-relevant
 rules (the v1-retirement route match, the retry and jitter caps, the attempt-start rate budget,
 the strictly increasing cycle cutoff). `detector/scorer.py` is not chosen: it is frozen until the
-slice 004 decisions. `redaction.py` keeps its existing job but is not yet survivor-free (137
-survivors, 5 untested mutants); it stays visibly unenrolled in the zero-survivor gate and is a
-later step. The hypothesis-based `test_v2_cursor_walk_properties.py` cannot run inside mutmut's
+slice 004 decisions. `redaction.py` keeps its existing job but was not yet survivor-free (137
+survivors, 5 untested mutants); it was enrolled in mutation step 2 (below). The hypothesis-based `test_v2_cursor_walk_properties.py` cannot run inside mutmut's
 in-process stats run (`FailedHealthCheck: differing_executors`), so it is not in the mutmut test
 selection; the plain suites that exercise the retry and cutoff modules are.
 
@@ -663,6 +662,70 @@ still mutated by the same job (kept target) but stays unenrolled: 136 to 137 sur
 untested mutants (run-to-run variance of one), a later step. Planted weakening: relaxing the
 `attempt_limit` assertions to `>=` made the gate exit 1 (`_retry: 1 mutant(s) survived`); the
 tests were restored. Local job time: mutmut 1m35s to 2m15s over 625 mutants with 8 workers.
+
+## Mutation step 2: `redaction.py` enrolled (2026-10-21)
+
+`polymarket_insider_tracker.redaction` is now in `ENROLLED_MODULES`. Starting point (step 1
+measurement): 482 mutants, 137 survived, 5 untested. Final run (mutmut 3.8.0, Python 3.11,
+`--max-children 8`): 429 mutants, 427 killed, 2 timeout, 0 survived, 0 no tests. The mutant count
+fell because the simplifications below removed redundant code, not because mutants were skipped.
+
+Survivors by rule before this step (143 non-killed on the re-measured run): fail-closed shape
+selection (`_fail_closed_label`, `_is_fail_closed_shape`, `_nested_scheme_kind`, the `_has_*`
+predicates, the unparseable and bracket netloc checks; about 75), invalid-port handling and port
+labels (about 20), URL-fallback and scheme prefix (about 16), known-secret echo spellings
+(`_query_credential_tokens`, `_component_spellings`, `redact_failure_with_secrets`; about 21),
+query-key ambiguity (8), text-scan boundaries (5).
+
+Kill strategy: exact-output behavioural tests (`tests/test_redaction_url_shapes.py`: every
+fail-closed shape, userinfo and query rule; `tests/test_redaction_text_secrets.py`: trailing prose
+delimiters, scan boundaries, one echoed spelling per credential form). Both files are in the
+mutmut test selection. Plain parametrized tables were used rather than Hypothesis, because the
+shapes are discrete and mutmut's in-process stats run rejects Hypothesis health checks.
+
+Behaviour-preserving simplifications of `redaction.py` (all provably identical; none changes any
+output):
+
+- The `getattr(parts, "x", default)` plumbing over `parts: object` is replaced by a typed
+  `SplitResult`; the defaults could never be used. `_is_invalid_port_shape`,
+  `_is_fail_closed_shape` and the duplicated shape/label dispatch collapse into one
+  `_fail_closed_label` (same check order as before).
+- The port range test after `parts.port` was dead: `SplitResult.port` itself raises
+  `ValueError` outside 0-65535 on 3.11-3.13. The port-tail range check in `_has_valid_port_tail`
+  is likewise unreachable (an out-of-range port fails the earlier probe); a non-numeric tail
+  (an empty one is the only shape that parses) is still rejected, and `partition` replaces
+  `rpartition` because more than one colon already leaves a non-numeric tail.
+- `_nested_scheme_kind`'s labels were only compared with `None`, and its split-nested branch was
+  shadowed by the earlier check; it is now the boolean `_has_nested_scheme_shape`.
+- `_safe_outer_host`: `"@" in host` cannot hold after `split("@")[-1]`, and `://`, `[` and `]`
+  are all rejected by the character check of `_validated_host_label`.
+- `_is_malformed_bracket_netloc` is removed: `urlsplit` rejects every unbalanced or non-address
+  bracket shape itself, and the remaining hostless bracket shapes are caught by the unparseable
+  and hostless-userinfo checks with the same label.
+- `_fallback_redaction` partitions at the first `://` (a string without one is its own scheme
+  candidate and contains `/`, which is never alphanumeric); `_safe_scheme_prefix` uses
+  `isascii() and isalnum()` (an empty string is not alphanumeric).
+- `_split_trailing_delimiters` is `rstrip`; the `_redact_url_match` guard was dead (every scan
+  match contains `://`, whose `/` is not a trailing delimiter).
+- Three one-character literals (`quote(..., safe="")`, the host punctuation, the scan boundary
+  set) are named module constants. mutmut does not mutate module-level assignments, and the mutant
+  `safe="XXXX"` is equivalent for `quote` because `X` is already unreserved; the behaviour of each
+  constant is pinned by tests (percent-encoded `/` echoes, hosts with `.`, `-` and `:`, and each
+  boundary character, including that `X` stays scannable).
+
+Equivalence evidence: `tests/test_redaction_baseline_equivalence.py` replays 900 URL-shaped and
+punctuation-soup strings (`tests/data/redaction_baseline_main.json`) against the outputs of
+`redact_url`, `redact_text` and the known-secret echo masking on the pre-change module. A wider
+differential run over 106,836 generated inputs (all schemes, userinfo, hosts, ports, brackets,
+nested schemes, queries) found 0 differences between the old and new module.
+
+One test depends on the interpreter's URL-parser hardening: `ht\ttp://u@/p` expects the parsed
+scheme `http`, which needs the tab/newline stripping of recent 3.11+ patch releases.
+
+Planted weakening: replacing the exact `redact_url(raw) == masked` assertion in
+`tests/test_redaction_url_shapes.py` with a prefix check made the gate exit 1
+(`polymarket_insider_tracker.redaction: 22 mutant(s) survived`); the assertion was restored.
+Mutation job time locally: mutmut about 1m10s for 631 mutants across all five modules.
 
 ## REF-HOOK-04 step 1: reference security gate mapping (2026-10-21)
 

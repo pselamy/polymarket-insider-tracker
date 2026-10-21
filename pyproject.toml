@@ -225,6 +225,8 @@ only_mutate = [
 also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
 pytest_add_cli_args_test_selection = [
     "tests/test_redaction.py",
+    "tests/test_redaction_url_shapes.py",
+    "tests/test_redaction_text_secrets.py",
     "tests/test_trades_v2_config.py",
     "tests/test_endpoints.py",
     "tests/test_endpoints_v1_guard_equivalence.py",
