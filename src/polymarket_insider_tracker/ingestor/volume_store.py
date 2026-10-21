@@ -81,7 +81,7 @@ class VolumeRecord:
         """Read a stored record; ``None`` when it is not a volume record."""
         try:
             data: JsonValue = json.loads(text)
-        except json.JSONDecodeError:
+        except ValueError:
             return None
         if not isinstance(data, dict):
             return None
@@ -153,13 +153,30 @@ class VolumeStore:
     def _outcome_text(raw: str | bytes | None) -> str:
         try:
             status: JsonValue = json.loads(raw) if raw else None
-        except json.JSONDecodeError:
+        except ValueError:
             return ""
         return str(status.get("outcome")) if isinstance(status, dict) else ""
 
     async def read(self, condition_id: str) -> VolumeRecord | None:
         raw = await self._redis.get(self._prefix + condition_id)
         return VolumeRecord.from_json(raw) if raw else None
+
+    async def _read_or_none(self, condition_id: str) -> VolumeRecord | None:
+        """The stored record, or ``None`` when Redis cannot be read: the volume is then simply
+        unavailable and the CLOB metadata it would have been merged into stays usable."""
+        try:
+            return await self.read(condition_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to read volume record %s: %s", condition_id, redact_exception_message(e)
+            )
+            return None
+
+    async def _reason_or_default(self) -> str:
+        try:
+            return await self._unavailable_reason()
+        except Exception:
+            return NO_VOLUME_RECORD
 
     async def merge(
         self, metadata: MarketMetadata, *, no_record_reason: str | None = None
@@ -169,14 +186,12 @@ class VolumeStore:
         With no record the metadata keeps any legacy volume it carried; otherwise it is marked
         unavailable with ``no_record_reason`` or the reason the last crawl implies.
         """
-        record = await self.read(metadata.condition_id)
+        record = await self._read_or_none(metadata.condition_id)
         if record is None:
             if metadata.volume is not None:
                 return metadata
-            return replace(
-                metadata,
-                volume_unavailable_reason=no_record_reason or await self._unavailable_reason(),
-            )
+            reason = no_record_reason or await self._reason_or_default()
+            return replace(metadata, volume_unavailable_reason=reason)
         return replace(
             metadata,
             volume=record.observation,

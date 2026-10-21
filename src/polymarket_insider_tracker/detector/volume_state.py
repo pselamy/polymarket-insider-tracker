@@ -214,9 +214,15 @@ def _verdict(
     )
 
 
+def _explicit_outcome(explicit: Decimal) -> Outcome:
+    if not explicit.is_finite():
+        return VolumeState.INVALID, NOT_A_NUMBER, None
+    return _value_outcome(explicit) or (VolumeState.AVAILABLE, "caller", explicit)
+
+
 def _explicit_verdict(explicit: Decimal, evaluated_at: datetime) -> VolumeVerdict:
     """Section 1.3: a caller assertion, stamped ``evaluated_at`` (age 0), never Gamma data."""
-    outcome = _value_outcome(explicit) or (VolumeState.AVAILABLE, "caller", explicit)
+    outcome = _explicit_outcome(explicit)
     stamp = Stamp(evaluated_at, Decimal(0), None)
     observation = VolumeObservation(True, str(explicit), evaluated_at.isoformat(), CALLER_SOURCE)
     return _verdict(outcome, observation, stamp, CALLER_SOURCE)

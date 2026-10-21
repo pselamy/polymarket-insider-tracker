@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pytest
 from fakeredis import FakeAsyncRedis
+from redis.typing import KeyT
 
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl, GammaMarketStats
 from polymarket_insider_tracker.ingestor.metadata_sync import (
@@ -285,3 +286,54 @@ async def test_category_scan_merges_the_volume_too(fake_redis: FakeAsyncRedis) -
         await sync.stop()
 
     assert [m.volume is not None for m in found] == [True]
+
+
+class UnreadableVolumeRedis(FakeAsyncRedis):
+    """Serves the CLOB record but fails every read of a volume key."""
+
+    async def get(self, name: KeyT) -> object:
+        if str(name).startswith(DEFAULT_VOLUME_KEY_PREFIX):
+            raise ConnectionError("volume read failed")
+        return await super().get(name)
+
+
+@pytest.mark.asyncio
+async def test_unreadable_volume_store_leaves_the_clob_metadata_usable() -> None:
+    redis = UnreadableVolumeRedis()
+    await redis.set(
+        f"{DEFAULT_REDIS_KEY_PREFIX}{CID}", json.dumps(MarketMetadata.from_market(MARKET).to_dict())
+    )
+
+    market = await _sync(redis).get_cached_market(CID)
+
+    assert market is not None
+    assert (market.question, market.volume) == (MARKET.question, None)
+    assert market.volume_unavailable_reason == "no_volume_record"
+
+
+@pytest.mark.asyncio
+async def test_non_utf8_volume_bytes_are_not_a_record(fake_redis: FakeAsyncRedis) -> None:
+    await fake_redis.set(DEFAULT_VOLUME_KEY_PREFIX + CID, b"\xff\xfe")
+    await fake_redis.set(DEFAULT_VOLUME_KEY_PREFIX + "_crawl", b"\xff\xfe")
+
+    merged = await VolumeStore(fake_redis).merge(MarketMetadata.from_market(MARKET))
+
+    assert (merged.volume, merged.volume_unavailable_reason) == (None, "no_volume_record")
+
+
+@pytest.mark.asyncio
+async def test_a_later_gamma_page_without_the_key_replaces_the_value_as_missing(
+    fake_redis: FakeAsyncRedis,
+) -> None:
+    """A Gamma object without `volume24hr` is a fresh observation of absence, not a CLOB write."""
+    store = VolumeStore(fake_redis)
+    await store.write_crawl(_crawl(_stats()), STAMP)
+    absent = GammaMarketStats(
+        CID, None, None, None, None, None, STAMP, False, None, "gamma-markets-v1"
+    )
+
+    await store.write_crawl(_crawl(absent), STAMP)
+
+    record = await store.read(CID)
+    assert record is not None
+    assert (record.observation.present, record.observation.raw) == (False, None)

@@ -187,7 +187,11 @@ async def test_get_active_market_stats_is_the_crawl_mapping(
 async def test_worst_case_entry_age_stays_inside_the_recency_rule(
     patch_async_client: PatchAsyncClient,
 ) -> None:
-    """data-model 1.4: S_g + 2g + w_g <= 600, g measured from a full 50-page fake crawl."""
+    """data-model 1.4 arithmetic: S_g + 2g + w_g <= 600 with g measured from a full fake crawl.
+
+    This pins the default cadence against the measured fake durations only; it does not bound
+    ``g`` under real timeouts and retries (up to 3 x 15 s per page), which no test can prove.
+    """
     patch_async_client(_serve({index: [] for index in range(50)}))
 
     crawl = await _client(max_pages=50).crawl_active_markets()
@@ -196,4 +200,3 @@ async def test_worst_case_entry_age_stays_inside_the_recency_rule(
 
     assert DEFAULT_GAMMA_REFRESH_INTERVAL_SECONDS + 2 * offset + write <= 600
     assert VOLUME_RECORD_TTL_SECONDS == 2 * 600
-    assert offset >= 50

@@ -207,8 +207,10 @@ class MarketMetadataSync:
         refresh = asyncio.create_task(self._gamma_refresh.refresh_once())
         try:
             await self._sync_all_markets()
-        finally:
-            await refresh
+        except BaseException:
+            refresh.cancel()
+            raise
+        await refresh
 
     async def stop(self) -> None:
         """Stop the background sync service."""

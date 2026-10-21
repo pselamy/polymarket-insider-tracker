@@ -12,7 +12,7 @@ from redis.typing import EncodableT, ExpiryT, KeyT
 
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl
 from polymarket_insider_tracker.ingestor.gamma_volume_refresh import GammaVolumeRefresh
-from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
+from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync, MetadataSyncError
 from polymarket_insider_tracker.ingestor.models import Market
 from polymarket_insider_tracker.ingestor.volume_store import VolumeStore
 from tests.fakes import FakeGammaClient
@@ -116,3 +116,21 @@ async def test_a_store_failure_is_logged_and_never_raised(
 @pytest.mark.asyncio
 async def test_stop_before_start_is_a_no_op(fake_redis: FakeAsyncRedis) -> None:
     await GammaVolumeRefresh(CountingGamma(), VolumeStore(fake_redis)).stop()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_initial_clob_sync_cancels_the_first_gamma_refresh(
+    fake_redis: FakeAsyncRedis,
+) -> None:
+    gamma = CountingGamma()
+    sync = MarketMetadataSync(
+        redis=fake_redis,
+        clob_client=FakeClobClient([], raise_error=RuntimeError("clob down")),
+        gamma_client=gamma,
+    )
+
+    with pytest.raises(MetadataSyncError):
+        await sync.start()
+
+    await asyncio.sleep(0)
+    assert not [task for task in asyncio.all_tasks() if "refresh_once" in repr(task)]

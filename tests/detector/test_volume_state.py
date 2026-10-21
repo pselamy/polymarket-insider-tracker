@@ -392,3 +392,9 @@ class TestNicheBasis:
         self, observation: VolumeObservation
     ) -> None:
         assert self._basis(observation, "science", "metadata") == "none"
+
+
+def test_a_non_finite_explicit_value_is_not_a_number() -> None:
+    verdict = classify_volume(None, evaluated_at=EVALUATED_AT, explicit=Decimal("NaN"))
+
+    assert (verdict.state, verdict.reason) == (VolumeState.INVALID, "not_a_finite_number")
