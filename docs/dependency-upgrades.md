@@ -15,7 +15,7 @@ Scope is `runtime` when the package is reachable without the `dev` extra/group
 (`uv tree --locked --no-dev`, confirmed per package with `--invert`), else `dev-only`.
 Advisory counts include GHSA/PYSEC aliases as separate osv records. `docs/security.md`
 counts osv alias groups instead (one per underlying advisory): 60 groups in 17 packages on
-`main` before family 1, 14 groups in 8 packages after it, 8 groups in 6 packages after family 6, 6 groups in 4 packages after family 3, 4 groups in 2 packages after family 5.
+`main` before family 1, 14 groups in 8 packages after it, 8 groups in 6 packages after family 6, 6 groups in 4 packages after family 3, 4 groups in 2 packages after family 5, 1 group in 1 package after family 4.
 
 ## Families
 
@@ -33,7 +33,7 @@ counts osv alias groups instead (one per underlying advisory): 60 groups in 17 p
 | 2 | web3 | web3 | 7.14.0 | 7.15.0 | 2 | runtime (direct) |
 | 3 | settings/env | pydantic-settings | 2.12.0 | 2.14.2 | 1 | runtime (direct), done: locked 2.14.2 |
 | 3 | settings/env | python-dotenv | 1.2.1 | 1.2.2 | 2 | runtime (direct), done: locked 1.2.2 |
-| 4 | alembic stack | mako | 1.3.10 | 1.4.2 | 6 | runtime (via alembic) |
+| 4 | alembic stack | mako | 1.3.10 | 1.4.2 | 6 | runtime (via alembic), done: locked 1.4.2 |
 | 5 | pytest/pygments | pytest | 9.0.2 | 9.0.3 | 2 | runtime (via poly-eip712-structs); also dev pin, done: locked 9.0.3 |
 | 5 | pytest/pygments | pygments | 2.19.2 | 2.20.0 | 2 | runtime (via pytest), done: locked 2.20.0 |
 | 6 | dev tooling | virtualenv | 20.35.4 | 21.7.13 | 10 | dev-only (via pre-commit), done: locked 21.7.13 |
@@ -65,7 +65,11 @@ lock alone is enough; no pin edits are expected for family 1.
    fixed releases. New transitive dependency: none (`uv.lock` changes only those two package entries).
    Clears 4 osv records (2 alias groups); `pyproject.toml` is unchanged (`pytest>=7.0.0` is a floor).
    Full suite passes unchanged and collection is identical (3640 tests before and after).
-5. **Family 4, mako** (alembic template engine): 1.3 -> 1.4 is a minor line change; run
-   migration tests against disposable databases only.
+5. **Family 4, mako** (alembic template engine, done): mako 1.3.10 -> 1.4.2, the minimum fixed
+   release (`uv lock --upgrade-package mako==1.4.2`; a plain upgrade would resolve 1.4.3). New
+   transitive dependency: none (`uv.lock` changes only the mako entry). Clears 6 osv records
+   (3 alias groups); `pyproject.toml` is unchanged. Alembic's `script.py.mako` renders a
+   byte-identical revision under mako 1.3.10 and 1.4.2 (compared with the Create Date masked).
+   The Postgres migration tests are service-gated (`RUN_SERVICE_TESTS`) and were not run here.
 6. **Family 2, web3**: runtime chain client; highest behavioural risk, needs the
    profiler/funding RPC tests and a changelog review, so it goes last.
