@@ -6,22 +6,28 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
 from polymarket_insider_tracker.detector.scoring_config import (
     DEFAULT_WALLET_GROUP_STATUS,
+    VERSION_004_1,
     WalletGroupStatus,
 )
 from polymarket_insider_tracker.detector.volume_state import SizeVolumeEvidence
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
+if TYPE_CHECKING:
+    from polymarket_insider_tracker.detector.evaluation import TradeEvidence
+
 # Version of the scoring algorithm (weights, bonuses, quantization, and combination
 # rules) recorded on every newly persisted assessment. Rows created before the
 # version column existed are backfilled as ``legacy-unversioned`` by migration
 # 003_safe_observable_operation because their exact configuration is unknowable.
-SCORING_ALGORITHM_VERSION = "003.1"
+# 004.1 (G1 size-only scoring, neutral 3+ key, classified volume) replaces 003.1 for new
+# rows; 003.1 rows are never rewritten (contracts/scoring-config.md section 3).
+SCORING_ALGORITHM_VERSION = VERSION_004_1
 
 # Confidence classification thresholds. The comparison is inclusive (>=) on
 # purpose; the pre-existing detector tests pin 0.70 as inclusive.
@@ -286,6 +292,10 @@ class RiskAssessment:
     # the algorithm version and the exact active configuration behind this record.
     scoring_algorithm_version: str = SCORING_ALGORITHM_VERSION
     scoring_config: str | None = None
+
+    # The evaluation evidence behind this assessment (T011); the persisted 004.1 document is
+    # composed from it at persist time. Not part of the published record.
+    evidence: TradeEvidence | None = None
 
     @property
     def is_high_risk(self) -> bool:

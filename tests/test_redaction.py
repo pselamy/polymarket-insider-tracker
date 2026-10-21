@@ -936,11 +936,11 @@ class TestDetectorFailureRedaction:
             trade = _detector_trade()
             with caplog.at_level(logging.WARNING):
                 caplog.clear()
-                _, error = await pipeline._detect_fresh_wallet(trade)
+                _, error = await pipeline._detect_fresh_wallet(trade, datetime.now(UTC))
 
             assert error is not None
             self._assert_context_preserved(
-                error=error,
+                error=error.message,
                 trade=trade,
                 keep="fresh wallet detection failed",
                 logs=caplog.text,
@@ -964,11 +964,11 @@ class TestDetectorFailureRedaction:
             trade = _detector_trade()
             with caplog.at_level(logging.WARNING):
                 caplog.clear()
-                _, error = await pipeline._detect_size_anomaly(trade)
+                _, error = await pipeline._detect_size_anomaly(trade, datetime.now(UTC))
 
             assert error is not None
             self._assert_context_preserved(
-                error=error,
+                error=error.message,
                 trade=trade,
                 keep="size anomaly detection failed",
                 logs=caplog.text,

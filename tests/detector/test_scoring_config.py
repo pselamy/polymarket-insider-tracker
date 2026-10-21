@@ -71,7 +71,8 @@ def read_document(text: str) -> Document004:
 class TestScorerOutputUnchanged:
     def test_scorer_writes_the_neutral_bonus_3_golden_bytes(self) -> None:
         scorer = RiskScorer(FakeAsyncRedis(), alert_threshold=0.8)
-        assert SCORING_ALGORITHM_VERSION == VERSION_003
+        # New rows are 004.1 documents built around exactly these pure-configuration bytes.
+        assert SCORING_ALGORITHM_VERSION == VERSION_004_1
         assert scorer.scoring_config == GOLDEN_PURE
 
     def test_003_1_row_reads_back_and_reserializes_byte_identically(self) -> None:
@@ -246,6 +247,27 @@ class TestCorruptDocuments:
         text = GOLDEN_PURE.replace('"0.4"', "0.4")
         with pytest.raises(CorruptScoringConfig, match="float"):
             read_scoring_config(VERSION_003, text)
+
+    def test_a_004_1_float_outside_the_raw_volume_is_corrupt(self) -> None:
+        text = mutate(lambda d: set_config_key(d, "size_volume_threshold", 0.02))
+        with pytest.raises(CorruptScoringConfig, match="float"):
+            read_scoring_config(VERSION_004_1, text)
+
+    @pytest.mark.parametrize("raw", ["NaN", "-Infinity", "1e999"])
+    def test_a_non_finite_raw_volume_is_corrupt(self, raw: str) -> None:
+        text = example_text(EXAMPLES[0]).replace(
+            '"volume24hr_raw":"30000"', f'"volume24hr_raw":{raw}'
+        )
+        with pytest.raises(CorruptScoringConfig, match="float"):
+            read_scoring_config(VERSION_004_1, text)
+
+    def test_a_finite_numeric_raw_volume_is_kept_verbatim(self) -> None:
+        text = example_text(EXAMPLES[0]).replace('"volume24hr_raw":"30000"', '"volume24hr_raw":3e4')
+        evidence = read_document(text).evaluation_evidence
+        assert evidence is not None
+        size = evidence["size"]
+        assert isinstance(size, dict)
+        assert size["volume24hr_raw"] == 30000.0
 
     def test_integer_where_decimal_string_expected_is_corrupt(self) -> None:
         text = GOLDEN_PURE.replace('"1.2"', "1")

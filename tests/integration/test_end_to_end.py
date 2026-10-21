@@ -42,6 +42,7 @@ from tests.integration._journey_harness import (
 )
 
 from polymarket_insider_tracker.config import Settings
+from polymarket_insider_tracker.detector.scoring_config import Document004, read_scoring_config
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.pipeline import PipelineState
 from polymarket_insider_tracker.storage.database import DatabaseManager
@@ -183,9 +184,15 @@ class TestEndToEndPipelineHarness:
         assert assessment_row.signals_triggered == 1
         assert float(assessment_row.weighted_score) == 0.45
         # The row identifies the exact algorithm and configuration that produced it.
-        assert assessment_row.scoring_algorithm_version == "003.1"
-        assert assessment_row.scoring_config is not None
-        assert '"weights"' in assessment_row.scoring_config
+        assert assessment_row.scoring_algorithm_version == "004.1"
+        document = read_scoring_config("004.1", assessment_row.scoring_config)
+        assert isinstance(document, Document004)
+        assert document.evaluation_evidence is not None
+        assert document.evaluation_evidence["result"] == {
+            "weighted_score": "0.450",
+            "signals_triggered": 1,
+            "should_alert": True,
+        }
 
     @pytest.mark.asyncio
     async def test_end_to_end_live_delivery_and_deduplication(

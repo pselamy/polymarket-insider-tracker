@@ -157,3 +157,19 @@ size diagnostics read the classified volume evidence. The numeric literals T028 
 (T029) builds the alert-path health monitor and logs the report at startup.
 The T002 premise (replay conclusions about the 003.1 contract) is unaffected because the replay corpus
 evaluates the old and proposed contracts side by side; the shipped contract is now the proposed one.
+
+## Ninth refresh: layer 3 review round 1 (2026-10-21)
+
+Review round 1 of the layer-3 PR implements T017 (rows written as `004.1`) with the minimal part of
+T011 it needs; `base_commit` stays 3aafd0b. No scoring rule, weight, bonus, threshold or confidence
+literal changes, so the scores of the eighth refresh stand.
+`detector/fresh_wallet.py` and `detector/size_anomaly.py`: additive `evaluate(trade, *, evaluated_at)`
+methods returning the frozen evaluation snapshots of `detector/evaluation.py`; `analyze` reads the
+injectable clock once and returns the evaluation's signal; read-only configuration properties (the
+fresh detector's exclusive boundary is `max_nonce + 1`); the size detector's market lookup moves
+unchanged to `detector/market_lookup.py`. `detector/models.py`: `SCORING_ALGORITHM_VERSION` is `004.1`
+and `RiskAssessment` carries the evaluation evidence. `detector/scorer.py`: the pure configuration is
+serialized through `scoring_config.serialize_pure_config` (byte-identical output) and the bundle's
+evidence is passed to the assessment. `pipeline.py`: one evaluation instant per trade for both
+detectors, detector failures keep their exception class, and the row projection moves to
+`assessment_row.py`, which writes the composed 004.1 document.

@@ -25,7 +25,6 @@ from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.fakes import (
-    BarrierDetector,
     FailingDetector,
     FakeAlertChannel,
     FakeClock,
@@ -33,6 +32,7 @@ from tests.fakes import (
     FakeTradesServer,
     make_test_settings,
     metadata_state,
+    start_detectors_together,
     trade_row,
     wire_pipeline,
 )
@@ -262,13 +262,11 @@ class TestOnTrade:
         assert pipeline.stats.errors == 0
 
     async def test_on_trade_runs_detectors_in_parallel(
-        self, test_settings: Settings, sample_trade_event: TradeEvent
+        self, test_settings: Settings, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Both detectors must be in flight at once; sequential execution would deadlock."""
-        pipeline = Pipeline(test_settings)
-        barrier = asyncio.Barrier(2)
-        pipeline._fresh_wallet_detector = BarrierDetector(barrier)
-        pipeline._size_anomaly_detector = BarrierDetector(barrier)
+        pipeline = await wire_pipeline(test_settings, redis=fake_redis, eth=FakeEth())
+        start_detectors_together(pipeline)
 
         await asyncio.wait_for(pipeline.process_trade(sample_trade_event), timeout=1.0)
 

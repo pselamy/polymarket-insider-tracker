@@ -4,7 +4,6 @@ This module provides the RiskScorer class that aggregates signals from
 multiple detectors into a unified risk assessment with weighted scoring.
 """
 
-import json
 import logging
 import warnings
 from collections.abc import Mapping
@@ -14,13 +13,18 @@ from types import MappingProxyType
 
 from redis.asyncio import Redis
 
+from polymarket_insider_tracker.detector.evaluation import TradeEvidence
 from polymarket_insider_tracker.detector.models import (
     SCORING_ALGORITHM_VERSION,
     FreshWalletSignal,
     RiskAssessment,
     SizeAnomalySignal,
 )
-from polymarket_insider_tracker.detector.scoring_config import DEFAULT_WALLET_GROUP_STATUS
+from polymarket_insider_tracker.detector.scoring_config import (
+    DEFAULT_WALLET_GROUP_STATUS,
+    PureConfig,
+    serialize_pure_config,
+)
 from polymarket_insider_tracker.detector.volume_state import VolumeState
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 
@@ -111,6 +115,7 @@ class SignalBundle:
     trade_event: TradeEvent
     fresh_wallet_signal: FreshWalletSignal | None = None
     size_anomaly_signal: SizeAnomalySignal | None = None
+    evidence: TradeEvidence | None = None
 
     @property
     def wallet_address(self) -> str:
@@ -220,17 +225,16 @@ class RiskScorer:
         float formatting; keys are sorted and separators fixed so equal
         configurations always serialize to the identical byte sequence.
         """
-        payload = {
-            "alert_threshold": str(quantize_score_value(self._alert_threshold)),
-            "multi_signal_bonus_2": str(Decimal(str(MULTI_SIGNAL_BONUS_2))),
-            "multi_signal_bonus_3": str(Decimal(NEUTRAL_BONUS_3)),
-            "score_quantum": str(SCORE_QUANTUM),
-            "weights": {
-                name: str(Decimal(str(weight)))
-                for name, weight in self._effective_weights().items()
+        pure = PureConfig(
+            alert_threshold=quantize_score_value(self._alert_threshold),
+            multi_signal_bonus_2=Decimal(str(MULTI_SIGNAL_BONUS_2)),
+            multi_signal_bonus_3=Decimal(NEUTRAL_BONUS_3),
+            score_quantum=SCORE_QUANTUM,
+            weights={
+                name: Decimal(str(weight)) for name, weight in self._effective_weights().items()
             },
-        }
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        )
+        return serialize_pure_config(pure)
 
     def _effective_weights(self) -> dict[str, float]:
         """Every weight scoring can consult, with implied zeros made explicit.
@@ -339,6 +343,7 @@ class RiskScorer:
             wallet_group_status=DEFAULT_WALLET_GROUP_STATUS,
             scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
             scoring_config=self._scoring_config,
+            evidence=bundle.evidence,
         )
 
     def calculate_weighted_score(self, bundle: SignalBundle) -> tuple[float, int]:

@@ -29,7 +29,23 @@ from polymarket_insider_tracker.alerter.dispatcher import (
 )
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.alerter.history import AlertHistory
+from polymarket_insider_tracker.assessment_row import assessment_dto
 from polymarket_insider_tracker.config import Settings, get_settings
+from polymarket_insider_tracker.detector.detector_config import (
+    capture_detector_config,
+    default_detector_config,
+)
+from polymarket_insider_tracker.detector.evaluation import (
+    DetectorError,
+    SizeEvaluation,
+    TradeEvidence,
+    WalletEvaluation,
+)
+from polymarket_insider_tracker.detector.evaluation_clock import (
+    Clock,
+    read_evaluation_instant,
+    system_clock,
+)
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
@@ -48,7 +64,6 @@ from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.repos import (
     FundingRepository,
     FundingTransferDTO,
-    RiskAssessmentDTO,
     RiskAssessmentRepository,
     WalletProfileDTO,
     WalletRepository,
@@ -60,22 +75,50 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from polymarket_insider_tracker.alerter.models import FormattedAlert
-    from polymarket_insider_tracker.detector.models import (
-        FreshWalletSignal,
-        SizeAnomalySignal,
-    )
+    from polymarket_insider_tracker.detector.models import FreshWalletSignal
     from polymarket_insider_tracker.ingestor.models import TradeEvent
 
 logger = logging.getLogger(__name__)
 
 
-_SignalT = TypeVar("_SignalT", covariant=True)
+_EvaluationT = TypeVar("_EvaluationT", covariant=True)
 
 
-class SignalDetector(Protocol[_SignalT]):
-    """A detector the pipeline can run on a trade (satisfied structurally by the real detectors)."""
+class Evaluator(Protocol[_EvaluationT]):
+    """A detector the pipeline evaluates a trade with (satisfied by the real detectors)."""
 
-    async def analyze(self, trade: TradeEvent) -> _SignalT | None: ...
+    async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> _EvaluationT: ...
+
+
+async def _run_detector(
+    detector: str, trade: TradeEvent, evaluation: Awaitable[_EvaluationT]
+) -> tuple[_EvaluationT | None, DetectorError | None]:
+    """Await one detector's evaluation; a failure is logged redacted and returned, not raised."""
+    try:
+        return await evaluation, None
+    except Exception as e:
+        message = redact_text(
+            f"{detector.replace('_', ' ')} detection failed for trade {trade.trade_id}:"
+            f" {redact_exception_message(e)}"
+        )
+        logger.warning("%s", message)
+        return None, DetectorError(detector, type(e).__name__, message)
+
+
+def _signal_bundle(trade: TradeEvent, evidence: TradeEvidence) -> SignalBundle:
+    """The bundle the scorer reads: each evaluation's signal, with the evidence behind them."""
+    wallet, size = evidence.wallet, evidence.size
+    fresh_signal = wallet.signal if wallet is not None else None
+    return SignalBundle(trade, fresh_signal, size.signal if size is not None else None, evidence)
+
+
+def _failures_only(evidence: TradeEvidence | None) -> TradeEvidence | None:
+    """A skip row records its detector failures and no evaluation evidence."""
+    if evidence is None:
+        return None
+    return TradeEvidence(
+        evidence.evaluated_at, evidence.detector_config, failures=evidence.failures
+    )
 
 
 class RedisFactory(Protocol):
@@ -165,8 +208,10 @@ class Pipeline:
         self._clob_client: ClobClient | None = None
         self._metadata_sync: MarketMetadataSync | None = None
         self._wallet_analyzer: WalletAnalyzer | None = None
-        self._fresh_wallet_detector: SignalDetector[FreshWalletSignal] | None = None
-        self._size_anomaly_detector: SignalDetector[SizeAnomalySignal] | None = None
+        self._fresh_wallet_detector: Evaluator[WalletEvaluation] | None = None
+        self._size_anomaly_detector: Evaluator[SizeEvaluation] | None = None
+        self._detector_config = default_detector_config()
+        self._clock: Clock = system_clock
         self._risk_scorer: RiskScorer | None = None
         self._alert_formatter: AlertFormatter | None = None
         self._alert_history: AlertHistory | None = None
@@ -392,8 +437,10 @@ class Pipeline:
 
         # Initialize Detectors
         logger.debug("Initializing detectors...")
-        self._fresh_wallet_detector = FreshWalletDetector(self._wallet_analyzer)
-        self._size_anomaly_detector = SizeAnomalyDetector(self._metadata_sync)
+        fresh_detector = FreshWalletDetector(self._wallet_analyzer)
+        size_detector = SizeAnomalyDetector(self._metadata_sync)
+        self._detector_config = capture_detector_config(fresh_detector, size_detector)
+        self._fresh_wallet_detector, self._size_anomaly_detector = fresh_detector, size_detector
 
         # Initialize Risk Scorer
         logger.debug("Initializing risk scorer...")
@@ -603,35 +650,39 @@ class Pipeline:
 
     async def _detect_score_and_alert(self, trade: TradeEvent) -> None:
         """Run detectors, count their failures, then score/alert or persist a skip row."""
-        # Run detectors in parallel; each returns its signal and any failure message
-        (fresh_signal, fresh_error), (size_signal, size_error) = await asyncio.gather(
-            self._detect_fresh_wallet(trade),
-            self._detect_size_anomaly(trade),
-        )
-        had_detector_failure = self._record_detector_failures(fresh_error, size_error)
+        evidence = await self._evaluate(trade)
+        bundle = _signal_bundle(trade, evidence)
+        fresh_signal = bundle.fresh_wallet_signal
 
         # Persist wallet profile and funding data when a fresh wallet is detected
         if fresh_signal is not None:
             await self._persist_wallet_and_funding(fresh_signal)
 
-        bundle = SignalBundle(
-            trade_event=trade,
-            fresh_wallet_signal=fresh_signal,
-            size_anomaly_signal=size_signal,
-        )
-        if fresh_signal or size_signal:
+        if fresh_signal or bundle.size_anomaly_signal:
             self._stats.signals_generated += 1
             await self._score_and_alert(bundle)
-        elif had_detector_failure:
+        elif evidence.failures:
             await self._persist_detector_failure_skip(bundle)
 
-    def _record_detector_failures(self, *errors: str | None) -> bool:
+    async def _evaluate(self, trade: TradeEvent) -> TradeEvidence:
+        """Run both detectors in parallel at one evaluation instant; count their failures."""
+        # One evaluation instant per trade, shared by both detectors (detector-api.md section 2)
+        evaluated_at = read_evaluation_instant(self._clock)
+        (wallet, fresh_error), (size, size_error) = await asyncio.gather(
+            self._detect_fresh_wallet(trade, evaluated_at),
+            self._detect_size_anomaly(trade, evaluated_at),
+        )
+        errors = self._record_detector_failures(fresh_error, size_error)
+        failures = tuple(error.recorded() for error in errors)
+        return TradeEvidence(evaluated_at, self._detector_config, wallet, size, failures)
+
+    def _record_detector_failures(self, *errors: DetectorError | None) -> tuple[DetectorError, ...]:
         """Count each failed detector and expose the failure in operational state."""
-        failures = [error for error in errors if error]
-        for error in failures:
+        failed = tuple(error for error in errors if error is not None)
+        for error in failed:
             self._stats.errors += 1
-            self._stats.last_error = redact_text(error)
-        return bool(failures)
+            self._stats.last_error = redact_text(error.message)
+        return failed
 
     async def _persist_detector_failure_skip(self, bundle: SignalBundle) -> None:
         """Persist why no evidence exists when detector failure is the only outcome.
@@ -651,6 +702,8 @@ class Pipeline:
             # The skip row was produced under the active configuration even though
             # no score was computed; record it so the row stays self-describing.
             scoring_config=(self._risk_scorer.scoring_config if self._risk_scorer else None),
+            # No evaluation evidence (contracts/scoring-config.md section 4): failures only.
+            evidence=_failures_only(bundle.evidence),
         )
         await self._persist_assessment(assessment)
 
@@ -718,36 +771,22 @@ class Pipeline:
         return len(chain.chain)
 
     async def _detect_fresh_wallet(
-        self, trade: TradeEvent
-    ) -> tuple[FreshWalletSignal | None, str | None]:
+        self, trade: TradeEvent, evaluated_at: datetime
+    ) -> tuple[WalletEvaluation | None, DetectorError | None]:
         """Run fresh wallet detection; a failure is returned so it can be counted."""
         if not self._fresh_wallet_detector:
             return None, None
-        try:
-            return await self._fresh_wallet_detector.analyze(trade), None
-        except Exception as e:
-            message = redact_text(
-                f"fresh wallet detection failed for trade {trade.trade_id}:"
-                f" {redact_exception_message(e)}"
-            )
-            logger.warning("%s", message)
-            return None, message
+        evaluation = self._fresh_wallet_detector.evaluate(trade, evaluated_at=evaluated_at)
+        return await _run_detector("fresh_wallet", trade, evaluation)
 
     async def _detect_size_anomaly(
-        self, trade: TradeEvent
-    ) -> tuple[SizeAnomalySignal | None, str | None]:
+        self, trade: TradeEvent, evaluated_at: datetime
+    ) -> tuple[SizeEvaluation | None, DetectorError | None]:
         """Run size anomaly detection; a failure is returned so it can be counted."""
         if not self._size_anomaly_detector:
             return None, None
-        try:
-            return await self._size_anomaly_detector.analyze(trade), None
-        except Exception as e:
-            message = redact_text(
-                f"size anomaly detection failed for trade {trade.trade_id}:"
-                f" {redact_exception_message(e)}"
-            )
-            logger.warning("%s", message)
-            return None, message
+        evaluation = self._size_anomaly_detector.evaluate(trade, evaluated_at=evaluated_at)
+        return await _run_detector("size_anomaly", trade, evaluation)
 
     def _can_alert(self) -> bool:
         return (
@@ -875,57 +914,10 @@ class Pipeline:
         """
         if not self._db_manager:
             return False
-        from decimal import Decimal as _D
-
-        from polymarket_insider_tracker.detector.scorer import quantize_score_value
-
-        trade = assessment.trade_event
-        fresh = assessment.fresh_wallet_signal
-        size_sig = assessment.size_anomaly_signal
-        wallet_age: _D | None = None
-        if fresh is not None and fresh.wallet_profile.age_hours is not None:
-            wallet_age = _D(str(round(float(fresh.wallet_profile.age_hours), 2)))
-        dto = RiskAssessmentDTO(
-            assessment_id=assessment.assessment_id,
-            trade_id=trade.trade_id,
-            wallet_address=assessment.wallet_address.lower(),
-            market_id=assessment.market_id,
-            asset_id=getattr(trade, "asset_id", None) or None,
-            side=trade.side,
-            outcome=getattr(trade, "outcome", None) or None,
-            outcome_index=getattr(trade, "outcome_index", None),
-            price=trade.price,
-            size=trade.size,
-            notional_usdc=trade.notional_value,
-            trade_timestamp=trade.timestamp,
-            # The scorer quantizes with the same function, so the stored score,
-            # confidences, and threshold replay the decision exactly (FR-012).
-            weighted_score=quantize_score_value(assessment.weighted_score),
-            signals_triggered=assessment.signals_triggered,
-            fresh_wallet_confidence=(
-                quantize_score_value(fresh.confidence) if fresh is not None else None
-            ),
-            size_anomaly_confidence=(
-                quantize_score_value(size_sig.confidence) if size_sig is not None else None
-            ),
-            is_niche_market=size_sig.is_niche_market if size_sig is not None else None,
-            volume_impact=(
-                _D(str(round(size_sig.volume_impact, 4))) if size_sig is not None else None
-            ),
-            book_impact=(_D(str(round(size_sig.book_impact, 4))) if size_sig is not None else None),
-            wallet_age_hours=wallet_age,
-            should_alert=assessment.should_alert,
-            threshold_at_eval=quantize_score_value(self._settings.detector.alert_threshold),
-            scoring_algorithm_version=assessment.scoring_algorithm_version,
-            scoring_config=assessment.scoring_config,
-            delivery_disposition=assessment.delivery_disposition,
-            delivery_channels=assessment.delivery_channels,
-            dry_run=assessment.dry_run,
-            volume_available=assessment.volume_available,
-            market_daily_volume=assessment.market_daily_volume,
-            book_depth_available=assessment.book_depth_available,
-            wallet_tx_count=assessment.wallet_tx_count,
-            wallet_age_known=assessment.wallet_age_known,
+        dto = assessment_dto(
+            assessment,
+            alert_threshold=self._settings.detector.alert_threshold,
+            detector_config=self._detector_config,
         )
         try:
             async with self._db_manager.get_async_session() as session:

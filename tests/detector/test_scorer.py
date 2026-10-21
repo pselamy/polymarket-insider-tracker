@@ -631,7 +631,7 @@ class TestScoringIdentityAndCompatibility:
         assert scorer.get_weights() == dict(DEFAULT_WEIGHTS)
 
     def test_algorithm_version_is_pinned(self) -> None:
-        assert SCORING_ALGORITHM_VERSION == "003.1"
+        assert SCORING_ALGORITHM_VERSION == "004.1"
 
     def test_weights_constructor_argument_works_with_deprecation_warning(
         self, fake_redis: FakeAsyncRedis

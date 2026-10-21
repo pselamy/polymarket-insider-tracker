@@ -6,6 +6,8 @@ import asyncio
 import json
 import threading
 from collections.abc import Sequence
+from datetime import datetime
+from typing import Generic, NoReturn, TypeVar
 
 from redis.asyncio import Redis
 
@@ -36,7 +38,7 @@ from polymarket_insider_tracker.ingestor.metadata_sync import (
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
-from polymarket_insider_tracker.pipeline import Pipeline
+from polymarket_insider_tracker.pipeline import Evaluator, Pipeline
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import FundingTracer
@@ -48,6 +50,7 @@ from tests.fakes.trades_v2 import FakeV2TradesServer
 from tests.fakes.web3 import FakeAsyncWeb3, FakeEth
 
 TradesServer = FakeTradesServer | FakeV2TradesServer
+EvaluationT = TypeVar("EvaluationT")
 
 
 def make_test_settings(
@@ -224,27 +227,38 @@ def metadata_state(pipeline: Pipeline) -> SyncState:
 
 
 class FailingDetector:
-    """A detector whose analysis raises, exercising the pipeline's detector-failure
+    """A detector whose evaluation raises, exercising the pipeline's detector-failure
     counting and skip-disposition handling deterministically."""
 
     def __init__(self, error: Exception) -> None:
         self.error = error
 
-    async def analyze(self, trade: TradeEvent) -> None:
-        _ = trade
+    async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> NoReturn:
+        _ = trade, evaluated_at
         raise self.error
 
 
-class BarrierDetector:
+class BarrierDetector(Generic[EvaluationT]):
     """A detector that finishes only once every detector sharing its barrier has started.
 
     Sequential execution deadlocks at the barrier, so completing within a timeout proves the
-    pipeline runs detectors concurrently without measuring wall-clock time.
+    pipeline runs detectors concurrently without measuring wall-clock time. After the barrier
+    the wrapped real detector evaluates the trade.
     """
 
-    def __init__(self, barrier: asyncio.Barrier) -> None:
+    def __init__(self, barrier: asyncio.Barrier, inner: Evaluator[EvaluationT]) -> None:
         self._barrier = barrier
+        self._inner = inner
 
-    async def analyze(self, trade: TradeEvent) -> None:
-        _ = trade
+    async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> EvaluationT:
         await self._barrier.wait()
+        return await self._inner.evaluate(trade, evaluated_at=evaluated_at)
+
+
+def start_detectors_together(pipeline: Pipeline) -> None:
+    """Make the pipeline's two real detectors wait for each other at one shared barrier."""
+    barrier = asyncio.Barrier(2)
+    assert pipeline._fresh_wallet_detector is not None
+    assert pipeline._size_anomaly_detector is not None
+    pipeline._fresh_wallet_detector = BarrierDetector(barrier, pipeline._fresh_wallet_detector)
+    pipeline._size_anomaly_detector = BarrierDetector(barrier, pipeline._size_anomaly_detector)

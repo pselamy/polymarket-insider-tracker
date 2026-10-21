@@ -8,6 +8,7 @@ mismatch, a schema violation or an unknown version is surfaced, never coerced.
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -17,7 +18,8 @@ from typing import NoReturn, TypeAlias
 
 from polymarket_insider_tracker.detector.evaluation_clock import parse_stored_instant
 
-JsonValue: TypeAlias = "None | bool | int | str | list[JsonValue] | dict[str, JsonValue]"
+# ``float`` appears only as a verbatim ``size.volume24hr_raw`` (data-model section 1.1a).
+JsonValue: TypeAlias = "None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]"
 
 LEGACY_VERSION = "legacy-unversioned"
 VERSION_003 = "003.1"
@@ -165,12 +167,49 @@ def _weights(value: JsonValue) -> dict[str, Decimal]:
     return {name: _decimal(weight, f"weights.{name}") for name, weight in sorted(obj.items())}
 
 
-def _load_object(text: str) -> dict[str, JsonValue]:
+def _load_object(
+    text: str, parse_float: Callable[[str], JsonValue] = _reject_float
+) -> dict[str, JsonValue]:
     try:
-        decoded: JsonValue = json.loads(text, parse_float=_reject_float)
+        decoded: JsonValue = json.loads(text, parse_float=parse_float, parse_constant=_reject_float)
     except json.JSONDecodeError as exc:
         raise _corrupt(f"scoring_config is not JSON: {exc.msg}") from exc
     return _object(decoded, "scoring_config")
+
+
+def _children(value: JsonValue) -> list[JsonValue]:
+    if isinstance(value, dict):
+        return list(value.values())
+    return value if isinstance(value, list) else []
+
+
+def _has_float(value: JsonValue) -> bool:
+    return isinstance(value, float) or any(_has_float(item) for item in _children(value))
+
+
+def _without_raw(obj: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """``obj`` with the one member that may hold a decoded JSON number blanked out."""
+    evidence = obj.get("evaluation_evidence")
+    if not isinstance(evidence, dict) or not isinstance(evidence.get("size"), dict):
+        return obj
+    size = _object(evidence["size"], "size")
+    blank_size: JsonValue = {**size, "volume24hr_raw": None}
+    return {**obj, "evaluation_evidence": {**evidence, "size": blank_size}}
+
+
+def _finite_float(token: str) -> float:
+    value = float(token)
+    if not math.isfinite(value):
+        _reject_float(token)
+    return value
+
+
+def _load_document(text: str) -> dict[str, JsonValue]:
+    """A 004.1 document: decimals are strings; only a verbatim raw volume may be a number."""
+    obj = _load_object(text, _finite_float)
+    if _has_float(_without_raw(obj)):
+        raise _corrupt("float in scoring_config; decimals are strings")
+    return obj
 
 
 def _pure_config(obj: Mapping[str, JsonValue]) -> PureConfig:
@@ -260,14 +299,15 @@ def _evidence_status(
     return evidence, _wallet_group_status(evidence)
 
 
-def _read_pure(text: str) -> PureConfig:
+def read_pure_config(text: str) -> PureConfig:
+    """Read exactly the five-key pure configuration (``RiskScorer.scoring_config``)."""
     obj = _load_object(text)
     _exact_keys(obj, _PURE_KEYS, "003.1 scoring_config")
     return _pure_config(obj)
 
 
 def _read_004_1(text: str) -> Document004:
-    obj = _load_object(text)
+    obj = _load_document(text)
     _exact_keys(obj, _DOCUMENT_KEYS, "004.1 scoring_config")
     if obj["evidence_schema"] != VERSION_004_1:
         raise _corrupt("evidence_schema does not equal the row's scoring_algorithm_version")
@@ -284,7 +324,7 @@ def _read_004_1(text: str) -> Document004:
 
 
 _READERS: dict[str, Callable[[str], ScoringConfig]] = {
-    VERSION_003: _read_pure,
+    VERSION_003: read_pure_config,
     VERSION_004_1: _read_004_1,
 }
 

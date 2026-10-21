@@ -12,10 +12,10 @@ from tests.fakes.clob import FakeBaseClobClient
 from tests.fakes.gamma import FakeGammaClient
 from tests.fakes.metadata import FakeMetadataSync
 from tests.fakes.pipeline import (
-    BarrierDetector,
     FailingDetector,
     make_test_settings,
     metadata_state,
+    start_detectors_together,
     wire_pipeline,
 )
 from tests.fakes.trades import (
@@ -35,7 +35,6 @@ from tests.fakes.v2_walk import CountingBudget, FakeCursorFeed, v2_envelope, v2_
 from tests.fakes.web3 import FakeAsyncWeb3, FakeEth, TransferLogIndex, transfer_log
 
 __all__ = [
-    "BarrierDetector",
     "FailingDetector",
     "FakeAlertChannel",
     "FakeAsyncWeb3",
@@ -56,6 +55,7 @@ __all__ = [
     "non_list_body",
     "resist_cancellation_for",
     "server_error",
+    "start_detectors_together",
     "synthetic_wallet",
     "terminal",
     "throttled",

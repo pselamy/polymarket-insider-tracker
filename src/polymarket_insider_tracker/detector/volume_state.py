@@ -23,6 +23,7 @@ from polymarket_insider_tracker.ingestor.models import MarketMetadata
 from polymarket_insider_tracker.ingestor.volume_observation import (
     GAMMA_SOURCE,
     NUMERIC_TOKEN,
+    JsonValue,
     VolumeObservation,
 )
 
@@ -74,7 +75,7 @@ class VolumeVerdict:
     reason: str
     daily_volume: Decimal | None
     present: bool
-    raw: object
+    raw: JsonValue
     source: str | None
     acquired_at: str | None
     age_seconds: str | None

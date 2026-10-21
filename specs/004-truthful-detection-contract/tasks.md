@@ -66,6 +66,14 @@ Named files, entry points, dependency order:
   `SignalBundle` → `RiskAssessment` → `_persist_assessment` → `alerter/formatter.py`
   (FR-003–005). Signature and clock per contracts/detector-api.md §2 (`evaluate(..., evaluated_at)`,
   injectable `clock`), explicit `daily_volume` rule §3, `Decimal | None` measured companions §4
+  *Layer 3 receipt (partial, stays unticked; only what T017 needs)*: `detector/evaluation.py` holds frozen
+  `WalletEvaluation`/`SizeEvaluation`/`TradeEvidence`; `FreshWalletDetector.evaluate(trade, *, evaluated_at)` and
+  `SizeAnomalyDetector.evaluate(trade, *, evaluated_at, daily_volume, book_depth)` share one acquisition with the
+  `analyze` wrappers (which read the injectable `clock` once per trade); the pipeline reads one instant per trade
+  for both detectors and carries the evidence `SignalBundle` → `RiskAssessment` → `_persist_assessment`
+  (`tests/detector/test_evaluation.py`). **Not done**: the formatter leg (`alerter/formatter.py`), the
+  `fresh_transaction_boundary` constructor argument (T016; the effective `B` is exposed read-only as
+  `max_nonce + 1`), and the §4 measured companions on the signal (T016).
 - [x] T012a [US1] `ingestor/gamma_client.py`: injectable clock; `_fetch_page_payload` returns items +
   `acquired_at` at response-body receipt; page tuples survive `_fetch_all_pages`/`_aggregate_pages`;
   `GammaMarketStats` gains `acquired_at`, `volume24hr_present`, `volume24hr_raw` (decoded JSON value, semantic
@@ -104,7 +112,7 @@ Named files, entry points, dependency order:
 
 ## Phase 5: US3 Coherent scoring contract [US3] (future implementation)
 
-- [ ] T015a [US3] **Pre-T027 (ships with 004; not gated by T027)** threshold/bonus/override tests in
+- [x] T015a [US3] **Pre-T027 (ships with 004; not gated by T027)** threshold/bonus/override tests in
   `tests/detector/test_scorer.py`: default 0.80 equality (inclusive `>=`, 0.001 quantum),
   effective-threshold recording, 3+ branch removed with the `multi_signal_bonus_3` neutral key retained,
   the one-scoring-group posture (bonus `1`, `signals_triggered ≤ 1`, wallet contribution `0`), override
@@ -114,6 +122,9 @@ Named files, entry points, dependency order:
   the override alert are covered in `tests/detector/test_scorer_g1.py`, `test_scorer.py` and `test_alert_path.py`.
   **Not done**: writing every row as `004.1` (T017) and the effective-threshold reconstruction from a `004.1` document;
   rows still carry `scoring_algorithm_version` `003.1`.
+  *Layer 3 review round 1 receipt (ticked)*: every pipeline row is written as `004.1`, and the default (`0.800`) and
+  override (`0.400`, alerting) thresholds reconstruct from the stored document and equal `threshold_at_eval`
+  (`tests/integration/test_scoring_config_rows.py`).
 - [ ] T015b [US3] **Post-T027 (gated by a T027 PASS receipt; lands in the gate-opening change)**: the
   reachable two-group 1.2 bonus with a scoring wallet group on the default configuration, rows written as
   `004.2` (contracts/scoring-config.md §2a), and the post-T027 reachability ceilings of T028 (FR-011)
@@ -124,7 +135,7 @@ Named files, entry points, dependency order:
   zero; formatter gains the single `Size vs 24h volume` line; persistence writes the measured companion
   (None ⇒ NULL) instead of `round(float,4)` (`pipeline.py:913-915`); alias table incl. negative `max_nonce`
   `ValueError` (FR-005/009, F18–F21)
-- [ ] T017 [US3] Versioned `004.1` envelope persistence reusing 003 schema/harness
+- [x] T017 [US3] Versioned `004.1` envelope persistence reusing 003 schema/harness
   (`storage/models.py`, `storage/repos.py`, `pipeline.py::_persist_assessment`); old `003.1`
   / legacy-unversioned rows read unchanged with version-specific semantics (FR-020, SC-006).
   Depends on T011. Includes: the version-dispatched reader of `contracts/scoring-config.md` §3
@@ -134,6 +145,14 @@ Named files, entry points, dependency order:
   `evaluation_evidence: null` + `detector_failures`. The contract text of slice 003
   `assessment-storage.md` §4 is already amended (versioned union); T017 only implements it and
   must not reopen that text.
+  *Layer 3 review round 1 receipt (ticked)*: `detector/evidence_document.py` composes the document at persist time
+  (`assessment_row.py`, called by `pipeline.py::_persist_assessment`; no DDL); new rows carry `004.1`, `003.1` and
+  legacy rows are untouched. `tests/integration/test_scoring_config_rows.py` validates real persisted rows against
+  `scoring-config-004.1.schema.json` plus `check_envelope.reconstruct`, reads them back through
+  `read_scoring_config`, covers the detector-failure row (`evaluation_evidence: null` + `detector_failures`) and a
+  wallet retrieval failure, and reads a stored `003.1` row back byte-identically. The reader now accepts a verbatim
+  finite JSON number in `size.volume24hr_raw` only (data-model §1.1a; Gamma sends a number) and still rejects a float
+  anywhere else. Depends on the partial T011 above for its evidence.
 
 ## Phase 6: Cross-cutting evidence (future implementation)
 

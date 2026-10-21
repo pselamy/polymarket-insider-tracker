@@ -6,18 +6,24 @@ with unusually large position sizes relative to market liquidity.
 
 import logging
 from collections.abc import Awaitable, Sequence
+from datetime import datetime
 from decimal import Decimal
-from typing import Protocol
 
 from polymarket_insider_tracker.detector._batch import gather_signals
-from polymarket_insider_tracker.detector.evaluation_clock import Clock, system_clock
+from polymarket_insider_tracker.detector.evaluation import SizeEvaluation
+from polymarket_insider_tracker.detector.evaluation_clock import (
+    Clock,
+    read_evaluation_instant,
+    system_clock,
+    utc_instant,
+)
+from polymarket_insider_tracker.detector.market_lookup import MarketMetadataSource, fetch_market
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.detector.volume_state import (
     SizeVolumeEvidence,
     size_volume_evidence,
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
-from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +43,6 @@ VOLUME_SCORE_CAP = 0.5
 NICHE_MULTIPLIER = 1.5
 MAX_VOLUME_CONFIDENCE = VOLUME_SCORE_CAP
 MAX_NICHE_CONFIDENCE = VOLUME_SCORE_CAP * NICHE_MULTIPLIER
-
-
-class MarketMetadataSource(Protocol):
-    """Market lookup the detector needs (satisfied structurally by ``MarketMetadataSync``)."""
-
-    async def get_market(self, condition_id: str, /) -> MarketMetadata | None: ...
 
 
 class SizeAnomalyDetector:
@@ -103,6 +103,21 @@ class SizeAnomalyDetector:
         self._niche_min_trade_size = niche_min_trade_size
         self._clock = clock
 
+    @property
+    def volume_threshold(self) -> float:
+        """The volume-impact ratio a trade must exceed."""
+        return self._volume_threshold
+
+    @property
+    def niche_volume_threshold(self) -> Decimal:
+        """The daily volume below which an available volume makes a market niche."""
+        return self._niche_volume_threshold
+
+    @property
+    def niche_min_trade_size(self) -> Decimal:
+        """The minimum notional of a niche-only signal."""
+        return self._niche_min_trade_size
+
     async def analyze(
         self,
         trade: TradeEvent,
@@ -129,7 +144,27 @@ class SizeAnomalyDetector:
             SizeAnomalySignal if the trade triggers anomaly detection,
             None otherwise.
         """
-        metadata, category_source = await self._fetch_metadata(trade)
+        instant = read_evaluation_instant(self._clock)
+        evaluation = await self.evaluate(
+            trade, evaluated_at=instant, daily_volume=daily_volume, book_depth=book_depth
+        )
+        return evaluation.signal
+
+    async def evaluate(
+        self,
+        trade: TradeEvent,
+        *,
+        evaluated_at: datetime,
+        daily_volume: Decimal | None = None,
+        book_depth: Decimal | None = None,
+    ) -> SizeEvaluation:
+        """The size evidence of ``trade`` at ``evaluated_at``, with the signal when one is emitted.
+
+        Raises:
+            ValueError: ``evaluated_at`` is naive.
+        """
+        instant = utc_instant(evaluated_at)
+        metadata, category_source = await fetch_market(self._metadata_sync, trade)
         trade_size = trade.notional_value
 
         # Calculate impacts
@@ -139,10 +174,21 @@ class SizeAnomalyDetector:
             metadata,
             category_source,
             trade_size,
-            self._clock,
+            lambda: instant,
             daily_volume,
             self._niche_volume_threshold,
         )
+        signal = self._signal(trade, metadata, evidence, book_depth)
+        return SizeEvaluation(instant, trade_size, evidence, signal)
+
+    def _signal(
+        self,
+        trade: TradeEvent,
+        metadata: MarketMetadata,
+        evidence: SizeVolumeEvidence,
+        book_depth: Decimal | None,
+    ) -> SizeAnomalySignal | None:
+        trade_size = trade.notional_value
         volume_impact = self._volume_impact(evidence)
         book_impact = self._calculate_book_impact(trade_size, book_depth)
         is_niche = evidence.niche_basis != "none"
@@ -183,25 +229,6 @@ class SizeAnomalyDetector:
             volume_evidence=evidence,
         )
 
-    async def _fetch_metadata(self, trade: TradeEvent) -> tuple[MarketMetadata, str]:
-        """The market metadata and its category source (``metadata`` or ``minimal``)."""
-        try:
-            metadata = await self._metadata_sync.get_market(trade.market_id)
-            if metadata is None:
-                logger.warning(
-                    "No metadata found for market %s, creating minimal metadata",
-                    trade.market_id,
-                )
-                return self._create_minimal_metadata(trade), "minimal"
-            return metadata, "metadata"
-        except Exception as e:
-            logger.warning(
-                "Failed to get metadata for market %s: %s",
-                trade.market_id,
-                redact_exception_message(e),
-            )
-            return self._create_minimal_metadata(trade), "minimal"
-
     def _should_skip_trade(
         self,
         trade: TradeEvent,
@@ -232,24 +259,6 @@ class SizeAnomalyDetector:
             return True
 
         return False
-
-    def _create_minimal_metadata(self, trade: TradeEvent) -> MarketMetadata:
-        """Create minimal metadata from trade event."""
-        from polymarket_insider_tracker.ingestor.models import Token
-
-        return MarketMetadata(
-            condition_id=trade.market_id,
-            question=trade.event_title or "Unknown Market",
-            description="",
-            tokens=(
-                Token(
-                    token_id=trade.asset_id,
-                    outcome=trade.outcome,
-                    price=trade.price,
-                ),
-            ),
-            category="other",
-        )
 
     @staticmethod
     def _volume_impact(evidence: SizeVolumeEvidence) -> float:
