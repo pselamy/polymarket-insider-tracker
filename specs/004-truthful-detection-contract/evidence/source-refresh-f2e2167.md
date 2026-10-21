@@ -173,3 +173,11 @@ serialized through `scoring_config.serialize_pure_config` (byte-identical output
 evidence is passed to the assessment. `pipeline.py`: one evaluation instant per trade for both
 detectors, detector failures keep their exception class, and the row projection moves to
 `assessment_row.py`, which writes the composed 004.1 document.
+
+## Tenth refresh: alert-path report from the effective scorer configuration (2026-10-21)
+
+Review round 1 requires the FR-022a report to use the same effective weights and threshold as the
+running `RiskScorer`; `base_commit` stays 3aafd0b and no scoring rule or literal changes.
+`detector/scorer.py`: a read-only `alert_threshold` property. `pipeline.py`: the startup call binds the
+alert-path health monitor to the scorer it built (`bind_scorer`), so `/health` and the startup record
+are computed from that scorer's current weights and threshold.

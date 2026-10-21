@@ -10,12 +10,14 @@ through the real scorer combination, and is shown on the startup log, ``--config
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Literal
 
 from polymarket_insider_tracker.detector.scorer import (
     DEFAULT_WEIGHTS,
+    RiskScorer,
     quantize_score_value,
     size_group_score,
 )
@@ -80,22 +82,25 @@ class AlertPathReport:
         )
 
 
-def _best_case_ceiling() -> Decimal:
-    """The best score any producible class reaches, via the real scorer combination.
+def _best_case_ceiling(weights: Mapping[str, float]) -> Decimal:
+    """The best score any producible class reaches under ``weights``, via the real combination.
 
     While the wallet group is unqualified it contributes nothing, so the producible classes are
     the size group with and without the niche modifier at their saturated confidences.
     """
-    niche, _ = size_group_score(DEFAULT_WEIGHTS, MAX_NICHE_CONFIDENCE, niche=True)
-    plain, _ = size_group_score(DEFAULT_WEIGHTS, MAX_VOLUME_CONFIDENCE, niche=False)
+    niche, _ = size_group_score(weights, MAX_NICHE_CONFIDENCE, niche=True)
+    plain, _ = size_group_score(weights, MAX_VOLUME_CONFIDENCE, niche=False)
     return quantize_score_value(max(niche, plain))
 
 
 def alert_path_report(
-    threshold: float, capability: LiveEvidenceCapability = LIVE_CAPABILITY
+    threshold: float,
+    weights: Mapping[str, float] = DEFAULT_WEIGHTS,
+    capability: LiveEvidenceCapability = LIVE_CAPABILITY,
 ) -> AlertPathReport:
-    """The report for ``threshold``; unreachable when the ceiling is below it (scorer's ``>=``)."""
-    ceiling = _best_case_ceiling()
+    """The report for ``threshold`` and ``weights``; unreachable when the ceiling is below the
+    threshold (the scorer's ``>=``)."""
+    ceiling = _best_case_ceiling(weights)
     quantized = quantize_score_value(threshold)
     status: AlertPathStatus = "reachable" if ceiling >= quantized else "unreachable"
     return AlertPathReport(
@@ -105,6 +110,11 @@ def alert_path_report(
         capability.wallet_group_status.value,
         capability.wallet_age_source,
     )
+
+
+def scorer_alert_path_report(scorer: RiskScorer) -> AlertPathReport:
+    """The report for the effective threshold and weights ``scorer`` is scoring with now."""
+    return alert_path_report(scorer.alert_threshold, scorer.get_weights())
 
 
 def log_alert_path(logger: logging.Logger, report: AlertPathReport) -> None:

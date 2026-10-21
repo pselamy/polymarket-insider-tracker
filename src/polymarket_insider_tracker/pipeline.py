@@ -455,7 +455,7 @@ class Pipeline:
             settings.detector.dedup_window_seconds,
             settings.detector.persist_assessments,
         )
-        self._health_monitor.log_alert_path(logger)
+        self._health_monitor.bind_scorer(self._risk_scorer, logger)
 
         # Initialize Alerting
         logger.debug("Initializing alerting components...")

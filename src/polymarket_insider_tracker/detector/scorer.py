@@ -248,6 +248,11 @@ class RiskScorer:
         return {name: self._weights.get(name, 0.0) for name in sorted(names)}
 
     @property
+    def alert_threshold(self) -> float:
+        """The effective alert threshold (``should_alert`` is ``score >= threshold``)."""
+        return self._alert_threshold
+
+    @property
     def scoring_config(self) -> str:
         """The canonical configuration JSON recorded on every new assessment."""
         return self._scoring_config

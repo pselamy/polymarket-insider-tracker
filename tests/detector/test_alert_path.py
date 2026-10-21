@@ -15,6 +15,7 @@ from polymarket_insider_tracker.detector.alert_path import (
     LiveEvidenceCapability,
     alert_path_report,
     log_alert_path,
+    scorer_alert_path_report,
 )
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import (
@@ -87,6 +88,40 @@ async def test_no_default_configuration_assessment_alerts_but_an_override_does(
 
     assert (default.weighted_score, default.should_alert) == (0.45, False)
     assert (override.weighted_score, override.should_alert) == (0.45, True)
+
+
+OPERATOR_WEIGHTS = {"size_anomaly": 0.7, "niche_market": 0.5}
+
+
+async def test_operator_weights_change_the_ceiling_and_status(sample_trade: TradeEvent) -> None:
+    with pytest.warns(DeprecationWarning):
+        scorer = RiskScorer(FakeAsyncRedis(), weights=OPERATOR_WEIGHTS)
+    assessment = await scorer.assess(_best_case_bundle(sample_trade))
+
+    report = scorer_alert_path_report(scorer)
+    assert (report.status, report.threshold, report.ceiling) == (
+        "reachable",
+        Decimal("0.800"),
+        Decimal("0.900"),
+    )
+    assert (assessment.weighted_score, assessment.should_alert) == (0.9, True)
+
+
+async def test_a_bound_monitor_reports_from_the_scorers_current_weights(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monitor = AlertPathHealthMonitor(0.8)
+    scorer = RiskScorer(FakeAsyncRedis())
+    logger = logging.getLogger("alert-path-bind-test")
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        monitor.bind_scorer(scorer, logger)
+    before = await _health(monitor)
+    with pytest.warns(DeprecationWarning):
+        scorer.set_weights(OPERATOR_WEIGHTS)
+
+    assert [r.levelno for r in caplog.records] == [logging.WARNING]
+    assert before.alert_path == alert_path_report(0.8).fields()
+    assert (await _health(monitor)).alert_path == alert_path_report(0.8, OPERATOR_WEIGHTS).fields()
 
 
 def test_unreachable_logs_a_warning_and_reachable_an_info(

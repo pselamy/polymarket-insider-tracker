@@ -10,7 +10,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from polymarket_insider_tracker.detector.alert_path import alert_path_report, log_alert_path
+from polymarket_insider_tracker.detector.alert_path import (
+    AlertPathReport,
+    alert_path_report,
+    log_alert_path,
+    scorer_alert_path_report,
+)
+from polymarket_insider_tracker.detector.scorer import RiskScorer
 from polymarket_insider_tracker.ingestor.health import (
     ComponentStatus,
     HealthMonitor,
@@ -20,15 +26,30 @@ from polymarket_insider_tracker.ingestor.health import (
 
 
 class AlertPathHealthMonitor(HealthMonitor):
-    """``HealthMonitor`` whose ``/health`` body carries the alert-path report for ``threshold``."""
+    """``HealthMonitor`` whose ``/health`` body carries the alert-path report.
+
+    Until a scorer is bound the report uses ``threshold`` with the default weights; once bound it
+    is recomputed from the scorer's effective threshold and weights on every answer, so ``/health``
+    and the startup record cannot disagree with the scorer (deprecated ``set_weights`` included).
+    """
 
     def __init__(self, threshold: float) -> None:
         super().__init__()
-        self._alert_path = alert_path_report(threshold)
+        self._threshold = threshold
+        self._scorer: RiskScorer | None = None
 
-    def log_alert_path(self, logger: logging.Logger) -> None:
-        """Emit the startup record: WARNING when unreachable, INFO otherwise."""
-        log_alert_path(logger, self._alert_path)
+    @property
+    def alert_path(self) -> AlertPathReport:
+        """The report for the bound scorer, or for ``threshold`` before one is bound."""
+        if self._scorer is None:
+            return alert_path_report(self._threshold)
+        return scorer_alert_path_report(self._scorer)
+
+    def bind_scorer(self, scorer: RiskScorer, logger: logging.Logger) -> None:
+        """Report from ``scorer`` from now on and emit the startup record (WARNING when
+        unreachable, INFO otherwise)."""
+        self._scorer = scorer
+        log_alert_path(logger, self.alert_path)
 
     def _build_health_body(
         self,
@@ -38,4 +59,4 @@ class AlertPathHealthMonitor(HealthMonitor):
         now: float,
     ) -> dict[str, Any]:
         body = super()._build_health_body(report, components, overall_status, now)
-        return {**body, "alert_path": self._alert_path.fields()}
+        return {**body, "alert_path": self.alert_path.fields()}
