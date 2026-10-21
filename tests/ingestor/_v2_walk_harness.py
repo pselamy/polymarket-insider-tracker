@@ -87,7 +87,7 @@ class BlockingFeed:
 
     entered: asyncio.Event = field(default_factory=asyncio.Event)
     release: asyncio.Event = field(default_factory=asyncio.Event)
-    requests: list[V2PageRequest] = field(default_factory=list)
+    requests: list[V2PageRequest] = field(default_factory=list[V2PageRequest])
 
     async def fetch(self, request: V2PageRequest) -> object:
         self.requests.append(request)

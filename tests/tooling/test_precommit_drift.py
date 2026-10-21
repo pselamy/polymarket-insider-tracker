@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from quality.report_data import is_array, is_object
 
 REPOSITORY_ROOT = Path(__file__).parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / ".pre-commit-config.yaml"
@@ -19,14 +20,16 @@ TOOL_HOOKS = ("black", "ruff", "mypy")
 
 def _repos() -> list[dict[str, object]]:
     config: object = yaml.safe_load(CONFIG_PATH.read_text())
-    assert isinstance(config, dict)
+    assert is_object(config)
     repos = config["repos"]
-    assert isinstance(repos, list)
-    return repos
+    assert is_array(repos)
+    records = [repo for repo in repos if is_object(repo)]
+    assert len(records) == len(repos)
+    return records
 
 
 def _join(args: object) -> str:
-    assert isinstance(args, list)
+    assert is_array(args)
     return " ".join(map(str, args))
 
 
