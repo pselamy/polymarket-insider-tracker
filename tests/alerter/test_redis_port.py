@@ -130,6 +130,7 @@ async def test_scan_page_and_settle_read_a_live_client() -> None:
     assert await settle({b"f": b"v"}) == {b"f": b"v"}
     assert await settle([b"a"]) == [b"a"]
 
+
 def _defaults(function: Callable[..., object]) -> dict[str, object]:
     parameters = inspect.signature(function).parameters.values()
     return {p.name: p.default for p in parameters if p.default is not inspect.Parameter.empty}
