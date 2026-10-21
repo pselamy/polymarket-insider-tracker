@@ -804,3 +804,8 @@ locked project tools (`uv run --locked --all-extras ...`) with the same commands
 `quality/checks.json`, so versions come from `uv.lock` and cannot drift from CI. The generic
 `pre-commit-hooks` checks remain remote. `tests/tooling/test_precommit_drift.py` fails if a hook's
 command differs from the enrolled CI command or a remote repo re-pins one of these tools.
+
+The four slice-004 evidence checks (`reachability --check`, `replay_live --check`, `check_envelope`,
+`check_source_hashes`) are appended to `quality/checks.json`. The shared `cli.py` normalizes
+generated text to end in exactly one newline so the generators agree with end-of-file-fixer; the
+evidence files are not excluded from any hook.

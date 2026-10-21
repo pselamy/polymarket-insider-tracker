@@ -1,8 +1,9 @@
 """Shared print-or-check entry point for the spec 004 evidence generators.
 
 ``[]`` prints the generated text (exit 0). ``["--check", FILE]`` exits 0 only when FILE exists and
-equals the text byte for byte, else 1. Any other argument list is a usage error (exit 2), so a
-mistyped or truncated ``--check`` can never pass silently.
+equals the text byte for byte, else 1. The text always ends in exactly one newline, matching
+end-of-file-fixer. Any other argument list is a usage error (exit 2), so a mistyped or truncated
+``--check`` can never pass silently.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ def check(path: Path, text: str) -> int:
 
 
 def print_or_check(argv: list[str], text: str) -> int:
+    text = text.rstrip("\n") + "\n"
     args = argv[1:]
     if not args:
         sys.stdout.write(text)
