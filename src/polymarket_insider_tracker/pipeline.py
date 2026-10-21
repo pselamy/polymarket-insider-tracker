@@ -15,7 +15,7 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar
 
 from redis.asyncio import Redis
 
@@ -47,6 +47,7 @@ from polymarket_insider_tracker.pipeline_components import (
     Evaluator,
     PipelineComponents,
     build_components,
+    ping_redis,
 )
 from polymarket_insider_tracker.profiler.funding import FundingTracer
 from polymarket_insider_tracker.redaction import redact_exception_message, redact_text
@@ -60,8 +61,6 @@ from polymarket_insider_tracker.storage.repos import (
 )
 
 if TYPE_CHECKING:
-    from typing import Any
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from polymarket_insider_tracker.alerter.models import FormattedAlert
@@ -102,12 +101,6 @@ def _failures_only(evidence: TradeEvidence | None) -> TradeEvidence | None:
     return TradeEvidence(
         evidence.evaluated_at, evidence.detector_config, failures=evidence.failures
     )
-
-
-class Pingable(Protocol):
-    """Protocol for health ping check on Redis."""
-
-    def ping(self) -> Awaitable[bool]: ...
 
 
 class PipelineState(StrEnum):
@@ -275,8 +268,7 @@ class Pipeline:
             return ComponentStatus(status="down", last_error="Redis client not initialized")
         start = time.perf_counter()
         try:
-            ping_client = cast(Pingable, self._redis)
-            await ping_client.ping()
+            await ping_redis(self._redis)
             latency = (time.perf_counter() - start) * 1000.0
             return ComponentStatus(status="up", latency_ms=round(latency, 2))
         except Exception as exc:
@@ -859,6 +851,6 @@ class Pipeline:
         await self.start()
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, *args: object) -> None:
         """Async context manager exit."""
         await self.stop()

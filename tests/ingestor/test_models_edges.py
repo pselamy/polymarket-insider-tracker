@@ -7,6 +7,7 @@ import pytest
 from polymarket_insider_tracker.ingestor.models import (
     ClobOrderbook,
     ClobOrderbookLevel,
+    Market,
     MarketMetadata,
     TradeEvent,
     derive_category,
@@ -62,3 +63,35 @@ def test_the_clob_protocol_surfaces_declare_no_default_values(protocol: type, na
     assert isinstance(declared, property)
     assert declared.fget is not None
     assert declared.fget(object()) is None
+
+
+def test_a_non_list_token_collection_is_rejected() -> None:
+    with pytest.raises(TypeError, match="tokens must be a list"):
+        Market.from_dict({"condition_id": "0xabc", "tokens": None})
+    with pytest.raises(TypeError, match="tokens must be a list"):
+        MarketMetadata.from_dict({"condition_id": "0xabc", "tokens": "abc"})
+
+
+def test_a_non_object_token_entry_is_rejected() -> None:
+    with pytest.raises(TypeError, match="token must be an object"):
+        Market.from_dict({"condition_id": "0xabc", "tokens": ["abc"]})
+
+
+def test_a_non_text_end_date_degrades_to_none() -> None:
+    assert Market.from_dict({"condition_id": "0xabc", "end_date_iso": 17}).end_date is None
+
+
+def test_a_non_text_cached_date_is_rejected() -> None:
+    with pytest.raises(TypeError, match="ISO timestamp string"):
+        MarketMetadata.from_dict({"condition_id": "0xabc", "end_date": 17})
+
+
+def test_a_cached_volume_that_is_not_json_is_rejected() -> None:
+    with pytest.raises(TypeError, match="not a JSON value"):
+        MarketMetadata.from_dict({"condition_id": "0xabc", "volume": {"raw": object()}})
+
+
+def test_a_websocket_outcome_index_must_be_integer_like() -> None:
+    assert TradeEvent.from_websocket_message({"outcomeIndex": "1"}).outcome_index == 1
+    with pytest.raises(TypeError, match="integer-like"):
+        TradeEvent.from_websocket_message({"outcomeIndex": [1]})

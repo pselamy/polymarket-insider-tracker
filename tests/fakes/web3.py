@@ -178,6 +178,7 @@ class FakeEth:
         always_fail: bool = False,
         block_lookup_fails: bool = False,
         logs: TransferLogIndex | None = None,
+        contract_proxy: object | None = None,
     ) -> None:
         self._transaction_count = transaction_count
         self._balance_wei = balance_wei
@@ -188,6 +189,7 @@ class FakeEth:
         self._always_fail = always_fail
         self._block_lookup_fails = block_lookup_fails
         self._logs = logs
+        self._contract_proxy = contract_proxy
         self.call_count = 0
 
     def _count_call(self) -> None:
@@ -220,8 +222,10 @@ class FakeEth:
         self._count_call()
         return self._block_number
 
-    def contract(self, address: ChecksumAddress, **kwargs: Any) -> FakeContract:
+    def contract(self, address: ChecksumAddress, **kwargs: Any) -> object:
         _ = (address, kwargs)
+        if self._contract_proxy is not None:
+            return self._contract_proxy
         return FakeContract(self._token_balance)
 
     async def get_logs(self, filter_params: FilterParams) -> list[dict[str, Any]]:

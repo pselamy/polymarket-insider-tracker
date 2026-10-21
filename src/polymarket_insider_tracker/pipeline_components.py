@@ -8,12 +8,13 @@ set from ``Settings`` with ``build_components`` when nothing was installed.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from abc import abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol, TypeVar, cast
+from typing import Protocol, TypeVar
 
 from redis.asyncio import Redis
 
@@ -51,6 +52,22 @@ class Evaluator(Protocol[_EvaluationT]):
         """Evaluate ``trade`` as of ``evaluated_at``."""
 
 
+class Pingable(Protocol):
+    """Protocol for health ping check on Redis."""
+
+    @abstractmethod
+    def ping(self) -> Awaitable[bool] | bool:
+        """Send ``PING``."""
+
+
+async def ping_redis(client: Pingable) -> None:
+    """Await a ``PING``; redis-py types the reply as an awaitable-or-value union."""
+    reply = client.ping()
+    if not inspect.isawaitable(reply):
+        raise TypeError("Redis ping reply is not awaitable")
+    await reply
+
+
 class RedisFactory(Protocol):
     """Concrete Redis construction surface used by the pipeline."""
 
@@ -58,6 +75,11 @@ class RedisFactory(Protocol):
     @abstractmethod
     def from_url(cls, url: str) -> Redis:
         """Construct a client for ``url``."""
+
+
+def _redis_factory() -> type[RedisFactory]:
+    """The real ``Redis`` class viewed through its typed ``from_url``."""
+    return Redis
 
 
 @dataclass(frozen=True)
@@ -127,8 +149,7 @@ async def build_components(
     A failure part-way through closes the connections already opened before it propagates.
     """
     logger.debug("Initializing Redis connection...")
-    redis_factory = cast(type[RedisFactory], Redis)
-    redis = redis_factory.from_url(settings.redis.url)
+    redis = _redis_factory().from_url(settings.redis.url)
     db_manager: DatabaseManager | None = None
     try:
         logger.debug("Initializing database manager...")

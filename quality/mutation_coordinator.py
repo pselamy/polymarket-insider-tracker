@@ -1,9 +1,8 @@
 """Give the pinned native HTTP distributor an explicit current event loop."""
 
 import asyncio
-import importlib
-from collections.abc import Callable
-from typing import cast
+
+from quality.native_api import native_callable
 
 
 def execute(arguments: list[str]) -> None:
@@ -11,8 +10,7 @@ def execute(arguments: list[str]) -> None:
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
-        module = importlib.import_module("cosmic_ray.cli")
-        cli = cast(Callable[..., None], module.cli)
+        cli = native_callable("cosmic_ray.cli", "cli")
         cli(arguments, standalone_mode=False)
     finally:
         asyncio.set_event_loop(None)

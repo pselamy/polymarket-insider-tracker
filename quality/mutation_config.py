@@ -1,11 +1,9 @@
 """Derive only transport configuration, with independent native TOML readback."""
 
-import importlib
 import tomllib
-from collections.abc import Callable
 from pathlib import Path
-from typing import cast
 
+from quality.native_api import native_callable
 from quality.report_data import record
 
 
@@ -16,9 +14,9 @@ def execution_config(path: Path, urls: list[str]) -> Path:
     if record(config["distributor"]) != {"name": "local"}:
         raise ValueError("mutation base distributor must be local")
     config["distributor"] = {"name": "http", "http": {"worker-urls": urls}}
-    module = importlib.import_module("cosmic_ray.config")
-    serialize = cast(Callable[[object], str], module.serialize_config)
-    output = serialize(config)
+    output = native_callable("cosmic_ray.config", "serialize_config")(config)
+    if not isinstance(output, str):
+        raise TypeError("native transport serialization returned a non-string")
     if tomllib.loads(output)["cosmic-ray"] != config:
         raise ValueError("native transport serialization changed mutation policy")
     if path.read_bytes() != original:

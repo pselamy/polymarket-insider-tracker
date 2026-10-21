@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 import httpx
@@ -19,6 +19,7 @@ from polymarket_insider_tracker.redaction import (
     redact_failure_with_secrets,
     url_credential_components,
 )
+from polymarket_insider_tracker.shapes import object_mapping
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.alerter.models import FormattedAlert
@@ -30,9 +31,9 @@ TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}/sendMessage"
 
 def _nested_retry_after(result: dict[str, object]) -> object:
     """The raw ``parameters.retry_after`` value, reached fail-closed."""
-    parameters = result.get("parameters")
-    if isinstance(parameters, dict):
-        return cast(dict[str, object], parameters).get("retry_after")
+    parameters = object_mapping(result.get("parameters"))
+    if parameters is not None:
+        return parameters.get("retry_after")
     return None
 
 

@@ -229,7 +229,9 @@ class SniperDetector:
                 # Normalize market ID to 0-1 range
                 market_hash = (
                     int(
-                        hashlib.md5(entry.market_id.encode()).hexdigest()[:8],  # noqa: S324
+                        hashlib.md5(entry.market_id.encode(), usedforsecurity=False).hexdigest()[
+                            :8
+                        ],
                         16,
                     )
                     % 1000

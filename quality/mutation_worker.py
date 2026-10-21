@@ -1,16 +1,16 @@
 """Serve the pinned native Cosmic handler on a race-free private loopback socket."""
 
 import asyncio
-import importlib
+import inspect
 import json
 import socket
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import cast
 
 from aiohttp import web
 
+from quality.native_api import native_callable
 from quality.report_data import record, text
 from quality.trial_launcher import prepare_launcher, require_launcher
 
@@ -19,8 +19,18 @@ Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 def native_handler() -> Handler:
     """The pinned SDK handler owns mutation, trial deadlines and response semantics."""
-    module = importlib.import_module("cosmic_ray.distribution.http")
-    return cast(Handler, module.handle_mutate_and_test)
+    native = native_callable("cosmic_ray.distribution.http", "handle_mutate_and_test")
+
+    async def handle(request: web.Request) -> web.StreamResponse:
+        pending = native(request)
+        if not inspect.isawaitable(pending):
+            raise TypeError("native mutation handler did not return an awaitable")
+        response: object = await pending
+        if not isinstance(response, web.StreamResponse):
+            raise TypeError("native mutation handler did not return a response")
+        return response
+
+    return handle
 
 
 async def serve(root: Path, nonce: str) -> None:

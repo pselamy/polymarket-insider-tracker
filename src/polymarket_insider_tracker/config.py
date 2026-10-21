@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import logging
 import warnings
-from collections.abc import Callable
 from enum import StrEnum
 from functools import lru_cache
-from typing import Annotated, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import AfterValidator, Field, SecretStr
@@ -140,6 +139,11 @@ class DatabaseSettings(BaseSettings):
         alias="DATABASE_URL",
         description="PostgreSQL connection string",
     )
+
+    if TYPE_CHECKING:
+        # BaseSettings resolves the required URL from DATABASE_URL, which the checkers'
+        # synthesized constructor (one required alias argument) cannot express.
+        def __init__(self) -> None: ...
 
 
 class RedisSettings(BaseSettings):
@@ -384,11 +388,7 @@ class Settings(BaseSettings):
     )
 
     # Nested configuration groups
-    # Pydantic's static constructor signature cannot express that BaseSettings supplies the required
-    # database URL from DATABASE_URL when the zero-argument default factory runs.
-    database: DatabaseSettings = Field(
-        default_factory=cast(Callable[[], DatabaseSettings], DatabaseSettings)
-    )
+    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     polygon: PolygonSettings = Field(default_factory=PolygonSettings)
     polymarket: PolymarketSettings = Field(default_factory=PolymarketSettings)

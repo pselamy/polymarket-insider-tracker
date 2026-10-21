@@ -1,6 +1,6 @@
 """``build_components`` wiring: the scorer and alert history get their configured settings."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 
 import pytest
 
@@ -10,7 +10,11 @@ from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import SignalBundle
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
-from polymarket_insider_tracker.pipeline_components import PipelineComponents, build_components
+from polymarket_insider_tracker.pipeline_components import (
+    PipelineComponents,
+    build_components,
+    ping_redis,
+)
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.closeness import is_close
 from tests.fakes.pipeline import make_test_settings
@@ -146,3 +150,31 @@ async def test_failure_opening_the_database_still_closes_redis(
         )
 
     assert _ClosableRedis.closed is True
+
+
+class _AsyncPing:
+    def __init__(self) -> None:
+        self.pings = 0
+
+    async def _answer(self) -> bool:
+        self.pings += 1
+        return True
+
+    def ping(self) -> Awaitable[bool]:
+        return self._answer()
+
+
+class _SyncPing:
+    def ping(self) -> bool:
+        return True
+
+
+async def test_ping_redis_awaits_an_awaitable_reply() -> None:
+    client = _AsyncPing()
+    await ping_redis(client)
+    assert client.pings == 1
+
+
+async def test_ping_redis_rejects_a_reply_that_cannot_be_awaited() -> None:
+    with pytest.raises(TypeError, match="not awaitable"):
+        await ping_redis(_SyncPing())

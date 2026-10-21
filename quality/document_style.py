@@ -2,10 +2,8 @@
 
 import hashlib
 import json
-from collections.abc import Callable
 from importlib import metadata
 from pathlib import Path
-from typing import cast
 
 import mdformat
 
@@ -20,7 +18,10 @@ def formatted(source: str) -> str:
     formatter: object = vars(mdformat).get("text")
     if not callable(formatter):
         raise TypeError("Markdown formatter text API is unavailable")
-    return cast(Callable[..., str], formatter)(source, extensions={"gfm"})
+    result = formatter(source, extensions={"gfm"})
+    if not isinstance(result, str):
+        raise TypeError("Markdown formatter text API returned a non-string")
+    return result
 
 
 def require_versions() -> None:

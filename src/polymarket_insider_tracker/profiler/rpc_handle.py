@@ -10,7 +10,7 @@ import json
 from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar
+from typing import Protocol, TypeVar, runtime_checkable
 
 from eth_typing import ABI, ChecksumAddress
 from web3 import AsyncWeb3
@@ -19,6 +19,32 @@ from web3.types import FilterParams
 from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 
 T = TypeVar("T")
+
+
+class BalanceCall(Protocol):
+    """A prepared ERC-20 ``balanceOf`` call."""
+
+    @abstractmethod
+    def call(self) -> Awaitable[object]:
+        """Run the call."""
+
+
+class ContractFunctions(Protocol):
+    """The ERC-20 function namespace of a contract proxy."""
+
+    @abstractmethod
+    def balanceOf(self, holder: ChecksumAddress) -> BalanceCall:
+        """Prepare ``balanceOf(holder)``."""
+
+
+@runtime_checkable
+class ContractProxy(Protocol):
+    """A contract proxy exposing its ``functions`` namespace."""
+
+    @property
+    @abstractmethod
+    def functions(self) -> ContractFunctions:
+        """The contract functions."""
 
 
 class EthRpc(Protocol):
@@ -49,11 +75,11 @@ class EthRpc(Protocol):
     def get_logs(self, filter_params: FilterParams) -> Awaitable[Sequence[Mapping[str, object]]]:
         """Fetch the logs matching ``filter_params``."""
 
-    # The one confined escape: web3 overloads ``contract`` and resolves ``functions`` dynamically,
-    # so pyright reports 'No overloaded function matches' for every structural proxy type.
-    # ``erc20_balance_of`` is the only caller and returns a typed ``int``.
+    # web3 overloads ``contract`` and resolves ``functions`` dynamically, so no structural proxy
+    # type matches every overload; the result is ``object`` and ``erc20_balance_of`` — the only
+    # caller — checks its shape at runtime and returns a typed ``int``.
     @abstractmethod
-    def contract(self, address: ChecksumAddress, **kwargs: Any) -> Any:
+    def contract(self, address: ChecksumAddress, **kwargs: object) -> object:
         """Build a contract proxy at ``address``."""
 
 
@@ -73,8 +99,13 @@ class Web3Handle(Protocol):
 async def erc20_balance_of(handle: Web3Handle, token: str, holder: str, abi: ABI) -> int:
     """Read ``holder``'s balance of the ERC-20 ``token`` through ``handle``."""
     contract = handle.eth.contract(AsyncWeb3.to_checksum_address(token), abi=abi)
-    balance = await contract.functions.balanceOf(AsyncWeb3.to_checksum_address(holder)).call()
-    return int(balance)
+    if not isinstance(contract, ContractProxy):
+        raise TypeError("RPC contract proxy has no functions namespace")
+    function = contract.functions.balanceOf(AsyncWeb3.to_checksum_address(holder))
+    balance = await function.call()
+    if not isinstance(balance, int):
+        raise TypeError("ERC-20 balanceOf did not return an integer")
+    return balance
 
 
 @dataclass(frozen=True)
