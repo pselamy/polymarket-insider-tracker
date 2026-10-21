@@ -3,7 +3,6 @@
 import json
 from collections.abc import MutableMapping
 from dataclasses import replace
-from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -24,6 +23,7 @@ from polymarket_insider_tracker.detector.scorer import (
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
+from tests.batch_trades import indexed_trades
 
 # ============================================================================
 # Fixtures
@@ -39,35 +39,6 @@ def sample_metadata() -> MarketMetadata:
         description="Weather prediction market",
         tokens=(Token(token_id="token_123", outcome="Yes", price=Decimal("0.65")),),
         category="science",
-    )
-
-
-@pytest.fixture
-def fresh_wallet_signal(
-    sample_trade: TradeEvent, sample_wallet_profile: WalletProfile
-) -> FreshWalletSignal:
-    """Create a sample fresh wallet signal."""
-    return FreshWalletSignal(
-        trade_event=sample_trade,
-        wallet_profile=sample_wallet_profile,
-        confidence=0.8,
-        factors={"base": 0.5, "brand_new_bonus": 0.2, "large_trade_bonus": 0.1},
-    )
-
-
-@pytest.fixture
-def size_anomaly_signal(
-    sample_trade: TradeEvent, sample_metadata: MarketMetadata
-) -> SizeAnomalySignal:
-    """Create a sample size anomaly signal."""
-    return SizeAnomalySignal(
-        trade_event=sample_trade,
-        market_metadata=sample_metadata,
-        volume_impact=0.10,
-        book_impact=0.15,
-        is_niche_market=True,
-        confidence=0.7,
-        factors={"volume_impact": 0.4, "book_impact": 0.3},
     )
 
 
@@ -570,19 +541,7 @@ class TestBatchAnalysis:
         scorer = RiskScorer(fake_redis)
 
         bundles = []
-        for i in range(3):
-            trade = TradeEvent(
-                market_id=f"market_{i}",
-                trade_id=f"tx_{i}",
-                wallet_address=f"0xwallet{i}",
-                side="BUY",
-                outcome="Yes",
-                outcome_index=0,
-                price=Decimal("0.50"),
-                size=Decimal("10000"),
-                timestamp=datetime.now(UTC),
-                asset_id="token_123",
-            )
+        for trade in indexed_trades(3):
             signal = FreshWalletSignal(
                 trade_event=trade,
                 wallet_profile=sample_wallet_profile,

@@ -10,7 +10,12 @@ import pytest
 from fakeredis import FakeAsyncRedis
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from polymarket_insider_tracker.ingestor.models import TradeEvent
+from polymarket_insider_tracker.detector.models import (
+    FreshWalletSignal,
+    RiskAssessment,
+    SizeAnomalySignal,
+)
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import Base
@@ -103,4 +108,55 @@ def sample_wallet_profile() -> WalletProfile:
         total_tx_count=2,
         matic_balance=Decimal("1000000000000000000"),
         usdc_balance=Decimal("1000000"),
+    )
+
+
+@pytest.fixture
+def fresh_wallet_signal(
+    sample_trade: TradeEvent, sample_wallet_profile: WalletProfile
+) -> FreshWalletSignal:
+    """Create the fresh wallet signal shared by the formatter, history and scorer tests."""
+    return FreshWalletSignal(
+        trade_event=sample_trade,
+        wallet_profile=sample_wallet_profile,
+        confidence=0.8,
+        factors={"base": 0.5, "brand_new_bonus": 0.2, "large_trade_bonus": 0.1},
+    )
+
+
+@pytest.fixture
+def size_anomaly_signal(
+    sample_trade: TradeEvent, sample_metadata: MarketMetadata
+) -> SizeAnomalySignal:
+    """Create the size anomaly signal shared by the formatter, history and scorer tests.
+
+    The market metadata is each test module's own ``sample_metadata`` fixture.
+    """
+    return SizeAnomalySignal(
+        trade_event=sample_trade,
+        market_metadata=sample_metadata,
+        volume_impact=0.10,
+        book_impact=0.15,
+        is_niche_market=True,
+        confidence=0.7,
+        factors={"volume_impact": 0.4, "book_impact": 0.3},
+    )
+
+
+@pytest.fixture
+def high_risk_assessment(
+    sample_trade: TradeEvent,
+    fresh_wallet_signal: FreshWalletSignal,
+    size_anomaly_signal: SizeAnomalySignal,
+) -> RiskAssessment:
+    """Create the high-risk assessment shared by the formatter and history tests."""
+    return RiskAssessment(
+        trade_event=sample_trade,
+        wallet_address=sample_trade.wallet_address,
+        market_id=sample_trade.market_id,
+        fresh_wallet_signal=fresh_wallet_signal,
+        size_anomaly_signal=size_anomaly_signal,
+        signals_triggered=2,
+        weighted_score=0.82,
+        should_alert=True,
     )

@@ -16,10 +16,8 @@ from polymarket_insider_tracker.alerter.history import (
 from polymarket_insider_tracker.detector.models import (
     FreshWalletSignal,
     RiskAssessment,
-    SizeAnomalySignal,
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
-from polymarket_insider_tracker.profiler.models import WalletProfile
 
 # ============================================================================
 # Fixtures
@@ -35,54 +33,6 @@ def sample_metadata() -> MarketMetadata:
         description="Test",
         tokens=(Token(token_id="token_123", outcome="Yes", price=Decimal("0.65")),),
         category="other",
-    )
-
-
-@pytest.fixture
-def fresh_wallet_signal(
-    sample_trade: TradeEvent, sample_wallet_profile: WalletProfile
-) -> FreshWalletSignal:
-    """Create a sample fresh wallet signal."""
-    return FreshWalletSignal(
-        trade_event=sample_trade,
-        wallet_profile=sample_wallet_profile,
-        confidence=0.8,
-        factors={},
-    )
-
-
-@pytest.fixture
-def size_anomaly_signal(
-    sample_trade: TradeEvent, sample_metadata: MarketMetadata
-) -> SizeAnomalySignal:
-    """Create a sample size anomaly signal."""
-    return SizeAnomalySignal(
-        trade_event=sample_trade,
-        market_metadata=sample_metadata,
-        volume_impact=0.10,
-        book_impact=0.15,
-        is_niche_market=True,
-        confidence=0.7,
-        factors={},
-    )
-
-
-@pytest.fixture
-def high_risk_assessment(
-    sample_trade: TradeEvent,
-    fresh_wallet_signal: FreshWalletSignal,
-    size_anomaly_signal: SizeAnomalySignal,
-) -> RiskAssessment:
-    """Create a high-risk assessment."""
-    return RiskAssessment(
-        trade_event=sample_trade,
-        wallet_address=sample_trade.wallet_address,
-        market_id=sample_trade.market_id,
-        fresh_wallet_signal=fresh_wallet_signal,
-        size_anomaly_signal=size_anomaly_signal,
-        signals_triggered=2,
-        weighted_score=0.82,
-        should_alert=True,
     )
 
 
@@ -511,6 +461,23 @@ def _stored_record(alert_id: str, wallet: str, market: str) -> str:
     return json.dumps(record.to_dict())
 
 
+async def _store_record(redis: FakeAsyncRedis, alert_id: str, wallet: str, market: str) -> None:
+    """Store a serialized alert record under its ``alert:record:`` key."""
+    await redis.set(f"alert:record:{alert_id}", _stored_record(alert_id, wallet, market))
+
+
+async def _recent_alerts(
+    history: AlertHistory, wallet: str | None = None, market: str | None = None
+) -> list[AlertRecord]:
+    """Fetch alerts over the window from 24 hours ago to one hour ahead."""
+    return await history.get_alerts(
+        start=datetime.now(UTC) - timedelta(hours=24),
+        end=datetime.now(UTC) + timedelta(hours=1),
+        wallet=wallet,
+        market=market,
+    )
+
+
 class TestGetAlertsFilters:
     """Index selection and post-filtering of fetched records."""
 
@@ -520,15 +487,11 @@ class TestGetAlertsFilters:
     ) -> None:
         history = AlertHistory(fake_redis)
         now = datetime.now(UTC).timestamp()
-        await fake_redis.set("alert:record:a-1", _stored_record("a-1", "0xw", "m1"))
-        await fake_redis.set("alert:record:a-2", _stored_record("a-2", "0xw", "m2"))
+        await _store_record(fake_redis, "a-1", "0xw", "m1")
+        await _store_record(fake_redis, "a-2", "0xw", "m2")
         await fake_redis.zadd("alert:index:market:m1", {"a-1": now, "a-2": now})
 
-        results = await history.get_alerts(
-            start=datetime.now(UTC) - timedelta(hours=24),
-            end=datetime.now(UTC) + timedelta(hours=1),
-            market="m1",
-        )
+        results = await _recent_alerts(history, market="m1")
 
         assert [record.alert_id for record in results] == ["a-1"]
 
@@ -538,16 +501,11 @@ class TestGetAlertsFilters:
     ) -> None:
         history = AlertHistory(fake_redis)
         now = datetime.now(UTC).timestamp()
-        await fake_redis.set("alert:record:a-1", _stored_record("a-1", "0xw", "m1"))
-        await fake_redis.set("alert:record:a-3", _stored_record("a-3", "0xother", "m1"))
+        await _store_record(fake_redis, "a-1", "0xw", "m1")
+        await _store_record(fake_redis, "a-3", "0xother", "m1")
         await fake_redis.zadd("alert:index:wallet:0xw", {"a-1": now, "gone": now, "a-3": now})
 
-        results = await history.get_alerts(
-            start=datetime.now(UTC) - timedelta(hours=24),
-            end=datetime.now(UTC) + timedelta(hours=1),
-            wallet="0xw",
-            market="m1",
-        )
+        results = await _recent_alerts(history, wallet="0xw", market="m1")
 
         assert [record.alert_id for record in results] == ["a-1"]
 
@@ -560,7 +518,7 @@ class TestGetAlertsFilters:
         end = datetime(2026, 1, 2, tzinfo=UTC)
         offsets = {"before": -1, "a-1": 0, "a-2": 1, "a-3": 2, "end": 24, "after": 25}
         for alert_id, hour in offsets.items():
-            await fake_redis.set(f"alert:record:{alert_id}", _stored_record(alert_id, "0xw", "m1"))
+            await _store_record(fake_redis, alert_id, "0xw", "m1")
             await fake_redis.zadd(
                 "alert:index:time", {alert_id: (start + timedelta(hours=hour)).timestamp()}
             )

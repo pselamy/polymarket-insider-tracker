@@ -1,8 +1,8 @@
 ---
 cluster: 1
-status: real
-resolved-by: PR #164 (partial; clones remain)
-files: tests/alerter/test_formatter.py, tests/alerter/test_history.py, tests/detector/test_scorer.py, tests/detector/test_size_anomaly.py
+status: resolved
+resolved-by: PR #164 (partial), dedup cluster 1 card (rest)
+watch: tests/alerter/test_formatter.py <-> tests/detector/test_scorer.py, tests/alerter/test_formatter.py <-> tests/alerter/test_history.py, tests/detector/test_scorer.py <-> tests/detector/test_size_anomaly.py, tests/alerter/test_history.py <-> tests/alerter/test_history.py
 ---
 
 # Cluster 1
@@ -46,3 +46,19 @@ They share a shape but encode different test knowledge (different `factors`,
 question text, prices, sizes and ages), so sharing them would change behaviour or
 need a parameterised factory that merely hides the difference. The formatter and
 size-anomaly `sample_trade` fixtures likewise differ in value and stay local.
+
+## 2026-10-21 resolution: remaining groups
+
+Re-measured on `main` at `55f48b2` (after slice-004 layer 3): 16 groups, 214 duplicated
+lines; six cluster-1 groups remained (the scorer-internal group was already gone). After
+this card: **11 groups, 122 duplicated lines, 0.18%**, none in cluster 1; no new group.
+
+- `fresh_wallet_signal`, `size_anomaly_signal` and `high_risk_assessment` now live once in
+  `tests/conftest.py`. The size signal is built on each module's own `sample_metadata`
+  (question, price and category stay local). The formatter and history copies of
+  `high_risk_assessment` were identical. The history copies of the two signals differed only
+  by `factors={}`; history never reads `factors`, so it now uses the shared values.
+- `tests/batch_trades.py::indexed_trades` is the one definition of the per-index batch trade
+  shared by the scorer and size-anomaly batch tests.
+- `test_history.py::_recent_alerts` holds the repeated 24-hour window query.
+- Pinned by `tests/test_sample_fixtures.py`.
