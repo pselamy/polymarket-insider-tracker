@@ -15,7 +15,7 @@ https://docs.polymarket.com/api-reference/feeds/list-trades.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, TypeGuard
 
 from polymarket_insider_tracker.ingestor.trade_rows import (
     InvalidRow,
@@ -35,6 +35,10 @@ V2_TO_V1_FIELDS: dict[str, str] = {
 }
 
 
+def _is_row(raw: object) -> TypeGuard[dict[str, Any]]:
+    return isinstance(raw, dict)
+
+
 def _translate_row(row: dict[str, Any]) -> dict[str, Any]:
     translated = dict(row)
     for v2_name, v1_name in V2_TO_V1_FIELDS.items():
@@ -49,9 +53,9 @@ def translate_v2_row(raw: object) -> object:
     Non-mapping rows are returned unchanged so the existing parser still classifies them the way it
     classifies any malformed v1 row.
     """
-    if not isinstance(raw, dict):
+    if not _is_row(raw):
         return raw
-    return _translate_row(cast(dict[str, Any], raw))
+    return _translate_row(raw)
 
 
 def parse_v2_trade_row(raw: object, *, now: int) -> TradeObservation | InvalidRow:

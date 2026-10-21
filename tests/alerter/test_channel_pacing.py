@@ -11,12 +11,14 @@ behaviourally for both channels by ``TestChannelErrorRedaction`` in
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 
 import httpx
 import pytest
 
 from polymarket_insider_tracker.alerter.channels.discord import DiscordChannel
+from polymarket_insider_tracker.alerter.channels.pacing import RateLimitWindow
 from polymarket_insider_tracker.alerter.channels.telegram import TelegramChannel
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from tests.fakes.alerts import FakeWebhookServer, discord_webhook, telegram_bot_api
@@ -167,6 +169,41 @@ class TestRateLimitWindow:
 
         assert recorded_sleeps == []
         assert len(server.requests) == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("age", [60.0, 60.5])
+    async def test_request_at_or_past_one_minute_is_forgotten(
+        self,
+        age: float,
+        pacing_clock: _PacingClock,
+        recorded_sleeps: list[float],
+    ) -> None:
+        """A request exactly one minute old (or older) no longer fills the window."""
+        window = RateLimitWindow(limit_per_minute=1, label="probe")
+
+        await window.wait_for_slot()
+        pacing_clock.advance(age)
+        await window.wait_for_slot()
+
+        assert recorded_sleeps == []
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_log_names_the_channel_and_the_wait(
+        self,
+        pacing_clock: _PacingClock,
+        recorded_sleeps: list[float],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """The debug line carries the channel label and the two-decimal wait."""
+        window = RateLimitWindow(limit_per_minute=1, label="probe")
+        caplog.set_level(logging.DEBUG, logger="polymarket_insider_tracker.alerter.channels.pacing")
+
+        await window.wait_for_slot()
+        pacing_clock.advance(10.0)
+        await window.wait_for_slot()
+
+        assert [r.getMessage() for r in caplog.records] == ["probe rate limit hit, waiting 50.00s"]
+        assert recorded_sleeps == [50.0]
 
 
 class TestRetryBackoff:
