@@ -13,6 +13,7 @@ from tests.fakes.gamma import FakeGammaClient
 from tests.fakes.metadata import FakeMetadataSync
 from tests.fakes.pipeline import (
     FailingDetector,
+    detector_trade,
     make_test_settings,
     metadata_state,
     start_detectors_together,
@@ -49,6 +50,7 @@ __all__ = [
     "FakeWebhookServer",
     "CountingBudget",
     "TransferLogIndex",
+    "detector_trade",
     "invalid_json",
     "make_test_settings",
     "metadata_state",

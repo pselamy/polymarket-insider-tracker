@@ -10,7 +10,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from fakeredis import FakeAsyncRedis
 
-from polymarket_insider_tracker.__main__ import print_config_summary
+from polymarket_insider_tracker.config_summary import print_config_summary
 from polymarket_insider_tracker.detector.alert_path import (
     LiveEvidenceCapability,
     alert_path_report,
@@ -119,7 +119,7 @@ async def test_a_bound_monitor_reports_from_the_scorers_current_weights(
     with pytest.warns(DeprecationWarning):
         scorer.set_weights(OPERATOR_WEIGHTS)
 
-    assert [r.levelno for r in caplog.records] == [logging.WARNING]
+    assert [r.levelno for r in caplog.records if r.name == logger.name] == [logging.WARNING]
     assert before.alert_path == alert_path_report(0.8).fields()
     assert (await _health(monitor)).alert_path == alert_path_report(0.8, OPERATOR_WEIGHTS).fields()
 

@@ -429,7 +429,10 @@ class Pipeline:
 
         # Initialize Wallet Analyzer
         logger.debug("Initializing wallet analyzer...")
-        self._wallet_analyzer = WalletAnalyzer(self._polygon_client, redis=self._redis)
+        self._wallet_analyzer = WalletAnalyzer(
+            self._polygon_client,
+            redis=self._redis,
+        )
 
         # Initialize Funding Tracer
         logger.debug("Initializing funding tracer...")
@@ -440,7 +443,8 @@ class Pipeline:
         fresh_detector = FreshWalletDetector(self._wallet_analyzer)
         size_detector = SizeAnomalyDetector(self._metadata_sync)
         self._detector_config = capture_detector_config(fresh_detector, size_detector)
-        self._fresh_wallet_detector, self._size_anomaly_detector = fresh_detector, size_detector
+        self._fresh_wallet_detector = fresh_detector
+        self._size_anomaly_detector = size_detector
 
         # Initialize Risk Scorer
         logger.debug("Initializing risk scorer...")

@@ -6,7 +6,8 @@ import asyncio
 import json
 import threading
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Generic, NoReturn, TypeVar
 
 from redis.asyncio import Redis
@@ -262,3 +263,19 @@ def start_detectors_together(pipeline: Pipeline) -> None:
     assert pipeline._size_anomaly_detector is not None
     pipeline._fresh_wallet_detector = BarrierDetector(barrier, pipeline._fresh_wallet_detector)
     pipeline._size_anomaly_detector = BarrierDetector(barrier, pipeline._size_anomaly_detector)
+
+
+def detector_trade() -> TradeEvent:
+    """A real trade value for exercising the detector-failure path."""
+    return TradeEvent(
+        trade_id="0x" + "e" * 64,
+        wallet_address="0x" + "f" * 40,
+        market_id="0x" + "d" * 64,
+        asset_id="asset_redact_r7",
+        side="BUY",
+        outcome="Yes",
+        outcome_index=0,
+        price=Decimal("0.65"),
+        size=Decimal("5000"),
+        timestamp=datetime.now(UTC),
+    )

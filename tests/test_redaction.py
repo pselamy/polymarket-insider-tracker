@@ -48,6 +48,7 @@ from polymarket_insider_tracker.redaction import (
     url_credential_components,
 )
 from tests.console_capture import capture_console_output
+from tests.fakes import detector_trade
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.config import Settings
@@ -86,22 +87,6 @@ TRAILING_PAREN_FRAGMENT_SECRET = "trailing-paren-fragment-secret-r10"
 R21_POLLER_CANARY = "poller-sink-secret-r21"
 R21_QUOTED_SECRET = "quoted-endpoint-secret-r21"
 R21_GRAPH_SECRET = "graph-bytes-secret-r21"
-
-
-def _detector_trade() -> TradeEvent:
-    """A real trade value for exercising the detector-failure path."""
-    return TradeEvent(
-        trade_id="0x" + "e" * 64,
-        wallet_address="0x" + "f" * 40,
-        market_id="0x" + "d" * 64,
-        asset_id="asset_redact_r7",
-        side="BUY",
-        outcome="Yes",
-        outcome_index=0,
-        price=Decimal("0.65"),
-        size=Decimal("5000"),
-        timestamp=datetime.now(UTC),
-    )
 
 
 async def _primed_poller(settings: Settings) -> tuple[TradePoller, FakeTradesServer]:
@@ -800,7 +785,7 @@ class TestUpstreamSinkRedaction:
         from tests.fakes.metadata import FakeMetadataSync
 
         secret = "upstream-metadata-secret-r10"
-        trade = _detector_trade()
+        trade = detector_trade()
         sync = FakeMetadataSync()
         sync.failures[trade.market_id] = RuntimeError(
             f"meta blew up for https://meta.internal?k={secret}"
@@ -842,7 +827,7 @@ class TestUpstreamSinkRedaction:
         client = PolygonClient("https://polygon-rpc.com", retry_delay_seconds=0.0)
         client._w3 = FakeAsyncWeb3(LeakyTokenEth())
         fresh_detector = FreshWalletDetector(WalletAnalyzer(client))
-        trade = _detector_trade()
+        trade = detector_trade()
         with caplog.at_level(logging.WARNING):
             caplog.clear()
             signals = await fresh_detector.analyze_batch([trade])
@@ -850,15 +835,19 @@ class TestUpstreamSinkRedaction:
         assert fresh_secret not in caplog.text
         assert trade.wallet_address[:10] in caplog.text
         assert "Failed to get USDC balance" in caplog.text
-        vol = {trade.market_id: Decimal("10000")}  # D3 (d): a failed lookup has no category
+
         failing_sync = FakeMetadataSync()
         failing_sync.failures[trade.market_id] = RuntimeError(
             f"meta blew up for https://meta.internal?k={size_secret}"
         )
+        # D3 (d): a failed lookup has no category evidence, so the batch asserts a volume.
+        volume_data = {trade.market_id: Decimal("10000")}
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            found = await SizeAnomalyDetector(failing_sync).analyze_batch([trade], volume_data=vol)
-        assert len(found) == 1
+            size_signals = await SizeAnomalyDetector(failing_sync).analyze_batch(
+                [trade], volume_data=volume_data
+            )
+        assert len(size_signals) == 1
         assert size_secret not in caplog.text
         assert "***" in caplog.text
 
@@ -933,7 +922,7 @@ class TestDetectorFailureRedaction:
                 make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
             )
             pipeline._fresh_wallet_detector = FailingDetector(RuntimeError(text))
-            trade = _detector_trade()
+            trade = detector_trade()
             with caplog.at_level(logging.WARNING):
                 caplog.clear()
                 _, error = await pipeline._detect_fresh_wallet(trade, datetime.now(UTC))
@@ -961,7 +950,7 @@ class TestDetectorFailureRedaction:
                 make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
             )
             pipeline._size_anomaly_detector = FailingDetector(RuntimeError(text))
-            trade = _detector_trade()
+            trade = detector_trade()
             with caplog.at_level(logging.WARNING):
                 caplog.clear()
                 _, error = await pipeline._detect_size_anomaly(trade, datetime.now(UTC))
@@ -992,7 +981,7 @@ class TestDetectorFailureRedaction:
             RuntimeError(self._size_exception_texts()[0])
         )
         with caplog.at_level(logging.WARNING):
-            await pipeline.process_trade(_detector_trade())
+            await pipeline.process_trade(detector_trade())
 
         last_error = pipeline.stats.last_error or ""
         for secret in self._secrets():
@@ -1928,7 +1917,7 @@ class TestAdjacentSinkRedaction:
 def _eligible_observation() -> TradeObservation:
     """A real observation whose outcome is unknown so ``_repair`` hits metadata."""
     return TradeObservation(
-        event=_detector_trade(),
+        event=detector_trade(),
         identity="repair-probe-identity",
         provider_timestamp=1_788_983_720,
         outcome_resolution=OutcomeResolution.UNKNOWN,

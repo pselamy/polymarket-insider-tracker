@@ -181,3 +181,9 @@ running `RiskScorer`; `base_commit` stays 3aafd0b and no scoring rule or literal
 `detector/scorer.py`: a read-only `alert_threshold` property. `pipeline.py`: the startup call binds the
 alert-path health monitor to the scorer it built (`bind_scorer`), so `/health` and the startup record
 are computed from that scorer's current weights and threshold.
+
+## Eleventh refresh: statement layout restored (2026-10-21)
+
+Review round 1 asks that statements compressed only to keep large files from growing be restored;
+`base_commit` stays 3aafd0b and no behaviour changes. `pipeline.py`: the `WalletAnalyzer(...)` call is
+back to its original multi-line form and the two detector assignments are one statement per line.
