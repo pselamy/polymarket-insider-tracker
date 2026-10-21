@@ -25,7 +25,7 @@ from tests.fakes.web3 import FakeAsyncWeb3, FakeEth
 VALID_ADDRESS = "0x742d35Cc6634C0532925a3b844Bc9e7595f5eaE2"
 VALID_ADDRESS_2 = "0x8ba1f109551bD432803012645Ac136ddd64DBA72"
 VALID_ADDRESS_3 = "0x1234567890AbCdEf1234567890ABcDeF12345678"
-VALID_TOKEN = "0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0"  # MATIC token
+VALID_CONTRACT = "0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0"  # MATIC token
 
 
 class RecordingRateLimiter(RateLimiter):
@@ -471,11 +471,11 @@ class TestPolygonClientTokenBalance:
         client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
         client._w3 = FakeAsyncWeb3()
         await fake_redis.set(
-            client._cache_key(f"token:{VALID_TOKEN.lower()}", VALID_ADDRESS),
+            client._cache_key(f"token:{VALID_CONTRACT.lower()}", VALID_ADDRESS),
             b"1000000",
         )
 
-        balance = await client.get_token_balance(VALID_ADDRESS, VALID_TOKEN)
+        balance = await client.get_token_balance(VALID_ADDRESS, VALID_CONTRACT)
 
         assert balance == Decimal("1000000")
 
@@ -485,11 +485,13 @@ class TestPolygonClientTokenBalance:
         client = PolygonClient("https://polygon-rpc.com", redis=fake_redis)
         client._w3 = FakeAsyncWeb3(FakeEth(token_balance=5000000))
 
-        balance = await client.get_token_balance(VALID_ADDRESS, VALID_TOKEN)
+        balance = await client.get_token_balance(VALID_ADDRESS, VALID_CONTRACT)
 
         assert balance == Decimal("5000000")
         assert (
-            await fake_redis.get(client._cache_key(f"token:{VALID_TOKEN.lower()}", VALID_ADDRESS))
+            await fake_redis.get(
+                client._cache_key(f"token:{VALID_CONTRACT.lower()}", VALID_ADDRESS)
+            )
             == b"5000000"
         )
 
