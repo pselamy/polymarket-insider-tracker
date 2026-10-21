@@ -11,6 +11,7 @@ optional profile fields). Request ``taker_only=true`` serves each fill once on i
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 
 import pytest
@@ -48,6 +49,14 @@ RENAMES: dict[str, str] = {
 def _as_v2(row: dict[str, object]) -> dict[str, object]:
     """Rename the documented v1 keys to their documented v2 spelling."""
     return {RENAMES.get(key, key): value for key, value in row.items()}
+
+
+def _with_int_key(row: Mapping[str, object]) -> dict[object, object]:
+    """Widen a decoded row to carry one non-string key the provider contract never produces."""
+    widened: dict[object, object] = {}
+    widened.update(row)
+    widened[7] = "non-string key"
+    return widened
 
 
 def _observation(raw: object) -> TradeObservation:
@@ -152,6 +161,16 @@ class TestV2OptionalAndUnknownFields:
         assert isinstance(expected, TradeObservation)
         assert decoded.event == expected.event
         assert decoded.identity == expected.identity
+
+    def test_non_string_key_is_carried_through_exactly_like_the_v1_parser(self) -> None:
+        v1 = trade_row(timestamp=NOW)
+        v2 = _with_int_key(_as_v2(v1))
+
+        decoded = parse_v2_trade_row(v2, now=NOW)
+        expected = parse_trade_row(_with_int_key(v1), now=NOW)
+
+        assert isinstance(decoded, TradeObservation)
+        assert decoded == expected
 
     def test_missing_outcome_is_unknown_and_repairable_without_changing_identity(self) -> None:
         row = _as_v2(trade_row(timestamp=NOW, outcome=None, outcome_index=None))

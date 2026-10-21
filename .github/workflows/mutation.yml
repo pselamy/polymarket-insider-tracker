@@ -14,7 +14,7 @@ name: Mutation (mutmut, staged zero-survivor gate)
 # scripts/mutation_gate.py. The enrolled list only grows. Target repository:
 # pselamy/polymarket-insider-tracker, exercised by the existing
 # tests/test_redaction.py (pure-Python secret-redaction behavior, no services).
-# Scope is five small files so the run stays bounded on hosted CI (about two minutes locally).
+# Scope is eight small files so the run stays bounded on hosted CI (about two minutes locally).
 #
 # Fail-closed controls (all enforced by the script's own exit code):
 # - syntax / import / test-collection errors NEVER count as kills: the

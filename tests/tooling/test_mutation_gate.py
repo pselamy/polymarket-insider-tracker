@@ -20,7 +20,13 @@ STEP_1_MODULES = (
 )
 # The step-2 enrollment: the secret-redaction module.
 REDACTION = f"{PACKAGE}.redaction"
-ENROLLED = (*STEP_1_MODULES, REDACTION)
+# The step-3 enrollment: three small pure-logic modules.
+STEP_3_MODULES = (
+    f"{PACKAGE}.ingestor.trade_row_v2",
+    f"{PACKAGE}.alerter.channels.pacing",
+    f"{PACKAGE}.alerter._history_records",
+)
+ENROLLED = (*STEP_1_MODULES, REDACTION, *STEP_3_MODULES)
 
 
 def _all_killed() -> list[str]:
