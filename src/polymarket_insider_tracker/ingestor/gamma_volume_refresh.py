@@ -74,6 +74,8 @@ class GammaVolumeRefresh:
     async def stop(self) -> None:
         if self._task is None:
             return
-        self._task.cancel()
-        await asyncio.wait({self._task})
-        self._task = None
+        task, self._task = self._task, None
+        task.cancel()
+        await asyncio.wait({task})
+        if not task.cancelled():
+            task.result()

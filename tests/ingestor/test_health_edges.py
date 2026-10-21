@@ -96,3 +96,32 @@ async def test_health_loop_survives_an_unexpected_step_failure() -> None:
 
     assert clock.calls > 2
     assert recorder.reports[0].streams.keys() == {"trades"}
+
+
+@pytest.mark.asyncio
+async def test_stop_after_start_failed_before_the_task_existed_still_stops() -> None:
+    """A clock failure inside start() leaves the monitor running with no task to cancel."""
+    monitor = HealthMonitor(clock=_FlakyClock(fail_on_call=1))
+    with pytest.raises(RuntimeError, match="clock boom"):
+        await monitor.start()
+    assert monitor.is_running
+
+    await monitor.stop()
+
+    assert not monitor.is_running
+
+
+class _LoopDriver(HealthMonitor):
+    async def run_loop(self) -> None:
+        await self._health_check_loop()
+
+
+@pytest.mark.asyncio
+async def test_health_loop_exits_without_checking_once_the_monitor_is_not_running() -> None:
+    recorder = _ReportRecorder()
+    monitor = _LoopDriver(on_health_change=recorder)
+
+    async with asyncio.timeout(5):
+        await monitor.run_loop()
+
+    assert recorder.reports == []

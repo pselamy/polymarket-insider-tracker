@@ -268,8 +268,8 @@ class GracefulShutdown:
         else:
             self._shutdown_requested = True
             logger.info("Received %s - initiating graceful shutdown...", sig.name)
-            assert self._shutdown_event is not None  # handlers exist only after install
-            self._shutdown_event.set()
+            if self._shutdown_event:
+                self._shutdown_event.set()
 
     def _handle_signal_sync(self, sig: int, _frame: FrameType | None) -> None:
         """Handle shutdown signal (Windows version).

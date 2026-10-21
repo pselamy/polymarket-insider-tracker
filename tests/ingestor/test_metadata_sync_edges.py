@@ -263,3 +263,79 @@ async def test_stop_during_a_periodic_sync_cancels_the_loop_without_recording_a_
 
     assert sync.state == SyncState.STOPPED
     assert sync.stats.failed_syncs == 0
+
+
+class _StepDriver(MarketMetadataSync):
+    """Exposes the loop's single wait-then-sync step and the stop request to the tests."""
+
+    async def step(self) -> bool:
+        return await self._sync_loop_step()
+
+    def request_stop(self) -> None:
+        self._stop_event.set()
+
+
+def _driver(
+    redis: FakeAsyncRedis, clob: FakeClobClient, *, sync_interval_seconds: int
+) -> _StepDriver:
+    return _StepDriver(
+        redis=redis,
+        clob_client=clob,
+        gamma_client=FakeGammaClient(),
+        sync_interval_seconds=sync_interval_seconds,
+    )
+
+
+class EmptyMarket(Market):
+    """A reply the CLOB client returns for an unknown market: present but empty (falsy)."""
+
+    def __bool__(self) -> bool:
+        return False
+
+
+class EmptyReplyClob(FakeClobClient):
+    def get_market(self, condition_id: str) -> Market:
+        return EmptyMarket(
+            condition_id=condition_id, question="", description="", tokens=(), end_date=None
+        )
+
+
+async def test_empty_clob_reply_is_none_without_a_warning_or_a_cache_write(
+    fake_redis: FakeAsyncRedis, caplog: pytest.LogCaptureFixture
+) -> None:
+    sync = _sync(fake_redis, EmptyReplyClob())
+
+    with caplog.at_level(logging.WARNING):
+        assert await sync.get_market("0xempty") is None
+
+    assert caplog.records == []
+    assert await fake_redis.get(f"{PREFIX}0xempty") is None
+
+
+async def test_stop_requested_as_the_interval_elapses_skips_the_sync(
+    fake_redis: FakeAsyncRedis,
+) -> None:
+    clob = BlockingSecondListingClob([_market()])
+    sync = _driver(fake_redis, clob, sync_interval_seconds=0)
+    stepping = asyncio.create_task(sync.step())
+    await asyncio.sleep(0)
+    asyncio.get_running_loop().call_soon(sync.request_stop)
+
+    assert await stepping is False
+
+    assert clob.listings == 0
+
+
+async def test_sync_loop_ends_on_its_own_once_stop_is_requested(
+    fake_redis: FakeAsyncRedis,
+) -> None:
+    clob = BlockingSecondListingClob([_market()])
+    sync = _driver(fake_redis, clob, sync_interval_seconds=300)
+    await sync.start()
+    sync.request_stop()
+    await asyncio.sleep(0.05)
+
+    await sync.stop()
+
+    assert clob.listings == 1
+    assert sync.state == SyncState.STOPPED

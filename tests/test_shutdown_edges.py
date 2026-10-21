@@ -178,3 +178,19 @@ async def test_windows_restore_failure_off_the_main_thread_is_suppressed(
     finally:
         for sig, handler in before.items():
             signal.signal(sig, handler)
+
+
+class _SignalBeforeInstall(GracefulShutdown):
+    """Delivers a Unix-style signal to a handler that has no shutdown event yet."""
+
+    def deliver(self, sig: signal.Signals) -> None:
+        self._handle_signal(sig)
+
+
+def test_signal_before_install_is_recorded_without_an_event_to_set() -> None:
+    shutdown = _SignalBeforeInstall()
+
+    shutdown.deliver(signal.SIGTERM)
+
+    assert shutdown.is_shutdown_requested
+    assert not shutdown.is_force_exit_requested
