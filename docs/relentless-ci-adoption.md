@@ -1390,16 +1390,15 @@ last three were already absent). 23 escape sites in total.
 | `ingestor/v2_page.py` | 135, 157 | 2 × `cast` | `isinstance(x, dict/list)` leaves `Unknown` element types | `shapes.string_keyed` / `shapes.object_list` (`TypeGuard` re-typing, then per-item checks) |
 | `alerter/channels/response_values.py` | 74 | `cast` | same | `shapes.string_keyed` |
 | `alerter/_history_records.py` | 49, 65 | `dict[str, Any]` | stored JSON record | `Mapping[str, object]` in, `dict[str, object]` out, typed field readers that raise `ValueError` on a wrong type |
-| `alerter/history.py` | 56 | `redis: Any` | duck-typed Redis | kept as the single confined boundary `Any` (see below) |
+| `alerter/history.py` | 56 | `redis: Any` | duck-typed Redis | `alerter/_redis_port.HistoryRedis` / `HistoryPipeline` Protocols (replies typed `object`), narrowed by `reply_text` / `reply_int` / `reply_ids`, which raise `TypeError` on a wrong shape |
 | `ingestor/publisher.py` | 116, 196, 225, 356 | `Any`, 2 × `cast` | XREADGROUP reply, invariant redis-py dict, XINFO | `_stream_reply` validates the reply shape by shape, `_encodable_fields` builds the invariant dict, `dict[str, object]` |
-| `ingestor/alert_path_health.py` | 60 | `dict[str, Any]` | overrides `HealthMonitor._build_health_body` | `dict[str, object]` |
+| `ingestor/alert_path_health.py` | 60 | `dict[str, Any]` | overrides `HealthMonitor._build_health_body` | `dict[str, JsonValue]` |
 
-After the sweep one escape site remains in the seven modules: `AlertHistory.__init__(redis: Any)`.
-redis-py's `zrangebyscore` stub is partially unknown under strict Pyright (`score_cast_func`), so
-typing the client as `redis.asyncio.Redis` reports `reportUnknownMemberType`, and the existing
-tests inject partial Redis doubles (`BrokenRedis`, `RacingRedis`, `RecordingRedis`) that a
-structural Protocol of the whole call surface (including `pipeline` and the WATCH/MULTI/EXEC
-sequence) would force into a rewrite. It is the one confined, documented `Any`.
+After the sweep no escape site remains in the seven modules. The one `Any` that the first pass kept
+in `AlertHistory.__init__` is replaced (review round 1) by the `HistoryRedis` Protocol, which
+declares exactly the commands `AlertHistory` and `_channel_delivery` call; real `redis.asyncio.Redis`
+and the `tests/fakes/redis_history.py` doubles (delegating to `fakeredis`) satisfy it structurally.
+`trade_row_v2` now narrows through `shapes.object_mapping` instead of its own `TypeGuard`.
 
 Behaviour notes:
 

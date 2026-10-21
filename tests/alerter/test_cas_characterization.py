@@ -32,118 +32,13 @@ from redis.exceptions import WatchError
 from polymarket_insider_tracker.alerter import _channel_delivery
 from polymarket_insider_tracker.alerter.history import AlertHistory
 from tests.fakes.redis_await import key_count
+from tests.fakes.redis_history import RacingRedis, RecordingRedis
 
 CHANNEL = "discord"
 WALLET = "0xW"
 MARKET = "0xM"
 TOKEN = "owner-token-hex"
 RIVAL = "reacquired-by-other-owner"
-
-
-class RecordingPipeline:
-    """Transparent proxy over a fakeredis pipeline that records issued commands."""
-
-    def __init__(self, pipe: Any, commands: list[tuple[str, tuple[Any, ...]]]) -> None:
-        self._pipe = pipe
-        self._commands = commands
-
-    async def watch(self, key: str) -> None:
-        self._commands.append(("watch", (key,)))
-        await self._pipe.watch(key)
-
-    async def get(self, key: str) -> Any:
-        self._commands.append(("get", (key,)))
-        return await self._pipe.get(key)
-
-    async def unwatch(self) -> None:
-        self._commands.append(("unwatch", ()))
-        await self._pipe.unwatch()
-
-    def multi(self) -> None:
-        self._commands.append(("multi", ()))
-        self._pipe.multi()
-
-    def delete(self, key: str) -> None:
-        self._commands.append(("delete", (key,)))
-        self._pipe.delete(key)
-
-    def expire(self, key: str, ttl: int) -> None:
-        self._commands.append(("expire", (key, ttl)))
-        self._pipe.expire(key, ttl)
-
-    async def execute(self) -> Any:
-        self._commands.append(("execute", ()))
-        return await self._pipe.execute()
-
-    async def __aenter__(self) -> RecordingPipeline:
-        await self._pipe.__aenter__()
-        return self
-
-    async def __aexit__(self, *exc: Any) -> Any:
-        return await self._pipe.__aexit__(*exc)
-
-
-class RecordingRedis:
-    """Fake redis delegating to fakeredis while recording pipeline commands."""
-
-    def __init__(self, seed: FakeAsyncRedis) -> None:
-        self._seed = seed
-        self.commands: list[tuple[str, tuple[Any, ...]]] = []
-
-    def pipeline(self, transaction: bool = True) -> RecordingPipeline:
-        return RecordingPipeline(self._seed.pipeline(transaction=transaction), self.commands)
-
-
-class RacingPipeline:
-    """Proxy pipeline where a rival owner re-acquires the key after the READ.
-
-    After the CAS helper's WATCH+GET, a second connection sharing the same
-    server sets the watched key to the rival token, so EXEC must raise
-    ``WatchError`` exactly as the real Redis contract describes.
-    """
-
-    def __init__(self, pipe: Any, server: FakeServer, key: str, rival: str) -> None:
-        self._pipe = pipe
-        self._server = server
-        self._key = key
-        self._rival = rival
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._pipe, name)
-
-    async def get(self, key: str) -> Any:
-        result = await self._pipe.get(key)
-        rival = FakeAsyncRedis(server=self._server)
-        try:
-            await rival.set(self._key, self._rival, ex=60)
-        finally:
-            await rival.aclose()
-        return result
-
-    async def __aenter__(self) -> RacingPipeline:
-        await self._pipe.__aenter__()
-        return self
-
-    async def __aexit__(self, *exc: Any) -> Any:
-        return await self._pipe.__aexit__(*exc)
-
-
-class RacingRedis:
-    """Fake redis delegating to fakeredis with the rival-owner pipeline above."""
-
-    def __init__(self, seed: FakeAsyncRedis, server: FakeServer, key: str, rival: str) -> None:
-        self._seed = seed
-        self._server = server
-        self._key = key
-        self._rival = rival
-
-    def pipeline(self, transaction: bool = True) -> RacingPipeline:
-        return RacingPipeline(
-            self._seed.pipeline(transaction=transaction),
-            self._server,
-            self._key,
-            self._rival,
-        )
 
 
 async def raise_watch_error(*args: Any, **kwargs: Any) -> bool:

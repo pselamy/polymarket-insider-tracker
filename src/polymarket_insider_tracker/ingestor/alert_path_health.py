@@ -22,6 +22,7 @@ from polymarket_insider_tracker.ingestor.health import (
     HealthReport,
     HealthStatus,
 )
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 
 
 class AlertPathHealthMonitor(HealthMonitor):
@@ -56,6 +57,6 @@ class AlertPathHealthMonitor(HealthMonitor):
         components: dict[str, ComponentStatus],
         overall_status: HealthStatus,
         now: float,
-    ) -> dict[str, object]:
+    ) -> dict[str, JsonValue]:
         body = super()._build_health_body(report, components, overall_status, now)
-        return {**body, "alert_path": self.alert_path.fields()}
+        return {**body, "alert_path": dict(self.alert_path.fields())}
