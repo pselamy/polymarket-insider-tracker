@@ -698,6 +698,62 @@ Still unenrolled (layer-3 owned or later cards): `tests/test_pipeline.py`, `test
 `tests/test_terminal_error_durable.py`, `tests/detector`, `tests/integration`,
 `tests/test_redaction.py`, `tests/test_main.py` and the remaining `tests/ingestor` files.
 
+## REF-CMD-20 step 7a: Pipeline seam, `test_pipeline`, `test_terminal_error_durable`, `test_main` (2026-10-21)
+
+Measured with the enforced strict pyright (1.1.411) from `origin/main` at `86909c6`; enrolled in
+`[tool.pyright].include` with zero suppressions (155 → 0):
+
+| Root | Before | By rule (before) |
+| --- | --- | --- |
+| `tests/test_pipeline.py` | 88 | private `Pipeline` members and stub assignments |
+| `tests/fakes/pipeline.py` | 35 | 8 `reportCallIssue` (`Settings(_env_file=...)`), private wiring |
+| `tests/test_terminal_error_durable.py` | 25 | private `Pipeline` state and worker hooks |
+| `tests/test_main.py` | 7 | private `_state`, `_stats` and two private `__main__` functions |
+| Total | 155 | 130 `reportPrivateUsage`, 13 `reportAttributeAccessIssue`, 9 `reportCallIssue`, 1 each `reportArgumentType`, `reportUntypedFunctionDecorator`, `reportUnusedVariable` |
+
+The `# type: ignore[assignment]` comments the stub tests carried are gone with the stubs.
+
+The seam, designed once and used by `tests/fakes/pipeline.py`:
+
+- `pipeline_components.PipelineComponents` is the bundle of collaborators a `Pipeline` processes
+  trades with; `build_components(settings, ...)` assembles the production set (moved out of
+  `Pipeline._initialize_components`, with the same log lines, order and part-failure cleanup of the
+  connections already opened). `Evaluator` and `build_alert_channels(settings)` moved there too.
+- `Pipeline.install_components(components)` runs the pipeline on a supplied bundle. `start()`
+  builds and installs the production set only when none is installed, which is also how an
+  embedding caller supplies its own Redis and database. `owns_connections=False` leaves the
+  caller's connections open on `stop()`.
+- `Pipeline.settings` and `Pipeline.dry_run` are read-only observable state;
+  `Pipeline.on_ingestion_state` is the callback a trade source built outside the pipeline calls.
+- `Pipeline` no longer keeps `_polygon_client`, `_clob_client`, `_wallet_analyzer` and
+  `_alert_history`: they were assigned and never read. `install_components` also binds the risk
+  scorer to the health monitor, as the production path always did.
+
+Honest test changes, no suppression, cast or `Any`:
+
+- Lifecycle tests drive `start()`/`stop()` with a per-test health port instead of private
+  `_start_background_services`; terminal failures come from the real poller or from
+  `terminal_errors.record_terminal_failure`; readiness is read through
+  `health_monitor.evaluate_components()`; the `/health` body through the HTTP endpoint.
+- `make_test_settings` builds the nested settings with `model_validate` (the environment and
+  `.env` stay ignored; an existing test proves it).
+- Stand-ins are real subclasses (`StubPoller(TradePoller)`, an `AlertFormatter` that raises, a
+  `DatabaseManager` that fails its first sessions) instead of duck-typed stubs.
+- `test_no_alert_when_below_threshold` now runs a real trade, so its persisted score is the real
+  scorer's `0.12`, not the `0.0` of a hand-built bundle; the dry-run test likewise scores a real
+  niche-market trade.
+- `_exit_code_for_pipeline` is tested through `run_pipeline`; the direct call of
+  `_sanitized_validation_message` is replaced by asserting the full message on stderr.
+
+Pinned jscpd clone delta (raw command above, tracked `.py` files minus `typings/`): `origin/main`
+10 clones / 115 duplicated lines over 358 files; this branch 10 / 115 over 360 (delta 0). Renaming
+`_run_until` to the shared `run_until` had briefly created an 11th clone with
+`tests/integration/test_end_to_end.py`; the repeated "wait for the first poll, then publish" step
+is now one helper.
+
+Still unenrolled: `tests/detector`, `tests/integration`, `tests/test_redaction.py` and the
+remaining `tests/ingestor` files.
+
 ## Mutation step 1: measurement beyond the redaction target (2026-10-20)
 
 mutmut 3.8.0 (`[tool.mutmut]` in `pyproject.toml`, Python 3.11, `--max-children 8`) over the

@@ -215,3 +215,12 @@ no published ceiling, verdict or alert count changes:
 `api_key` argument (the key was never sent to any request; see the deprecation notes in
 `CHANGELOG.md`). No scoring, threshold, detector or envelope change. The `pipeline.py` hash was
 re-pinned from the output of `check_source_hashes`; every other hash is unchanged.
+
+## Fourteenth refresh: Pyright step 7a (2026-10-21)
+
+`base_commit` stays 3aafd0b. Only `pipeline.py` changes: composition moved to
+`pipeline_components.py` (`build_components`, `PipelineComponents`, `build_alert_channels`,
+`Evaluator`) and `Pipeline` gains the public `install_components`, `settings`, `dry_run` and
+`on_ingestion_state`; no scoring change (no scoring rule, literal, ordering or persisted value
+changes). The `pipeline.py` hash was re-pinned from the output of `check_source_hashes`; every other
+hash is unchanged.

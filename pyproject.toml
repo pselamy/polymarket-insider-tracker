@@ -141,6 +141,7 @@ include = [
     "tests/fakes/cancellation.py",
     "tests/fakes/clob.py",
     "tests/fakes/gamma.py",
+    "tests/fakes/ingestion.py",
     "tests/fakes/metadata.py",
     "tests/fakes/redis_await.py",
     "tests/fakes/trades.py",
@@ -173,6 +174,10 @@ include = [
     "tests/ingestor/test_trade_rows.py",
     "tests/ingestor/test_clob_client.py",
     "tests/ingestor/test_trade_poller.py",
+    "tests/fakes/pipeline.py",
+    "tests/test_pipeline.py",
+    "tests/test_terminal_error_durable.py",
+    "tests/test_main.py",
 ]
 pythonVersion = "3.11"
 stubPath = "typings"

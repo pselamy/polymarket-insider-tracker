@@ -6,12 +6,15 @@ import asyncio
 import json
 import threading
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Generic, NoReturn, TypeVar
 
+import pytest
 from redis.asyncio import Redis
 
+import polymarket_insider_tracker.ingestor.clob_client as clob_module
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel, AlertDispatcher
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.alerter.history import AlertHistory
@@ -26,6 +29,8 @@ from polymarket_insider_tracker.config import (
     TelegramSettings,
     TradesCoverage,
 )
+from polymarket_insider_tracker.detector.detector_config import default_detector_config
+from polymarket_insider_tracker.detector.evaluation import SizeEvaluation, WalletEvaluation
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.scorer import RiskScorer
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
@@ -35,11 +40,14 @@ from polymarket_insider_tracker.ingestor.metadata_sync import (
     DEFAULT_CACHE_TTL_SECONDS,
     DEFAULT_REDIS_KEY_PREFIX,
     MarketMetadataSync,
-    SyncState,
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
-from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
-from polymarket_insider_tracker.pipeline import Evaluator, Pipeline
+from polymarket_insider_tracker.ingestor.trade_poller import (
+    IngestionState,
+    TradePoller,
+)
+from polymarket_insider_tracker.pipeline import Pipeline
+from polymarket_insider_tracker.pipeline_components import Evaluator, PipelineComponents
 from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.profiler.chain import PolygonClient
 from polymarket_insider_tracker.profiler.funding import FundingTracer
@@ -75,46 +83,147 @@ def make_test_settings(
     ``trades_url=None`` selects the configuration default (``OFFICIAL_V2_TRADES_URL``) explicitly,
     so neither the environment nor a ``.env`` file can supply it.
     """
-    return Settings(
-        _env_file=None,
-        redis=RedisSettings(_env_file=None, REDIS_URL="redis://localhost:6379/0"),
-        database=DatabaseSettings(
-            _env_file=None, DATABASE_URL="postgresql+psycopg://user:pass@localhost:5432/db"
-        ),
-        polygon=PolygonSettings(
-            _env_file=None,
-            POLYGON_RPC_URL="https://polygon-rpc.com",
-            POLYGON_FALLBACK_RPC_URL=None,
-        ),
-        polymarket=PolymarketSettings(
-            _env_file=None,
-            POLYMARKET_TRADES_URL=trades_url or OFFICIAL_V2_TRADES_URL,
-            POLYMARKET_TRADES_COVERAGE=TradesCoverage(trades_coverage),
-            POLYMARKET_TRADES_POLL_INTERVAL_SECONDS=trades_poll_interval_seconds,
-            POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS=trades_recovery_horizon_seconds,
-            POLYMARKET_WS_URL=None,
-            POLYMARKET_API_KEY=None,
-        ),
-        discord=DiscordSettings(
-            _env_file=None,
-            DISCORD_WEBHOOK_URL=discord_webhook_url if discord_enabled else None,
-        ),
-        telegram=TelegramSettings(
-            _env_file=None,
-            TELEGRAM_BOT_TOKEN=telegram_bot_token if telegram_enabled else None,
-            TELEGRAM_CHAT_ID=telegram_chat_id if telegram_enabled else None,
-        ),
-        # Detector fields are declared by alias with ``extra="ignore"``; the field names
-        # themselves would be silently dropped, so the aliases must be used here.
-        detector=DetectorSettings(
-            _env_file=None,
-            DETECTOR_PERSIST_ASSESSMENTS=persist_assessments,
-            DETECTOR_ALERT_THRESHOLD=alert_threshold,
-            DETECTOR_DEDUP_WINDOW_SECONDS=3600,
-        ),
-        LOG_LEVEL="INFO",
-        HEALTH_PORT=health_port,
-        DRY_RUN=dry_run,
+    return Settings.model_validate(
+        {
+            "redis": RedisSettings.model_validate({"REDIS_URL": "redis://localhost:6379/0"}),
+            "database": DatabaseSettings.model_validate(
+                {"DATABASE_URL": "postgresql+psycopg://user:pass@localhost:5432/db"}
+            ),
+            "polygon": PolygonSettings.model_validate(
+                {
+                    "POLYGON_RPC_URL": "https://polygon-rpc.com",
+                    "POLYGON_FALLBACK_RPC_URL": None,
+                }
+            ),
+            "polymarket": PolymarketSettings.model_validate(
+                {
+                    "POLYMARKET_TRADES_URL": trades_url or OFFICIAL_V2_TRADES_URL,
+                    "POLYMARKET_TRADES_COVERAGE": TradesCoverage(trades_coverage),
+                    "POLYMARKET_TRADES_POLL_INTERVAL_SECONDS": trades_poll_interval_seconds,
+                    "POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS": trades_recovery_horizon_seconds,
+                    "POLYMARKET_WS_URL": None,
+                    "POLYMARKET_API_KEY": None,
+                }
+            ),
+            "discord": DiscordSettings.model_validate(
+                {"DISCORD_WEBHOOK_URL": discord_webhook_url if discord_enabled else None}
+            ),
+            "telegram": TelegramSettings.model_validate(
+                {
+                    "TELEGRAM_BOT_TOKEN": telegram_bot_token if telegram_enabled else None,
+                    "TELEGRAM_CHAT_ID": telegram_chat_id if telegram_enabled else None,
+                }
+            ),
+            # Detector fields are declared by alias with ``extra="ignore"``; the field names
+            # themselves would be silently dropped, so the aliases must be used here.
+            "detector": DetectorSettings.model_validate(
+                {
+                    "DETECTOR_PERSIST_ASSESSMENTS": persist_assessments,
+                    "DETECTOR_ALERT_THRESHOLD": alert_threshold,
+                    "DETECTOR_DEDUP_WINDOW_SECONDS": 3600,
+                }
+            ),
+            "LOG_LEVEL": "INFO",
+            "HEALTH_PORT": health_port,
+            "DRY_RUN": dry_run,
+        }
+    )
+
+
+@dataclass(frozen=True)
+class Substitutes:
+    """Collaborators a test replaces; every unset one stays the real, wired component."""
+
+    formatter: AlertFormatter | None = None
+    fresh_detector: Evaluator[WalletEvaluation] | None = None
+    size_detector: Evaluator[SizeEvaluation] | None = None
+    poller: TradePoller | None = None
+    detectors_together: bool = False
+
+
+class WiredPipeline(Pipeline):
+    """A real ``Pipeline`` that keeps the collaborators it was wired with for tests to drive."""
+
+    def __init__(self, settings: Settings) -> None:
+        super().__init__(settings)
+        self.poller: TradePoller | None = None
+        self.metadata_sync: MarketMetadataSync | None = None
+
+
+def _polygon_client(settings: Settings, redis: Redis, eth: FakeEth) -> PolygonClient:
+    return PolygonClient(
+        settings.polygon.rpc_url,
+        redis=redis,
+        max_requests_per_second=10_000.0,
+        retry_delay_seconds=0.0,
+        web3=FakeAsyncWeb3(eth),
+    )
+
+
+def _sdk_boundary(base_client: FakeBaseClobClient) -> ClobClient:
+    """A real ``ClobClient`` whose SDK handle is ``base_client``."""
+
+    def build(host: str) -> FakeBaseClobClient:
+        _ = host
+        return base_client
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(clob_module, "BaseClobClient", build)
+        return ClobClient()
+
+
+def _metadata_sync(
+    redis: Redis, crawl_gate: threading.Event | None, log: list[str]
+) -> MarketMetadataSync:
+    base_client = FakeBaseClobClient()
+    base_client.crawl_gate = crawl_gate
+    return MarketMetadataSync(
+        redis=redis,
+        clob_client=_sdk_boundary(base_client),
+        gamma_client=FakeGammaClient(),
+        on_state_change=lambda state: log.append(f"metadata:{state.value}"),
+    )
+
+
+async def _cache_market(redis: Redis, market: MarketMetadata | None) -> None:
+    """Leave ``market`` in Redis the way a completed metadata sync does."""
+    if market is None:
+        return
+    await redis.setex(
+        f"{DEFAULT_REDIS_KEY_PREFIX}{market.condition_id}",
+        DEFAULT_CACHE_TTL_SECONDS,
+        json.dumps(market.to_dict()),
+    )
+
+
+def _detectors(
+    polygon_client: PolygonClient,
+    metadata_sync: MarketMetadataSync,
+    redis: Redis,
+    substitutes: Substitutes,
+) -> tuple[Evaluator[WalletEvaluation], Evaluator[SizeEvaluation]]:
+    fresh = substitutes.fresh_detector or FreshWalletDetector(
+        WalletAnalyzer(polygon_client, redis=redis)
+    )
+    size = substitutes.size_detector or SizeAnomalyDetector(metadata_sync)
+    if not substitutes.detectors_together:
+        return fresh, size
+    barrier = asyncio.Barrier(2)
+    return BarrierDetector(barrier, fresh), BarrierDetector(barrier, size)
+
+
+def _dispatcher(
+    settings: Settings, redis: Redis, channels: Sequence[AlertChannel], dry_run: bool
+) -> AlertDispatcher:
+    history = AlertHistory(redis, dedup_window_seconds=settings.detector.dedup_window_seconds)
+    return AlertDispatcher(list(channels), history=history, dry_run=dry_run)
+
+
+def _scorer(settings: Settings, redis: Redis) -> RiskScorer:
+    return RiskScorer(
+        redis,
+        alert_threshold=settings.detector.alert_threshold,
+        dedup_window_seconds=settings.detector.dedup_window_seconds,
     )
 
 
@@ -131,8 +240,10 @@ async def wire_pipeline(
     crawl_gate: threading.Event | None = None,
     state_log: list[str] | None = None,
     trace_funding: bool = True,
-) -> Pipeline:
-    """Build a ``Pipeline`` the way ``Pipeline._initialize_components`` does.
+    substitutes: Substitutes | None = None,
+    pipeline_type: type[WiredPipeline] = WiredPipeline,
+) -> WiredPipeline:
+    """Assemble a real ``Pipeline`` with only its external boundaries replaced.
 
     Every product component is real: the Polygon client, wallet analyzer, funding tracer,
     metadata sync, both detectors, the risk scorer, the alert formatter, the dispatcher, and,
@@ -143,55 +254,37 @@ async def wire_pipeline(
     Redis the way a completed sync leaves it, and delivery goes to ``channels`` instead of Discord
     or Telegram. ``state_log`` records poller and metadata state transitions in order.
     ``trace_funding=False`` leaves the pipeline without a funding tracer.
+
+    ``substitutes`` replaces named collaborators (a failing detector, a stand-in trade source).
+    The caller owns ``redis`` and ``db_manager``: stopping the pipeline leaves them open.
+    ``pipeline_type`` selects a ``WiredPipeline`` subclass for lifecycle failure injection.
     """
-    pipeline = Pipeline(settings)
-    pipeline._redis = redis
-    pipeline._db_manager = db_manager
+    substitutes = substitutes or Substitutes()
     log = state_log if state_log is not None else []
-
-    polygon_client = PolygonClient(
-        settings.polygon.rpc_url,
-        redis=redis,
-        max_requests_per_second=10_000.0,
-        retry_delay_seconds=0.0,
-        web3=FakeAsyncWeb3(eth),
-    )
-    wallet_analyzer = WalletAnalyzer(polygon_client, redis=redis)
-    pipeline._funding_tracer = FundingTracer(polygon_client) if trace_funding else None
-
-    clob_client = ClobClient()
-    base_client = FakeBaseClobClient()
-    base_client.crawl_gate = crawl_gate
-    clob_client._client = base_client
-    pipeline._metadata_sync = MarketMetadataSync(
-        redis=redis,
-        clob_client=clob_client,
-        gamma_client=FakeGammaClient(),
-        on_state_change=lambda state: log.append(f"metadata:{state.value}"),
-    )
-    if market is not None:
-        await redis.setex(
-            f"{DEFAULT_REDIS_KEY_PREFIX}{market.condition_id}",
-            DEFAULT_CACHE_TTL_SECONDS,
-            json.dumps(market.to_dict()),
-        )
-
-    pipeline._fresh_wallet_detector = FreshWalletDetector(wallet_analyzer)
-    pipeline._size_anomaly_detector = SizeAnomalyDetector(pipeline._metadata_sync)
-    pipeline._risk_scorer = RiskScorer(
-        redis,
-        alert_threshold=settings.detector.alert_threshold,
-        dedup_window_seconds=settings.detector.dedup_window_seconds,
-    )
-    pipeline._alert_formatter = AlertFormatter(verbosity="detailed")
-    pipeline._alert_history = AlertHistory(
-        redis, dedup_window_seconds=settings.detector.dedup_window_seconds
-    )
-    pipeline._alert_dispatcher = AlertDispatcher(
-        list(channels), history=pipeline._alert_history, dry_run=pipeline._dry_run
-    )
+    pipeline = pipeline_type(settings)
+    polygon_client = _polygon_client(settings, redis, eth)
+    metadata_sync = _metadata_sync(redis, crawl_gate, log)
+    await _cache_market(redis, market)
+    fresh_detector, size_detector = _detectors(polygon_client, metadata_sync, redis, substitutes)
     if trades is not None:
-        pipeline._trade_poller = _wire_poller(pipeline, redis, trades, poll_clock, log)
+        pipeline.poller = _wire_poller(pipeline, redis, trades, poll_clock, metadata_sync, log)
+    pipeline.metadata_sync = metadata_sync
+    pipeline.install_components(
+        PipelineComponents(
+            redis=redis,
+            db_manager=db_manager,
+            metadata_sync=metadata_sync,
+            funding_tracer=FundingTracer(polygon_client) if trace_funding else None,
+            fresh_wallet_detector=fresh_detector,
+            size_anomaly_detector=size_detector,
+            detector_config=default_detector_config(),
+            risk_scorer=_scorer(settings, redis),
+            alert_formatter=substitutes.formatter or AlertFormatter(verbosity="detailed"),
+            alert_dispatcher=_dispatcher(settings, redis, channels, pipeline.dry_run),
+            trade_poller=substitutes.poller or pipeline.poller,
+            owns_connections=False,
+        )
+    )
     return pipeline
 
 
@@ -200,31 +293,26 @@ def _wire_poller(
     redis: Redis,
     trades: TradesServer,
     poll_clock: FakeClock | None,
+    metadata_sync: MarketMetadataSync,
     log: list[str],
 ) -> TradePoller:
     clock = poll_clock or FakeClock(0.0)
 
     def on_state(state: IngestionState) -> None:
         log.append(f"poller:{state.value}")
-        pipeline._on_ingestion_state(state)
+        pipeline.on_ingestion_state(state)
 
     return TradePoller(
         pipeline.process_trade,
         redis=redis,
-        settings=pipeline._settings.polymarket,
-        metadata=pipeline._metadata_sync,
+        settings=pipeline.settings.polymarket,
+        metadata=metadata_sync,
         on_state_change=on_state,
         http_client=trades.client(),
         clock=clock,
         sleeper=clock.sleep,
         random_source=lambda: 0.0,
     )
-
-
-def metadata_state(pipeline: Pipeline) -> SyncState:
-    """The current metadata-sync state of a wired pipeline."""
-    assert pipeline._metadata_sync is not None
-    return pipeline._metadata_sync.state
 
 
 class FailingDetector:
@@ -254,15 +342,6 @@ class BarrierDetector(Generic[EvaluationT]):
     async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> EvaluationT:
         await self._barrier.wait()
         return await self._inner.evaluate(trade, evaluated_at=evaluated_at)
-
-
-def start_detectors_together(pipeline: Pipeline) -> None:
-    """Make the pipeline's two real detectors wait for each other at one shared barrier."""
-    barrier = asyncio.Barrier(2)
-    assert pipeline._fresh_wallet_detector is not None
-    assert pipeline._size_anomaly_detector is not None
-    pipeline._fresh_wallet_detector = BarrierDetector(barrier, pipeline._fresh_wallet_detector)
-    pipeline._size_anomaly_detector = BarrierDetector(barrier, pipeline._size_anomaly_detector)
 
 
 def detector_trade() -> TradeEvent:
