@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import pytest
-from aiohttp import ClientSession
 from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.config_summary import print_config_summary
@@ -29,6 +28,7 @@ from polymarket_insider_tracker.ingestor.health import HealthMonitor
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline
 from tests.fakes import make_test_settings
+from tests.fakes.health_http import served
 
 
 def _best_case_bundle(trade: TradeEvent) -> SignalBundle:
@@ -172,18 +172,11 @@ class HealthSurface:
 
 async def _health(monitor: HealthMonitor) -> HealthSurface:
     monitor.record_event("trades")
-    await monitor.start_http_server(port=0)
-    try:
-        port = monitor.http_addresses[0][1]
-        async with ClientSession(f"http://127.0.0.1:{port}") as client:
-            statuses: dict[str, int] = {}
-            for path in ("/health", "/ready", "/live", "/metrics"):
-                async with client.get(path) as response:
-                    statuses[path] = response.status
-            async with client.get("/health") as response:
-                body = await response.json()
-    finally:
-        await monitor.stop_http_server()
+    async with served(monitor) as client:
+        statuses: dict[str, int] = {}
+        for path in ("/health", "/ready", "/live", "/metrics"):
+            statuses[path] = (await client.get(path)).status
+        body = await (await client.get("/health")).json()
     return HealthSurface(statuses, body["status"], body.get("alert_path"))
 
 
