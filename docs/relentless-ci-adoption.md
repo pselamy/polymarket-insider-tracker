@@ -1246,3 +1246,47 @@ without restructuring:
   does not validate it.
 
 Gate: `ENROLLED_MODULES` gained the three modules (list only grows; the test pins the prefix).
+
+## Coverage step 4: five more modules enrolled (2026-10-21)
+
+Measured from `ec05d32` (`coverage run -m pytest tests --ignore=tests/tooling`, branch on: 3508
+passed, 17 skipped). Candidate modules, line / branch misses before:
+
+| Module | Missed lines / partial branches | Enrolled |
+| --- | --- | --- |
+| `ingestor/trades_source.py` | 1 / 1 | yes |
+| `ingestor/v2_cursor_walk.py` | 1 / 1 | yes |
+| `ingestor/gamma_client.py` | 2 / 3 | yes |
+| `storage/database.py` | 5 / 4 | yes |
+| `ingestor/acquisition.py` | 10 / 1 | yes |
+| `ingestor/observation_boundary.py` | 3 / 18 | no (many `->exit` branches in a validation chain) |
+| `ingestor/clob_client.py` | 17 / 0 | no |
+| `ingestor/websocket.py` | 18 / 10 | no (deprecated surface) |
+| `shutdown.py` | 22 / 8 | no |
+| `terminal_errors.py` | 15 / 10 | no |
+
+Closed by behavioural tests: terminal HTTP status, exhausted transient status with `Retry-After`,
+exhausted transport error, unparseable body and malformed envelope on the v2 source; a request
+cutoff restored after restart; the final permitted attempt succeeding on the v1 source; equal
+stamps keeping the lower page, a page skipped once an earlier page failed, and the duplicate-id
+rule for stampless entries on the gamma client; disposing a never-opened `DatabaseManager`,
+`init_db`/`init_async_db` creating every model table, and sessions sharing one engine.
+
+Dead code removed (no pragma, omit or threshold change; behaviour for valid inputs is unchanged):
+
+- `trades_source._fetch` and `v2_cursor_walk._fetch` ended their retry loops with an unreachable
+  `AssertionError`. Both now retry `max_retries` times in the loop and make the final attempt
+  after it, so the exit is structural. `RetryPolicy.attempt_limit` lost its last caller and was
+  removed with its tests; the v2 `_retry_or_raise` helper was inlined.
+- `acquisition.V2TradesSource._walk` caught the base `V2TransportError` after its only two
+  subclasses; nothing raises the base, so the clause was removed.
+- `DatabaseManager._get_sync_engine/_get_async_engine` guarded against an existing engine, but
+  `dispose` and `dispose_async` clear engine and factory together, so an engine never outlives
+  its factory. They are now `_open_*_engine` creators.
+- `gamma_client._supersedes` became the public `supersedes` so the stampless duplicate rule, which
+  a real crawl never reaches (every `ok` page is stamped), is tested directly.
+
+Planted-gap check: an `if self._echo:` branch added to `DatabaseManager.dispose` made
+`coverage report --fail-under=100` print `Coverage failure: total of 91 is less than
+fail-under=100` for `storage/database.py` (reported with the storage and ingestor suites only, so
+the percentage is that subset's); the file was restored and the full gate passes at 100%.

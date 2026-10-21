@@ -343,6 +343,16 @@ class TestResponses:
 
         assert page.attempts == 2
 
+    async def test_the_final_permitted_attempt_can_still_succeed(
+        self, server: FakeTradesServer, clock: FakeClock
+    ) -> None:
+        server.fail_next(server_error(503), times=MAX_RETRIES)
+
+        page = await _client(server, clock).fetch_primary(boundary_time=None, horizon_seconds=600)
+
+        assert page.attempts == MAX_RETRIES + 1
+        assert len(server.requests) == MAX_RETRIES + 1
+
 
 class TestClassification:
     @pytest.mark.parametrize("status", [408, 425, 429, 500, 502, 503, 599])

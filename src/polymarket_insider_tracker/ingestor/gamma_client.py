@@ -122,7 +122,7 @@ def _try_parse_item(raw: JsonValue, acquired_at: datetime | None) -> GammaMarket
     return None
 
 
-def _supersedes(new: GammaMarketStats, kept: GammaMarketStats) -> bool:
+def supersedes(new: GammaMarketStats, kept: GammaMarketStats) -> bool:
     """Duplicate-id rule: the later ``acquired_at`` wins; a tie keeps the lower page index."""
     if new.acquired_at is None:
         return False
@@ -131,7 +131,7 @@ def _supersedes(new: GammaMarketStats, kept: GammaMarketStats) -> bool:
 
 def _keep_freshest(results: dict[str, GammaMarketStats], parsed: GammaMarketStats) -> None:
     kept = results.get(parsed.condition_id)
-    if kept is None or _supersedes(parsed, kept):
+    if kept is None or supersedes(parsed, kept):
         results[parsed.condition_id] = parsed
 
 

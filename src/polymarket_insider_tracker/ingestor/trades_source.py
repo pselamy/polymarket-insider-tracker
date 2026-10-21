@@ -237,15 +237,16 @@ class TradesSourceClient:
         return await self._fetch(request)
 
     async def _fetch(self, request: TradesRequest) -> TradesPage:
-        for attempt in range(self._retry.attempt_limit()):
+        for attempt in range(self._retry.max_retries):
             outcome = await self._attempt(request, attempt)
             if isinstance(outcome, TradesPage):
                 return outcome
-            if attempt == self._retry.max_retries:
-                raise self._exhausted(outcome)
             retry_after = outcome.retry_after_seconds
             await self._sleeper(self._retry.delay_seconds(attempt, retry_after_seconds=retry_after))
-        raise AssertionError("retry loop always returns or raises")
+        final = await self._attempt(request, self._retry.max_retries)
+        if isinstance(final, TradesPage):
+            return final
+        raise self._exhausted(final)
 
     def _exhausted(self, error: TradesTransientError) -> TradesSourceError:
         if error.kind == "unparseable":
