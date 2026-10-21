@@ -12,6 +12,8 @@ from typing import Literal
 
 from .models import TradeEvent
 
+_DEFAULT_SIDE: Literal["BUY", "SELL"] = "BUY"
+
 
 def serialize_trade_event(event: TradeEvent) -> dict[str, str]:
     """Serialize a TradeEvent to a dict suitable for Redis Streams.
@@ -53,7 +55,9 @@ def decode_stream_dict(data: dict[bytes | str, bytes | str]) -> dict[str, str]:
     return decoded
 
 
-def parse_event_timestamp(timestamp_str: str) -> datetime:
+def parse_event_timestamp(timestamp_str: str | None) -> datetime:
+    if timestamp_str is None:
+        return datetime.now(UTC)
     try:
         return datetime.fromisoformat(timestamp_str)
     except (ValueError, TypeError):
@@ -74,9 +78,9 @@ def deserialize_trade_event(data: dict[bytes | str, bytes | str]) -> TradeEvent:
         TradeEvent instance.
     """
     decoded = decode_stream_dict(data)
-    timestamp = parse_event_timestamp(decoded.get("timestamp", ""))
+    timestamp = parse_event_timestamp(decoded.get("timestamp"))
 
-    side_raw = decoded.get("side", "BUY").upper()
+    side_raw = decoded.get("side", _DEFAULT_SIDE).upper()
     side: Literal["BUY", "SELL"] = "BUY" if side_raw == "BUY" else "SELL"
 
     return TradeEvent(
