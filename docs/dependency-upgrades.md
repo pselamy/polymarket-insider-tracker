@@ -36,7 +36,7 @@ counts osv alias groups instead (one per underlying advisory): 60 groups in 17 p
 | 4 | alembic stack | mako | 1.3.10 | 1.4.2 | 6 | runtime (via alembic), done: locked 1.4.2 |
 | 5 | pytest/pygments | pytest | 9.0.2 | 9.0.3 | 2 | runtime (via poly-eip712-structs); also dev pin, done: locked 9.0.3 |
 | 5 | pytest/pygments | pygments | 2.19.2 | 2.20.0 | 2 | runtime (via pytest), done: locked 2.20.0 |
-| 6 | dev tooling | virtualenv | 20.35.4 | 21.7.13 | 10 | dev-only (via pre-commit), done: locked 21.7.13 |
+| 6 | dev tooling | virtualenv | 20.35.4 | 21.14.7 | 14 | dev-only (via pre-commit), done: locked 21.14.7 (21.7.13 first, then 21.14.7 for four later advisories) |
 | 6 | dev tooling | filelock | 3.20.2 | 3.20.3 | 2 | dev-only (via virtualenv), done: locked 3.32.7 |
 
 No advisory lacks a fixed release. h11, httpx and httpcore have no advisories; they are
@@ -57,6 +57,12 @@ lock alone is enough; no pin edits are expected for family 1.
    plus new transitive python-discovery 1.6.4. Dev-only, no runtime effect. filelock lands above
    its minimum fix (3.20.3) because virtualenv 21.7.13 requires a newer filelock; pinning 3.20.3
    is unsatisfiable. Clears 12 osv records (6 alias groups); `pyproject.toml` is unchanged.
+   Follow-up (osv published GHSA-5vjq-rrrf-7h2q, GHSA-8rjx-v5ww-45pp, GHSA-c947-3pg5-gm8q and
+   GHSA-vxj4-q4g9-crj7 against 21.7.13, fixed in 21.14.4, 21.14.2, 21.14.2 and 21.14.7): virtualenv
+   21.7.13 -> 21.14.7, the minimum release clearing all four (`uv lock --upgrade-package
+   virtualenv==21.14.7`), plus transitive distlib 0.4.0 -> 0.4.4 and a new `packaging` edge on
+   virtualenv (already locked). Dev-only (pre-commit activation scripts); `pyproject.toml` unchanged.
+   `python -m quality.security_main` exits 0 with 0 advisory groups.
 3. **Family 3, settings/env** (done): pydantic-settings 2.12.0 -> 2.14.2, python-dotenv 1.2.1 -> 1.2.2,
    the minimum fixed releases. New transitive dependency: none (`uv.lock` changes only those two
    package entries). Clears 3 osv records (2 alias groups); `pyproject.toml` is unchanged. Config
