@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,6 +23,8 @@ JsonValue: TypeAlias = "None | bool | int | float | str | list[JsonValue] | dict
 GAMMA_SOURCE = "gamma-markets-v1"
 RAW_BOUND_BYTES = 256
 RESERVED_KEYS = frozenset({"$truncated", "$nonfinite"})
+# data-model section 1.1b: a numeric string is exactly one RFC 8259 JSON number token.
+NUMERIC_TOKEN = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
 _JSON_TYPE_NAMES: dict[type, str] = {
     bool: "boolean",
     int: "number",
@@ -86,25 +89,34 @@ class VolumeObservation:
     """The acquisition facts of one observation; ``acquired_at`` is the stored ISO-8601 text.
 
     ``source`` is ``None`` for a legacy record that has a value but no provenance.
+    ``oversize_numeric`` survives bounding: a truncated string marker no longer shows whether the
+    text was a numeric token, and that decides the reason (``out_of_range`` or not a number).
     """
 
     present: bool
-    raw: object
+    raw: JsonValue
     acquired_at: str | None
     source: str | None
+    oversize_numeric: bool = False
 
     @classmethod
-    def from_page(cls, *, present: bool, raw: object, acquired_at: datetime) -> VolumeObservation:
+    def from_page(
+        cls, *, present: bool, raw: JsonValue, acquired_at: datetime
+    ) -> VolumeObservation:
         """Observation of a market object received in a Gamma page at ``acquired_at``."""
         return cls(present, raw, acquired_at.astimezone(UTC).isoformat(), GAMMA_SOURCE)
 
     def to_record(self) -> dict[str, object]:
         """The Redis record body; the raw value is bounded by the section 1.1a rule."""
+        stored = bound_raw(self.raw)
+        oversize = isinstance(self.raw, str) and isinstance(stored, dict)
         return {
             "present": self.present,
-            "raw": bound_raw(self.raw),
+            "raw": stored,
             "acquired_at": self.acquired_at,
             "source": self.source,
+            "oversize_numeric": self.oversize_numeric
+            or (oversize and NUMERIC_TOKEN.fullmatch(str(self.raw)) is not None),
         }
 
     @classmethod
@@ -117,7 +129,8 @@ class VolumeObservation:
             return None
         if not isinstance(source, str | None):
             return None
-        return cls(present, record.get("raw"), acquired_at, source)
+        oversize = record.get("oversize_numeric") is True
+        return cls(present, record.get("raw"), acquired_at, source, oversize)
 
     @classmethod
     def from_cached(cls, data: Mapping[str, JsonValue]) -> VolumeObservation | None:

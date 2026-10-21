@@ -15,12 +15,13 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Literal, cast
+from typing import Literal
 
 import httpx
 
 from polymarket_insider_tracker.ingestor.volume_observation import (
     GAMMA_SOURCE,
+    JsonValue,
     VolumeObservation,
 )
 from polymarket_insider_tracker.redaction import redact_exception_message
@@ -68,7 +69,7 @@ class GammaMarketStats:
     liquidity: Decimal | None
     acquired_at: datetime | None = None
     volume24hr_present: bool = False
-    volume24hr_raw: object = None
+    volume24hr_raw: JsonValue = None
     daily_volume_source: str | None = None
 
     def volume_observation(self) -> VolumeObservation:
@@ -86,7 +87,7 @@ class GammaPage:
     index: int
     status: Literal["ok", "failed", "skipped"]
     acquired_at: datetime | None = None
-    items: tuple[object, ...] = ()
+    items: tuple[JsonValue, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,7 @@ def _to_decimal(value: object) -> Decimal | None:
 
 
 def _parse_market(
-    raw: dict[str, object], acquired_at: datetime | None = None
+    raw: dict[str, JsonValue], acquired_at: datetime | None = None
 ) -> GammaMarketStats | None:
     cid = raw.get("conditionId")
     if not cid or not isinstance(cid, str):
@@ -134,9 +135,9 @@ class GammaClientError(Exception):
     """Raised when gamma-api returns an unrecoverable error."""
 
 
-def _try_parse_item(raw: object, acquired_at: datetime | None) -> GammaMarketStats | None:
+def _try_parse_item(raw: JsonValue, acquired_at: datetime | None) -> GammaMarketStats | None:
     if isinstance(raw, dict):
-        return _parse_market(cast(dict[str, object], raw), acquired_at)
+        return _parse_market(raw, acquired_at)
     return None
 
 
@@ -208,16 +209,16 @@ class GammaClient:
         client: httpx.AsyncClient,
         path: str,
         params: dict[str, str | int],
-    ) -> tuple[list[object], datetime]:
+    ) -> tuple[list[JsonValue], datetime]:
         resp = await client.get(path, params=params)
         acquired_at = self._clock().astimezone(UTC)
         resp.raise_for_status()
-        payload: object = resp.json()
+        payload: JsonValue = resp.json()
         if not isinstance(payload, list):
             raise GammaClientError(
                 f"Unexpected gamma response shape for {path}: {type(payload).__name__}"
             )
-        return cast(list[object], payload), acquired_at
+        return payload, acquired_at
 
     @staticmethod
     async def _retry_sleep(attempt: int, max_retries: int, delay: float) -> float:
@@ -231,7 +232,7 @@ class GammaClient:
         client: httpx.AsyncClient,
         path: str,
         params: dict[str, str | int],
-    ) -> tuple[list[object], datetime]:
+    ) -> tuple[list[JsonValue], datetime]:
         last_exc: Exception | None = None
         delay = self._retry_base
         for attempt in range(self._max_retries):

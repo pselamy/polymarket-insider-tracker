@@ -10,7 +10,9 @@ from decimal import Decimal
 from typing import Protocol
 
 from polymarket_insider_tracker.detector._batch import gather_signals
+from polymarket_insider_tracker.detector.evaluation_clock import Clock, system_clock
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
+from polymarket_insider_tracker.detector.volume_state import size_volume_evidence
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.redaction import redact_exception_message
 
@@ -72,6 +74,7 @@ class SizeAnomalyDetector:
         book_threshold: float = DEFAULT_BOOK_THRESHOLD,
         niche_volume_threshold: Decimal = DEFAULT_NICHE_VOLUME_THRESHOLD,
         niche_min_trade_size: Decimal = DEFAULT_NICHE_MIN_TRADE_SIZE,
+        clock: Clock = system_clock,
     ) -> None:
         """Initialize the size anomaly detector.
 
@@ -83,12 +86,14 @@ class SizeAnomalyDetector:
             niche_min_trade_size: Minimum trade notional ($) to allow a
                 niche-only signal. Below this, niche-only path is suppressed
                 to avoid flooding alerts with low-value trades.
+            clock: Source of the evaluation instant, read once per analyzed trade.
         """
         self._metadata_sync = metadata_sync
         self._volume_threshold = volume_threshold
         self._book_threshold = book_threshold
         self._niche_volume_threshold = niche_volume_threshold
         self._niche_min_trade_size = niche_min_trade_size
+        self._clock = clock
 
     async def analyze(
         self,
@@ -116,7 +121,7 @@ class SizeAnomalyDetector:
             SizeAnomalySignal if the trade triggers anomaly detection,
             None otherwise.
         """
-        metadata = await self._fetch_metadata(trade)
+        metadata, category_source = await self._fetch_metadata(trade)
         trade_size = trade.notional_value
 
         # Calculate impacts
@@ -157,9 +162,13 @@ class SizeAnomalyDetector:
             is_niche_market=is_niche,
             confidence=confidence,
             factors=factors,
+            volume_evidence=size_volume_evidence(
+                metadata, category_source, trade_size, self._clock, daily_volume
+            ),
         )
 
-    async def _fetch_metadata(self, trade: TradeEvent) -> MarketMetadata:
+    async def _fetch_metadata(self, trade: TradeEvent) -> tuple[MarketMetadata, str]:
+        """The market metadata and its category source (``metadata`` or ``minimal``)."""
         try:
             metadata = await self._metadata_sync.get_market(trade.market_id)
             if metadata is None:
@@ -167,15 +176,15 @@ class SizeAnomalyDetector:
                     "No metadata found for market %s, creating minimal metadata",
                     trade.market_id,
                 )
-                return self._create_minimal_metadata(trade)
-            return metadata
+                return self._create_minimal_metadata(trade), "minimal"
+            return metadata, "metadata"
         except Exception as e:
             logger.warning(
                 "Failed to get metadata for market %s: %s",
                 trade.market_id,
                 redact_exception_message(e),
             )
-            return self._create_minimal_metadata(trade)
+            return self._create_minimal_metadata(trade), "minimal"
 
     def _should_skip_trade(
         self,

@@ -15,6 +15,7 @@ from polymarket_insider_tracker.ingestor.metadata_sync import (
     MarketMetadataSync,
 )
 from polymarket_insider_tracker.ingestor.models import Market, MarketMetadata, Token
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 from polymarket_insider_tracker.ingestor.volume_store import (
     DEFAULT_VOLUME_KEY_PREFIX,
     VOLUME_RECORD_TTL_SECONDS,
@@ -30,7 +31,7 @@ MARKET = Market(CID, "Will a trial succeed?", "", (Token("t1", "Yes", Decimal("0
 MARKET_METADATA = MarketMetadata.from_market(MARKET)
 
 
-def _stats(raw: object = "30000", cid: str = CID) -> GammaMarketStats:
+def _stats(raw: JsonValue = "30000", cid: str = CID) -> GammaMarketStats:
     return GammaMarketStats(
         condition_id=cid,
         daily_volume=Decimal("30000"),

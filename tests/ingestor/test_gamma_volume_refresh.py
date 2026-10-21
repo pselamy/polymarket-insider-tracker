@@ -8,6 +8,7 @@ import time
 
 import pytest
 from fakeredis import FakeAsyncRedis
+from redis.typing import EncodableT, ExpiryT, KeyT
 
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl
 from polymarket_insider_tracker.ingestor.gamma_volume_refresh import GammaVolumeRefresh
@@ -44,7 +45,7 @@ class SlowCountingClob(FakeClobClient):
 
 
 class BrokenRedis(FakeAsyncRedis):
-    async def setex(self, name: bytes | str, time: object, value: object) -> bool:
+    async def setex(self, name: KeyT, time: ExpiryT, value: EncodableT) -> bool:
         _ = (name, time, value)
         raise ConnectionError("redis is down")
 

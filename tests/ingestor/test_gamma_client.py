@@ -17,12 +17,13 @@ from polymarket_insider_tracker.ingestor.gamma_client import (
     _aggregate_pages,
     _parse_market,
 )
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 from tests.ingestor.conftest import PatchAsyncClient
 
 
 class TestParseMarket:
     def test_parses_full_payload(self) -> None:
-        raw: dict[str, object] = {
+        raw: dict[str, JsonValue] = {
             "conditionId": "0xabc",
             "volume24hr": "12345.67",
             "volume1wk": "100000",
@@ -40,7 +41,7 @@ class TestParseMarket:
         assert stats.liquidity == Decimal("42000")
 
     def test_falls_back_to_alternative_keys(self) -> None:
-        raw: dict[str, object] = {
+        raw: dict[str, JsonValue] = {
             "conditionId": "0x1",
             "volume24hr": "1",
             "volume": "777",
@@ -240,11 +241,11 @@ def test_gamma_client_error_inherits_exception() -> None:
     assert issubclass(GammaClientError, Exception)
 
 
-def _page(*condition_ids: str) -> list[object]:
+def _page(*condition_ids: str) -> list[JsonValue]:
     return [{"conditionId": cid, "volume24hr": "1"} for cid in condition_ids]
 
 
-def _fetched(pages: list[list[object]]) -> list[GammaPage]:
+def _fetched(pages: list[list[JsonValue]]) -> list[GammaPage]:
     """Pages as fetched one second apart, in index order."""
     epoch = datetime(2026, 10, 19, tzinfo=UTC)
     return [
@@ -257,22 +258,22 @@ class TestAggregatePages:
     """Pages arrive fully fetched, so aggregation must never discard a later page."""
 
     def test_keeps_every_page_after_empty_pages(self) -> None:
-        pages: list[list[object]] = [_page("0xa", "0xb"), [], [], _page("0xd")]
+        pages: list[list[JsonValue]] = [_page("0xa", "0xb"), [], [], _page("0xd")]
 
         assert set(_aggregate_pages(_fetched(pages))) == {"0xa", "0xb", "0xd"}
 
     def test_keeps_pages_after_a_short_page(self) -> None:
-        pages: list[list[object]] = [_page("0xa"), [], _page("0xc")]
+        pages: list[list[JsonValue]] = [_page("0xa"), [], _page("0xc")]
 
         assert set(_aggregate_pages(_fetched(pages))) == {"0xa", "0xc"}
 
     def test_skips_non_dict_and_unparseable_items(self) -> None:
-        pages: list[list[object]] = [[*_page("0xa"), "garbage", {"conditionId": ""}]]
+        pages: list[list[JsonValue]] = [[*_page("0xa"), "garbage", {"conditionId": ""}]]
 
         assert set(_aggregate_pages(_fetched(pages))) == {"0xa"}
 
     def test_later_page_wins_for_a_repeated_condition_id(self) -> None:
-        pages: list[list[object]] = [_page("0xa"), [{"conditionId": "0xa", "volume24hr": "9"}]]
+        pages: list[list[JsonValue]] = [_page("0xa"), [{"conditionId": "0xa", "volume24hr": "9"}]]
 
         assert _aggregate_pages(_fetched(pages))["0xa"].daily_volume == Decimal("9")
 

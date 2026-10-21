@@ -11,11 +11,12 @@ import pytest
 from polymarket_insider_tracker.ingestor.models import MarketMetadata
 from polymarket_insider_tracker.ingestor.volume_observation import (
     GAMMA_SOURCE,
+    JsonValue,
     VolumeObservation,
     bound_raw,
 )
 
-OVERSIZE_300 = {
+OVERSIZE_300: dict[str, JsonValue] = {
     "$truncated": True,
     "bytes": 302,
     "reason": "oversize",
