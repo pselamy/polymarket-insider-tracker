@@ -66,7 +66,7 @@ Named files, entry points, dependency order:
   `SignalBundle` → `RiskAssessment` → `_persist_assessment` → `alerter/formatter.py`
   (FR-003–005). Signature and clock per contracts/detector-api.md §2 (`evaluate(..., evaluated_at)`,
   injectable `clock`), explicit `daily_volume` rule §3, `Decimal | None` measured companions §4
-- [ ] T012a [US1] `ingestor/gamma_client.py`: injectable clock; `_fetch_page_payload` returns items +
+- [x] T012a [US1] `ingestor/gamma_client.py`: injectable clock; `_fetch_page_payload` returns items +
   `acquired_at` at response-body receipt; page tuples survive `_fetch_all_pages`/`_aggregate_pages`;
   `GammaMarketStats` gains `acquired_at`, `volume24hr_present`, `volume24hr_raw` (decoded JSON value, semantic
   preservation), `daily_volume_source`; duplicate-id rule; new `crawl_active_markets()` with
@@ -75,11 +75,11 @@ Named files, entry points, dependency order:
   every raw JSON type, plus the §1.1a cases: `NaN`/`-Infinity` tokens (`$nonfinite` tag), a nested non-finite
   float, a > 256-byte value and a reserved-key object (`$truncated` marker, each reason), all stored as
   validated in `contracts/scoring-config-004.1.{nonfinite,truncated}.example.json`.
-- [ ] T012b [US1] `ingestor/metadata_sync.py`: separate Gamma refresh loop writing a per-market volume record
+- [x] T012b [US1] `ingestor/metadata_sync.py`: separate Gamma refresh loop writing a per-market volume record
   (TTL 1,200 s) on its own cadence (default `S_g = 180 s`); `_fetch_gamma_stats` reports
   `gamma_fetch_failed` instead of `{}`; `get_market` miss path writes the CLOB record set-if-absent and
   no volume claim; the read path merges the volume record into `MarketMetadata` (FR-004a/004b, F07, F08, F10).
-- [ ] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
+- [x] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
   legacy records (value without provenance) read as `unqualified/no_provenance`; the generic
   `last_updated` is never a stamp source (FR-004b, F11).
 - [ ] T012d [US1] Freshness evidence tests: (1) a fake-clock steady-state test that runs the real loops for
@@ -88,6 +88,10 @@ Named files, entry points, dependency order:
   race: miss-path write after a sync write leaves the stamped record intact; (4) real-Redis TTL/expiry
   parity covering `stale` then `unavailable/no_volume_record`; (5) legacy-record upgrade. Lands with
   T012a–c. T012 has **no** dependency on T011 (the detector entry point consumes this, not the reverse).
+  *Layer 2 receipt (partial, stays unticked)*: items (2), (3), (5), the fake-clock-free independence check of (1) and
+  the fakeredis form of (4) are in `tests/ingestor/test_gamma_stamps.py`, `test_gamma_volume_refresh.py` and
+  `test_volume_store.py`; the real-Redis expiry journey of (4) and the slow-CLOB `D = 204 s` fake-clock run of (1)
+  are not written yet.
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 

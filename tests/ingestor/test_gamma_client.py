@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import httpx
@@ -12,14 +13,17 @@ from polymarket_insider_tracker.ingestor.gamma_client import (
     GammaClient,
     GammaClientError,
     GammaMarketStats,
+    GammaPage,
     _aggregate_pages,
     _parse_market,
 )
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
+from tests.ingestor.conftest import PatchAsyncClient
 
 
 class TestParseMarket:
     def test_parses_full_payload(self) -> None:
-        raw: dict[str, object] = {
+        raw: dict[str, JsonValue] = {
             "conditionId": "0xabc",
             "volume24hr": "12345.67",
             "volume1wk": "100000",
@@ -37,7 +41,7 @@ class TestParseMarket:
         assert stats.liquidity == Decimal("42000")
 
     def test_falls_back_to_alternative_keys(self) -> None:
-        raw: dict[str, object] = {
+        raw: dict[str, JsonValue] = {
             "conditionId": "0x1",
             "volume24hr": "1",
             "volume": "777",
@@ -91,9 +95,6 @@ def _make_client(
     )
 
 
-PatchAsyncClient = Callable[[httpx.MockTransport], None]
-
-
 def _first_page_then(
     first_page: object, status: int, rest: object
 ) -> Callable[[httpx.Request], httpx.Response]:
@@ -105,21 +106,6 @@ def _first_page_then(
         return httpx.Response(status, json=rest)
 
     return handler
-
-
-@pytest.fixture
-def patch_async_client(monkeypatch: pytest.MonkeyPatch) -> PatchAsyncClient:
-    """Replace the AsyncClient used by gamma_client with one bound to a MockTransport."""
-
-    def _apply(handler: httpx.MockTransport) -> None:
-        original = httpx.AsyncClient
-
-        def factory(*, base_url: str, timeout: float, headers: dict[str, str]) -> httpx.AsyncClient:
-            return original(base_url=base_url, timeout=timeout, headers=headers, transport=handler)
-
-        monkeypatch.setattr(httpx, "AsyncClient", factory)
-
-    return _apply
 
 
 @pytest.mark.asyncio
@@ -255,32 +241,41 @@ def test_gamma_client_error_inherits_exception() -> None:
     assert issubclass(GammaClientError, Exception)
 
 
-def _page(*condition_ids: str) -> list[object]:
+def _page(*condition_ids: str) -> list[JsonValue]:
     return [{"conditionId": cid, "volume24hr": "1"} for cid in condition_ids]
+
+
+def _fetched(pages: list[list[JsonValue]]) -> list[GammaPage]:
+    """Pages as fetched one second apart, in index order."""
+    epoch = datetime(2026, 10, 19, tzinfo=UTC)
+    return [
+        GammaPage(index, "ok", epoch + timedelta(seconds=index), tuple(items))
+        for index, items in enumerate(pages)
+    ]
 
 
 class TestAggregatePages:
     """Pages arrive fully fetched, so aggregation must never discard a later page."""
 
     def test_keeps_every_page_after_empty_pages(self) -> None:
-        pages: list[list[object]] = [_page("0xa", "0xb"), [], [], _page("0xd")]
+        pages: list[list[JsonValue]] = [_page("0xa", "0xb"), [], [], _page("0xd")]
 
-        assert set(_aggregate_pages(pages)) == {"0xa", "0xb", "0xd"}
+        assert set(_aggregate_pages(_fetched(pages))) == {"0xa", "0xb", "0xd"}
 
     def test_keeps_pages_after_a_short_page(self) -> None:
-        pages: list[list[object]] = [_page("0xa"), [], _page("0xc")]
+        pages: list[list[JsonValue]] = [_page("0xa"), [], _page("0xc")]
 
-        assert set(_aggregate_pages(pages)) == {"0xa", "0xc"}
+        assert set(_aggregate_pages(_fetched(pages))) == {"0xa", "0xc"}
 
     def test_skips_non_dict_and_unparseable_items(self) -> None:
-        pages: list[list[object]] = [[*_page("0xa"), "garbage", {"conditionId": ""}]]
+        pages: list[list[JsonValue]] = [[*_page("0xa"), "garbage", {"conditionId": ""}]]
 
-        assert set(_aggregate_pages(pages)) == {"0xa"}
+        assert set(_aggregate_pages(_fetched(pages))) == {"0xa"}
 
     def test_later_page_wins_for_a_repeated_condition_id(self) -> None:
-        pages: list[list[object]] = [_page("0xa"), [{"conditionId": "0xa", "volume24hr": "9"}]]
+        pages: list[list[JsonValue]] = [_page("0xa"), [{"conditionId": "0xa", "volume24hr": "9"}]]
 
-        assert _aggregate_pages(pages)["0xa"].daily_volume == Decimal("9")
+        assert _aggregate_pages(_fetched(pages))["0xa"].daily_volume == Decimal("9")
 
     def test_no_pages_yields_no_stats(self) -> None:
-        assert _aggregate_pages([]) == {}
+        assert _aggregate_pages(_fetched([])) == {}

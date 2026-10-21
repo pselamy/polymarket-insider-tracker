@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal, Protocol
 
+from polymarket_insider_tracker.ingestor.volume_observation import VolumeObservation
+
 
 class ClobOrderbookLevel(Protocol):
     """Typed read-only surface consumed from a py-clob-client price level."""
@@ -71,8 +73,7 @@ class Market:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Market":
         """Create a Market from a dictionary response."""
-        tokens_data = data.get("tokens", [])
-        tokens = tuple(Token.from_dict(t) for t in tokens_data)
+        tokens = tuple(Token.from_dict(t) for t in data.get("tokens", []))
 
         end_date = None
         end_date_iso = data.get("end_date_iso")
@@ -122,17 +123,11 @@ class Orderbook:
     def from_clob_orderbook(cls, orderbook: ClobOrderbook) -> "Orderbook":
         """Create an Orderbook from a py-clob-client orderbook object."""
         bids = tuple(
-            OrderbookLevel(
-                price=Decimal(str(bid.price)),
-                size=Decimal(str(bid.size)),
-            )
+            OrderbookLevel(Decimal(str(bid.price)), Decimal(str(bid.size)))
             for bid in (orderbook.bids or [])
         )
         asks = tuple(
-            OrderbookLevel(
-                price=Decimal(str(ask.price)),
-                size=Decimal(str(ask.size)),
-            )
+            OrderbookLevel(Decimal(str(ask.price)), Decimal(str(ask.size)))
             for ask in (orderbook.asks or [])
         )
 
@@ -438,6 +433,10 @@ class MarketMetadata:
     weekly_volume: Decimal | None = None
     liquidity: Decimal | None = None
 
+    # Volume provenance (data-model 1.1): merged from the volume record, never cached here.
+    volume: VolumeObservation | None = None
+    volume_unavailable_reason: str | None = None
+
     # Cache metadata
     last_updated: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -493,6 +492,7 @@ class MarketMetadata:
             "daily_volume": self._str_or_none(self.daily_volume),
             "weekly_volume": self._str_or_none(self.weekly_volume),
             "liquidity": self._str_or_none(self.liquidity),
+            "volume": self.volume.to_record() if self.volume else None,
             "last_updated": self.last_updated.isoformat(),
         }
 
@@ -524,10 +524,8 @@ class MarketMetadata:
         Returns:
             MarketMetadata instance.
         """
-        tokens_data = data.get("tokens", [])
-        tokens = tuple(Token.from_dict(t) for t in tokens_data)
+        tokens = tuple(Token.from_dict(t) for t in data.get("tokens", []))
         now = datetime.now(UTC)
-
         return cls(
             condition_id=str(data["condition_id"]),
             question=str(data.get("question", "")),
@@ -540,5 +538,6 @@ class MarketMetadata:
             daily_volume=cls._parse_opt_dec(data.get("daily_volume")),
             weekly_volume=cls._parse_opt_dec(data.get("weekly_volume")),
             liquidity=cls._parse_opt_dec(data.get("liquidity")),
+            volume=VolumeObservation.from_cached(data),
             last_updated=cls._parse_iso_dt(data.get("last_updated"), default=now) or now,
         )

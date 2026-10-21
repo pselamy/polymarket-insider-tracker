@@ -68,6 +68,22 @@ in T021–T026 (`_journey_harness.py:61,166`, `test_end_to_end.py:183`, `test_v2
 `test_v2_default_journey.py:55`, `test_v2_default_journey_services.py:139`,
 `test_postgres_journey.py:65,75,175`) were re-read on 3d5ab59 and are unchanged.
 
+## Seventh refresh: 3d5ab59 → 3e2fd42 plus layer 2 (2026-10-21)
+
+Slice 004 layer 2 changes three hashed files, all additively, and `evidence/source-hashes.json` records
+the new hashes with `base_commit` 3e2fd42 (layer 1, merged). `scorer.py`, `pipeline.py`,
+`detector/fresh_wallet.py` and `profiler/models.py` stay byte-identical, so the scoring arithmetic and
+the T002 premise hold.
+`ingestor/models.py`: `MarketMetadata` gains the nullable `volume` provenance field and the
+`volume_unavailable_reason` field; `to_dict`/`from_dict` carry `volume`, and a legacy bare
+`daily_volume` reads as an unqualified observation (T012c). Two `Orderbook`/`Market` expressions were
+compacted without changing a value, to keep the file from growing.
+`detector/models.py`: `SizeAnomalySignal` gains the optional `volume_evidence` field (default `None`);
+`to_dict` is unchanged.
+`detector/size_anomaly.py`: a keyword-only `clock`, `_fetch_metadata` also returns the category source,
+and `analyze` attaches the volume evidence to the signal. Weights, thresholds, comparisons, niche rule
+and confidence arithmetic are untouched (layer 3 owns the scoring change).
+
 ## Hash comparison
 
 Command (stdlib only, no `src/` import; exit 1 when any recorded hash drifts):
