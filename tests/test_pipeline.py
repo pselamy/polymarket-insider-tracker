@@ -25,7 +25,6 @@ from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.fakes import (
-    BarrierDetector,
     FailingDetector,
     FakeAlertChannel,
     FakeClock,
@@ -33,6 +32,7 @@ from tests.fakes import (
     FakeTradesServer,
     make_test_settings,
     metadata_state,
+    start_detectors_together,
     trade_row,
     wire_pipeline,
 )
@@ -43,6 +43,7 @@ from tests.integration._journey_harness import (
     pipeline_row,
     running_pipeline,
     seeded_server,
+    stamped_volume_market,
     wire_journey_pipeline,
 )
 
@@ -79,8 +80,8 @@ def sample_wallet_profile() -> WalletProfile:
 
 @pytest.fixture
 def niche_market(sample_trade_event: TradeEvent) -> MarketMetadata:
-    """A science market with unknown volume, which the size detector treats as niche."""
-    return market_for_trade(sample_trade_event, "science")
+    """A science market with a fresh stamped $10,000 volume (T021): size-only score 0.450."""
+    return stamped_volume_market(sample_trade_event)
 
 
 @pytest.fixture
@@ -261,13 +262,11 @@ class TestOnTrade:
         assert pipeline.stats.errors == 0
 
     async def test_on_trade_runs_detectors_in_parallel(
-        self, test_settings: Settings, sample_trade_event: TradeEvent
+        self, test_settings: Settings, fake_redis: FakeAsyncRedis, sample_trade_event: TradeEvent
     ) -> None:
         """Both detectors must be in flight at once; sequential execution would deadlock."""
-        pipeline = Pipeline(test_settings)
-        barrier = asyncio.Barrier(2)
-        pipeline._fresh_wallet_detector = BarrierDetector(barrier)
-        pipeline._size_anomaly_detector = BarrierDetector(barrier)
+        pipeline = await wire_pipeline(test_settings, redis=fake_redis, eth=FakeEth())
+        start_detectors_together(pipeline)
 
         await asyncio.wait_for(pipeline.process_trade(sample_trade_event), timeout=1.0)
 
@@ -371,8 +370,7 @@ class TestOnTrade:
         assert pipeline.stats.alerts_sent == 1
         rows = await persisted_assessments(async_engine)
         assert [row.should_alert for row in rows] == [True]
-        assert rows[0].signals_triggered == 2
-        assert float(rows[0].weighted_score) >= 0.4
+        assert [(r.signals_triggered, float(r.weighted_score)) for r in rows] == [(1, 0.45)]
         assert [alert.links["wallet"] for alert in channel.deliveries] == [
             f"https://polygonscan.com/address/{sample_trade_event.wallet_address}"
         ]
@@ -391,7 +389,7 @@ class TestScoreAndAlert:
         """Dry run formats the alert and logs it but never hands it to a channel."""
         channel = FakeAlertChannel("discord")
         pipeline = await wire_pipeline(
-            make_test_settings(dry_run=True, persist_assessments=False),
+            make_test_settings(dry_run=True, persist_assessments=False, alert_threshold=0.4),
             redis=fake_redis,
             eth=FakeEth(),
             channels=[channel],
@@ -453,7 +451,7 @@ class TestScoreAndAlert:
         await pipeline._score_and_alert(bundle)
 
         rows = await persisted_assessments(async_engine)
-        assert [(row.should_alert, float(row.weighted_score)) for row in rows] == [(False, 0.2)]
+        assert [(row.should_alert, float(row.weighted_score)) for row in rows] == [(False, 0.0)]
         assert channel.deliveries == []
         assert pipeline.stats.alerts_sent == 0
 

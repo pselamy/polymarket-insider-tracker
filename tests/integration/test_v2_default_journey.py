@@ -20,6 +20,7 @@ from tests.integration._journey_harness import (
     seeded_v2_server,
 )
 
+from polymarket_insider_tracker.detector.scoring_config import Document004, read_scoring_config
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 
@@ -52,6 +53,7 @@ async def test_end_to_end_dry_run_pipeline_through_the_default_url(
     # The stored row must remain explainable: the exact algorithm and configuration that
     # produced it are recorded on the assessment itself.
     assert assessment.signals_triggered >= 1
-    assert assessment.scoring_algorithm_version == "003.1"
-    assert assessment.scoring_config is not None
-    assert '"weights"' in assessment.scoring_config
+    assert assessment.scoring_algorithm_version == "004.1"
+    document = read_scoring_config("004.1", assessment.scoring_config)
+    assert isinstance(document, Document004)
+    assert document.evaluation_evidence is not None

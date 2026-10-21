@@ -1,4 +1,4 @@
-"""The size detector records volume evidence beside the signal and leaves the score alone."""
+"""The size detector scores from the classified volume state and records it beside the signal."""
 
 from __future__ import annotations
 
@@ -57,17 +57,26 @@ class CountingClock:
         return NOW
 
 
+async def _detect(
+    metadata: MarketMetadata | None,
+    *,
+    daily_volume: Decimal | None = None,
+    clock: CountingClock | None = None,
+) -> SizeAnomalySignal | None:
+    source = FakeMetadataSync()
+    if metadata is not None:
+        source.markets[TRADE.market_id] = metadata
+    detector = SizeAnomalyDetector(source, clock=clock or CountingClock())
+    return await detector.analyze(TRADE, daily_volume=daily_volume)
+
+
 async def _signal(
     metadata: MarketMetadata | None,
     *,
     daily_volume: Decimal | None = None,
     clock: CountingClock | None = None,
 ) -> SizeAnomalySignal:
-    source = FakeMetadataSync()
-    if metadata is not None:
-        source.markets[TRADE.market_id] = metadata
-    detector = SizeAnomalyDetector(source, clock=clock or CountingClock())
-    signal = await detector.analyze(TRADE, daily_volume=daily_volume)
+    signal = await _detect(metadata, daily_volume=daily_volume, clock=clock)
     assert signal is not None
     return signal
 
@@ -85,13 +94,17 @@ async def test_stamped_volume_is_recorded_with_the_measured_impact() -> None:
 
 
 @pytest.mark.asyncio
-async def test_scoring_inputs_are_identical_with_and_without_the_volume_evidence() -> None:
+async def test_an_available_volume_drives_the_score_and_no_volume_scores_the_category_base() -> (
+    None
+):
     with_volume = await _signal(_metadata(_observation()))
     without = await _signal(_metadata())
 
-    assert (with_volume.confidence, with_volume.factors) == (without.confidence, without.factors)
-    assert (with_volume.volume_impact, with_volume.is_niche_market) == (0.0, True)
-    assert with_volume.confidence == pytest.approx(0.2)
+    assert (with_volume.volume_impact, with_volume.is_niche_market) == (0.325, True)
+    assert with_volume.confidence == pytest.approx(0.75)  # 0.5 volume term x 1.5 niche
+    assert with_volume.factors == {"volume_impact": 0.5, "niche_multiplier": 1.5}
+    assert (without.volume_impact, without.is_niche_market) == (0.0, True)
+    assert (without.confidence, without.factors) == (0.2, {"niche_base": 0.2})
 
 
 @pytest.mark.asyncio
@@ -109,24 +122,21 @@ async def test_no_volume_record_names_the_reason_and_measures_nothing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_failed_metadata_lookup_gives_no_category_basis_but_the_same_score() -> None:
-    signal = await _signal(None)
-
-    evidence = signal.volume_evidence
-    assert evidence is not None
-    assert evidence.verdict.reason == "metadata_lookup_failed"
-    assert (evidence.category_source, evidence.niche_basis) == ("minimal", "none")
-    assert signal.confidence == pytest.approx(0.2)  # scoring still reads the placeholder
+async def test_a_failed_metadata_lookup_supplies_no_category_evidence_and_no_signal() -> None:
+    assert await _detect(None) is None  # D3 (d): the placeholder category is not real metadata
 
 
 @pytest.mark.asyncio
-async def test_stale_volume_is_recorded_as_stale_without_an_impact() -> None:
-    signal = await _signal(_metadata(_observation(age=601)))
+@pytest.mark.parametrize("raw", ["0", "-5", "abc", "1e400"])
+async def test_an_observed_but_unusable_volume_gives_no_size_signal(raw: str) -> None:
+    assert await _detect(_metadata(_observation(raw))) is None
 
-    evidence = signal.volume_evidence
-    assert evidence is not None
-    assert (evidence.verdict.state, evidence.volume_impact_measured) == (VolumeState.STALE, None)
-    assert evidence.niche_basis == "none"
+
+@pytest.mark.asyncio
+async def test_a_stale_or_unqualified_volume_gives_no_size_signal() -> None:
+    assert await _detect(_metadata(_observation(age=601))) is None
+    unqualified = VolumeObservation(True, "10000", None, None)
+    assert await _detect(_metadata(unqualified)) is None
 
 
 @pytest.mark.asyncio

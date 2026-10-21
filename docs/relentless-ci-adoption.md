@@ -578,9 +578,8 @@ The enrolled list is the 32 modules now at 100% line and branch (the 24 complete
 brought up in this step); it may only grow. No `pragma: no cover`, omit list or threshold relaxation
 is used. Dead code removed to get there: three unreachable `"wallet" in links` checks in
 `alerter/formatter.py` (`_build_links` always sets `wallet`; output is byte-identical).
-`detector/scorer.py` is deliberately NOT enrolled: its 3+ signal bonus branch is unreachable through
-the public API (signal count maxes at 2) but removing it would change scoring semantics, which belongs
-to slice 004 (PR #167). It waits for that slice; the file is unchanged from main.
+`detector/scorer.py` was not enrolled in step 1 (its 3+ signal bonus branch was unreachable); slice 004
+layer 3 removed that branch under FR-011, and it is now enrolled at 100% with `detector/alert_path.py`.
 
 Slice 004 layer 1 added two modules born at 100% line and branch (`detector/evaluation_clock.py`,
 `detector/scoring_config.py`) to the enrolled list.

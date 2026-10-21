@@ -427,12 +427,6 @@ class MarketMetadata:
     # Derived metadata
     category: str = "other"
 
-    # Liquidity/volume snapshot (from gamma-api). All optional — older
-    # cache entries and CLOB-only sync results may not have these.
-    daily_volume: Decimal | None = None
-    weekly_volume: Decimal | None = None
-    liquidity: Decimal | None = None
-
     # Volume provenance (data-model 1.1): merged from the volume record, never cached here.
     volume: VolumeObservation | None = None
     volume_unavailable_reason: str | None = None
@@ -489,9 +483,6 @@ class MarketMetadata:
             "active": self.active,
             "closed": self.closed,
             "category": self.category,
-            "daily_volume": self._str_or_none(self.daily_volume),
-            "weekly_volume": self._str_or_none(self.weekly_volume),
-            "liquidity": self._str_or_none(self.liquidity),
             "volume": self.volume.to_record() if self.volume else None,
             "last_updated": self.last_updated.isoformat(),
         }
@@ -504,15 +495,6 @@ class MarketMetadata:
             return datetime.fromisoformat(val)
         except (ValueError, AttributeError):
             return default
-
-    @staticmethod
-    def _parse_opt_dec(val: Any | None) -> Decimal | None:
-        if val is None or val == "":
-            return None
-        try:
-            return Decimal(str(val))
-        except (ValueError, ArithmeticError):
-            return None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MarketMetadata":
@@ -535,9 +517,6 @@ class MarketMetadata:
             active=bool(data.get("active", True)),
             closed=bool(data.get("closed", False)),
             category=str(data.get("category", "other")),
-            daily_volume=cls._parse_opt_dec(data.get("daily_volume")),
-            weekly_volume=cls._parse_opt_dec(data.get("weekly_volume")),
-            liquidity=cls._parse_opt_dec(data.get("liquidity")),
             volume=VolumeObservation.from_cached(data),
             last_updated=cls._parse_iso_dt(data.get("last_updated"), default=now) or now,
         )
