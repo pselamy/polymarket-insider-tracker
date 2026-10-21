@@ -34,7 +34,7 @@ def _cluster(status: str, files: str = "", watch: str = "", number: int = 3) -> 
 
 def test_repository_cluster_files_load_and_number_every_original_cluster() -> None:
     numbers = [cluster.number for cluster in load_clusters(CLUSTER_DIRECTORY)]
-    assert numbers == list(range(1, 33))
+    assert numbers == list(range(1, 34))
 
 
 def test_live_cluster_with_a_remaining_clone_is_current() -> None:

@@ -9,6 +9,7 @@ set from ``Settings`` with ``build_components`` when nothing was installed.
 from __future__ import annotations
 
 import logging
+from abc import abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -45,14 +46,18 @@ _EvaluationT = TypeVar("_EvaluationT", covariant=True)
 class Evaluator(Protocol[_EvaluationT]):
     """A detector the pipeline evaluates a trade with (satisfied by the real detectors)."""
 
-    async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> _EvaluationT: ...
+    @abstractmethod
+    async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> _EvaluationT:
+        """Evaluate ``trade`` as of ``evaluated_at``."""
 
 
 class RedisFactory(Protocol):
     """Concrete Redis construction surface used by the pipeline."""
 
     @classmethod
-    def from_url(cls, url: str) -> Redis: ...
+    @abstractmethod
+    def from_url(cls, url: str) -> Redis:
+        """Construct a client for ``url``."""
 
 
 @dataclass(frozen=True)

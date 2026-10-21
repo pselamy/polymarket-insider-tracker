@@ -4,12 +4,14 @@ from collections.abc import AsyncIterator
 
 import pytest
 
+from polymarket_insider_tracker import pipeline_components
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import SignalBundle
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 from polymarket_insider_tracker.pipeline_components import PipelineComponents, build_components
+from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.closeness import is_close
 from tests.fakes.pipeline import make_test_settings
 
@@ -75,3 +77,72 @@ async def test_built_scorer_assesses_with_the_configured_threshold(
     assert is_close(components.risk_scorer.alert_threshold, 0.4)
     assert assessment.signals_triggered == 1
     assert assessment.should_alert is True
+
+
+class _ClosableRedis:
+    """A lazy Redis stand-in that records whether it was closed."""
+
+    closed = False
+
+    @classmethod
+    def from_url(cls, url: str) -> "_ClosableRedis":
+        _ = url
+        return cls()
+
+    async def aclose(self) -> None:
+        type(self).closed = True
+
+
+class _ExplodingPoller:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("poller wiring failed")
+
+
+class _ExplodingDatabase:
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("database wiring failed")
+
+
+async def test_failure_after_opening_the_database_disposes_it_and_closes_redis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    disposed: list[bool] = []
+
+    class _RecordingDatabase(DatabaseManager):
+        async def dispose_async(self) -> None:
+            disposed.append(True)
+            await super().dispose_async()
+
+    _ClosableRedis.closed = False
+    monkeypatch.setattr(pipeline_components, "Redis", _ClosableRedis)
+    monkeypatch.setattr(pipeline_components, "DatabaseManager", _RecordingDatabase)
+    monkeypatch.setattr(pipeline_components, "TradePoller", _ExplodingPoller)
+
+    with pytest.raises(RuntimeError, match="poller wiring failed"):
+        await build_components(
+            make_test_settings(),
+            dry_run=True,
+            on_trade=_ignore_trade,
+            on_ingestion_state=_ignore_state,
+        )
+
+    assert disposed == [True]
+    assert _ClosableRedis.closed is True
+
+
+async def test_failure_opening_the_database_still_closes_redis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ClosableRedis.closed = False
+    monkeypatch.setattr(pipeline_components, "Redis", _ClosableRedis)
+    monkeypatch.setattr(pipeline_components, "DatabaseManager", _ExplodingDatabase)
+
+    with pytest.raises(RuntimeError, match="database wiring failed"):
+        await build_components(
+            make_test_settings(),
+            dry_run=True,
+            on_trade=_ignore_trade,
+            on_ingestion_state=_ignore_state,
+        )
+
+    assert _ClosableRedis.closed is True

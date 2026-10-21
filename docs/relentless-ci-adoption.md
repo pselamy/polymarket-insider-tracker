@@ -620,6 +620,25 @@ Not enrolled, with reason: `ingestor/trades_source.py` and `ingestor/v2_cursor_w
 retry loops with an `AssertionError` sentinel that cannot be reached, and `ingestor/v2_page.py`
 has a `Protocol` stub `->exit` branch; removing those needs a restructure that is out of scope here.
 
+## Coverage step 3: thirteen more modules enrolled (2026-10-21)
+
+Re-measured from `c41ecf9` (3477 passed, 17 skipped). 49 of 83 `src` modules were enrolled; step 3
+enrolls 13 more (62 of 83). Seven candidates (`config_summary.py`, `deprecated_api_key.py`,
+`detector/detector_config.py`, `detector/evaluation.py`, `detector/evidence_document.py`,
+`ingestor/alert_path_health.py`, `ingestor/_attempt_budget.py`) were already at 100% line and branch.
+
+| Module | Missing before (lines / branches) | Closed by |
+| --- | --- | --- |
+| `assessment_row.py` | 1 / 1 | a known wallet age is stored rounded to two places (`tests/test_assessment_row.py`) |
+| `detector/market_lookup.py` | 0 / 1 | `Protocol` method body is a docstring, like `WalletChainReader` |
+| `ingestor/v2_page.py` | 0 / 1 | same `Protocol` docstring body (the step-2 "not enrolled" note is resolved) |
+| `ingestor/v2_smoke.py` | 35 / 2 | `tests/ingestor/test_v2_smoke.py` (its old tests live in `tests/tooling`, outside the coverage run) |
+| `pipeline_components.py` | 5 / 2 | `build_components` failure disposes the database and closes Redis; `Protocol` docstring bodies with `@abstractmethod` |
+| `redaction.py` | 1 / 1 | URL whose query parses to no pairs (`?&`) is fully masked |
+
+No pragma, omit, exclusion or threshold change; no code removed. The large modules and the
+spec004-hashed files are untouched.
+
 ## REF-CMD-20 step 3: alerter, config and persist-assessment roots (2026-10-21)
 
 Measured from `origin/main` at `adf809b`; enrolled in `[tool.pyright].include` with zero

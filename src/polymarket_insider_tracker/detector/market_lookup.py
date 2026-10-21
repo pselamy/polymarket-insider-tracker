@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 class MarketMetadataSource(Protocol):
     """Market lookup the detector needs (satisfied structurally by ``MarketMetadataSync``)."""
 
-    async def get_market(self, condition_id: str, /) -> MarketMetadata | None: ...
+    async def get_market(self, condition_id: str, /) -> MarketMetadata | None:
+        """Look up the metadata of ``condition_id``; ``None`` when the market is unknown."""
 
 
 async def fetch_market(

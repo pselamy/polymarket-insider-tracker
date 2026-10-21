@@ -74,7 +74,8 @@ class V2TerminalError(V2TransportError):
 class V2PageTransport(Protocol):
     """One physical page fetch: the raw decoded body, or a transport error."""
 
-    async def fetch(self, request: V2PageRequest) -> object: ...
+    async def fetch(self, request: V2PageRequest) -> object:
+        """Fetch the page ``request`` describes."""
 
 
 @dataclass(frozen=True)

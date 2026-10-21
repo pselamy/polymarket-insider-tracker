@@ -22,6 +22,7 @@ test_redis_contract.py (``test_compare_and_delete_*``/``test_compare_and_expire_
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
@@ -155,61 +156,88 @@ def _ambiguous_key() -> str:
     return AlertHistory.get_channel_ambiguous_key(CHANNEL, WALLET, MARKET)
 
 
+CasCall = Callable[[AlertHistory, str], Awaitable[bool]]
+
+
+async def _delete_call(history: AlertHistory, token: str) -> bool:
+    return await _channel_delivery.compare_and_delete(history, _ambiguous_key(), token)
+
+
+def _expire_call(ttl: int) -> CasCall:
+    async def call(history: AlertHistory, token: str) -> bool:
+        return await _channel_delivery.compare_and_expire(history, _ambiguous_key(), token, ttl)
+
+    return call
+
+
+async def _recorded_claim(
+    stored: str | None, ttl: int = 60
+) -> tuple[FakeAsyncRedis, RecordingRedis, AlertHistory]:
+    fake = FakeAsyncRedis()
+    if stored is not None:
+        await fake.set(_ambiguous_key(), stored, ex=ttl)
+    redis = RecordingRedis(fake)
+    return fake, redis, AlertHistory(redis, dedup_window_hours=1)
+
+
+def _read_sequence() -> list[tuple[str, tuple[Any, ...]]]:
+    return [("watch", (_ambiguous_key(),)), ("get", (_ambiguous_key(),))]
+
+
+def _owned_sequence(terminal: tuple[str, tuple[Any, ...]]) -> list[tuple[str, tuple[Any, ...]]]:
+    return [*_read_sequence(), ("multi", ()), terminal, ("execute", ())]
+
+
+def _aborted_sequence() -> list[tuple[str, tuple[Any, ...]]]:
+    return [*_read_sequence(), ("unwatch", ())]
+
+
+async def _assert_foreign_aborts(cas: CasCall) -> None:
+    fake, redis, history = await _recorded_claim(TOKEN, ttl=1200)
+
+    assert await cas(history, "stale") is False
+
+    assert redis.commands == _aborted_sequence()
+    assert await fake.get(_ambiguous_key()) == TOKEN.encode()
+    assert await fake.ttl(_ambiguous_key()) > 1000
+
+
+async def _assert_missing_aborts(cas: CasCall) -> None:
+    fake, redis, history = await _recorded_claim(None)
+
+    assert await cas(history, TOKEN) is False
+
+    assert redis.commands == _aborted_sequence()
+    assert await key_count(fake) == 0
+
+
+async def _raced_history() -> tuple[FakeAsyncRedis, str, AlertHistory]:
+    server = FakeServer()
+    fake = FakeAsyncRedis(server=server)
+    key = _ambiguous_key()
+    await fake.set(key, TOKEN, ex=60)
+    return fake, key, AlertHistory(RacingRedis(fake, server, key, RIVAL), dedup_window_hours=1)
+
+
 class TestCompareAndDeleteSequence:
     """The release sequence: WATCH, GET, compare, then MULTI DELETE on match."""
 
     @pytest.mark.asyncio
     async def test_owned_value_issues_watch_get_multi_delete_execute(self) -> None:
-        fake = FakeAsyncRedis()
-        await fake.set(_ambiguous_key(), TOKEN, ex=60)
-        redis = RecordingRedis(fake)
-        history = AlertHistory(redis, dedup_window_hours=1)
+        fake, redis, history = await _recorded_claim(TOKEN)
 
-        result = await _channel_delivery.compare_and_delete(history, _ambiguous_key(), TOKEN)
+        assert await _delete_call(history, TOKEN) is True
 
-        assert result is True
-        assert redis.commands == [
-            ("watch", (_ambiguous_key(),)),
-            ("get", (_ambiguous_key(),)),
-            ("multi", ()),
-            ("delete", (_ambiguous_key(),)),
-            ("execute", ()),
-        ]
+        assert redis.commands == _owned_sequence(("delete", (_ambiguous_key(),)))
         assert await fake.exists(_ambiguous_key()) == 0
 
     @pytest.mark.asyncio
     async def test_foreign_value_aborts_with_unwatch_and_no_transaction(self) -> None:
-        fake = FakeAsyncRedis()
-        await fake.set(_ambiguous_key(), TOKEN, ex=1200)
-        redis = RecordingRedis(fake)
-        history = AlertHistory(redis, dedup_window_hours=1)
-
-        result = await _channel_delivery.compare_and_delete(history, _ambiguous_key(), "stale")
-
-        assert result is False
-        assert redis.commands == [
-            ("watch", (_ambiguous_key(),)),
-            ("get", (_ambiguous_key(),)),
-            ("unwatch", ()),
-        ]
-        assert await fake.get(_ambiguous_key()) == TOKEN.encode()
-        assert await fake.ttl(_ambiguous_key()) > 1000
+        await _assert_foreign_aborts(_delete_call)
 
     @pytest.mark.asyncio
     async def test_missing_key_aborts_with_unwatch_and_no_transaction(self) -> None:
-        fake = FakeAsyncRedis()
-        redis = RecordingRedis(fake)
-        history = AlertHistory(redis, dedup_window_hours=1)
-
-        result = await _channel_delivery.compare_and_delete(history, _ambiguous_key(), TOKEN)
-
-        assert result is False
-        assert redis.commands == [
-            ("watch", (_ambiguous_key(),)),
-            ("get", (_ambiguous_key(),)),
-            ("unwatch", ()),
-        ]
-        assert await key_count(fake) == 0
+        await _assert_missing_aborts(_delete_call)
 
 
 class TestCompareAndExpireSequence:
@@ -217,58 +245,22 @@ class TestCompareAndExpireSequence:
 
     @pytest.mark.asyncio
     async def test_owned_value_issues_watch_get_multi_expire_execute(self) -> None:
-        fake = FakeAsyncRedis()
         ttl = 120
-        await fake.set(_ambiguous_key(), TOKEN, ex=2)
-        redis = RecordingRedis(fake)
-        history = AlertHistory(redis, dedup_window_hours=1)
+        fake, redis, history = await _recorded_claim(TOKEN, ttl=2)
 
-        result = await _channel_delivery.compare_and_expire(history, _ambiguous_key(), TOKEN, ttl)
+        assert await _expire_call(ttl)(history, TOKEN) is True
 
-        assert result is True
-        assert redis.commands == [
-            ("watch", (_ambiguous_key(),)),
-            ("get", (_ambiguous_key(),)),
-            ("multi", ()),
-            ("expire", (_ambiguous_key(), ttl)),
-            ("execute", ()),
-        ]
+        assert redis.commands == _owned_sequence(("expire", (_ambiguous_key(), ttl)))
         assert await fake.get(_ambiguous_key()) == TOKEN.encode()
         assert await fake.ttl(_ambiguous_key()) >= ttl
 
     @pytest.mark.asyncio
     async def test_foreign_value_aborts_with_unwatch_and_no_transaction(self) -> None:
-        fake = FakeAsyncRedis()
-        await fake.set(_ambiguous_key(), TOKEN, ex=1200)
-        redis = RecordingRedis(fake)
-        history = AlertHistory(redis, dedup_window_hours=1)
-
-        result = await _channel_delivery.compare_and_expire(history, _ambiguous_key(), "stale", 30)
-
-        assert result is False
-        assert redis.commands == [
-            ("watch", (_ambiguous_key(),)),
-            ("get", (_ambiguous_key(),)),
-            ("unwatch", ()),
-        ]
-        assert await fake.get(_ambiguous_key()) == TOKEN.encode()
-        assert await fake.ttl(_ambiguous_key()) > 1000
+        await _assert_foreign_aborts(_expire_call(30))
 
     @pytest.mark.asyncio
     async def test_missing_key_aborts_with_unwatch_and_no_transaction(self) -> None:
-        fake = FakeAsyncRedis()
-        redis = RecordingRedis(fake)
-        history = AlertHistory(redis, dedup_window_hours=1)
-
-        result = await _channel_delivery.compare_and_expire(history, _ambiguous_key(), TOKEN, 60)
-
-        assert result is False
-        assert redis.commands == [
-            ("watch", (_ambiguous_key(),)),
-            ("get", (_ambiguous_key(),)),
-            ("unwatch", ()),
-        ]
-        assert await key_count(fake) == 0
+        await _assert_missing_aborts(_expire_call(60))
 
 
 class TestWatchErrorIsNotRetried:
@@ -306,11 +298,7 @@ class TestRivalOwnerBetweenWatchAndExec:
 
     @pytest.mark.asyncio
     async def test_release_loss_returns_false_and_keeps_the_rival_token(self) -> None:
-        server = FakeServer()
-        fake = FakeAsyncRedis(server=server)
-        key = _ambiguous_key()
-        await fake.set(key, TOKEN, ex=60)
-        history = AlertHistory(RacingRedis(fake, server, key, RIVAL), dedup_window_hours=1)
+        fake, key, history = await _raced_history()
 
         assert await history.release_channel_claim(CHANNEL, WALLET, MARKET, TOKEN) is False
 
@@ -318,11 +306,7 @@ class TestRivalOwnerBetweenWatchAndExec:
 
     @pytest.mark.asyncio
     async def test_extend_loss_returns_false_and_keeps_the_rival_lease(self) -> None:
-        server = FakeServer()
-        fake = FakeAsyncRedis(server=server)
-        key = _ambiguous_key()
-        await fake.set(key, TOKEN, ex=60)
-        history = AlertHistory(RacingRedis(fake, server, key, RIVAL), dedup_window_hours=1)
+        fake, key, history = await _raced_history()
 
         assert await history.extend_channel_claim(CHANNEL, WALLET, MARKET, TOKEN, 600) is False
 
