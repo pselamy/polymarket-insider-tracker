@@ -10,11 +10,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from polymarket_insider_tracker.ingestor.gamma_client import (
-    GammaClient,
-    GammaMarketStats,
-    supersedes,
-)
+from polymarket_insider_tracker.ingestor.gamma_client import GammaClient, GammaMarketStats
 from polymarket_insider_tracker.ingestor.gamma_volume_refresh import (
     DEFAULT_GAMMA_REFRESH_INTERVAL_SECONDS,
 )
@@ -238,11 +234,3 @@ async def test_page_waiting_for_a_slot_is_skipped_once_an_earlier_page_failed(
     assert served == [0]
     assert (crawl.pages_ok, crawl.pages_failed, crawl.truncated) == (0, 1, True)
 
-
-def test_a_stampless_duplicate_never_supersedes_and_any_stamp_supersedes_a_stampless_one() -> None:
-    stamped = GammaMarketStats("0xa", acquired_at=START)
-    stampless = GammaMarketStats("0xa")
-
-    assert not supersedes(stampless, stamped)
-    assert not supersedes(stampless, stampless)
-    assert supersedes(stamped, stampless)

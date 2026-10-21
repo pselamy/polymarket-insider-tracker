@@ -1247,7 +1247,7 @@ without restructuring:
 
 Gate: `ENROLLED_MODULES` gained the three modules (list only grows; the test pins the prefix).
 
-## Coverage step 4: five more modules enrolled (2026-10-21)
+## Coverage step 4: four more modules enrolled (2026-10-21)
 
 Measured from `ec05d32` (`coverage run -m pytest tests --ignore=tests/tooling`, branch on: 3508
 passed, 17 skipped). Candidate modules, line / branch misses before:
@@ -1256,7 +1256,7 @@ passed, 17 skipped). Candidate modules, line / branch misses before:
 | --- | --- | --- |
 | `ingestor/trades_source.py` | 1 / 1 | yes |
 | `ingestor/v2_cursor_walk.py` | 1 / 1 | yes |
-| `ingestor/gamma_client.py` | 2 / 3 | yes |
+| `ingestor/gamma_client.py` | 2 / 3 | no (1 line left: stampless-duplicate guard, unreachable through a crawl) |
 | `storage/database.py` | 5 / 4 | yes |
 | `ingestor/acquisition.py` | 10 / 1 | yes |
 | `ingestor/observation_boundary.py` | 3 / 18 | no (many `->exit` branches in a validation chain) |
@@ -1268,8 +1268,7 @@ passed, 17 skipped). Candidate modules, line / branch misses before:
 Closed by behavioural tests: terminal HTTP status, exhausted transient status with `Retry-After`,
 exhausted transport error, unparseable body and malformed envelope on the v2 source; a request
 cutoff restored after restart; the final permitted attempt succeeding on the v1 source; equal
-stamps keeping the lower page, a page skipped once an earlier page failed, and the duplicate-id
-rule for stampless entries on the gamma client; disposing a never-opened `DatabaseManager`,
+stamps keeping the lower page and a page skipped once an earlier page failed on the gamma client; disposing a never-opened `DatabaseManager`,
 `init_db`/`init_async_db` creating every model table, and sessions sharing one engine.
 
 Dead code removed (no pragma, omit or threshold change; behaviour for valid inputs is unchanged):
@@ -1278,13 +1277,15 @@ Dead code removed (no pragma, omit or threshold change; behaviour for valid inpu
   `AssertionError`. Both now retry `max_retries` times in the loop and make the final attempt
   after it, so the exit is structural. `RetryPolicy.attempt_limit` lost its last caller and was
   removed with its tests; the v2 `_retry_or_raise` helper was inlined.
-- `acquisition.V2TradesSource._walk` caught the base `V2TransportError` after its only two
-  subclasses; nothing raises the base, so the clause was removed.
 - `DatabaseManager._get_sync_engine/_get_async_engine` guarded against an existing engine, but
   `dispose` and `dispose_async` clear engine and factory together, so an engine never outlives
   its factory. They are now `_open_*_engine` creators.
-- `gamma_client._supersedes` became the public `supersedes` so the stampless duplicate rule, which
-  a real crawl never reaches (every `ok` page is stamped), is tested directly.
+
+Not enrolled: `gamma_client._supersedes` keeps a `new.acquired_at is None` guard that a real
+crawl never reaches (every `ok` page is stamped) and that cannot be reached through the public
+API; it stays private and untested rather than being renamed for a test or rewritten to hide the
+arc. `acquisition.V2TradesSource` keeps its `V2TransportError` clause: the cursor walk accepts any
+`V2PageTransport`, so a bare base error is a valid transport failure and is tested.
 
 Planted-gap check: an `if self._echo:` branch added to `DatabaseManager.dispose` made
 `coverage report --fail-under=100` print `Coverage failure: total of 91 is less than

@@ -60,6 +60,7 @@ from polymarket_insider_tracker.ingestor.v2_page import (
     V2SourceError,
     V2TerminalError,
     V2TransientError,
+    V2TransportError,
 )
 
 __all__ = [
@@ -288,6 +289,8 @@ class V2TradesSource:
             ) from exc
         except V2TerminalError as exc:
             raise TradesTerminalError(str(exc), status=None, reason="http-status") from exc
+        except V2TransportError as exc:
+            raise TradesTransientError(str(exc), status=None, kind="transport") from exc
 
     def _combined_page(
         self,
