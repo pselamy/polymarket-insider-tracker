@@ -1638,3 +1638,22 @@ the idiom of step 5 (`@abstractmethod` with a docstring body); structural implem
 Planted-gap check: an `if dto.confidence < 0:` branch added to `RelationshipRepository.upsert`
 made `coverage report --fail-under=100` print `Coverage failure: total of 99 is less than
 fail-under=100`; the file was restored and the full gate passes at 100%.
+
+Review round 1 (after rebasing onto `2629008`, coverage step 6): three small helper modules added by
+the escape sweeps are enrolled as well. Measured on the rebased tree (`coverage run -m pytest tests
+--ignore=tests/tooling`: 3987 passed, 17 skipped):
+
+| Module | Missed lines / partial branches before | Change |
+| --- | --- | --- |
+| `ingestor/_json_value.py` | 0 / 0 | enrolled, already covered |
+| `ingestor/_model_shapes.py` | 0 / 0 | enrolled, already covered |
+| `alerter/_redis_port.py` | 14 / 0 | `Protocol` docstring bodies, then enrolled |
+
+The 14 `_redis_port.py` misses were the `...` statements that followed the docstrings of the
+`HistoryPipeline`, `HistoryRedis` and `ScanRedis` `Protocol` methods returning a value. They now use
+the idiom of step 5 and of `BoundaryPipeline`/`BoundaryRedis` in the same file: `@abstractmethod`
+with a docstring body (Pyright rejects a docstring-only body for a non-`None` return unless the
+method is abstract). No branch is involved. These protocols are matched structurally only: no class
+subclasses them and nothing calls their methods unbound (the one test that touches
+`HistoryRedis.pipeline`/`.set` reads their signature defaults, which `@abstractmethod` leaves
+unchanged), so no caller can observe the difference.

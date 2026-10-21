@@ -18,9 +18,9 @@ from polymarket_insider_tracker.shapes import object_mapping, object_sequence
 class HistoryPipeline(Protocol):
     """A Redis pipeline: queued writes are synchronous, WATCH/GET/EXEC are awaited."""
 
+    @abstractmethod
     def set(self, name: str, value: str, *, ex: int | None = None) -> object:
         """Queue ``SET``."""
-        ...
 
     def zadd(self, name: str, mapping: Mapping[str, float]) -> object:
         """Queue ``ZADD``."""
@@ -34,48 +34,49 @@ class HistoryPipeline(Protocol):
     def multi(self) -> None:
         """Start buffering commands after a ``WATCH``."""
 
+    @abstractmethod
     def watch(self, *names: str) -> Awaitable[object]:
         """``WATCH`` the keys."""
-        ...
 
+    @abstractmethod
     def unwatch(self) -> Awaitable[object]:
         """``UNWATCH`` every watched key."""
-        ...
 
+    @abstractmethod
     def get(self, name: str) -> Awaitable[object]:
         """``GET`` a key (immediate while watching)."""
-        ...
 
+    @abstractmethod
     def execute(self) -> Awaitable[object]:
         """``EXEC`` the queued commands."""
-        ...
 
 
 class HistoryRedis(Protocol):
     """The async Redis client methods ``AlertHistory`` calls."""
 
+    @abstractmethod
     def pipeline(self, transaction: bool = True) -> AbstractAsyncContextManager[HistoryPipeline]:
         """Open a pipeline."""
-        ...
 
+    @abstractmethod
     def exists(self, *names: str) -> Awaitable[object]:
         """``EXISTS``."""
-        ...
 
+    @abstractmethod
     def get(self, name: str) -> Awaitable[object]:
         """``GET``."""
-        ...
 
+    @abstractmethod
     def set(
         self, name: str, value: str, *, ex: int | None = None, nx: bool = False
     ) -> Awaitable[object]:
         """``SET``."""
-        ...
 
+    @abstractmethod
     def ttl(self, name: str) -> Awaitable[object]:
         """``TTL``."""
-        ...
 
+    @abstractmethod
     def zrangebyscore(
         self,
         name: str,
@@ -85,15 +86,14 @@ class HistoryRedis(Protocol):
         num: int | None = None,
     ) -> Awaitable[object]:
         """``ZRANGEBYSCORE``."""
-        ...
 
+    @abstractmethod
     def zcount(self, name: str, min: float | str, max: float | str) -> Awaitable[object]:
         """``ZCOUNT``."""
-        ...
 
+    @abstractmethod
     def zremrangebyscore(self, name: str, min: float | str, max: float | str) -> Awaitable[object]:
         """``ZREMRANGEBYSCORE``."""
-        ...
 
 
 class BoundaryPipeline(Protocol):
@@ -179,11 +179,11 @@ class BoundaryRedis(Protocol):
 class ScanRedis(Protocol):
     """The ``SCAN`` command of an async Redis client."""
 
+    @abstractmethod
     def scan(
         self, cursor: int = 0, match: str | None = None, count: int | None = None
     ) -> Awaitable[object]:
         """``SCAN``."""
-        ...
 
 
 async def scan_page(
