@@ -36,7 +36,7 @@ counts osv alias groups instead (one per underlying advisory): 60 groups in 17 p
 | 4 | alembic stack | mako | 1.3.10 | 1.4.2 | 6 | runtime (via alembic), done: locked 1.4.2 |
 | 5 | pytest/pygments | pytest | 9.0.2 | 9.0.3 | 2 | runtime (via poly-eip712-structs); also dev pin, done: locked 9.0.3 |
 | 5 | pytest/pygments | pygments | 2.19.2 | 2.20.0 | 2 | runtime (via pytest), done: locked 2.20.0 |
-| 6 | dev tooling | virtualenv | 20.35.4 | 21.14.7 | 14 | dev-only (via pre-commit), done: locked 21.14.7 (21.7.13 first, then 21.14.7 for four later advisories) |
+| 6 | dev tooling | virtualenv | 20.35.4 | 21.14.12 | 17 | dev-only (via pre-commit), done: locked 21.14.12 (21.7.13 first, then 21.14.7 for four later advisories, then 21.14.12 for three more) |
 | 6 | dev tooling | filelock | 3.20.2 | 3.20.3 | 2 | dev-only (via virtualenv), done: locked 3.32.7 |
 
 No advisory lacks a fixed release. h11, httpx and httpcore have no advisories; they are
@@ -63,6 +63,10 @@ lock alone is enough; no pin edits are expected for family 1.
    virtualenv==21.14.7`), plus transitive distlib 0.4.0 -> 0.4.4 and a new `packaging` edge on
    virtualenv (already locked). Dev-only (pre-commit activation scripts); `pyproject.toml` unchanged.
    `python -m quality.security_main` exits 0 with 0 advisory groups.
+   Second follow-up (osv published GHSA-43mp-35q3-x3fq, GHSA-c978-59m8-c77v and
+   GHSA-cw65-gx24-rc82 against 21.14.7): virtualenv 21.14.7 -> 21.14.12, the release that clears all
+   three, a `uv.lock` change to that single package entry (merged in #224; no other package and no
+   `pyproject.toml` change). Dev-only (pre-commit activation scripts).
 3. **Family 3, settings/env** (done): pydantic-settings 2.12.0 -> 2.14.2, python-dotenv 1.2.1 -> 1.2.2,
    the minimum fixed releases. New transitive dependency: none (`uv.lock` changes only those two
    package entries). Clears 3 osv records (2 alias groups); `pyproject.toml` is unchanged. Config
