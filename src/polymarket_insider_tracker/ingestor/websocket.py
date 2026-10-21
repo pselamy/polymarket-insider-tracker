@@ -9,6 +9,7 @@ import json
 import logging
 import time
 import warnings
+from abc import abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -72,11 +73,17 @@ def _message_object(message: str) -> dict[str, JsonValue]:
 class StreamConnection(Protocol):
     """The slice of a WebSocket connection the handler uses (satisfied by websockets' client)."""
 
-    async def send(self, message: str) -> None: ...
+    @abstractmethod
+    async def send(self, message: str) -> None:
+        """Send one text frame."""
 
-    async def close(self) -> None: ...
+    @abstractmethod
+    async def close(self) -> None:
+        """Close the connection."""
 
-    def __aiter__(self) -> AsyncIterator[str | bytes]: ...
+    @abstractmethod
+    def __aiter__(self) -> AsyncIterator[str | bytes]:
+        """Iterate over received frames."""
 
 
 class TradeStreamHandler:
@@ -140,7 +147,6 @@ class TradeStreamHandler:
         self._stats = StreamStats()
         self._ws: StreamConnection | None = None
         self._running = False
-        self._stop_event: asyncio.Event | None = None
 
     @property
     def state(self) -> ConnectionState:
@@ -324,7 +330,6 @@ class TradeStreamHandler:
             return
 
         self._running = True
-        self._stop_event = asyncio.Event()
 
         try:
             self._ws = await self._connect()
@@ -342,9 +347,6 @@ class TradeStreamHandler:
 
         logger.info("Stopping trade stream handler...")
         self._running = False
-
-        if self._stop_event:
-            self._stop_event.set()
 
         await self._cleanup()
 

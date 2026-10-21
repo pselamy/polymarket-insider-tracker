@@ -196,18 +196,15 @@ class GracefulShutdown:
             self._install_windows_handlers()
         else:
             # Unix: use loop.add_signal_handler for both signals
-            self._install_unix_handlers()
+            self._install_unix_handlers(self._loop)
 
         logger.debug("Signal handlers installed")
 
-    def _install_unix_handlers(self) -> None:
+    def _install_unix_handlers(self, loop: asyncio.AbstractEventLoop) -> None:
         """Install Unix signal handlers using the event loop."""
-        if self._loop is None:
-            return
-
         for sig in SHUTDOWN_SIGNALS:
             try:
-                self._loop.add_signal_handler(
+                loop.add_signal_handler(
                     sig,
                     self._handle_signal,
                     sig,

@@ -1558,3 +1558,41 @@ the narrowing above: no scoring rule, threshold, literal or persisted value chan
 were re-pinned from the output of `check_source_hashes` (seventeenth refresh in
 `specs/004-truthful-detection-contract/evidence/source-refresh-f2e2167.md`); every other evidence
 file is byte-identical.
+
+## Coverage step 6: six more modules enrolled (2026-10-21)
+
+Measured from `101c247` (`coverage run -m pytest tests --ignore=tests/tooling`, branch on: 3775
+passed, 17 skipped). Line / partial-branch misses before, all six now enrolled at 100 %:
+
+| Module | Missed lines / partial branches |
+| --- | --- |
+| `ingestor/health.py` | 7 / 4 |
+| `ingestor/clob_client.py` | 17 / 0 |
+| `shutdown.py` | 22 / 8 |
+| `profiler/chain.py` | 14 / 7 |
+| `ingestor/websocket.py` | 16 / 10 |
+| `ingestor/metadata_sync.py` | 28 / 7 |
+
+Closed by behavioural tests (new `*_edges`, `*_failures` and `test_chain_failover` files): a failing
+last-error provider and a failing health-loop step; async rate-limit spacing and retried orderbook
+failures; abandoned shutdown work that fails late, the Windows handler install/restore (via
+`sys.platform`), refused signal registration and the second-signal exit; primary/fallback
+recovery timing, a fallback built from a URL, failed batch nonces and replayed cached
+first-transactions; malformed, binary and closed WebSocket streams with reconnect backoff; and
+failing callbacks, periodic sync failures, unwritable markets and corrupt cache entries in the
+metadata sync. Test fakes gained failure switches (`FakeBaseClobClient.*_error`,
+`FakeEth(token_balance_fails=...)`).
+
+Source changes (no pragma, omit or threshold change; behaviour unchanged). Only branches that
+cannot be reached were removed; every defensive branch is kept and covered by a test that drives it
+(the stop-while-the-interval-elapses guard, the empty CLOB reply, `HealthMonitor.stop` after a failed
+`start()`, the `_running` loop condition, the signal handler before install, and a Gamma refresh
+task that failed before `stop()`):
+
+- `StreamConnection` protocol stubs in `websocket.py` use docstring bodies (the `->exit` idiom).
+- `TradeStreamHandler._stop_event` was written and set but never awaited; removed.
+- `GracefulShutdown._install_unix_handlers` receives the running loop instead of re-checking
+  `self._loop is None` (`install_signal_handlers` always set it first).
+- `GammaVolumeRefresh.stop` waits with `asyncio.wait` and then re-raises a failure of the task
+  (`task.result()` unless cancelled), as `await task` did; this keeps line tracing on Python 3.11
+  complete for the sync loop that `MarketMetadataSync.stop` follows it with.

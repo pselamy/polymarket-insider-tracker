@@ -115,31 +115,35 @@ class TransferLogIndex:
 
 
 class FakeContractFunction:
-    """Bound ERC-20 view call returning a fixed balance."""
+    """Bound ERC-20 view call returning a fixed balance, or failing like a rejecting node."""
 
-    def __init__(self, balance: int) -> None:
+    def __init__(self, balance: int, fails: bool) -> None:
         self._balance = balance
+        self._fails = fails
 
     async def call(self) -> int:
+        if self._fails:
+            raise Web3Exception("token balance call failed")
         return self._balance
 
 
 class FakeContractFunctions:
     """The ``functions`` namespace of an ERC-20 contract."""
 
-    def __init__(self, balance: int) -> None:
+    def __init__(self, balance: int, fails: bool) -> None:
         self._balance = balance
+        self._fails = fails
 
     def balanceOf(self, address: ChecksumAddress) -> FakeContractFunction:
         _ = address
-        return FakeContractFunction(self._balance)
+        return FakeContractFunction(self._balance, self._fails)
 
 
 class FakeContract:
     """A web3 contract proxy exposing ``functions.balanceOf``."""
 
-    def __init__(self, balance: int) -> None:
-        self.functions = FakeContractFunctions(balance)
+    def __init__(self, balance: int, fails: bool = False) -> None:
+        self.functions = FakeContractFunctions(balance, fails)
 
 
 class FakeBlockNumber:
@@ -163,7 +167,8 @@ class FakeEth:
 
     ``fail_count`` makes the first N calls raise (transient failures); ``always_fail`` makes every
     call raise. ``call_count`` is the number of RPC calls attempted, the provider-facing contract
-    that retry and failover tests assert. ``block_lookup_fails`` fails only ``get_block``.
+    that retry and failover tests assert. ``block_lookup_fails`` fails only ``get_block``; ``token_balance_fails`` fails only the ERC-20
+    ``balanceOf`` call.
     """
 
     def __init__(
@@ -177,6 +182,7 @@ class FakeEth:
         fail_count: int = 0,
         always_fail: bool = False,
         block_lookup_fails: bool = False,
+        token_balance_fails: bool = False,
         logs: TransferLogIndex | None = None,
         contract_proxy: object | None = None,
     ) -> None:
@@ -188,6 +194,7 @@ class FakeEth:
         self._fail_count = fail_count
         self._always_fail = always_fail
         self._block_lookup_fails = block_lookup_fails
+        self._token_balance_fails = token_balance_fails
         self._logs = logs
         self._contract_proxy = contract_proxy
         self.call_count = 0
@@ -226,7 +233,7 @@ class FakeEth:
         _ = (address, kwargs)
         if self._contract_proxy is not None:
             return self._contract_proxy
-        return FakeContract(self._token_balance)
+        return FakeContract(self._token_balance, self._token_balance_fails)
 
     async def get_logs(self, filter_params: FilterParams) -> list[dict[str, Any]]:
         self._count_call()

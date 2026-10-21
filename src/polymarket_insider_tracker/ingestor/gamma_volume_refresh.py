@@ -8,7 +8,6 @@ The CLOB crawl duration no longer delays volume freshness: the oldest stamp a re
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 
 from polymarket_insider_tracker.ingestor.gamma_client import (
@@ -75,7 +74,8 @@ class GammaVolumeRefresh:
     async def stop(self) -> None:
         if self._task is None:
             return
-        self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._task
-        self._task = None
+        task, self._task = self._task, None
+        task.cancel()
+        await asyncio.wait({task})
+        if not task.cancelled():
+            task.result()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime
 
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -134,3 +135,21 @@ async def test_a_failed_initial_clob_sync_cancels_the_first_gamma_refresh(
 
     await asyncio.sleep(0)
     assert not [task for task in asyncio.all_tasks() if "refresh_once" in repr(task)]
+
+
+def _failing_clock() -> datetime:
+    raise RuntimeError("clock boom")
+
+
+@pytest.mark.asyncio
+async def test_stop_surfaces_the_failure_of_a_loop_that_died_before_it() -> None:
+    """The refresh loop dies when even the failure path cannot read the clock; stop() reports it."""
+    gamma = FakeGammaClient(raise_error=RuntimeError("gamma down"))
+    refresh = GammaVolumeRefresh(
+        gamma, VolumeStore(FakeAsyncRedis()), interval_seconds=0, clock=_failing_clock
+    )
+    refresh.start()
+    await asyncio.sleep(0.05)
+
+    with pytest.raises(RuntimeError, match="clock boom"):
+        await refresh.stop()
