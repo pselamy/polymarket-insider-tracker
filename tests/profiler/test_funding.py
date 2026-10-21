@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any
 
 import pytest
 
@@ -24,32 +23,18 @@ from polymarket_insider_tracker.profiler.funding import (
     FundingTracer,
 )
 from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer
-from tests.fakes import FakeAsyncWeb3, FakeEth, TransferLogIndex, transfer_log
-
-# Test addresses
-TEST_WALLET = "0x1234567890abcdef1234567890abcdef12345678"
-TEST_SOURCE = "0xabcdef1234567890abcdef1234567890abcdef12"
-BINANCE_HOT_WALLET = "0x28c6c06298d514db089934071355e5743bf21d60"
-CHAIN_HEAD = 50_000_000
-PRUNED_HISTORY_ERROR = RuntimeError(
-    "{'code': -32701, 'message': 'History has been pruned for this block. To remove "
-    "restrictions, order a dedicated full node here: https://www.allnodes.com/pol/host'}"
+from tests.fakes import FakeEth, TransferLogIndex, transfer_log
+from tests.profiler.funding_support import (
+    CHAIN_HEAD,
+    PRUNED_HISTORY_ERROR,
+    TEST_SOURCE,
+    TEST_WALLET,
+    polygon_client_on,
+    transfer_to,
 )
 
-
-def _polygon_client(eth: FakeEth, *, fallback: FakeEth | None = None) -> PolygonClient:
-    """A real PolygonClient with its web3 providers bound to fakes and no retry delays."""
-    client = PolygonClient(
-        "https://polygon-rpc.com",
-        fallback_rpc_url="https://fallback.invalid" if fallback else None,
-        max_requests_per_second=10_000.0,
-        max_retries=1,
-        retry_delay_seconds=0.0,
-    )
-    client._w3 = FakeAsyncWeb3(eth)
-    if fallback is not None:
-        client._w3_fallback = FakeAsyncWeb3(fallback)
-    return client
+# Test addresses
+BINANCE_HOT_WALLET = "0x28c6c06298d514db089934071355e5743bf21d60"
 
 
 def _tracer(logs: TransferLogIndex, *, block_number: int = CHAIN_HEAD) -> FundingTracer:
@@ -57,19 +42,7 @@ def _tracer(logs: TransferLogIndex, *, block_number: int = CHAIN_HEAD) -> Fundin
 
 
 def _polygon_tracer(eth: FakeEth, *, fallback: FakeEth | None = None) -> FundingTracer:
-    return FundingTracer(_polygon_client(eth, fallback=fallback))
-
-
-def _transfer_to(
-    to_address: str, from_address: str, *, block_number: int = CHAIN_HEAD, seed: int = 0
-) -> dict[str, Any]:
-    return transfer_log(
-        from_address=from_address,
-        to_address=to_address,
-        amount=1_000_000,
-        tx_hash=f"0x{seed:064x}",
-        block_number=block_number,
-    )
+    return FundingTracer(polygon_client_on(eth, fallback=fallback))
 
 
 def _path_logs(wallets: list[str]) -> TransferLogIndex:
@@ -77,7 +50,7 @@ def _path_logs(wallets: list[str]) -> TransferLogIndex:
     for index, (target, source) in enumerate(zip(wallets, wallets[1:], strict=False)):
         logs.add_transfer(
             USDC_BRIDGED,
-            _transfer_to(target, source, block_number=CHAIN_HEAD - index, seed=index),
+            transfer_to(target, source, block_number=CHAIN_HEAD - index, seed=index),
         )
     return logs
 
@@ -108,7 +81,7 @@ def entity_registry() -> EntityRegistry:
 @pytest.fixture
 def polygon_client() -> PolygonClient:
     """A Polygon client over a chain with no transfer history."""
-    return _polygon_client(FakeEth(block_number=CHAIN_HEAD))
+    return polygon_client_on(FakeEth(block_number=CHAIN_HEAD))
 
 
 @pytest.fixture
@@ -178,8 +151,10 @@ class TestFundingTracerTrace:
     async def test_trace_finds_cex_origin(self, entity_registry: EntityRegistry) -> None:
         """Test trace finds CEX as funding origin."""
         logs = TransferLogIndex()
-        logs.add_transfer(USDC_BRIDGED, _transfer_to(TEST_WALLET, BINANCE_HOT_WALLET, seed=0xAB))
-        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
+        logs.add_transfer(USDC_BRIDGED, transfer_to(TEST_WALLET, BINANCE_HOT_WALLET, seed=0xAB))
+        tracer = FundingTracer(
+            polygon_client_on(FakeEth(logs=logs)), entity_registry=entity_registry
+        )
 
         result = await tracer.trace(TEST_WALLET)
 
@@ -193,11 +168,13 @@ class TestFundingTracerTrace:
         """Test trace follows multiple hops."""
         intermediate_wallet = "0x" + "11" * 20
         logs = TransferLogIndex()
-        logs.add_transfer(USDC_BRIDGED, _transfer_to(TEST_WALLET, intermediate_wallet, seed=1))
+        logs.add_transfer(USDC_BRIDGED, transfer_to(TEST_WALLET, intermediate_wallet, seed=1))
         logs.add_transfer(
-            USDC_BRIDGED, _transfer_to(intermediate_wallet, BINANCE_HOT_WALLET, seed=2)
+            USDC_BRIDGED, transfer_to(intermediate_wallet, BINANCE_HOT_WALLET, seed=2)
         )
-        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
+        tracer = FundingTracer(
+            polygon_client_on(FakeEth(logs=logs)), entity_registry=entity_registry
+        )
 
         result = await tracer.trace(TEST_WALLET)
 
@@ -212,9 +189,11 @@ class TestFundingTracerTrace:
         for i in range(len(wallets) - 1):
             logs.add_transfer(
                 USDC_BRIDGED,
-                _transfer_to(wallets[i], wallets[i + 1], block_number=CHAIN_HEAD - i, seed=i),
+                transfer_to(wallets[i], wallets[i + 1], block_number=CHAIN_HEAD - i, seed=i),
             )
-        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
+        tracer = FundingTracer(
+            polygon_client_on(FakeEth(logs=logs)), entity_registry=entity_registry
+        )
 
         result = await tracer.trace(wallets[0], max_hops=3)
 
@@ -238,8 +217,10 @@ class TestGetFirstUsdcTransfer:
     async def test_get_first_usdc_transfer_bridged(self, entity_registry: EntityRegistry) -> None:
         """Test getting first USDC transfer from bridged contract."""
         logs = TransferLogIndex()
-        logs.add_transfer(USDC_BRIDGED, _transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xCC))
-        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
+        logs.add_transfer(USDC_BRIDGED, transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xCC))
+        tracer = FundingTracer(
+            polygon_client_on(FakeEth(logs=logs)), entity_registry=entity_registry
+        )
 
         result = await tracer.get_first_usdc_transfer(TEST_WALLET)
 
@@ -252,8 +233,10 @@ class TestGetFirstUsdcTransfer:
     async def test_get_first_usdc_transfer_native(self, entity_registry: EntityRegistry) -> None:
         """Test fallback to native USDC contract when the bridged contract has no transfer."""
         logs = TransferLogIndex()
-        logs.add_transfer(USDC_NATIVE, _transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xDD))
-        tracer = FundingTracer(_polygon_client(FakeEth(logs=logs)), entity_registry=entity_registry)
+        logs.add_transfer(USDC_NATIVE, transfer_to(TEST_WALLET, TEST_SOURCE, seed=0xDD))
+        tracer = FundingTracer(
+            polygon_client_on(FakeEth(logs=logs)), entity_registry=entity_registry
+        )
 
         result = await tracer.get_first_usdc_transfer(TEST_WALLET)
 
@@ -307,7 +290,7 @@ class TestGetTransferLogs:
         logs = TransferLogIndex()
         for i in range(10):
             logs.add_transfer(
-                USDC_BRIDGED, _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=100 + i, seed=i)
+                USDC_BRIDGED, transfer_to(TEST_WALLET, TEST_SOURCE, block_number=100 + i, seed=i)
             )
         tracer = _tracer(logs)
 
@@ -326,7 +309,7 @@ class TestGetTransferLogs:
         primary_logs, fallback_logs = TransferLogIndex(), TransferLogIndex()
         primary = FakeEth(always_fail=True, logs=primary_logs)
         fallback = FakeEth(logs=fallback_logs)
-        client = _polygon_client(primary, fallback=fallback)
+        client = polygon_client_on(primary, fallback=fallback)
         await client.get_transaction_count(TEST_WALLET)
         tracer = FundingTracer(client)
 
@@ -367,7 +350,7 @@ class TestGetTransferLogs:
         for i in range(5):
             logs.add_transfer(
                 USDC_BRIDGED,
-                _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_100 + i, seed=i),
+                transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_100 + i, seed=i),
             )
         tracer = _tracer(logs)
 
@@ -386,7 +369,7 @@ class TestGetTransferLogs:
         """A flaky chunk must not abort the whole trace; the walk moves on."""
         logs = TransferLogIndex()
         logs.fail_chunk(1_000_000, RuntimeError("RPC hiccup"))
-        good_log = _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_009_500, seed=0xAA)
+        good_log = transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_009_500, seed=0xAA)
         logs.add_transfer(USDC_BRIDGED, good_log)
         tracer = _tracer(logs)
 
@@ -412,11 +395,11 @@ class TestGetTransferLogs:
     async def test_get_transfer_logs_breaks_on_pruned_history(self) -> None:
         """A pruned-history error must short-circuit the whole walk."""
         logs = TransferLogIndex()
-        good_log = _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_500, seed=0xAA)
+        good_log = transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_500, seed=0xAA)
         logs.add_transfer(USDC_BRIDGED, good_log)
         logs.fail_chunk(1_009_000, PRUNED_HISTORY_ERROR)
         logs.add_transfer(
-            USDC_BRIDGED, _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_018_500, seed=0xBB)
+            USDC_BRIDGED, transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_018_500, seed=0xBB)
         )
         tracer = _tracer(logs)
 
@@ -518,7 +501,7 @@ class TestGetFundingChainsBatch:
         """Test batch handles exceptions gracefully."""
         logs = _path_logs([TEST_SOURCE, BINANCE_HOT_WALLET])
         tracer = _TraceFailingTracer(
-            _polygon_client(FakeEth(block_number=CHAIN_HEAD, logs=logs)), TEST_WALLET
+            polygon_client_on(FakeEth(block_number=CHAIN_HEAD, logs=logs)), TEST_WALLET
         )
 
         results = await tracer.get_funding_chains_batch([TEST_SOURCE, TEST_WALLET])

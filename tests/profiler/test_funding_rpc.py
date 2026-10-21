@@ -27,16 +27,15 @@ import pytest
 from polymarket_insider_tracker.profiler import _funding_rpc as rpc
 from polymarket_insider_tracker.profiler import funding
 from polymarket_insider_tracker.profiler._funding_rpc import TransferLogScanner
-from polymarket_insider_tracker.profiler.chain import PolygonClient
-from tests.fakes import FakeAsyncWeb3, FakeEth, TransferLogIndex, transfer_log
+from tests.fakes import FakeEth, TransferLogIndex
 from tests.pickle_reference import pickled_global, resolve_pickled_global
-
-TEST_WALLET = "0x1234567890abcdef1234567890abcdef12345678"
-TEST_SOURCE = "0xabcdef1234567890abcdef1234567890abcdef12"
-CHAIN_HEAD = 50_000_000
-PRUNED_HISTORY_ERROR = RuntimeError(
-    "{'code': -32701, 'message': 'History has been pruned for this block. To remove "
-    "restrictions, order a dedicated full node here: https://www.allnodes.com/pol/host'}"
+from tests.profiler.funding_support import (
+    CHAIN_HEAD,
+    PRUNED_HISTORY_ERROR,
+    TEST_SOURCE,
+    TEST_WALLET,
+    polygon_client_on,
+    transfer_to,
 )
 
 
@@ -56,38 +55,11 @@ RE_EXPORTED_NAMES = (
 )
 
 
-def _polygon_client(eth: FakeEth, *, fallback: FakeEth | None = None) -> PolygonClient:
-    """A real PolygonClient with its web3 providers bound to fakes and no retry delays."""
-    client = PolygonClient(
-        "https://polygon-rpc.com",
-        fallback_rpc_url="https://fallback.invalid" if fallback else None,
-        max_requests_per_second=10_000.0,
-        max_retries=1,
-        retry_delay_seconds=0.0,
-    )
-    client._w3 = FakeAsyncWeb3(eth)
-    if fallback is not None:
-        client._w3_fallback = FakeAsyncWeb3(fallback)
-    return client
-
-
 def _scanner(
     logs: TransferLogIndex, *, block_number: int = CHAIN_HEAD, **kwargs: Any
 ) -> TransferLogScanner:
-    client = _polygon_client(FakeEth(block_number=block_number, logs=logs))
+    client = polygon_client_on(FakeEth(block_number=block_number, logs=logs))
     return TransferLogScanner(client, **kwargs)
-
-
-def _transfer_to(
-    to_address: str, from_address: str, *, block_number: int = CHAIN_HEAD, seed: int = 0
-) -> dict[str, Any]:
-    return transfer_log(
-        from_address=from_address,
-        to_address=to_address,
-        amount=1_000_000,
-        tx_hash=f"0x{seed:064x}",
-        block_number=block_number,
-    )
 
 
 class TestReExportIdentity:
@@ -237,7 +209,7 @@ class TestTransferLogScanner:
         for i in range(5):
             logs.add_transfer(
                 funding.USDC_BRIDGED,
-                _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_100 + i, seed=i),
+                transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_100 + i, seed=i),
             )
         scanner = _scanner(logs)
 
@@ -255,7 +227,7 @@ class TestTransferLogScanner:
     async def test_skips_flaky_chunk(self) -> None:
         logs = TransferLogIndex()
         logs.fail_chunk(1_000_000, RuntimeError("RPC hiccup"))
-        good_log = _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_009_500, seed=0xAA)
+        good_log = transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_009_500, seed=0xAA)
         logs.add_transfer(funding.USDC_BRIDGED, good_log)
         scanner = _scanner(logs)
 
@@ -271,12 +243,12 @@ class TestTransferLogScanner:
 
     async def test_breaks_on_pruned_history(self) -> None:
         logs = TransferLogIndex()
-        good_log = _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_500, seed=0xAA)
+        good_log = transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_000_500, seed=0xAA)
         logs.add_transfer(funding.USDC_BRIDGED, good_log)
         logs.fail_chunk(1_009_000, PRUNED_HISTORY_ERROR)
         logs.add_transfer(
             funding.USDC_BRIDGED,
-            _transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_018_500, seed=0xBB),
+            transfer_to(TEST_WALLET, TEST_SOURCE, block_number=1_018_500, seed=0xBB),
         )
         scanner = _scanner(logs)
 
@@ -302,7 +274,7 @@ class TestTransferLogScanner:
         primary_logs, fallback_logs = TransferLogIndex(), TransferLogIndex()
         primary = FakeEth(always_fail=True, logs=primary_logs)
         fallback = FakeEth(logs=fallback_logs)
-        client = _polygon_client(primary, fallback=fallback)
+        client = polygon_client_on(primary, fallback=fallback)
         await client.get_transaction_count(TEST_WALLET)
         scanner = TransferLogScanner(client)
 
