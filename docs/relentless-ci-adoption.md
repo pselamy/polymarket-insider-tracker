@@ -1604,7 +1604,7 @@ passed, 17 skipped). Line / partial-branch misses before and the outcome:
 
 | Module | Missed lines / partial branches | Enrolled |
 | --- | --- | --- |
-| `storage/repos.py` | 7 / 1 | yes |
+| `storage/repos.py` | 5 / 1 | yes |
 | `ingestor/trade_poller.py` | 8 / 9 | yes |
 | `__main__.py` | 10 / 9 | yes |
 | `alerter/dispatcher.py` | 22 / 12 | no, measured only |
