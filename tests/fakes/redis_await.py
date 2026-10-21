@@ -1,7 +1,7 @@
 """Await the ``Awaitable[T] | T`` results the redis-py stubs declare for async clients."""
 
 import inspect
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Protocol, TypeVar
 
 T = TypeVar("T")
@@ -36,20 +36,18 @@ async def key_count(client: KeyLister) -> int:
 class ScoredSetReader(Protocol):
     """The slice of ``redis.asyncio.Redis`` that ``scored_members`` needs, with a typed result."""
 
+    @property
     def zrangebyscore(
         self,
-        name: str,
-        min: str,
-        max: str,
-        start: int | None = None,
-        num: int | None = None,
-        withscores: bool = False,
-    ) -> Awaitable[list[tuple[bytes, float]]] | list[tuple[bytes, float]]: ...
+    ) -> Callable[
+        [str, str, str, int | None, int | None, bool],
+        Awaitable[list[tuple[bytes, float]]] | list[tuple[bytes, float]],
+    ]: ...
 
 
 async def scored_members(client: ScoredSetReader, key: str) -> list[tuple[bytes, float]]:
     """Every ``(member, score)`` of a sorted set (the ``zrangebyscore`` stub is partly untyped)."""
-    return await settled(client.zrangebyscore(key, "-inf", "+inf", withscores=True))
+    return await settled(client.zrangebyscore(key, "-inf", "+inf", None, None, True))
 
 
 class HashWriter(Protocol):

@@ -143,8 +143,6 @@ class PolygonClient:
             rate_limiter: Optional request limiter replacing the one built from
                 ``max_requests_per_second``, so several consumers can share one budget.
         """
-        self._rpc_url = rpc_url
-        self._fallback_rpc_url = fallback_rpc_url
         self._redis = redis
         self._cache_ttl = cache_ttl_seconds
         self._max_retries = max_retries

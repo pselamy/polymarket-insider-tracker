@@ -802,6 +802,7 @@ class TestRestart:
 
         await restarted.run_cycle()
 
+        assert not redis_server.connected
         assert restarted.status.state is IngestionState.DEGRADED
         assert restarted.status.loss_events == ()
         assert callback.trades == []
