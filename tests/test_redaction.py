@@ -59,15 +59,13 @@ from tests.console_capture import (
     console_capture,
     production_console_handler,
 )
-from tests.fakes import detector_trade
-from tests.fakes.pipeline_access import PipelineAccess
+from tests.fakes import Substitutes, detector_trade
 from tests.fakes.redis_faults import fail_commands, fail_pipeline
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.config import PolymarketSettings, Settings
     from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
-    from polymarket_insider_tracker.pipeline import Pipeline
-    from tests.fakes import FailingDetector, FakeTradesServer
+    from tests.fakes import FailingDetector, FakeTradesServer, WiredPipeline
 
 DB_SECRET = "db-userinfo-secret"
 QUERY_SECRET = "query-string-secret"
@@ -101,6 +99,12 @@ R21_QUOTED_SECRET = "quoted-endpoint-secret-r21"
 R21_GRAPH_SECRET = "graph-bytes-secret-r21"
 
 
+def _poller_of(pipeline: WiredPipeline) -> TradePoller:
+    """The trade poller a pipeline was wired with a trades server for."""
+    assert pipeline.poller is not None, "the pipeline was wired without a trades server"
+    return pipeline.poller
+
+
 async def _primed_poller(settings: Settings) -> tuple[TradePoller, FakeTradesServer]:
     """Wire the fake-stack pipeline, publish one trade and run the priming poll cycle."""
     from tests.fakes import FakeClock, FakeEth, FakeTradesServer, trade_row, wire_pipeline
@@ -110,7 +114,7 @@ async def _primed_poller(settings: Settings) -> tuple[TradePoller, FakeTradesSer
     pipeline = await wire_pipeline(
         settings, redis=FakeAsyncRedis(), eth=FakeEth(), trades=server, poll_clock=clock
     )
-    poller = PipelineAccess.trade_poller(pipeline)
+    poller = _poller_of(pipeline)
     server.publish(trade_row(timestamp=1_788_983_719, transaction=1))
     await poller.run_cycle()
     return poller, server
@@ -143,7 +147,7 @@ def _standalone_poller(
     return poller, server
 
 
-async def _idle_pipeline() -> tuple[Pipeline, FakeAsyncRedis]:
+async def _idle_pipeline() -> tuple[WiredPipeline, FakeAsyncRedis]:
     """Wire the fake-stack pipeline over an empty trades server and a caller-visible Redis."""
     from tests.fakes import FakeClock, FakeEth, FakeTradesServer, make_test_settings, wire_pipeline
 
@@ -974,16 +978,18 @@ class TestDetectorFailureRedaction:
         self,
         caplog: pytest.LogCaptureFixture,
         texts: list[str],
-        install: Callable[[Pipeline, FailingDetector], None],
+        substitute: Callable[[FailingDetector], Substitutes],
         keep: str,
     ) -> None:
         from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
 
         for text in texts:
             pipeline = await wire_pipeline(
-                make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth()
+                make_test_settings(),
+                redis=FakeAsyncRedis(),
+                eth=FakeEth(),
+                substitutes=substitute(FailingDetector(RuntimeError(text))),
             )
-            install(pipeline, FailingDetector(RuntimeError(text)))
             trade = detector_trade()
             with caplog.at_level(logging.WARNING):
                 caplog.clear()
@@ -1003,9 +1009,7 @@ class TestDetectorFailureRedaction:
         await self._assert_failure_redacted_everywhere(
             caplog,
             self._fresh_exception_texts(),
-            lambda pipeline, failing: PipelineAccess.replace_components(
-                pipeline, fresh_wallet_detector=failing
-            ),
+            lambda failing: Substitutes(fresh_detector=failing),
             "fresh wallet detection failed",
         )
 
@@ -1016,9 +1020,7 @@ class TestDetectorFailureRedaction:
         await self._assert_failure_redacted_everywhere(
             caplog,
             self._size_exception_texts(),
-            lambda pipeline, failing: PipelineAccess.replace_components(
-                pipeline, size_anomaly_detector=failing
-            ),
+            lambda failing: Substitutes(size_detector=failing),
             "size anomaly detection failed",
         )
 
@@ -1028,11 +1030,14 @@ class TestDetectorFailureRedaction:
     ) -> None:
         from tests.fakes import FailingDetector, FakeEth, make_test_settings, wire_pipeline
 
-        pipeline = await wire_pipeline(make_test_settings(), redis=FakeAsyncRedis(), eth=FakeEth())
-        PipelineAccess.replace_components(
-            pipeline,
-            fresh_wallet_detector=FailingDetector(RuntimeError(self._fresh_exception_texts()[0])),
-            size_anomaly_detector=FailingDetector(RuntimeError(self._size_exception_texts()[0])),
+        pipeline = await wire_pipeline(
+            make_test_settings(),
+            redis=FakeAsyncRedis(),
+            eth=FakeEth(),
+            substitutes=Substitutes(
+                fresh_detector=FailingDetector(RuntimeError(self._fresh_exception_texts()[0])),
+                size_detector=FailingDetector(RuntimeError(self._size_exception_texts()[0])),
+            ),
         )
         with caplog.at_level(logging.WARNING):
             await pipeline.process_trade(detector_trade())
@@ -1080,7 +1085,7 @@ class TestTradesBoundaryRedaction:
         pipeline = await wire_pipeline(
             settings, redis=FakeAsyncRedis(), eth=FakeEth(), trades=server
         )
-        poller = PipelineAccess.trade_poller(pipeline)
+        poller = _poller_of(pipeline)
         server.publish(trade_row(timestamp=1_788_983_719, transaction=1))
         await poller.run_cycle()
         assert poller.status.state is not None
@@ -1998,7 +2003,7 @@ class TestPollerFailureSinkRedaction:
         from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 
         pipeline, redis = await _idle_pipeline()
-        poller = PipelineAccess.trade_poller(pipeline)
+        poller = _poller_of(pipeline)
 
         async def failing_hgetall(_key: object) -> dict[bytes, bytes]:
             raise BoundarySchemaError(payload) if terminal else RuntimeError(payload)
@@ -2038,7 +2043,7 @@ class TestPollerFailureSinkRedaction:
 
         monkeypatch.setattr(redis, "hgetall", failing_hgetall)
 
-        poller = PipelineAccess.trade_poller(pipeline)
+        poller = _poller_of(pipeline)
         try:
             with console_capture("WARNING") as capture:
                 await poller.run_cycle()

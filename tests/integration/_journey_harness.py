@@ -26,13 +26,14 @@ from tests.fakes import (
     FakeEth,
     FakeTradesServer,
     FakeV2TradesServer,
+    Substitutes,
+    WiredPipeline,
     make_test_settings,
     trade_row,
     v2_row,
     wire_pipeline,
 )
 from tests.fakes.pipeline import TradesServer
-from tests.fakes.pipeline_access import PipelineAccess
 from tests.fakes.redis_await import keys_matching
 
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel
@@ -180,7 +181,8 @@ async def wire_journey_pipeline(
     channels: Sequence[AlertChannel],
     trades: TradesServer,
     poll_clock: FakeClock,
-) -> Pipeline:
+    substitutes: Substitutes | None = None,
+) -> WiredPipeline:
     """Build a journey's real pipeline over the fake boundaries."""
     return await wire_pipeline(
         settings,
@@ -191,14 +193,18 @@ async def wire_journey_pipeline(
         channels=channels,
         trades=trades,
         poll_clock=poll_clock,
+        substitutes=substitutes,
     )
 
 
 @asynccontextmanager
 async def running_pipeline(pipeline: Pipeline) -> AsyncGenerator[Pipeline]:
-    """Run the background services for the block, then stop them cleanly."""
-    async with PipelineAccess.background_services(pipeline, timeout=2.0):
+    """Start the pipeline for the block, then stop it; the caller keeps Redis and the database."""
+    await asyncio.wait_for(pipeline.start(), 2.0)
+    try:
         yield pipeline
+    finally:
+        await asyncio.wait_for(pipeline.stop(), 2.0)
 
 
 def dry_run_assessment(

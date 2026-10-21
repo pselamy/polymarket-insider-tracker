@@ -35,11 +35,11 @@ from tests.fakes import (
     FakeClock,
     FakeEth,
     FakeV2TradesServer,
+    WiredPipeline,
     make_test_settings,
     v2_row,
     wire_pipeline,
 )
-from tests.fakes.pipeline_access import PipelineAccess
 from tests.fakes.redis_await import (
     read_hash,
     ping_ok,
@@ -54,6 +54,7 @@ from tests.integration._journey_harness import (
     persisted_assessments,
     pipeline_row,
     run_dry_run_journey,
+    running_pipeline,
     seeded_v2_server,
 )
 from tests.integration._journey_harness import run_until as _run_until
@@ -70,6 +71,7 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     Checkpoint,
     source_id,
 )
+from polymarket_insider_tracker.ingestor.trade_poller import IngestionStatus
 from polymarket_insider_tracker.ingestor.volume_observation import GAMMA_SOURCE
 from polymarket_insider_tracker.ingestor.volume_store import (
     DEFAULT_VOLUME_KEY_PREFIX,
@@ -218,7 +220,7 @@ async def _wired_pipeline(
     server: FakeV2TradesServer,
     clock: FakeClock,
     health_port: int,
-) -> Pipeline:
+) -> WiredPipeline:
     return await wire_pipeline(
         make_test_settings(
             dry_run=True, alert_threshold=0.4, health_port=health_port, trades_url=None
@@ -233,9 +235,14 @@ async def _wired_pipeline(
     )
 
 
+def _poller_status(pipeline: WiredPipeline) -> IngestionStatus:
+    assert pipeline.poller is not None
+    return pipeline.poller.status
+
+
 async def _run_until_stopped(pipeline: Pipeline, action: Callable[[], Awaitable[None]]) -> None:
-    """Start the pipeline, run ``action``, and always stop the background services."""
-    async with PipelineAccess.background_services(pipeline, timeout=2.0):
+    """Start the pipeline, run ``action``, and always stop it."""
+    async with running_pipeline(pipeline):
         await action()
 
 
@@ -266,9 +273,9 @@ async def _restart_journey(
         await _run_until(lambda: len(server.requests) >= 6)
 
     await _run_until_stopped(first, first_cycles)
-    boundary_at_stop = PipelineAccess.trade_poller(first).status.boundary_time
+    boundary_at_stop = _poller_status(first).boundary_time
     assert boundary_at_stop is not None
-    assert PipelineAccess.trade_poller(first).status.boundary_origin is BoundaryOrigin.PROVEN
+    assert _poller_status(first).boundary_origin is BoundaryOrigin.PROVEN
 
     clock.advance(5)
     second = await _wired_pipeline(
@@ -285,7 +292,7 @@ async def _restart_journey(
         await _run_until(lambda: second.stats.trades_processed >= 1)
 
     await _run_until_stopped(second, second_cycles)
-    status = PipelineAccess.trade_poller(second).status
+    status = _poller_status(second)
     assert status.boundary_origin is BoundaryOrigin.PROVEN
     assert status.boundary_time is not None and status.boundary_time >= boundary_at_stop
     assert status.loss_events == ()

@@ -799,17 +799,11 @@ Honest fixes, no suppression, cast, or `Any`:
 - `test_end_to_end` persistence failure now uses a real `DatabaseManager` pointing at an
   unreachable port instead of a duck-typed fake plus `type: ignore`.
 
-No `src/` change. The pipeline integration tests need three things the product API does not
-expose (the wired trade poller, swapping the detector/formatter collaborators, and running the
-background services of a composed pipeline without `start()` building real components). Adding
-public `Pipeline` API for them would change `src/polymarket_insider_tracker/pipeline.py`, whose
-SHA-256 is pinned by `specs/004-truthful-detection-contract/evidence/source-hashes.json`
-(`scripts/spec004_evidence.check_source_hashes`, part of `quality.verify`); the card forbids
-touching that evidence. The access therefore lives in one typed test class,
-`tests/fakes/pipeline_access.py::PipelineAccess`, a `Pipeline` subclass whose static methods use the
-protected members (a subclass may; it is the language's protected contract) instead of repeating
-private access across tests; `tests/test_pipeline_composition.py` covers it. A follow-up that adds
-the same three members as real `Pipeline` API needs a documented spec004 source-hash refresh.
+No `src/` change. The pipeline integration tests compose a real `Pipeline` through
+`tests.fakes.wire_pipeline`, which installs a `PipelineComponents` (step 7a seam). Collaborators
+a test replaces (failing detectors, a recording formatter) are passed as `Substitutes` at wiring
+time, the trade poller is read from `WiredPipeline.poller`, and journeys run through the public
+`start()`/`stop()`. No test reads or writes `Pipeline` protected members.
 
 Verification (this tree, Python 3.13 unless noted): `verify.py --profile static` exit 0 (lock,
 format, lint, mypy, pyright, vulture, complexipy, cyclomatic). Pinned jscpd clone delta against

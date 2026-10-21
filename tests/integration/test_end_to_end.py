@@ -24,11 +24,11 @@ from tests.fakes import (
     FakeClock,
     FakeEth,
     FakeTradesServer,
+    Substitutes,
     make_test_settings,
     terminal,
     wire_pipeline,
 )
-from tests.fakes.pipeline_access import PipelineAccess
 from tests.fakes.redis_await import keys_matching
 from tests.integration._journey_harness import (
     POLL_START,
@@ -127,6 +127,7 @@ class TestEndToEndPipelineHarness:
 
         settings = journey_settings(dry_run=True, health_port=unused_tcp_port)
 
+        formatter = RecordingFormatter()
         pipeline = await wire_journey_pipeline(
             settings,
             redis=fake_redis,
@@ -135,9 +136,8 @@ class TestEndToEndPipelineHarness:
             channels=[discord, telegram],
             trades=server,
             poll_clock=clock,
+            substitutes=Substitutes(formatter=formatter),
         )
-        formatter = RecordingFormatter()
-        PipelineAccess.replace_components(pipeline, alert_formatter=formatter)
 
         async with running_pipeline(pipeline):
             await run_until(lambda: len(server.requests) >= 1)
