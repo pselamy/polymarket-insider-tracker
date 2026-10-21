@@ -653,6 +653,50 @@ Still unenrolled: `tests/test_shutdown.py` (17; signal-handler internals), `test
 `tests/fakes`, `tests/detector`, `tests/profiler`, `tests/test_redaction.py`, `tests/integration`,
 `tests/test_pipeline.py`, `tests/ingestor`, `tests/test_main.py`, `tests/tooling`.
 
+## REF-CMD-20 step 5: tooling, profiler and ten ingestor tests (2026-10-21)
+
+Measured with the enforced strict pyright (1.1.411) from `origin/main` at `a42ab46`; enrolled in
+`[tool.pyright].include` with zero suppressions (143 → 0):
+
+| Root | Before | By rule (before) |
+| --- | --- | --- |
+| `tests/tooling` | 37 | 15 `reportUnknownVariableType`, 14 `reportUnknownArgumentType`, 6 `reportUnknownMemberType`, 1 `reportPrivateUsage`, 1 `reportUnusedImport` |
+| `tests/profiler` | 81 | 79 `reportPrivateUsage`, 2 `reportUnknownMemberType` |
+| ten `tests/ingestor` files (`test_attempt_budget*.py`, `test_endpoint_switch_resume.py`, `test_source_namespace_continuity.py`, `test_trades_source.py`, `_v2_walk_harness.py`, `test_publisher.py`, `test_trade_rows.py`, `test_clob_client.py`, `test_trade_poller.py`) | 25 | 10 `reportPrivateUsage`, 8 `reportUnknownMemberType`, 4 `reportUnknownArgumentType`, 1 each `reportUnknownVariableType`, `reportArgumentType`, `reportUnknownLambdaType` |
+
+Honest fixes, no suppression, cast, or `Any`:
+
+- `pytest.approx` is untyped in pytest 9 (`reportUnknownMemberType`); the comparisons use
+  `math.isclose` with approx's default tolerances.
+- Raw `redis-py` calls whose stubs carry a bare `Callable` (`zrangebyscore`, `hset`) go through
+  typed `Protocol` slices in `tests/fakes/redis_await.py` (`scored_members`, `write_hash`).
+- Tooling tests narrow decoded JSON/YAML with the repository's `is_object`/`is_array`
+  `TypeGuard`s; the shared `load_module` gained a keyword-only `register` flag (replacing a
+  private helper that two modules imported).
+- Private reads became public behaviour: `PolygonClient` and `FundingTracer` tests inject fakes
+  through constructors, assert caching, TTL, retry and rate behaviour through real calls, and the
+  wallet freshness rules through `WalletAnalyzer.is_fresh`; recovery-placeholder handling is
+  driven through a saturated poll cycle with a real recovery page; a failed re-anchor is driven by
+  a transport that cuts Redis after the boundary loaded.
+- `FakeEth(block_lookup_fails=True)` fails only `get_block`, so the timestamp fallback is tested
+  without failing the log scan.
+
+New public src names, each with a production meaning:
+
+- `PolygonClient(fallback_web3=...)`: symmetric to the existing `web3=` injection; replaces the
+  HTTP handle built from `fallback_rpc_url`.
+- `PolygonClient(rate_limiter=...)`: lets several consumers share one RPC request budget
+  (`acquire_rate_limit()` already exposes it to them).
+- `ClobClient.max_retries` and `ClobClient.has_api_key`: read-only configuration state (the key
+  itself stays unexposed).
+
+Removed dead state: `PolygonClient._rpc_url` and `_fallback_rpc_url` were written and never read
+(vulture reported them once no test read them).
+
+Still unenrolled (layer-3 owned or later cards): `tests/test_pipeline.py`, `tests/fakes/pipeline.py`,
+`tests/test_terminal_error_durable.py`, `tests/detector`, `tests/integration`,
+`tests/test_redaction.py`, `tests/test_main.py` and the remaining `tests/ingestor` files.
+
 ## Mutation step 1: measurement beyond the redaction target (2026-10-20)
 
 mutmut 3.8.0 (`[tool.mutmut]` in `pyproject.toml`, Python 3.11, `--max-children 8`) over the
