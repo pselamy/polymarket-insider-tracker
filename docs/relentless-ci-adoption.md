@@ -1180,3 +1180,50 @@ The `[[tool.mypy.overrides]]` entry (`py_clob_client.*`, `web3.*`, `redis.*`, `s
 No source changes were needed. Strict mypy (`--python 3.11`, the gate's interpreter) and strict
 pyright both exit 0 with no override. Plain `mypy` under 3.13 fails on numpy 2.5's 3.12-only stub
 syntax; that predates this change and the gate does not use that interpreter.
+
+## Mutation step 5: `page_analysis`, `readiness`, `deprecated_api_key` enrolled (2026-10-21)
+
+Measurement (mutmut 3.8.0, Python 3.11, `--max-children 8`) over the candidates not yet enrolled
+that have functions to mutate, using the existing tests that exercise them (first run, before the new tests). `constants.py` has no
+function, so mutmut generates no mutants for it. `trade_rows.py`, `database_url.py` and
+`scoring_config.py` were not re-measured: step 4 recorded 21, 53 and 135 survivors, and
+`trade_rows.py` still has the `cast(None, ...)` no-op mutants that need a typed redesign, which this
+step does not allow (no restructuring).
+
+| Module | Mutants | Survived before | Survived after | Decision |
+| --- | --- | --- | --- | --- |
+| `ingestor/readiness.py` | 46 | 4 | 0 | enrolled |
+| `deprecated_api_key.py` | 15 | 10 | 0 | enrolled |
+| `ingestor/page_analysis.py` | 32 | 8 | 0 | enrolled |
+| `alerter/channels/response_values.py` | 16 | 1 | 1 (equivalent) | not enrolled |
+| `detector/evidence_document.py` | 290 | 48 | 2 (equivalent) | not enrolled |
+
+All kills are new behavioural tests with no change under `src/`: no literal was hoisted into a
+constant, no expression re-spelled, and there is no `# pragma: no mutate`, skip list or exclusion.
+Final run of the enrolled set: 1378 mutants, 0 survived, 0 untested, about 2m05s locally (step 4:
+1285 mutants in 1m27s). The hosted time is in the PR.
+
+Killed by new tests: `tests/ingestor/test_readiness.py` (exact never-acquired, stale and degraded
+text, the staleness boundary, with and without a last error),
+`tests/test_api_key_deprecation.py` (exact message; the warning is attributed to the line that
+called the validator, found with a call profile so it holds under the mutation harness's
+trampoline frames too), `tests/ingestor/test_page_analysis.py` (invalid/deferred/repeat tallies,
+`latest_seen` for a zero timestamp, `add_observations` equals `add_rows`).
+`tests/detector/test_evidence_document_values.py` kills the other 46 `evidence_document`
+mutants (exact size/wallet/contribution values, weights missing from the configuration, round
+half even under an ambient `ROUND_HALF_UP` context, positional decimals, first `fresh_wallet`
+failure, group status).
+
+Equivalent mutants, left in place; each module stays unenrolled because they cannot be killed
+without restructuring:
+
+- `response_values.response_json_object`: `cast(dict[str, object], payload)` mutated to
+  `cast(None, payload)`. `typing.cast` returns its second argument unchanged at runtime.
+- `evidence_document._plain`: `format(value, "f")` mutated to `format(value, "F")`. For every
+  `Decimal`, including `Infinity` and `NaN`, `"F"` and `"f"` render identically on CPython 3.11.
+- `evidence_document.row_scoring_config`: `TradeEvidence(assessment.timestamp, detector_config)`
+  mutated to `TradeEvidence(None, detector_config)`. The fallback evidence has no size
+  evaluation, so `evaluation_evidence` returns before it reads `evaluated_at`, and the dataclass
+  does not validate it.
+
+Gate: `ENROLLED_MODULES` gained the three modules (list only grows; the test pins the prefix).
