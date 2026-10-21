@@ -18,6 +18,7 @@ from polymarket_insider_tracker.detector.volume_state import (
     size_volume_evidence,
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
+from tests.batch_trades import indexed_trades
 from tests.fakes.metadata import FakeMetadataSync
 
 # ============================================================================
@@ -851,21 +852,7 @@ class TestBatchAnalysis:
         fake_metadata_sync.failures["market_0"] = Exception("Error")
         fake_metadata_sync.fallback = None
 
-        trades = [
-            TradeEvent(
-                market_id=f"market_{i}",
-                trade_id=f"tx_{i}",
-                wallet_address=f"0xwallet{i}",
-                side="BUY",
-                outcome="Yes",
-                outcome_index=0,
-                price=Decimal("0.50"),
-                size=Decimal("10000"),
-                timestamp=datetime.now(UTC),
-                asset_id="token_123",
-            )
-            for i in range(2)
-        ]
+        trades = indexed_trades(2)
 
         detector = SizeAnomalyDetector(fake_metadata_sync)
         assert await detector.analyze_batch(trades) == []  # no category evidence (D3 (d))
