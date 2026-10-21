@@ -842,3 +842,38 @@ The four slice-004 evidence checks (`reachability --check`, `replay_live --check
 `check_source_hashes`) are appended to `quality/checks.json`. The shared `cli.py` normalizes
 generated text to end in exactly one newline so the generators agree with end-of-file-fixer; the
 evidence files are not excluded from any hook.
+
+## Mutation step 3: `trade_row_v2.py`, `channels/pacing.py`, `_history_records.py` enrolled (2026-10-21)
+
+Measurement (mutmut 3.8.0, Python 3.11, `--max-children 8`) over six candidates already at 100%
+coverage. `constants.py` has no function, so mutmut generates no mutants for it.
+
+| Module | Killed | Survived | No tests | Decision |
+| --- | --- | --- | --- | --- |
+| `ingestor/trade_row_v2.py` | 15 | 1 | 0 | enrolled |
+| `alerter/channels/pacing.py` | 22 | 6 | 0 | enrolled |
+| `alerter/_history_records.py` | 80 | 16 | 0 | enrolled |
+| `ingestor/trade_rows.py` | 296 | 22 | 0 | later step |
+| `ingestor/_publisher_codec.py` | 172 | 31 | 0 | later step |
+| `storage/database_url.py` | 13 | 55 | 1 | later step |
+
+Chosen: the three with the fewest survivors (23 in total), which keeps the review small; the other
+three are not in `[tool.mutmut]` and stay for a later step.
+
+Final run: `trade_row_v2` 13 killed, `pacing` 26, `_history_records` 96, 0 survived, 0 untested;
+whole job 563 mutants in 1m11s locally. No `# pragma: no mutate`, skip list or exclusion is used.
+
+Equivalent mutants, removed by behaviour-preserving changes to the code under test:
+
+- `trade_row_v2.translate_v2_row`: `cast(dict[str, Any], raw)` mutated to `cast(None, raw)` is a
+  runtime no-op. The `cast` is replaced by the typed `_is_row` `TypeGuard`.
+- `pacing.RateLimitWindow.wait_for_slot`: `if wait_time > 0` (mutants `>= 0`, `> 1`). Every kept
+  request is younger than 60s, so `wait_time` is always positive and the guard was dead; removed.
+
+Killed by new tests: `tests/alerter/test_alert_record_serialization.py` (exact storage keys,
+round trip, defaults, aware-UTC fallback) and two `RateLimitWindow` tests in
+`tests/alerter/test_channel_pacing.py` (60s and 60.5s boundaries, the debug log line).
+
+Gate: `ENROLLED_MODULES` gained the three modules (list only grows; the test pins the prefix).
+Planted weakening: narrowing the boundary test to a single 61s age made the gate exit 1
+(`pacing: 2 mutant(s) survived`); restored.
