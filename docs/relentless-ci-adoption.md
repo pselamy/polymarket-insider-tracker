@@ -589,6 +589,10 @@ Slice 004 layer 2 added four more modules born at 100% line and branch
 (`detector/volume_state.py`, `ingestor/gamma_volume_refresh.py`, `ingestor/volume_observation.py`,
 `ingestor/volume_store.py`) to the enrolled list.
 
+Slice 004 layer 3 enrolled `detector/scorer.py` (its 3+ signal bonus branch was removed under FR-011,
+which was the only blocker above; it now measures 100% line and branch) and the new
+`detector/alert_path.py`.
+
 Defect-fails: appending an unexercised two-branch function to `endpoints.py` drops it to 83% and
 `coverage report` exits 2; the reverted tree exits 0 (100%, 1687 statements, 276 branches).
 
