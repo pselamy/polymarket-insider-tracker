@@ -42,6 +42,7 @@ HERE = (
 )
 QUALIFIED_SOURCES = frozenset({"gamma-markets-v1", "caller"})
 NICHE_PRONE = frozenset({"science", "tech", "finance", "other"})
+NO_OBSERVED_VALUE_STATES = frozenset({"unavailable", "missing"})  # DECISION D3 (d): P1, P3
 RECENCY_SECONDS = 600
 BOUNDARY = 5  # B: exclusive nonce bound (proposed); old rule is nonce <= 5
 THRESHOLDS = ("0.80", "0.78")
@@ -269,8 +270,8 @@ def evaluate(spec: dict[str, Any]) -> dict[str, object]:
     nonce = int(spec["nonce"])
     state, reason, volume = classify(build_observation(spec["observation"]), explicit_volume(spec))
     category = str(spec["category"])
-    real_metadata = spec["category_source"] == "metadata"
-    market = Market("m", volume, category in NICHE_PRONE and real_metadata)
+    category_usable = spec["category_source"] == "metadata" and state in NO_OBSERVED_VALUE_STATES
+    market = Market("m", volume, category in NICHE_PRONE and category_usable)
     wallet = Wallet("unknown age", nonce, None)
     wconf = wallet_confidence(wallet, notional, proposed=True) if nonce < BOUNDARY else None
     size = size_signal(market, notional, volume_passed=True)

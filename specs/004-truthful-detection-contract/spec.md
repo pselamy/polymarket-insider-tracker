@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-06
 
-**Status**: Proposed for Patrick review; revised 2026-10-19 after the codex/agy second opinions (not approved; open decisions D1a, D1b, D2, D3, D4 in [decision-packet.md](decision-packet.md)); implementation is not yet authorized
+**Status**: Proposed for Patrick review; revised 2026-10-19 after the codex/agy second opinions (not approved as a whole). The owner decided D1a, D1b, D2, D3 and D4 on 2026-10-20 (O1, G1, R0, (d), M1; see [decision-packet.md](decision-packet.md)); the reviewer-owned checklist remains unchecked. Implementation proceeds in ordered layers under those decisions only
 
 **Input**: User description: "Make live detector inputs, signal semantics, scoring, persisted evidence, and public capability claims match the monitoring behavior that is actually wired and supportable."
 
@@ -127,9 +127,11 @@ persisted assessment fields, sample output, README, example environment, and the
 - **FR-005a** *(volume states)*: Every market's volume MUST be in exactly one of eight mutually exclusive states
   (`available`, `unavailable`, `unqualified`, `missing`, `invalid`, `nonpositive`, `invalid_time`, `stale`)
   assigned by the single precedence table in [data-model.md](data-model.md) §1.2. Zero is a `nonpositive`
-  value, never `unavailable` and never a ratio. Only `available` yields a ratio. When volume is not
-  `available`, niche context may come only from a category recorded from real market metadata (basis
-  recorded); a metadata-lookup failure supplies no category evidence (DECISION D3).
+  value, never `unavailable` and never a ratio. Only `available` yields a ratio. Niche context from the
+  category (basis recorded) is allowed only when **no volume value was observed** (state `unavailable` or
+  `missing`) **and** the category was recorded from real market metadata; a metadata-lookup failure supplies
+  no category evidence, and a state in which a value was observed (`unqualified`, `invalid`, `nonpositive`,
+  `invalid_time`, `stale`) yields no size signal (DECIDED D3 = (d), 2026-10-20).
 - **FR-006**: Book-depth impact MUST NOT contribute to the supported core score until a source and freshness
   contract are separately approved and wired. Existing library support MAY remain non-operational.
 - **FR-007**: A newly-created-wallet claim MUST require known age at or below 48 hours, a recorded age basis
@@ -344,7 +346,7 @@ persisted assessment fields, sample output, README, example environment, and the
   (no first-party code, test or checked-in evidence); see FR-007a.
 - Slice 003 owns the assessment schema, `scoring_config` column and dry-run safety (G-018).
 
-**Open decisions**: FR-005a (lookup failure), FR-007b/FR-008 (live age unknown, exactly 0.50), FR-007c (wallet group non-scoring before T027), the 0.80 default and the usable-magnitude bound (data-model §1.1c, SC-002) are written for the recommended defaults of D1a, D1b, D2, D3 and D4 in [decision-packet.md](decision-packet.md); they are not settled until Patrick decides and change with the chosen option.
+**Decided 2026-10-20 (owner)**: D1a = O1 (no age source in 004), D1b = G1 (wallet group non-scoring until a T027 PASS), D2 = R0 (0.80 kept; FR-022a reports `default alert path unreachable`; FR-022b/SC-010/T030 are not in scope), D3 = (d), D4 = M1. FR-005a, FR-007b/FR-008, FR-007c, the 0.80 default and the usable-magnitude bound (data-model §1.1c, SC-002) are written for exactly these options. Options not selected (D1a O2/O3/O4/O6, D1b G2/G3, D2 R1–R5, D3 (a)/(b)/(c), D4 M0/M2) are out of scope for 004; O6 is a later follow-up, not part of this slice.
 
 **Non-goals**: trading or execution, financial advice, backtesting or calibration, book-depth scoring,
 funding or sniper scoring, changes to the V2 acquisition path or its cadence, a new database migration,

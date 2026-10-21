@@ -224,14 +224,16 @@ the boundary-10 override case.
 | `notional` | Decimal | Trade's actual notional value; always wired into size analysis. |
 | `volume_impact` (a.k.a. ratio) | Decimal \| null | `notional / daily_volume` quantised to 0.0001 (`ROUND_HALF_EVEN`, SC-002 ±0.0001) **only in `volume_state = available`**. Computed as the **exact** rational quotient rounded once (e.g. `fractions.Fraction`); a fixed-precision decimal division followed by `quantize` does not conform (Python's default 28-digit context raises `InvalidOperation` once the ratio needs more than 28 digits, and a division rounded before the `quantize` can round twice); with the §1.1c bound every `available` row is computable (executable form `replay_envelopes.py::exact_ratio`, case `live-available-volume-at-minimum`); null in every other state, never serialized as measured zero. Surfaces as `volume_impact_measured: Decimal \| None` (contracts/detector-api.md §4). |
 | `book_state` | enum | `unavailable` for this slice (book-depth scoring disabled until separately approved); `book_impact` always null. |
-| `niche`, `niche_basis` | bool + enum `numeric` \| `category` \| `none` | Niche is a size modifier, not a third detector invocation. **Numeric basis**: `volume_state = available` and `daily_volume < 50000`. **Category basis** (only when volume is not `available`): category in `science/tech/finance/other` **and** `category_source = metadata`. `none` otherwise. A volume that is `available` and `>= 50000` is not niche regardless of category. |
+| `niche`, `niche_basis` | bool + enum `numeric` \| `category` \| `none` | Niche is a size modifier, not a third detector invocation. **Numeric basis**: `volume_state = available` and `daily_volume < 50000`. **Category basis** (DECIDED D3 = (d)): only when no volume value was observed (`volume_state` is `unavailable` or `missing`), category in `science/tech/finance/other` **and** `category_source = metadata`. `none` otherwise. A volume that is `available` and `>= 50000` is not niche regardless of category. |
 | `category`, `category_source` | string \| null; enum `metadata` \| `minimal` | `minimal` means the market metadata lookup failed and `SizeAnomalyDetector._create_minimal_metadata` (`detector/size_anomaly.py:211-227`) supplied the placeholder category `"other"`. A placeholder is not evidence: with `minimal` there is no category basis (default of DECISION D3; current main treats it as niche-prone, which the replay shows as 0.480 vs 0.200). |
 | `signal_emitted` | bool | Existing rule: confidence `>= 0.1` and, for niche-only, notional `>= 500`. |
 
-Behavior under non-`available` volume: no ratio; the size signal can arise only from the category basis
-(confidence 0.2 niche-only); every state in data-model §1.2 other than `available` behaves identically
-here (replay: `live-nonpositive-*`, `live-stale-*`, `live-missing-*`, ... all 0.120 for a niche-prone
-category in the default pre-T027 posture, 0.384 post-T027).
+Behavior under non-`available` volume: no ratio. The size signal can arise only from the category basis
+(confidence 0.2 niche-only), and only in the states with no observed value (`unavailable`, `missing`;
+replay `live-unavailable-*`, `live-missing-*`: 0.120 for a niche-prone category in the default pre-T027
+posture, 0.384 post-T027). In `unqualified`, `invalid`, `nonpositive`, `invalid_time` and `stale` a value
+was observed, so there is no size signal (replay `live-stale-*`, `live-nonpositive-*`, ...: 0.000 pre-T027,
+0.200 post-T027).
 
 ## 4. Assessment Envelope (versioned amendment of shared 003 contract)
 

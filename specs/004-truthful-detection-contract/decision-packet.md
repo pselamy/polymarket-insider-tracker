@@ -1,10 +1,10 @@
-# Slice 004 Human Decision Packet: revised proposal (not approved)
+# Slice 004 Human Decision Packet: revised proposal; decisions D1a–D4 recorded 2026-10-20
 
 **Date**: 2026-10-17, rewritten 2026-10-19 after the codex and agy second opinions (both DO NOT
 APPROVE; triage in [evidence/revision-2026-10-19.md](evidence/revision-2026-10-19.md): 27 findings,
 22 confirmed, 5 partly confirmed, 0 rejected whole).
 
-**Status, stated plainly**: this contract is **not approved**. Nothing here records an approval,
+**Status, stated plainly**: this contract as a whole is **not approved** (the 2026-10-20 owner decisions below settle D1a–D4 only; they are not a reviewer approval). Nothing here records an approval,
 waiver or acceptance. The reviewer-owned [domain checklist](checklists/domain-requirements.md) is
 entirely unchecked (23 items) and stays that way until Patrick or a designated reviewer decides.
 No product code (`src/`), test (`tests/`), migration (`alembic/`), quality-gate (`quality/`) or CI file
@@ -13,14 +13,31 @@ changed. The one change outside `specs/` is the evidence tooling this packet rel
 known limits"). No network call was made for this revision other than git/GitHub for this repository. Implementation is not authorized. Scope of any eventual approval: the reviewed implementation
 contract only, not a merge, deployment, real notification, trading or calibration claim.
 
-## Open decisions at a glance
+## Owner decisions (DECIDED 2026-10-20 by the owner, Patrick)
+
+| ID | Selected | Not selected (out of scope for 004) |
+|---|---|---|
+| D1a | **O1** (no wallet-age source in 004) | O2, O3, O4 not selected; **O6** is a later follow-up, not part of this slice |
+| D1b | **G1** (wallet group non-scoring until a T027 PASS receipt) | G2, G3 not selected |
+| D2 | **R0** (keep 0.80; FR-022a/T029 report `default alert path unreachable`; operator overrides still alert) | R1–R4 not selected; **R5** not selected, so FR-022b, SC-010 and T030 are not in scope |
+| D3 | **(d)** (category fallback only when no volume value was observed, `unavailable` or `missing`, and the category is real metadata) | (a), (b), (c) not selected |
+| D4 | **M1** (`10^-6 <= v < 10^15`, ≤ 32 plain-notation characters, else `invalid`/`out_of_range`) | M0, M2 not selected |
+
+This records a decision only. It is not a checklist tick: the reviewer-owned
+[domain checklist](checklists/domain-requirements.md) stays unchecked, and the gate-opening work
+(T015b, T019b, the post-T027 literals) still waits for a T027 PASS receipt. The sections below keep the
+original analysis and the "recommended default" wording as history; where they differ from this table,
+this table governs. The contract text moved from D3 (c) to (d) in the same change (spec FR-005a,
+data-model §3, `scripts/spec004_evidence/replay_live.py`, regenerated `evidence/replay-live/results.csv`).
+
+## Open decisions at a glance (history; all five decided above)
 
 | ID | Question | Recommended default | If you pick otherwise |
 |---|---|---|---|
 | **D1a** | Wallet-age source (current main has none) | **O1** (none) for this slice; O2 or O6 as the first follow-up | O2/O3/O6 add a source task and a qualification receipt; O4 is an unverified lead |
 | **D1b** | May nonce or activity evidence score before qualification? | **G1** (former O5): wallet group non-scoring until T027 (FR-007c) | G2 scores an unvalidated proxy-nonce heuristic; G3 needs D1a = O6 |
 | **D2** | What 0.80 means while nothing live can reach it (pre-T027 ceiling 0.450; post-T027 unknown-age ceiling 0.780) | **R0**: keep 0.80; the default configuration cannot alert, an operator threshold override still can, and FR-022a/T029 report `default alert path unreachable` | **R5** makes "no alert" a guarantee: delivery structurally suppressed at every threshold (FR-022b, T030); R1 to 0.78 still yields zero alerts pre-T027; R3 needs a new spec |
-| **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata (written default; both round-4 and both round-5 reviewers chose **(d)**, see D3) | (a) keeps invented evidence; (b) silences the size group on any outage; (d) also drops the fallback when Gamma did report a value |
+| **D3** | Category-only niche signal when volume is unusable | **(c)** only for a category from real metadata (written default; both round-4 and both round-5 reviewers chose **(d)**; **(d) DECIDED 2026-10-20**) | (a) keeps invented evidence; (b) silences the size group on any outage; (d) also drops the fallback when Gamma did report a value |
 | **D4** | Which positive volume values are usable at all (added round 4) | **M1**: `10^-6 <= v < 10^15` and ≤ 32 plain-notation characters, else `invalid`/`out_of_range`; numbers converted by `Decimal(str(float))` (data-model §1.1b) | M0 has a reachable memory path (`"1e999999999"`); M2 caps the stored ratio instead; a lower floor keeps a dust-volume market's size signal (see D4) |
 
 **Consequence to accept knowingly**: in the default pre-T027 posture only the size group scores, so the
@@ -47,9 +64,9 @@ approval)**:
 | codex round 5 | O1 for 004, O6 as the named follow-up | G1 | R0 | (d) | M1 |
 | Claude round 5 | O1 for 004, O6 as the named follow-up (expects T027 Part A to fail for contract proxies) | G1 | R0 (changed from R5) | (d) | M1, with the B1 conversion rule and the dust-volume trade-off stated |
 
-## DECISIONS FOR PATRICK (open; none is settled by this revision)
+## Decisions D1a–D4 (analysis; decided 2026-10-20, see the table above)
 
-### D1a — Wallet-age source (DECISION FOR PATRICK)
+### D1a — Wallet-age source (DECIDED 2026-10-20: O1)
 
 Current main cannot produce a known wallet age (`profiler/chain.py:485-532` returns no first
 transaction for any wallet), and the profiled address is the V2 `proxy_wallet`, whose nonce meaning is
@@ -71,7 +88,7 @@ establishes the per-user query semantics (T027's optional per-user scope). If yo
 spec already has the wording rules and the unknown-age fallback; the implementation then gains a source
 task, and O6 also gains an activity-measure task.
 
-### D1b — May nonce or activity evidence score before qualification? (DECISION FOR PATRICK)
+### D1b — May nonce or activity evidence score before qualification? (DECIDED 2026-10-20: G1)
 
 This is a scoring-safety posture, not an age source; it composes with any D1a option. The earlier
 packet listed it as D1 option O5 beside the age sources; both round-3 reviewers objected that this
@@ -134,7 +151,7 @@ record. This changes no default for slice 004 (G1 still holds until a PASS).
   T027 Part A to FAIL for contract-account proxies (EIP-161; Safe nonce in storage) and suggests running
   Part B first and planning G3 + O6 as the likely path (recorded above under "Likely T027 outcome").
 
-### D2 — What the 0.80 threshold means while nothing live can reach it (DECISION FOR PATRICK)
+### D2 — What the 0.80 threshold means while nothing live can reach it (DECIDED 2026-10-20: R0)
 
 Recomputed by `scripts/spec004_evidence/reachability.py` ([research.md](research.md) R10,
 [evidence/reachability.md](evidence/reachability.md)) for both wallet postures:
@@ -191,7 +208,7 @@ delivery path unexercised, all to guard against an operator override that is alr
 per row (`threshold_at_eval`) and reported as reachable by FR-022a; pick R5 only if "no alert" must hold
 even against operator overrides.
 
-### D3 — Category fallback when volume is not usable (DECISION FOR PATRICK)
+### D3 — Category fallback when volume is not usable (DECIDED 2026-10-20: (d))
 
 When the volume state is anything but `available`, today's code can still emit a niche-only size signal
 (confidence 0.2) from the market category alone (`detector/size_anomaly.py:288,299-306`). On a metadata
@@ -205,10 +222,10 @@ lookup failure the code even invents category `"other"`, which counts as niche-p
 | **(c) fallback only for a category from real metadata (recommended)** | real `science/tech/finance/other` ⇒ 0.120 pre-T027 (0.384 post-T027); failed lookup or other categories ⇒ 0.000 (0.200) | removes the invented evidence, keeps the documented heuristic |
 | (d) (c) **and** only when no volume value was observed: P1 `unavailable` or P3 `missing` (added after the round-3 Claude review) | as (c) for P1/P3; for P2 `unqualified`, P4 `invalid`, P5 `nonpositive`, P6 `invalid_time`, P7 `stale` ⇒ no size signal ⇒ 0.000 pre-T027 (0.200 post-T027) | closes the path where Gamma did report a value (for example a $5M `science` market whose stamp is 601 s old) yet the market is treated as niche by category; an outage that still returns stale or unqualified values silences the size group for those markets |
 
-**Written default: (c).** (d) is the stricter variant. The earlier reason for not making it the default
+**Decided: (d)** (2026-10-20); the analysis below was written when (c) was the default. (d) is the stricter variant. The earlier reason for not making it the default
 ("a new rule no reviewer had evaluated") **no longer holds**: two review rounds have now evaluated it and
-both round-4 reviewers choose (d). The contract artifacts and replay literals stay on (c) only so they do
-not move before you decide; on the reviewers' reasoning alone (d) is the stronger candidate. Choosing (d)
+both round-4 reviewers choose (d). The contract artifacts and replay literals stayed on (c) only so they did
+not move before the decision; they now follow (d). Choosing (d)
 changes FR-005a, data-model §1.2/§3 (`category_source` use), tasks T009/T012 test literals, and the
 replay rows for P2/P4–P7 in a niche-prone category (0.120 → 0.000 pre-T027, 0.384 → 0.200 post-T027).
 The score effect is small either way (at most 0.120 pre-T027, which never alerts at 0.80).
@@ -221,7 +238,7 @@ $5M `science` market recording niche evidence under (c) matters more. Round 5: *
 again choose **(d)**; codex adds that (c) can turn a known high-volume market into a niche signal solely
 because its stamp aged past 600 s, and Claude calls the packet's handling of the choice now fair.
 
-### D4 — Usable-magnitude bound for a positive volume (DECISION FOR PATRICK; added round 4)
+### D4 — Usable-magnitude bound for a positive volume (DECIDED 2026-10-20: M1; added round 4)
 
 The round-4 Claude review (N3) found that `"1e-30"` (string or number) classifies as `available` and the
 ratio `notional / daily_volume` then raises `InvalidOperation` under Python's default 28-digit decimal

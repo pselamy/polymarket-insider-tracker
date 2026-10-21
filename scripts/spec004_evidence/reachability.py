@@ -11,8 +11,8 @@ file) and fails if a copied literal is no longer present, so the table cannot si
 from detector/scorer.py, detector/size_anomaly.py and detector/fresh_wallet.py.
 
 Rules modelled: the *proposed* 004 contract (unknown age = exactly 0.50, book depth
-non-operational, volume usable only when ``available``, category fallback whenever volume is not
-usable) in its two wallet postures -- the default pre-T027 posture (FR-007c: wallet group
+non-operational, volume usable only when ``available``, category fallback only when no volume value
+was observed, DECISION D3 (d)) in its two wallet postures -- the default pre-T027 posture (FR-007c: wallet group
 non-scoring, so only the size group can score and the two-group bonus never applies) and the
 post-T027 scenario (wallet group qualified) -- next to the *003.1* rules as currently wired on main
 (the live pipeline passes no volume, so the size signal can only come from the category fallback).
