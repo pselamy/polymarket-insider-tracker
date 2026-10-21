@@ -109,6 +109,11 @@ Named files, entry points, dependency order:
   effective-threshold recording, 3+ branch removed with the `multi_signal_bonus_3` neutral key retained,
   the one-scoring-group posture (bonus `1`, `signals_triggered ≤ 1`, wallet contribution `0`), override
   reconstruction within rounding, and every row written as `004.1` (FR-002/003/007c/011, SC-005)
+  *Layer 3 receipt (partial, stays unticked)*: the one-scoring-group posture (bonus `1`, wallet contribution `0`,
+  `signals_triggered ≤ 1`), the removed 3+ branch with the neutral `multi_signal_bonus_3` key, the 0.80 default and
+  the override alert are covered in `tests/detector/test_scorer_g1.py`, `test_scorer.py` and `test_alert_path.py`.
+  **Not done**: writing every row as `004.1` (T017) and the effective-threshold reconstruction from a `004.1` document;
+  rows still carry `scoring_algorithm_version` `003.1`.
 - [ ] T015b [US3] **Post-T027 (gated by a T027 PASS receipt; lands in the gate-opening change)**: the
   reachable two-group 1.2 bonus with a scoring wallet group on the default configuration, rows written as
   `004.2` (contracts/scoring-config.md §2a), and the post-T027 reachability ceilings of T028 (FR-011)
@@ -185,6 +190,10 @@ Named files, entry points, dependency order:
   ceiling `0.972`, `reachable`; (e) the `/health` overall status, HTTP code, `/ready`, `/live` and
   `/metrics` are identical with and without an unreachable path; (f) `--config-check` prints the line
   without network access. Lands with T028.
+  *Layer 3 receipt (partial, stays unticked)*: the pre-T027 half is implemented and tested in
+  `detector/alert_path.py`, `ingestor/alert_path_health.py` and `tests/detector/test_alert_path.py`: cases (a), (b),
+  (e), (f) and the three surfaces. **Not done**: cases (c) and (d), which need the `qualified` wallet status of the
+  gate-opening change (T015b), and the T028 regeneration of `evidence/reachability.md` from the shared function.
 - [ ] T030 [US3] **NOT IN SCOPE (D2 = R0 decided 2026-10-20; R5 not selected; this task is dropped and stays unticked)** — **Only if DECISION D2 selects R5** — assessment-only delivery suppression (FR-022b,
   SC-010). Add the typed code constant `release_posture` (`alert_capable` | `assessment_only`; no
   setting, no environment variable) and make `_score_and_alert` / `_handle_above_threshold`
