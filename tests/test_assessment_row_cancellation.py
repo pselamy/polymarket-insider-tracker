@@ -12,7 +12,7 @@ from polymarket_insider_tracker.assessment_row import complete_despite_cancellat
 class _HeldWrite:
     """A write that starts, waits for ``release`` and then finishes or fails."""
 
-    def __init__(self, failure: Exception | None = None) -> None:
+    def __init__(self, failure: BaseException | None = None) -> None:
         self.started = asyncio.Event()
         self.release = asyncio.Event()
         self.finished = False
@@ -78,3 +78,44 @@ async def test_overrunning_write_is_abandoned_at_the_bound() -> None:
         await caller
     assert not write.finished
     assert errors == ["Durable write abandoned after the 0.01s cancellation bound"]
+
+
+async def _cancel_twice_mid_write(write: _HeldWrite) -> list[str]:
+    caller, errors = await _cancel_mid_write(write, timeout=5.0)
+    caller.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    return errors
+
+
+async def test_repeated_cancellation_detaches_the_write_and_reports_its_failure() -> None:
+    write = _HeldWrite(failure=RuntimeError("insert failed"))
+    errors = await _cancel_twice_mid_write(write)
+    assert errors == []
+    write.release.set()
+
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert errors == ["Durable write failed after cancellation: insert failed"]
+
+
+async def test_repeated_cancellation_lets_the_detached_write_finish() -> None:
+    write = _HeldWrite()
+    errors = await _cancel_twice_mid_write(write)
+    write.release.set()
+
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert write.finished
+    assert errors == []
+
+
+async def test_repeated_cancellation_reports_a_detached_write_that_is_cancelled() -> None:
+    write = _HeldWrite(failure=asyncio.CancelledError())
+    errors = await _cancel_twice_mid_write(write)
+    write.release.set()
+
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert errors == ["Durable write cancelled after a repeated cancellation"]

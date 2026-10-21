@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
+from functools import partial
 
 from polymarket_insider_tracker.detector.evidence_document import row_scoring_config
 from polymarket_insider_tracker.detector.models import RiskAssessment
@@ -100,6 +101,8 @@ async def complete_despite_cancellation(
     The write runs as its own shielded task. A cancellation of the caller waits at most
     ``timeout`` seconds (the graceful-shutdown bound) for the write, reports a late failure
     or an overrun through ``on_error``, and is then re-raised: deferred, never swallowed.
+    A repeated cancellation during that wait stops waiting at once and detaches the write,
+    whose late failure is still reported through ``on_error``.
     """
     task = asyncio.ensure_future(write)
     try:
@@ -115,8 +118,31 @@ async def _finish_cancelled_write(
     """Let the shielded write finish within ``timeout``; report what cannot be raised."""
     try:
         finished = await wait_bounded(task, timeout)
+    except asyncio.CancelledError:
+        _detach_write(task, on_error)
+        raise
     except Exception as e:
         on_error(f"Durable write failed after cancellation: {redact_exception_message(e)}")
         return
     if not finished:
         on_error(f"Durable write abandoned after the {timeout:g}s cancellation bound")
+
+
+_DETACHED_WRITES: set[asyncio.Future[None]] = set()
+
+
+def _detach_write(task: asyncio.Future[None], on_error: Callable[[str], None]) -> None:
+    """Keep a write nobody awaits alive and report its failure when it finishes."""
+    _DETACHED_WRITES.add(task)
+    task.add_done_callback(_DETACHED_WRITES.discard)
+    task.add_done_callback(partial(_report_detached_write, on_error))
+
+
+def _report_detached_write(on_error: Callable[[str], None], task: asyncio.Future[None]) -> None:
+    """Report the outcome of a detached write that did not succeed."""
+    if task.cancelled():
+        on_error("Durable write cancelled after a repeated cancellation")
+        return
+    failure = task.exception()
+    if failure is not None:
+        on_error(f"Durable write failed after cancellation: {redact_exception_message(failure)}")
