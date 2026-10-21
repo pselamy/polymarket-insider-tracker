@@ -41,7 +41,7 @@ UNENROLLED_REASONS: dict[str, str] = {
     ),
     "verify_security": (
         "REF-HOOK-04: replaced by the independently enrolled quality.security_main "
-        "(gitleaks since the cut-over, opengrep, osv report-only); the reference hook is "
+        "(gitleaks since the cut-over, opengrep, osv enforced); the reference hook is "
         "gated by the unenrolled verify_sources"
     ),
     "mutate": "REF-HOOK-05: the native Cosmic Ray mutation service is not provisioned",
