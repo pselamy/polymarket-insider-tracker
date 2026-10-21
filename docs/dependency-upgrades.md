@@ -15,7 +15,7 @@ Scope is `runtime` when the package is reachable without the `dev` extra/group
 (`uv tree --locked --no-dev`, confirmed per package with `--invert`), else `dev-only`.
 Advisory counts include GHSA/PYSEC aliases as separate osv records. `docs/security.md`
 counts osv alias groups instead (one per underlying advisory): 60 groups in 17 packages on
-`main` before family 1, 14 groups in 8 packages after it, 8 groups in 6 packages after family 6.
+`main` before family 1, 14 groups in 8 packages after it, 8 groups in 6 packages after family 6, 6 groups in 4 packages after family 3.
 
 ## Families
 
@@ -31,8 +31,8 @@ counts osv alias groups instead (one per underlying advisory): 60 groups in 17 p
 | 1 | HTTP | h2 | 4.3.0 | 4.4.1 | 2 | runtime (httpx `http2` extra) |
 | 1 | HTTP | hpack | 4.1.0 | 4.2.0 | 2 | runtime (via h2) |
 | 2 | web3 | web3 | 7.14.0 | 7.15.0 | 2 | runtime (direct) |
-| 3 | settings/env | pydantic-settings | 2.12.0 | 2.14.2 | 1 | runtime (direct) |
-| 3 | settings/env | python-dotenv | 1.2.1 | 1.2.2 | 2 | runtime (direct) |
+| 3 | settings/env | pydantic-settings | 2.12.0 | 2.14.2 | 1 | runtime (direct), done: locked 2.14.2 |
+| 3 | settings/env | python-dotenv | 1.2.1 | 1.2.2 | 2 | runtime (direct), done: locked 1.2.2 |
 | 4 | alembic stack | mako | 1.3.10 | 1.4.2 | 6 | runtime (via alembic) |
 | 5 | pytest/pygments | pytest | 9.0.2 | 9.0.3 | 2 | runtime (via poly-eip712-structs); also dev pin |
 | 5 | pytest/pygments | pygments | 2.19.2 | 2.20.0 | 2 | runtime (via pytest) |
@@ -57,7 +57,10 @@ lock alone is enough; no pin edits are expected for family 1.
    plus new transitive python-discovery 1.6.4. Dev-only, no runtime effect. filelock lands above
    its minimum fix (3.20.3) because virtualenv 21.7.13 requires a newer filelock; pinning 3.20.3
    is unsatisfiable. Clears 12 osv records (6 alias groups); `pyproject.toml` is unchanged.
-3. **Family 3, settings/env**: pydantic-settings, python-dotenv. Small, touches config loading.
+3. **Family 3, settings/env** (done): pydantic-settings 2.12.0 -> 2.14.2, python-dotenv 1.2.1 -> 1.2.2,
+   the minimum fixed releases. New transitive dependency: none (`uv.lock` changes only those two
+   package entries). Clears 3 osv records (2 alias groups); `pyproject.toml` is unchanged. Config
+   tests (`tests/test_config.py`, `tests/test_harness_isolation.py`) pass unchanged.
 4. **Family 5, pytest/pygments**: patch/minor bumps, test-runner only in practice.
 5. **Family 4, mako** (alembic template engine): 1.3 -> 1.4 is a minor line change; run
    migration tests against disposable databases only.
