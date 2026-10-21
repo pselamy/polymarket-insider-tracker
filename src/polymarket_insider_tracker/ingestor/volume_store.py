@@ -17,6 +17,8 @@ from typing import Literal
 
 from redis.asyncio import Redis
 
+from polymarket_insider_tracker.detector.evaluation_clock import Clock, system_clock
+from polymarket_insider_tracker.detector.volume_state import RECENCY_SECONDS, read_stamp
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl, GammaMarketStats
 from polymarket_insider_tracker.ingestor.models import MarketMetadata
 from polymarket_insider_tracker.ingestor.volume_observation import JsonValue, VolumeObservation
@@ -112,7 +114,9 @@ class VolumeStore:
         *,
         key_prefix: str = DEFAULT_VOLUME_KEY_PREFIX,
         ttl_seconds: int = VOLUME_RECORD_TTL_SECONDS,
+        clock: Clock = system_clock,
     ) -> None:
+        self._clock = clock
         self._redis = redis
         self._prefix = key_prefix
         self._ttl = ttl_seconds
@@ -192,10 +196,17 @@ class VolumeStore:
                 return metadata
             reason = no_record_reason or await self._reason_or_default()
             return replace(metadata, volume_unavailable_reason=reason)
+        fresh = self._is_fresh(record)
         return replace(
             metadata,
             volume=record.observation,
-            daily_volume=record.daily_volume,
-            weekly_volume=record.weekly_volume,
-            liquidity=record.liquidity,
+            daily_volume=record.daily_volume if fresh else None,
+            weekly_volume=record.weekly_volume if fresh else None,
+            liquidity=record.liquidity if fresh else None,
         )
+
+    def _is_fresh(self, record: VolumeRecord) -> bool:
+        """Whether the record's age is within 0..600 s: the bound the lossy legacy fields had on
+        main (the metadata cache TTL). The ``volume`` evidence keeps the true age regardless."""
+        age = read_stamp(record.observation.acquired_at, self._clock()).age
+        return age is not None and 0 <= age <= RECENCY_SECONDS
