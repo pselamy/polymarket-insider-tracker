@@ -55,10 +55,10 @@ class RateLimitWindow:
 
             if len(self._request_times) >= self.limit_per_minute:
                 # Wait until the oldest request expires
+                # Every retained request is younger than 60s, so the wait is positive.
                 wait_time = 60 - (now - self._request_times[0])
-                if wait_time > 0:
-                    logger.debug(f"{self._label} rate limit hit, waiting {wait_time:.2f}s")
-                    await asyncio.sleep(wait_time)
+                logger.debug(f"{self._label} rate limit hit, waiting {wait_time:.2f}s")
+                await asyncio.sleep(wait_time)
 
             self._request_times.append(now)
 

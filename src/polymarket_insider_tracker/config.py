@@ -65,11 +65,9 @@ def _check_port(value: str, name: str) -> None:
     shape is exempt from the check.
     """
     try:
-        port = urlsplit(value).port
+        _ = urlsplit(value).port
     except ValueError:
         raise ValueError(f"{name} has an invalid port") from None
-    if port is not None and not 0 <= port <= 65535:
-        raise ValueError(f"{name} has an invalid port")
 
 
 def _check_url_components(value: str, allowed_schemes: tuple[str, ...], name: str) -> str:

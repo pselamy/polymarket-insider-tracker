@@ -588,6 +588,35 @@ Slice 004 layer 1 added two modules born at 100% line and branch (`detector/eval
 Defect-fails: appending an unexercised two-branch function to `endpoints.py` drops it to 83% and
 `coverage report` exits 2; the reverted tree exits 0 (100%, 1687 statements, 276 branches).
 
+## Coverage step 2: nine more modules enrolled (2026-10-21)
+
+Re-measured from `05653ed` (`coverage run --branch -m pytest tests --ignore=tests/tooling`:
+2096 passed, 11 skipped; 94% overall). The step-1 table above is unchanged history; step 2 chose
+the modules with at most two missing lines and one or two missing branches that are not owned by
+in-flight slice 004 (`detector/scorer.py`, `detector/size_anomaly.py`, `detector/fresh_wallet.py`,
+`ingestor/gamma_client.py`, `ingestor/metadata_sync.py`, `pipeline.py` were left untouched).
+
+| Module | Missing before (lines / branches) | Closed by |
+| --- | --- | --- |
+| `alerter/channels/discord.py` | 1 / 1 | rejection with an integer `code` logs only that code |
+| `alerter/channels/pacing.py` | 0 / 1 | dead `wait_time > 0` guard removed |
+| `alerter/channels/response_values.py` | 1 / 1 | non-object JSON body is a confirmed failure |
+| `alerter/channels/telegram.py` | 2 / 1 | 429 without a `parameters` object; connect-timeout retry |
+| `config.py` | 2 / 3 | Redis URL without host; blank webhook; dead port-range check removed |
+| `ingestor/page_analysis.py` | 1 / 1 | complete repeat replaces an unknown-outcome copy |
+| `ingestor/publisher.py` | 2 / 2 | decoding client; non-BUSYGROUP `ResponseError` propagates |
+| `profiler/_funding_rpc.py` | 1 / 1 | symbolic `from_block` uses the lookback window |
+| `storage/database_url.py` | 2 / 0 | URL that SQLAlchemy cannot parse |
+
+Dead code removed (no pragma, omit or threshold change): the `wait_time > 0` guard in
+`RateLimitWindow.wait_for_slot` (every retained request is younger than 60s, so the wait is always
+positive) and the `0 <= port <= 65535` check in `config._check_port` (`urlsplit().port` already
+raises `ValueError` outside that range, which the function converts). Behaviour is unchanged.
+
+Not enrolled, with reason: `ingestor/trades_source.py` and `ingestor/v2_cursor_walk.py` end their
+retry loops with an `AssertionError` sentinel that cannot be reached, and `ingestor/v2_page.py`
+has a `Protocol` stub `->exit` branch; removing those needs a restructure that is out of scope here.
+
 ## REF-CMD-20 step 3: alerter, config and persist-assessment roots (2026-10-21)
 
 Measured from `origin/main` at `adf809b`; enrolled in `[tool.pyright].include` with zero

@@ -199,6 +199,23 @@ class TestTransferLogScanner:
             (1_018_000, 1_025_000),
         ]
 
+    async def test_symbolic_from_block_scans_only_the_lookback_window(self) -> None:
+        logs = TransferLogIndex()
+        scanner = _scanner(logs, chunk_size_blocks=500, max_lookback_blocks=1_000)
+
+        await scanner.get_transfer_logs(
+            to_address=TEST_WALLET,
+            token_address=funding.USDC_BRIDGED,
+            from_block="earliest",
+            to_block=5_000,
+        )
+
+        assert [(q.from_block, q.to_block) for q in logs.queries] == [
+            (4_000, 4_499),
+            (4_500, 4_999),
+            (5_000, 5_000),
+        ]
+
     async def test_custom_chunk_size_is_respected(self) -> None:
         logs = TransferLogIndex()
         scanner = _scanner(logs, chunk_size_blocks=500)
