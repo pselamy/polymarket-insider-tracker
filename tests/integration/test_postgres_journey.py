@@ -43,6 +43,11 @@ from tests.integration._journey_harness import (
     wire_journey_pipeline,
 )
 
+from polymarket_insider_tracker.detector.scoring_config import (
+    VERSION_004_1,
+    Document004,
+    read_scoring_config,
+)
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import RiskAssessmentModel
@@ -169,12 +174,21 @@ def _assert_score_inputs(row: RiskAssessmentModel) -> None:
     assert row.wallet_age_known is False
     assert row.weighted_score == _EXPECTED_WEIGHTED_SCORE
     assert row.threshold_at_eval == Decimal("0.400")
-    assert row.scoring_algorithm_version == "003.1"
+    assert row.scoring_algorithm_version == VERSION_004_1
 
 
 def _assert_scoring_config(row: RiskAssessmentModel) -> None:
     assert row.scoring_config is not None
-    assert json.loads(row.scoring_config) == _EXPECTED_SCORING_CONFIG
+    document = read_scoring_config(VERSION_004_1, row.scoring_config)
+    assert isinstance(document, Document004)
+    stored = json.loads(row.scoring_config)
+    assert {key: stored[key] for key in _EXPECTED_SCORING_CONFIG} == _EXPECTED_SCORING_CONFIG
+    assert document.evaluation_evidence is not None
+    assert document.evaluation_evidence["result"] == {
+        "weighted_score": str(_EXPECTED_WEIGHTED_SCORE),
+        "signals_triggered": 1,
+        "should_alert": True,
+    }
 
 
 def _assert_dry_run_disposition(row: RiskAssessmentModel) -> None:
