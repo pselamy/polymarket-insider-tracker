@@ -686,7 +686,10 @@ New public src names, each with a production meaning:
   HTTP handle built from `fallback_rpc_url`.
 - `PolygonClient(rate_limiter=...)`: lets several consumers share one RPC request budget
   (`acquire_rate_limit()` already exposes it to them).
-- `ClobClient.max_retries`: read-only configuration state.
+
+`ClobClient` adds no public name: both of its test-only properties were removed in #200, and the
+unused `api_key` constructor parameter is removed here (`POLYMARKET_API_KEY` is deprecated and
+ignored).
 
 Removed dead state: `PolygonClient._rpc_url` and `_fallback_rpc_url` were written and never read
 (vulture reported them once no test read them).
