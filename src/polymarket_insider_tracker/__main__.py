@@ -544,17 +544,19 @@ def _redact_record_exc_info(record: logging.LogRecord) -> None:
     if record.exc_text:
         record.exc_text = None
     if record.exc_info and record.exc_info[0] is not None:
-        record.exc_info = _sanitized_exc_info(record.exc_info)
+        # The stubs type ``exc_info`` as a paired tuple, but callers may log
+        # ``(Type, None, None)``; the wider shape is kept exactly as before.
+        setattr(record, "exc_info", _sanitized_exc_info(record.exc_info))
 
 
-_ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None]
+_ExcInfo = tuple[type[BaseException] | None, BaseException | None, TracebackType | None]
 
 
 def _sanitized_exc_info(exc_info: _ExcInfo) -> _ExcInfo:
     """Clone the exception graph with redacted messages, preserving types."""
     exc_type, exc_value, _traceback = exc_info
-    if exc_type is None or exc_value is None:
-        return (None, None, None)
+    if exc_value is None:
+        return (exc_type, exc_value, None)
     return (exc_type, _failsafe_sanitized_exception(exc_value), None)
 
 
@@ -695,8 +697,9 @@ def _carry_status(clone: BaseException, exc: BaseException) -> None:
 def _set_cloned_status(clone: BaseException, exc: _StatusCarrier) -> None:
     """Copy the status attribute without disturbing the clone's type."""
     with contextlib.suppress(AttributeError, TypeError):
-        if isinstance(clone, _StatusCarrier):
-            clone.status = exc.status
+        # The clone may be built without ``status`` (set after construction on
+        # the original), so the attribute is created rather than only updated.
+        setattr(clone, "status", exc.status)
 
 
 async def run_pipeline(
