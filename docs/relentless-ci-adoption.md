@@ -94,7 +94,7 @@ count.
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests` | **all authored roots**: `src scripts quality alembic conftest.py tests` (step 5 completes `tests/`) |
-| `REF-CMD-20` | `pyright` | **staged**: `src/polymarket_insider_tracker`, `scripts`, `quality`, `alembic`, `conftest.py`, `tests/quality` and four zero-diagnostic top-level test modules (see the REF-CMD-20 step 1 section); the rest of `tests` stays unenrolled |
+| `REF-CMD-20` | `pyright` | **staged**: `src/polymarket_insider_tracker`, `scripts`, `quality`, `alembic`, `conftest.py`, `tests/quality` and four zero-diagnostic top-level test modules and later steps' roots, including `tests/integration` and `tests/test_redaction.py` (see the REF-CMD-20 step 1 and 7b sections); the rest of `tests` stays unenrolled |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
 
@@ -753,6 +753,66 @@ is now one helper.
 
 Still unenrolled: `tests/detector`, `tests/integration`, `tests/test_redaction.py` and the
 remaining `tests/ingestor` files.
+
+## REF-CMD-20 step 7b: `tests/test_redaction.py` and `tests/integration` (2026-10-21)
+
+Measured with the enforced strict pyright (1.1.411) from `origin/main` at `86909c6`; 146
+diagnostics before, 0 after, enrolled in `[tool.pyright].include` with zero suppressions:
+
+| Root | Before | After | By rule (before) |
+| --- | --- | --- | --- |
+| `tests/test_redaction.py` | 57 | 0 | 36 `reportPrivateUsage`, 7 `reportUnknownArgumentType`, 6 `reportUnknownMemberType`, 6 `reportUnknownVariableType`, 1 `reportUnknownLambdaType`, 1 `reportUnusedVariable` |
+| `tests/integration/test_redis_contract.py` | 45 | 0 | 26 `reportUnknownMemberType`, 9 `reportUnknownArgumentType`, 7 `reportUnknownVariableType`, 2 `reportUnknownLambdaType`, 1 `reportPrivateUsage` |
+| `tests/integration/test_v2_default_journey_services.py` | 16 | 0 | 8 `reportPrivateUsage`, 4 `reportUnknownMemberType`, 2 `reportUnknownVariableType`, 2 `reportUnknownArgumentType` |
+| `tests/integration/test_end_to_end.py` | 9 | 0 | 6 `reportPrivateUsage`, 2 `reportUnknownMemberType`, 1 `reportArgumentType` |
+| `tests/integration/test_runtime_services.py` | 7 | 0 | 4 `reportUnknownArgumentType`, 3 `reportUnknownLambdaType` |
+| `tests/integration/_journey_harness.py` | 5 | 0 | 2 `reportPrivateUsage`, 2 `reportUnknownMemberType`, 1 `reportDeprecated` |
+| `tests/integration/test_postgres_journey.py` | 3 | 0 | 2 `reportUnknownMemberType`, 1 `reportDeprecated` |
+| `tests/integration/test_scoring_config_rows.py` | 3 | 0 | 3 `reportPrivateUsage` |
+| `tests/integration/test_pipeline_wiring_characterization.py` | 1 | 0 | 1 `reportPrivateUsage` |
+| **Total** | **146** | **0** | 57 `reportPrivateUsage`, 42 `reportUnknownMemberType`, 22 `reportUnknownArgumentType`, 15 `reportUnknownVariableType`, 6 `reportUnknownLambdaType`, 2 `reportDeprecated`, 1 `reportArgumentType`, 1 `reportUnusedVariable` |
+
+Honest fixes, no suppression, cast, or `Any`:
+
+- Raw `redis-py` calls whose stubs carry untyped results (`scan_iter`, `hgetall`, `lrange`,
+  `zrangebyscore`, `hset`, `ping`, `from_url`) go through typed `Protocol` slices in
+  `tests/fakes/redis_await.py` (`scanned_keys`, `hash_fields`, `list_items`, `ranged_members`,
+  `scored_members`, `write_hash`, `queue_hash`, `keys_matching`, `ping_ok`, `redis_factory`).
+  `Redis.from_url` takes its timeouts from the URL query (`redis-py` parses them), so the typed
+  factory needs only the URL.
+- Failure injection that wrote `__dict__` entries or private attributes is now `monkeypatch`
+  on public commands of a fake client (`tests/fakes/redis_faults.py`), a real `DatabaseManager`
+  whose sessions raise (`tests/fakes/database.py`), a real `TradePoller` built with the leaky
+  callback or metadata lookup, and `PolygonClient(web3=...)` constructor injection. Non-string
+  exception notes come from a hostile `BaseException` subclass instead of a `__dict__` write.
+- Private calls became public behaviour: detector failures are driven through
+  `Pipeline.process_trade` and read from `stats.last_error`; the DB check through
+  `health_monitor.evaluate_components`; `/health` through the real HTTP endpoint; dispatcher claim
+  and release failures through `AlertDispatcher.dispatch`; the publisher sink through
+  `read_events`/`read_pending`; CLOB retries through `with_retry`; the websocket connect failure
+  through `start()`; metadata caching through `force_sync()`; the console redaction filter through
+  the production console handler (`tests/console_capture.py`).
+- Two assertions changed text with the public path: the publisher log reads "Failed to
+  deserialize entry 1-1" and "... pending entry 1-1" (the production contexts; the old private
+  call passed a context no production caller uses), and the direct `_cache_market` raise check was
+  dropped (the batch path owns the redacted log line).
+- `test_end_to_end` persistence failure now uses a real `DatabaseManager` pointing at an
+  unreachable port instead of a duck-typed fake plus `type: ignore`.
+
+No `src/` change. The pipeline integration tests compose a real `Pipeline` through
+`tests.fakes.wire_pipeline`, which installs a `PipelineComponents` (step 7a seam). Collaborators
+a test replaces (failing detectors, a recording formatter) are passed as `Substitutes` at wiring
+time, the trade poller is read from `WiredPipeline.poller`, and journeys run through the public
+`start()`/`stop()`. No test reads or writes `Pipeline` protected members.
+
+Verification (this tree, Python 3.13 unless noted): `verify.py --profile static` exit 0 (lock,
+format, lint, mypy, pyright, vulture, complexipy, cyclomatic). Pinned jscpd clone delta against
+`origin/main` at `86909c6`: 10 groups / 115 duplicated lines on both sides (same clone list), so
+the delta is 0.
+
+Still unenrolled: `tests/fakes/pipeline.py` and the other `tests/fakes` modules, `tests/detector`,
+`tests/test_pipeline.py`, `tests/test_terminal_error_durable.py`, `tests/test_main.py` and the
+remaining `tests/ingestor` files (other cards).
 
 ## Mutation step 1: measurement beyond the redaction target (2026-10-20)
 

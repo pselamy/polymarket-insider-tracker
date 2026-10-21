@@ -143,11 +143,13 @@ include = [
     "tests/fakes/alerts.py",
     "tests/fakes/cancellation.py",
     "tests/fakes/clob.py",
+    "tests/fakes/database.py",
     "tests/fakes/gamma.py",
     "tests/fakes/health_http.py",
     "tests/fakes/ingestion.py",
     "tests/fakes/metadata.py",
     "tests/fakes/redis_await.py",
+    "tests/fakes/redis_faults.py",
     "tests/fakes/trades.py",
     "tests/fakes/trades_v2.py",
     "tests/fakes/v2_walk.py",
@@ -171,6 +173,8 @@ include = [
     "tests/test_terminal_error_durable.py",
     "tests/test_main.py",
     "tests/test_pipeline_components.py",
+    "tests/integration",
+    "tests/test_redaction.py",
 ]
 pythonVersion = "3.11"
 stubPath = "typings"

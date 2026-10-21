@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from tests.fakes import FakeAlertChannel, FakeClock
+from tests.fakes.redis_await import keys_matching
 from tests.integration._journey_harness import (
     POLL_START,
     journey_settings,
@@ -167,7 +168,7 @@ def _migrate(database_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @contextmanager
-def _disposable_database(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+def disposable_database(monkeypatch: pytest.MonkeyPatch) -> Generator[str]:
     """Create, migrate, and always drop a uniquely named PostgreSQL database."""
     base_url = _required_database_url()
     admin_url = _admin_url(base_url)
@@ -252,7 +253,7 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
     case: JourneyCase,
 ) -> None:
     """One explainable assessment lands in migrated PostgreSQL; nothing is delivered."""
-    with _disposable_database(monkeypatch) as database_url:
+    with disposable_database(monkeypatch) as database_url:
         clock = FakeClock(POLL_START)
         server = seeded_server(clock)
         trade = make_sample_trade_event()
@@ -283,8 +284,8 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
         assert pipeline.stats.alerts_sent == 0
         assert discord.deliveries == []
         assert telegram.deliveries == []
-        assert await fake_redis.keys("alert:dedup:*") == []
-        assert await fake_redis.keys("alert:ambiguous:*") == []
+        assert await keys_matching(fake_redis, "alert:dedup:*") == []
+        assert await keys_matching(fake_redis, "alert:ambiguous:*") == []
 
         rows = await _assessment_rows(database_url)
         assert len(rows) == 1
@@ -300,7 +301,7 @@ async def test_earlier_rows_read_back_unchanged_in_disposable_postgres(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """T026: seeded 003.1 and legacy-unversioned rows dispatch unchanged; nothing is migrated."""
-    with _disposable_database(monkeypatch) as database_url:
+    with disposable_database(monkeypatch) as database_url:
         manager = DatabaseManager(database_url, async_mode=True)
         try:
             async with manager.get_async_session() as session:
@@ -327,7 +328,7 @@ def test_disposable_database_cleanup_runs_when_journey_raises(
 
     with (
         pytest.raises(RuntimeError, match="injected journey failure"),
-        _disposable_database(monkeypatch) as database_url,
+        disposable_database(monkeypatch) as database_url,
     ):
         name = make_url(database_url).database or ""
         assert name.startswith("pit_journey_")

@@ -80,7 +80,7 @@ def test_seeded_server_history_is_pinned() -> None:
     ]
     for build in (seeded_server,):
         server = build(FakeClock(POLL_START))
-        assert [entry.row for entry in server._ledger] == expected
+        assert server.rows == expected
 
 
 def test_provider_row_for_the_sample_trade_is_pinned() -> None:
