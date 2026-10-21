@@ -7,6 +7,8 @@ from decimal import Decimal
 from typing import cast
 
 import pytest
+from sqlalchemy import event
+from sqlalchemy.dialects.postgresql import Insert as PostgresInsert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -14,6 +16,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import ORMExecuteState
+from sqlalchemy.sql.base import Executable
 
 from polymarket_insider_tracker.storage.models import Base
 from polymarket_insider_tracker.storage.repos import (
@@ -488,6 +492,40 @@ class TestRelationshipRepository:
         results = await repo.get_relationships(sample_relationship_dto.wallet_a)
         assert len(results) == 1
         assert results[0].confidence == Decimal("0.99")
+
+    @pytest.mark.asyncio
+    async def test_get_related_wallets_from_the_second_wallet_side(
+        self, async_session: AsyncSession, sample_relationship_dto: WalletRelationshipDTO
+    ) -> None:
+        """Querying by wallet_b returns wallet_a as the related address."""
+        repo = RelationshipRepository(async_session)
+        await repo.upsert(sample_relationship_dto)
+        await async_session.commit()
+
+        related = await repo.get_related_wallets(sample_relationship_dto.wallet_b)
+        assert related == [sample_relationship_dto.wallet_a.lower()]
+
+    @pytest.mark.asyncio
+    async def test_upsert_falls_back_when_the_primary_upsert_is_rejected(
+        self, async_session: AsyncSession, sample_relationship_dto: WalletRelationshipDTO
+    ) -> None:
+        """A rejected PostgreSQL upsert is retried with the SQLite statement."""
+        rejected: list[Executable] = []
+
+        def reject_postgresql_insert(state: ORMExecuteState) -> None:
+            if isinstance(state.statement, PostgresInsert):
+                rejected.append(state.statement)
+                raise RuntimeError("primary upsert rejected")
+
+        event.listen(async_session.sync_session, "do_orm_execute", reject_postgresql_insert)
+        repo = RelationshipRepository(async_session)
+        await repo.upsert(sample_relationship_dto)
+        await repo.upsert(replace(sample_relationship_dto, confidence=Decimal("0.42")))
+        await async_session.commit()
+
+        results = await repo.get_relationships(sample_relationship_dto.wallet_a)
+        assert len(rejected) == 2
+        assert [r.confidence for r in results] == [Decimal("0.42")]
 
 
 # ============================================================================

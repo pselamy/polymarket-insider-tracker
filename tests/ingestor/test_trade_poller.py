@@ -8,6 +8,7 @@ import math
 from collections.abc import Callable
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from fakeredis import FakeAsyncRedis, FakeServer
 from prometheus_client import REGISTRY
@@ -16,10 +17,13 @@ from polymarket_insider_tracker.config import PolymarketSettings
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.ingestor.observation_boundary import (
     BoundaryOrigin,
+    Checkpoint,
     LossEvent,
     LossReason,
+    ObservationBoundary,
 )
 from polymarket_insider_tracker.ingestor.trade_poller import (
+    CachedMarketLookup,
     IngestionState,
     IngestionStatus,
     TradePoller,
@@ -1147,3 +1151,278 @@ class TestStopAndCrash:
 
         assert resumed.timestamps() == [T0 + 1, T0 + 2, T0 + 3]
         assert restarted.status.boundary_time == T0 + 3
+
+
+class RaisingStateCallback:
+    """A state observer that always fails, to prove observer errors never stop acquisition."""
+
+    def __init__(self) -> None:
+        self.seen: list[IngestionState] = []
+
+    def __call__(self, state: IngestionState) -> None:
+        self.seen.append(state)
+        raise RuntimeError("state observer exploded")
+
+
+class UnreportedCheckpointBoundary(ObservationBoundary):
+    """A boundary whose durable write succeeds but whose in-memory checkpoint reads as absent."""
+
+    @property
+    def checkpoint(self) -> Checkpoint | None:
+        return None
+
+
+class OwnedClientProbe(httpx.AsyncClient):
+    """The client a poller builds for itself; records it so closing can be observed."""
+
+    created: list[OwnedClientProbe] = []
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.created.append(self)
+
+
+class TestLifecycleEdges:
+    async def test_a_second_start_while_running_warns_and_leaves_the_loop_alone(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _seed_history(server, count=2)
+        poller = _poller(server, clock, fake_redis, settings, callback)
+        task = asyncio.create_task(poller.start())
+        await _run_until(lambda: len(server.requests) >= 1)
+
+        with caplog.at_level(logging.WARNING):
+            await asyncio.wait_for(poller.start(), timeout=1.0)
+
+        assert "Trade poller already running" in caplog.text
+        assert poller.is_running
+        assert not task.done()
+        await poller.stop()
+        await asyncio.wait_for(task, timeout=1.0)
+        assert poller.state is IngestionState.STOPPED
+
+    async def test_an_external_cancellation_propagates_and_still_stops_the_poller(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        _seed_history(server, count=2)
+        poller = _poller(server, clock, fake_redis, settings, callback)
+        task = asyncio.create_task(poller.start())
+        await _run_until(lambda: len(server.requests) >= 1)
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert not poller.is_running
+        assert poller.state is IngestionState.STOPPED
+
+    async def test_a_consumer_stopping_the_running_loop_ends_start_after_that_delivery(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+    ) -> None:
+        stopping = StoppingCallback()
+        _seed_history(server, count=2)
+        poller = _poller(server, clock, fake_redis, settings, stopping)
+        stopping.poller = poller
+        task = asyncio.create_task(poller.start())
+        await _run_until(lambda: len(server.requests) >= 1)
+        for offset in range(1, 4):
+            server.publish(trade_row(timestamp=T0 + offset, transaction=offset))
+
+        await asyncio.wait_for(task, timeout=2.0)
+
+        assert stopping.timestamps() == [T0 + 1]
+        assert not poller.is_running
+        assert poller.state is IngestionState.STOPPED
+
+    async def test_stopping_a_never_started_poller_closes_the_client_it_created(
+        self,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        OwnedClientProbe.created = []
+        monkeypatch.setattr(httpx, "AsyncClient", OwnedClientProbe)
+        poller = TradePoller(callback, redis=fake_redis, settings=settings)
+        (owned,) = OwnedClientProbe.created
+        assert not owned.is_closed
+
+        await poller.stop()
+
+        assert owned.is_closed
+        assert poller.state is IngestionState.STOPPED
+
+    async def test_a_failing_state_observer_is_logged_and_never_stops_acquisition(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        _seed_history(server, count=2)
+        observer = RaisingStateCallback()
+        poller = TradePoller(
+            callback,
+            redis=fake_redis,
+            settings=settings,
+            on_state_change=observer,
+            http_client=server.client(),
+            clock=clock,
+            sleeper=clock.sleep,
+            random_source=lambda: 0.0,
+        )
+
+        with caplog.at_level(logging.ERROR):
+            await poller.run_cycle()
+
+        assert observer.seen == [IngestionState.STARTING, IngestionState.RUNNING]
+        assert caplog.text.count("ingestion state callback failed: state observer exploded") == 2
+        assert poller.state is IngestionState.RUNNING
+        assert poller.status.boundary_time == T0 - 1
+
+
+class TestFrozenBoundaryEdges:
+    async def test_a_stop_during_provisional_delivery_leaves_the_frozen_retention_untouched(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+    ) -> None:
+        stopping = StoppingCallback()
+        poller = await _saturated(server, clock, fake_redis, settings, stopping)
+        stopping.poller = poller
+        retained_before = await fake_redis.zcard(poller.boundary.identities_key)
+        lag_before = poller.status.provider_lag_seconds
+
+        await poller.run_cycle()
+
+        assert stopping.timestamps() == [T0 + 2]
+        assert await fake_redis.zcard(poller.boundary.identities_key) == retained_before + 1
+        assert poller.status.provider_lag_seconds == lag_before
+        assert poller.status.boundary_time == T0 - 1
+
+    async def test_consecutive_unconnected_saturated_pages_are_separate_recorded_gaps(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        poller = await _saturated(server, clock, fake_redis, settings, callback)
+        await poller.run_cycle()
+        clock.advance(5)
+        for offset in range(6, 12):
+            server.publish(trade_row(timestamp=T0 + offset, transaction=offset))
+        await poller.run_cycle()
+        clock.advance(600)
+
+        await poller.run_cycle()
+
+        gaps = {(event.from_time, event.reason) for event in poller.status.loss_events}
+        assert gaps == {
+            (T0 - 1, LossReason.HORIZON_EXPIRED),
+            (T0 + 5, LossReason.HORIZON_EXPIRED),
+        }
+
+    async def test_an_empty_page_during_a_gap_keeps_possible_data_loss_visible(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        poller = await _saturated(server, clock, fake_redis, settings, callback)
+        await poller.run_cycle()
+        for index in range(0, 6):
+            server.retract(synthetic_transaction(index))
+        clock.advance(5)
+
+        await poller.run_cycle()
+
+        status = poller.status
+        assert status.counts["empty_responses"] == 1
+        assert status.consecutive_failures == 0
+        assert status.state is IngestionState.POSSIBLE_DATA_LOSS
+
+    async def test_an_anchor_without_a_reported_checkpoint_skips_the_boundary_gauge(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        _seed_history(server, count=2)
+        poller = _poller(server, clock, fake_redis, settings, callback)
+        poller.boundary = UnreportedCheckpointBoundary(
+            fake_redis,
+            trades_url=settings.trades_url,
+            coverage=settings.trades_coverage.value,
+            horizon_seconds=settings.trades_recovery_horizon_seconds,
+            clock=clock,
+        )
+        gauge_before = _metric("polymarket_ingest_boundary_timestamp")
+
+        await poller.run_cycle()
+
+        assert _metric("polymarket_ingest_boundary_timestamp") == gauge_before
+        assert poller.state is IngestionState.RUNNING
+        assert poller.status.counts[RowDisposition.ANCHOR_HISTORY.value] == 2
+
+
+class NothingCachedLookup(CachedMarketLookup):
+    """An explicit implementer that keeps the protocol's default reply: no cached metadata."""
+
+    async def get_cached_market(self, condition_id: str) -> MarketMetadata | None:
+        return await super().get_cached_market(condition_id)
+
+
+class TestDefaultMetadataLookup:
+    async def test_the_default_lookup_reply_is_no_metadata_so_the_outcome_stays_unknown(
+        self,
+        server: FakeTradesServer,
+        clock: FakeClock,
+        fake_redis: FakeAsyncRedis,
+        settings: PolymarketSettings,
+        callback: RecordingTradeCallback,
+    ) -> None:
+        assert await NothingCachedLookup().get_cached_market("0xmarket") is None
+        _seed_history(server, count=2)
+        poller = TradePoller(
+            callback,
+            redis=fake_redis,
+            settings=settings,
+            metadata=NothingCachedLookup(),
+            http_client=server.client(),
+            clock=clock,
+            sleeper=clock.sleep,
+            random_source=lambda: 0.0,
+        )
+        await poller.run_cycle()
+        clock.advance(5)
+        _publish_missing_outcome(server, timestamp=T0 + 1, transaction=1)
+
+        await poller.run_cycle()
+
+        assert [(trade.outcome, trade.outcome_index) for trade in callback.trades] == [("", 0)]
+        assert poller.status.outcome_counts == {"provided": 4, "repaired": 0, "unknown": 1}

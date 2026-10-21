@@ -1596,3 +1596,42 @@ task that failed before `stop()`):
 - `GammaVolumeRefresh.stop` waits with `asyncio.wait` and then re-raises a failure of the task
   (`task.result()` unless cancelled), as `await task` did; this keeps line tracing on Python 3.11
   complete for the sync loop that `MarketMetadataSync.stop` follows it with.
+
+## Coverage step 7: three more modules enrolled (2026-10-22)
+
+Measured from `eccae67` (`coverage run --branch -m pytest tests --ignore=tests/tooling`: 3906
+passed, 17 skipped). Line / partial-branch misses before and the outcome:
+
+| Module | Missed lines / partial branches | Enrolled |
+| --- | --- | --- |
+| `storage/repos.py` | 7 / 1 | yes |
+| `ingestor/trade_poller.py` | 8 / 9 | yes |
+| `__main__.py` | 10 / 9 | yes |
+| `alerter/dispatcher.py` | 22 / 12 | no, measured only |
+| `pipeline.py` (spec004-hashed, tests only) | 41 / 15 | no, measured only |
+
+`dispatcher.py` and `pipeline.py` stay unenrolled so the change remains reviewable; their open lines
+are `dispatcher.py` 54, 167->179, 198, 272, 281-282, 288, 301, 385-388, 448, 458, 467-475, 487,
+490-491, 503, 548 and `pipeline.py` 100, 274-275, 287, 377-378, 408-414, 424->exit, 439, 452-472,
+493->exit, 509-513, 532->535, 669, 678, 702, 729->731, 770, 783, 793-798, 839-847.
+
+No source file changed: no branch was removed, renamed or rewritten. Closed by behavioural tests:
+
+- `repos.py`: querying related wallets from the second wallet's side, and the SQLite upsert fallback
+  taken when the first upsert statement is rejected (a `do_orm_execute` listener rejects the
+  PostgreSQL statement; the fallback still updates the confidence).
+- `trade_poller.py`: a second `start()` while running (warns, loop untouched); an external
+  cancellation of `start()` re-raised while the poller still stops; a consumer stopping the running
+  loop; `stop()` closing a client the poller created; a failing state observer being logged without
+  stopping acquisition; a stop during provisional delivery leaving frozen retention untouched;
+  consecutive unconnected saturated pages being separate recorded gaps; an empty page during a gap
+  keeping possible-data-loss visible; an anchor whose boundary reports no checkpoint skipping the
+  gauge; the default `CachedMarketLookup` reply (no metadata) leaving the outcome unknown.
+- `__main__.py`: the database-driver, non-HTTP-endpoint and generic-URL diagnostics (secret never
+  printed); configured Discord and Telegram in `--config-check`; a pipeline without a stop event
+  stopping on SIGTERM; `KeyboardInterrupt` exiting 130; a non-string log message and a non-string
+  message with a sole mapping argument staying redacted; `python -m` dispatching to `main()`.
+
+Planted-gap check: an `if dto.confidence < 0:` branch added to `RelationshipRepository.upsert`
+made `coverage report --fail-under=100` print `Coverage failure: total of 99 is less than
+fail-under=100`; the file was restored and the full gate passes at 100%.
