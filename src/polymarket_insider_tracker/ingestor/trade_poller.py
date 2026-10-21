@@ -15,6 +15,7 @@ import logging
 import random
 import re
 import time
+from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -101,7 +102,9 @@ StateCallback = Callable[[IngestionState], None]
 class CachedMarketLookup(Protocol):
     """The cache-only metadata surface used for outcome repair."""
 
-    async def get_cached_market(self, condition_id: str) -> MarketMetadata | None: ...
+    @abstractmethod
+    async def get_cached_market(self, condition_id: str) -> MarketMetadata | None:
+        """The cached metadata of ``condition_id``, or None when it is not cached."""
 
 
 INGEST_STATE = Gauge(

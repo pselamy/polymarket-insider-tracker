@@ -1615,7 +1615,10 @@ are `dispatcher.py` 54, 167->179, 198, 272, 281-282, 288, 301, 385-388, 448, 458
 490-491, 503, 548 and `pipeline.py` 100, 274-275, 287, 377-378, 408-414, 424->exit, 439, 452-472,
 493->exit, 509-513, 532->535, 669, 678, 702, 729->731, 770, 783, 793-798, 839-847.
 
-No source file changed: no branch was removed, renamed or rewritten. Closed by behavioural tests:
+One source touch, no branch removed or rewritten: the `CachedMarketLookup` `Protocol` stub in
+`trade_poller.py` was a `...` one-liner, reported as a never-completed `->exit` arc. It now follows
+the idiom of step 5 (`@abstractmethod` with a docstring body); structural implementers such as
+`MetadataSync` are unaffected. Closed by behavioural tests:
 
 - `repos.py`: querying related wallets from the second wallet's side, and the SQLite upsert fallback
   taken when the first upsert statement is rejected (a `do_orm_execute` listener rejects the
@@ -1626,7 +1629,7 @@ No source file changed: no branch was removed, renamed or rewritten. Closed by b
   stopping acquisition; a stop during provisional delivery leaving frozen retention untouched;
   consecutive unconnected saturated pages being separate recorded gaps; an empty page during a gap
   keeping possible-data-loss visible; an anchor whose boundary reports no checkpoint skipping the
-  gauge; the default `CachedMarketLookup` reply (no metadata) leaving the outcome unknown.
+  gauge.
 - `__main__.py`: the database-driver, non-HTTP-endpoint and generic-URL diagnostics (secret never
   printed); configured Discord and Telegram in `--config-check`; a pipeline without a stop event
   stopping on SIGTERM; `KeyboardInterrupt` exiting 130; a non-string log message and a non-string

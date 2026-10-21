@@ -23,7 +23,6 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     ObservationBoundary,
 )
 from polymarket_insider_tracker.ingestor.trade_poller import (
-    CachedMarketLookup,
     IngestionState,
     IngestionStatus,
     TradePoller,
@@ -1388,41 +1387,3 @@ class TestFrozenBoundaryEdges:
         assert _metric("polymarket_ingest_boundary_timestamp") == gauge_before
         assert poller.state is IngestionState.RUNNING
         assert poller.status.counts[RowDisposition.ANCHOR_HISTORY.value] == 2
-
-
-class NothingCachedLookup(CachedMarketLookup):
-    """An explicit implementer that keeps the protocol's default reply: no cached metadata."""
-
-    async def get_cached_market(self, condition_id: str) -> MarketMetadata | None:
-        return await super().get_cached_market(condition_id)
-
-
-class TestDefaultMetadataLookup:
-    async def test_the_default_lookup_reply_is_no_metadata_so_the_outcome_stays_unknown(
-        self,
-        server: FakeTradesServer,
-        clock: FakeClock,
-        fake_redis: FakeAsyncRedis,
-        settings: PolymarketSettings,
-        callback: RecordingTradeCallback,
-    ) -> None:
-        assert await NothingCachedLookup().get_cached_market("0xmarket") is None
-        _seed_history(server, count=2)
-        poller = TradePoller(
-            callback,
-            redis=fake_redis,
-            settings=settings,
-            metadata=NothingCachedLookup(),
-            http_client=server.client(),
-            clock=clock,
-            sleeper=clock.sleep,
-            random_source=lambda: 0.0,
-        )
-        await poller.run_cycle()
-        clock.advance(5)
-        _publish_missing_outcome(server, timestamp=T0 + 1, transaction=1)
-
-        await poller.run_cycle()
-
-        assert [(trade.outcome, trade.outcome_index) for trade in callback.trades] == [("", 0)]
-        assert poller.status.outcome_counts == {"provided": 4, "repaired": 0, "unknown": 1}
