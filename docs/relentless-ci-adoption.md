@@ -1583,25 +1583,16 @@ failing callbacks, periodic sync failures, unwritable markets and corrupt cache 
 metadata sync. Test fakes gained failure switches (`FakeBaseClobClient.*_error`,
 `FakeEth(token_balance_fails=...)`).
 
-Source changes (no pragma, omit or threshold change; behaviour unchanged), each a branch that
-cannot be reached:
+Source changes (no pragma, omit or threshold change; behaviour unchanged). Only branches that
+cannot be reached were removed; every defensive branch is kept and covered by a test that drives it
+(the stop-while-the-interval-elapses guard, the empty CLOB reply, `HealthMonitor.stop` after a failed
+`start()`, the `_running` loop condition, the signal handler before install, and a Gamma refresh
+task that failed before `stop()`):
 
 - `StreamConnection` protocol stubs in `websocket.py` use docstring bodies (the `->exit` idiom).
-- `HealthMonitor._health_check_loop` is `while True`: the task is only ever ended by the
-  `CancelledError` that `stop()` delivers (it always awaits inside a step), so the `_running`
-  re-check never ran false. `stop()` asserts the task `start()` always sets alongside `_running`.
 - `TradeStreamHandler._stop_event` was written and set but never awaited; removed.
 - `GracefulShutdown._install_unix_handlers` receives the running loop instead of re-checking
   `self._loop is None` (`install_signal_handlers` always set it first).
-- `MarketMetadataSync._sync_loop_step` no longer re-checks the stop event after a timeout (no await
-  separates the timeout from the check, so it cannot have been set), and `get_market` no longer
-  tests `if market:` on a `Market` dataclass, which is always truthy (`ClobClient.get_market`
-  raises when the market is missing).
-- `GammaVolumeRefresh.stop` waits for its cancelled task with `asyncio.wait` instead of
-  `suppress(CancelledError)` around `await task`. The task's loop cannot fail (both of its steps
-  catch `Exception`), so behaviour is unchanged; the reason is a coverage-tracer defect found when
-  the first CI run failed on Python 3.11 only (`metadata_sync.py` showed 3 missed lines although
-  every test passed): on 3.11 the C tracer stops recording the *calling* frame after a callee swallows
-  a `CancelledError` from a cancelled task, so `MarketMetadataSync.stop` and the sync loop lost
-  lines. Reproduced with a 25-line script under `coverage run` on 3.11; `asyncio.wait` avoids it.
-  Verified at 100 % on 3.11 and 3.13 over the full suite.
+- `GammaVolumeRefresh.stop` waits with `asyncio.wait` and then re-raises a failure of the task
+  (`task.result()` unless cancelled), as `await task` did; this keeps line tracing on Python 3.11
+  complete for the sync loop that `MarketMetadataSync.stop` follows it with.
