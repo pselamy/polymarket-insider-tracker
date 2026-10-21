@@ -30,11 +30,11 @@ from polymarket_insider_tracker.alerter.dispatcher import (
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.config import Settings, get_settings
-from polymarket_insider_tracker.detector.alert_path import alert_path_report, log_alert_path
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
+from polymarket_insider_tracker.ingestor.alert_path_health import AlertPathHealthMonitor
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
@@ -173,11 +173,8 @@ class Pipeline:
         self._alert_dispatcher: AlertDispatcher | None = None
         self._trade_poller: TradePoller | None = None
         self._funding_tracer: FundingTracer | None = None
-        self._health_monitor: HealthMonitor = HealthMonitor()
+        self._health_monitor = AlertPathHealthMonitor(self._settings.detector.alert_threshold)
         self._wire_health_monitor()
-        self._health_monitor.set_alert_path(
-            alert_path_report(self._settings.detector.alert_threshold).fields()
-        )
 
         # Synchronization
         self._stop_event: asyncio.Event | None = None
@@ -387,10 +384,7 @@ class Pipeline:
 
         # Initialize Wallet Analyzer
         logger.debug("Initializing wallet analyzer...")
-        self._wallet_analyzer = WalletAnalyzer(
-            self._polygon_client,
-            redis=self._redis,
-        )
+        self._wallet_analyzer = WalletAnalyzer(self._polygon_client, redis=self._redis)
 
         # Initialize Funding Tracer
         logger.debug("Initializing funding tracer...")
@@ -414,7 +408,7 @@ class Pipeline:
             settings.detector.dedup_window_seconds,
             settings.detector.persist_assessments,
         )
-        log_alert_path(logger, alert_path_report(settings.detector.alert_threshold))
+        self._health_monitor.log_alert_path(logger)
 
         # Initialize Alerting
         logger.debug("Initializing alerting components...")

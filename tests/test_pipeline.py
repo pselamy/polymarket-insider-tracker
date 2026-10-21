@@ -372,9 +372,7 @@ class TestOnTrade:
         assert pipeline.stats.alerts_sent == 1
         rows = await persisted_assessments(async_engine)
         assert [row.should_alert for row in rows] == [True]
-        # G1: the brand-new wallet is recorded but the size group alone scores (was 2 / 0.888).
-        assert rows[0].signals_triggered == 1
-        assert float(rows[0].weighted_score) == 0.45
+        assert [(r.signals_triggered, float(r.weighted_score)) for r in rows] == [(1, 0.45)]
         assert [alert.links["wallet"] for alert in channel.deliveries] == [
             f"https://polygonscan.com/address/{sample_trade_event.wallet_address}"
         ]
@@ -455,7 +453,6 @@ class TestScoreAndAlert:
         await pipeline._score_and_alert(bundle)
 
         rows = await persisted_assessments(async_engine)
-        # G1: the wallet signal alone is recorded evidence and scores nothing (was 0.2).
         assert [(row.should_alert, float(row.weighted_score)) for row in rows] == [(False, 0.0)]
         assert channel.deliveries == []
         assert pipeline.stats.alerts_sent == 0

@@ -578,9 +578,8 @@ The enrolled list is the 32 modules now at 100% line and branch (the 24 complete
 brought up in this step); it may only grow. No `pragma: no cover`, omit list or threshold relaxation
 is used. Dead code removed to get there: three unreachable `"wallet" in links` checks in
 `alerter/formatter.py` (`_build_links` always sets `wallet`; output is byte-identical).
-`detector/scorer.py` is deliberately NOT enrolled: its 3+ signal bonus branch is unreachable through
-the public API (signal count maxes at 2) but removing it would change scoring semantics, which belongs
-to slice 004 (PR #167). It waits for that slice; the file is unchanged from main.
+`detector/scorer.py` was not enrolled in step 1 (its 3+ signal bonus branch was unreachable); slice 004
+layer 3 removed that branch under FR-011, and it is now enrolled at 100% with `detector/alert_path.py`.
 
 Slice 004 layer 1 added two modules born at 100% line and branch (`detector/evaluation_clock.py`,
 `detector/scoring_config.py`) to the enrolled list.
@@ -588,10 +587,6 @@ Slice 004 layer 1 added two modules born at 100% line and branch (`detector/eval
 Slice 004 layer 2 added four more modules born at 100% line and branch
 (`detector/volume_state.py`, `ingestor/gamma_volume_refresh.py`, `ingestor/volume_observation.py`,
 `ingestor/volume_store.py`) to the enrolled list.
-
-Slice 004 layer 3 enrolled `detector/scorer.py` (its 3+ signal bonus branch was removed under FR-011,
-which was the only blocker above; it now measures 100% line and branch) and the new
-`detector/alert_path.py`.
 
 Defect-fails: appending an unexercised two-branch function to `endpoints.py` drops it to 83% and
 `coverage report` exits 2; the reverted tree exits 0 (100%, 1687 statements, 276 branches).

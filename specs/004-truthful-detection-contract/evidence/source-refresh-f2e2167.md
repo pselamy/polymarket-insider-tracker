@@ -154,6 +154,6 @@ size diagnostics read the classified volume evidence. The numeric literals T028 
 `NICHE_MULTIPLIER` with the same values; `reachability.py` now requires those names.
 `detector/models.py`: `RiskAssessment.wallet_group_status`. `ingestor/models.py`: the lossy
 `daily_volume`/`weekly_volume`/`liquidity` fields are retired. `pipeline.py`: the alert-path report
-(T029) is logged at startup and set on the health monitor.
+(T029) builds the alert-path health monitor and logs the report at startup.
 The T002 premise (replay conclusions about the 003.1 contract) is unaffected because the replay corpus
 evaluates the old and proposed contracts side by side; the shipped contract is now the proposed one.

@@ -809,8 +809,6 @@ class TestUpstreamSinkRedaction:
 
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            # D3 (d): a failed lookup gives no category evidence, so the fallback is exercised
-            # with a caller-asserted volume.
             signal = await detector.analyze(trade, daily_volume=Decimal("10000"))
 
         assert secret not in caplog.text
@@ -852,18 +850,15 @@ class TestUpstreamSinkRedaction:
         assert fresh_secret not in caplog.text
         assert trade.wallet_address[:10] in caplog.text
         assert "Failed to get USDC balance" in caplog.text
-
+        vol = {trade.market_id: Decimal("10000")}  # D3 (d): a failed lookup has no category
         failing_sync = FakeMetadataSync()
         failing_sync.failures[trade.market_id] = RuntimeError(
             f"meta blew up for https://meta.internal?k={size_secret}"
         )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            # D3 (d): a failed lookup supplies no category evidence, so assert a volume.
-            size_signals = await SizeAnomalyDetector(failing_sync).analyze_batch(
-                [trade], volume_data={trade.market_id: Decimal("10000")}
-            )
-        assert len(size_signals) == 1
+            found = await SizeAnomalyDetector(failing_sync).analyze_batch([trade], volume_data=vol)
+        assert len(found) == 1
         assert size_secret not in caplog.text
         assert "***" in caplog.text
 

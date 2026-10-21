@@ -188,14 +188,6 @@ def broad_market(volume: Decimal) -> Market | None:
     return Market("b", volume, False) if volume >= NICHE_VOLUME else None
 
 
-def at_most_large(notional: Decimal) -> bool:
-    return notional <= LARGE_THRESHOLD
-
-
-def above_large(notional: Decimal) -> bool:
-    return notional > LARGE_THRESHOLD
-
-
 MARKETS: tuple[tuple[str, Callable[[Decimal], Market | None]], ...] = (
     ("volume available, niche (< $50k)", niche_market),
     ("volume available, not niche (>= $50k)", broad_market),
@@ -204,7 +196,10 @@ UNAVAILABLE = (
     ("volume unavailable, niche-prone category", Market("c", None, True)),
     ("volume unavailable, other category", Market("d", None, False)),
 )
-BANDS = (("<= $10,000", at_most_large), ("> $10,000", above_large))
+BANDS: tuple[tuple[str, Callable[[Decimal], bool]], ...] = (
+    ("<= $10,000", lambda notional: notional <= LARGE_THRESHOLD),
+    ("> $10,000", lambda notional: notional > LARGE_THRESHOLD),
+)
 
 
 def gated_confidence(wallet: Wallet | None, notional: Decimal, *, proposed: bool) -> float | None:

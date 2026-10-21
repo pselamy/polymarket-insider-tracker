@@ -23,6 +23,7 @@ from polymarket_insider_tracker.detector.scorer import (
     SignalBundle,
 )
 from polymarket_insider_tracker.detector.size_anomaly import MAX_NICHE_CONFIDENCE
+from polymarket_insider_tracker.ingestor.alert_path_health import AlertPathHealthMonitor
 from polymarket_insider_tracker.ingestor.health import HealthMonitor
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline
@@ -145,10 +146,7 @@ async def _health(monitor: HealthMonitor) -> HealthSurface:
 
 
 async def test_the_alert_path_object_never_changes_any_health_answer() -> None:
-    with_path = HealthMonitor()
-    with_path.set_alert_path(alert_path_report(0.8).fields())
-
-    shown = await _health(with_path)
+    shown = await _health(AlertPathHealthMonitor(0.8))
     plain = await _health(HealthMonitor())
 
     assert shown.alert_path == alert_path_report(0.8).fields()

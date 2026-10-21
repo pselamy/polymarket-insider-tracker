@@ -358,9 +358,13 @@ class TestNicheMarketDetection:
         )
         assert evidence.niche_basis == "none"
 
-    @pytest.mark.parametrize("category", sorted(NICHE_PRONE_CATEGORIES))
-    def test_niche_market_unobserved_volume_niche_category(
-        self, sample_token: Token, category: str
+    @pytest.mark.parametrize(
+        ("category", "basis"),
+        [(c, "category") for c in sorted(NICHE_PRONE_CATEGORIES)]
+        + [(c, "none") for c in ("politics", "sports", "crypto", "entertainment")],
+    )
+    def test_the_category_decides_niche_only_when_no_volume_was_observed(
+        self, sample_token: Token, category: str, basis: str
     ) -> None:
         metadata = MarketMetadata(
             condition_id="test",
@@ -369,20 +373,7 @@ class TestNicheMarketDetection:
             tokens=(sample_token,),
             category=category,
         )
-        assert _evidence(metadata).niche_basis == "category"
-
-    @pytest.mark.parametrize("category", ["politics", "sports", "crypto", "entertainment"])
-    def test_not_niche_unobserved_volume_mainstream_category(
-        self, sample_token: Token, category: str
-    ) -> None:
-        metadata = MarketMetadata(
-            condition_id="test",
-            question="Test",
-            description="",
-            tokens=(sample_token,),
-            category=category,
-        )
-        assert _evidence(metadata).niche_basis == "none"
+        assert _evidence(metadata).niche_basis == basis
 
     def test_a_placeholder_category_after_a_failed_lookup_is_not_niche(
         self, sample_token: Token

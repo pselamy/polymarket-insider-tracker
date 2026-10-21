@@ -182,13 +182,11 @@ def print_config_summary(settings: Settings) -> None:
     print(f"  Database: {summary['database_url']}")
     print(f"  Redis: {summary['redis_url']}")
     print_trades_source_summary(settings)
-    print(f"  Log Level: {summary['log_level']}")
-    print(f"  Health Port: {summary['health_port']}")
+    print(f"  Log Level: {summary['log_level']}\n  Health Port: {summary['health_port']}")
     print(f"  Dry Run: {settings.dry_run}")
     print(f"  Discord: {'enabled' if summary['discord_enabled'] == 'True' else 'disabled'}")
     print(f"  Telegram: {'enabled' if summary['telegram_enabled'] == 'True' else 'disabled'}")
-    print(f"  {alert_path_report(settings.detector.alert_threshold).console_line()}")
-    print()
+    print(f"  {alert_path_report(settings.detector.alert_threshold).console_line()}\n")
 
 
 def print_trades_source_summary(settings: Settings) -> None:
