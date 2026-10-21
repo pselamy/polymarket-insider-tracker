@@ -40,7 +40,19 @@ STEP_5_MODULES = (
     f"{PACKAGE}.ingestor.readiness",
     f"{PACKAGE}.deprecated_api_key",
 )
-ENROLLED = (*STEP_1_MODULES, REDACTION, *STEP_3_MODULES, *STEP_4_MODULES, *STEP_5_MODULES)
+# The step-6 enrollment: the JSON shape narrowers and the channel response-value validators.
+STEP_6_MODULES = (
+    f"{PACKAGE}.shapes",
+    f"{PACKAGE}.alerter.channels.response_values",
+)
+ENROLLED = (
+    *STEP_1_MODULES,
+    REDACTION,
+    *STEP_3_MODULES,
+    *STEP_4_MODULES,
+    *STEP_5_MODULES,
+    *STEP_6_MODULES,
+)
 
 
 def _all_killed() -> list[str]:

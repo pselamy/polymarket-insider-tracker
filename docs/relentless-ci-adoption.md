@@ -1247,6 +1247,56 @@ without restructuring:
 
 Gate: `ENROLLED_MODULES` gained the three modules (list only grows; the test pins the prefix).
 
+## Mutation step 6: `shapes`, `channels/response_values` enrolled (2026-10-21)
+
+Measurement (mutmut 3.8.0, Python 3.11, `--max-children 8`) over all seven candidates with the
+existing tests that exercise them (first run, before the new tests). Candidate tests that load the
+module by file path (`tests/storage/test_database_url.py`) do not register with mutmut, because
+mutmut keys test coverage by the imported module name; the new tests import the real module.
+
+| Module | Mutants | Survived/untested before | After | Decision |
+| --- | --- | --- | --- | --- |
+| `shapes.py` | 18 | 0 | 0 | enrolled |
+| `alerter/channels/response_values.py` | 14 | 9 | 0 | enrolled (the `cast` equivalent is gone) |
+| `alerter/_redis_port.py` | 14 | 2 untested | 2 untested | not enrolled (equivalent, below) |
+| `storage/database_url.py` | 69 | 51 | 1 (equivalent) | not enrolled |
+| `detector/evidence_document.py` | 290 | 6 | 2 (equivalent) | not enrolled |
+| `detector/scoring_config.py` | 505 | 135 | 3 (equivalent) | not enrolled |
+| `ingestor/trade_rows.py` | 331 | 12 | 12 | not enrolled (1 equivalent; 11 left unkilled, see below) |
+
+All kills are new behavioural tests with no change under `src/`: no literal hoisted, no
+expression re-spelled, no `# pragma: no mutate`, skip list or exclusion. New tests:
+`tests/alerter/test_response_values.py` (integer/bool/float/negative/non-finite/overflowing
+delays, the zero and sub-one boundaries), `tests/storage/test_database_url_contract.py` (every
+refusal message, the 1 and 65535 port bounds, the first asyncpg-only key, the exact warning text
+and its attribution to the caller via a call profile), `tests/detector/test_scoring_config_messages.py`
+(every corrupt-document message, float handling, both length bounds and the boundary range) and a
+defaults-versus-redis-py check in `tests/alerter/test_redis_port.py`.
+
+Equivalent mutants, left in place; each of these modules stays unenrolled:
+
+- `_redis_port.HistoryRedis.pipeline`: `transaction: bool = True` mutated to `False`, and
+  `HistoryRedis.set`: `nx: bool = False` mutated to `True`. These are defaults on `Protocol`
+  method stubs whose body is `...`; nothing executes them, so mutmut reports them as untested and
+  no behaviour can differ. The new test pins the declared defaults to redis-py's instead.
+- `database_url.normalize_database_url`: `render_as_string(hide_password=False)` mutated to
+  `hide_password=None`. SQLAlchemy only tests `if hide_password`, so `None` and `False` render
+  identically.
+- `evidence_document._plain` (`"f"` to `"F"`) and `row_scoring_config` (`TradeEvidence(None, ...)`):
+  as recorded in step 5.
+- `scoring_config._without_raw`: the `where` argument of `_object(evidence["size"], "size")`
+  (three mutants). The `isinstance(..., dict)` guard on the previous line means the value is
+  always an object, so the label is never rendered.
+- `trade_rows.canonical_decimal`: `format(value.normalize(), "f")` to `"F"`, equivalent as above.
+  The other 11 `trade_rows` survivors (the `default=str` JSON fallback, a `"|"` separator, the
+  upper-cased wallet, the `or`/`and` flips in `_parse_decimal`/`_initial_resolution`, and
+  `None` arguments on the invalid-row paths) are killable but were not killed in this step,
+  because the module cannot be enrolled while the `"F"` mutant exists.
+
+Gate: `ENROLLED_MODULES` gained the two modules (list only grows; the test pins the prefix).
+Final run of the enrolled set: 1451 mutants, 1449 killed, 2 timeout, 0 survived, 0 untested,
+1m38s locally (step 5: about 2m05s on a different load). The hosted time is in the PR.
+
 ## Coverage step 4: four more modules enrolled (2026-10-21)
 
 Measured from `ec05d32` (`coverage run -m pytest tests --ignore=tests/tooling`, branch on: 3508
