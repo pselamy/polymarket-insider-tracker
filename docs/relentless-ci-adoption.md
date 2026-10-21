@@ -1098,6 +1098,12 @@ input the code can receive):
   default for `side` are equal in effect (fallback to now; `.upper()`). The timestamp is passed as
   `str | None` with no default; the side default is the `_DEFAULT_SIDE` constant.
 
+Hosted-CI correction: the first push passed locally (CEST) but the hosted runner (local zone UTC)
+left three `astimezone(UTC)` -> `astimezone(None)` mutants alive (`utc_instant`, `_aware_stamp`,
+`VolumeObservation.from_page`), because the local zone equals UTC there. Killed by
+`tests/detector/test_utc_normalisation.py`, which runs under a UTC+9 local zone; the gate was
+re-verified locally with `TZ=UTC`.
+
 Gate: `ENROLLED_MODULES` gained the five modules (list only grows; the test pins the prefix).
 Planted weakening: shrinking the `exact_seconds` test to a one-day delta made the gate exit 1
 (`volume_state: 1 mutant(s) survived`); restored.

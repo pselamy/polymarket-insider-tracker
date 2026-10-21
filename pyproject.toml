@@ -248,6 +248,7 @@ pytest_add_cli_args_test_selection = [
     "tests/detector/test_scoring_config.py",
     "tests/detector/test_evaluation_clock_messages.py",
     "tests/detector/test_volume_state_records.py",
+    "tests/detector/test_utc_normalisation.py",
     "tests/detector/test_volume_state.py",
     "tests/detector/test_alert_path.py",
     "tests/detector/test_reachability.py",
