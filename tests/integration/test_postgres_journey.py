@@ -16,8 +16,9 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from tests.integration._journey_harness import (
     POLL_START,
     journey_settings,
     make_sample_trade_event,
+    market_for_trade,
     pipeline_row,
     run_until,
     running_pipeline,
@@ -42,15 +44,24 @@ from tests.integration._journey_harness import (
     stamped_volume_market,
     wire_journey_pipeline,
 )
+from tests.integration.test_scoring_config_rows import (
+    ROW_003_1,
+    assert_003_1_row_unchanged,
+    seeded_row,
+)
 
 from polymarket_insider_tracker.detector.scoring_config import (
+    LEGACY_VERSION,
+    VERSION_003,
     VERSION_004_1,
     Document004,
+    WalletGroupStatus,
     read_scoring_config,
 )
-from polymarket_insider_tracker.ingestor.models import TradeEvent
+from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import RiskAssessmentModel
+from polymarket_insider_tracker.storage.repos import RiskAssessmentRepository
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DATABASE_ENV = "DATABASE_URL"
@@ -58,22 +69,50 @@ TX_NUMBER = 9
 
 # Pinned scoring expectations for this deterministic fixture, derived from the fixture
 # inputs and the scoring configuration the assessment must record, not copied from an
-# observed run. The trade is $5000 x $0.65 = $3250 notional from a nonce-0 wallet, so the
-# fresh-wallet detector records base 0.5 + brand-new bonus 0.2 (age unknown, trade below the
-# $10,000 large-trade bonus) as NON-SCORING evidence (G1, FR-007c). The "science" market
-# carries a fresh stamped $10,000 Gamma volume (T021): the ratio 0.325 saturates the 3x cap, so
-# the volume term is 0.5 and the niche multiplier 1.5 makes the size confidence 0.750. Applying
-# the recorded weights (size_anomaly 0.35, niche_market 0.25) with one scoring group and no
-# bonus gives:
-#     0.750*0.35 + 0.750*0.25 = 0.450
+# observed run (T026, pre-T027 default posture). The trade is $5000 x $0.65 = $3250 notional
+# from a nonce-0 wallet. Under G1 (FR-007c) the wallet group is non-scoring: the stored document
+# records wallet.confidence null with group_status unqualified_pre_T027, while the scalar
+# fresh_wallet_confidence column keeps the detector's raw base 0.5 + brand-new bonus 0.2 = 0.700
+# as recorded, non-scoring evidence (layer 3; the score never reads it). One group, no bonus:
+#   * T021 stamped $10,000 Gamma volume: the ratio 0.325 saturates the 3x cap, so the volume term
+#     is 0.5 and the niche multiplier 1.5 makes the size confidence 0.750;
+#     0.750*0.35 + 0.750*0.25 = 0.450 >= 0.4, a dry-run alert.
+#   * today's volume-less "science" fixture: no volume value was observed, so the D3 (d)
+#     category fallback gives size confidence 0.200; 0.200*0.35 + 0.200*0.25 = 0.120 < 0.4.
 # A change to any weight, bonus, or base confidence makes these literals stop matching the
 # stored row, so a scoring change fails this test instead of silently passing.
 _EXPECTED_FRESH_WALLET_CONFIDENCE = Decimal("0.700")
-_EXPECTED_SIZE_ANOMALY_CONFIDENCE = Decimal("0.750")
-_EXPECTED_WEIGHTED_SCORE = (
-    _EXPECTED_SIZE_ANOMALY_CONFIDENCE * Decimal("0.35")
-    + _EXPECTED_SIZE_ANOMALY_CONFIDENCE * Decimal("0.25")
-).quantize(Decimal("0.001"))
+
+
+@dataclass(frozen=True)
+class JourneyCase:
+    """One fixture market and the pre-T027 literals its stored row must carry."""
+
+    market: Callable[[TradeEvent], MarketMetadata]
+    size_confidence: Decimal
+    should_alert: bool
+    disposition: str
+    channels: dict[str, str] | None
+    volume_state: str
+
+    @property
+    def weighted_score(self) -> Decimal:
+        weighted = self.size_confidence * Decimal("0.35") + self.size_confidence * Decimal("0.25")
+        return weighted.quantize(Decimal("0.001"))
+
+
+_DRY_RUN_CHANNELS = {"discord": "dry_run", "telegram": "dry_run"}
+STAMPED = JourneyCase(
+    stamped_volume_market, Decimal("0.750"), True, "dry_run", _DRY_RUN_CHANNELS, "available"
+)
+VOLUME_LESS = JourneyCase(
+    lambda trade: market_for_trade(trade, "science"),
+    Decimal("0.200"),
+    False,
+    "below_threshold",
+    None,
+    "unavailable",
+)
 _EXPECTED_SCORING_CONFIG: dict[str, object] = {
     "alert_threshold": "0.400",
     "multi_signal_bonus_2": "1.2",
@@ -165,47 +204,52 @@ def _assert_trade_identity(row: RiskAssessmentModel, trade: TradeEvent) -> None:
     assert row.size == trade.size
 
 
-def _assert_score_inputs(row: RiskAssessmentModel) -> None:
+def _assert_score_inputs(row: RiskAssessmentModel, case: JourneyCase) -> None:
     assert row.signals_triggered == 1
     assert row.is_niche_market is True
     assert row.fresh_wallet_confidence == _EXPECTED_FRESH_WALLET_CONFIDENCE
-    assert row.size_anomaly_confidence == _EXPECTED_SIZE_ANOMALY_CONFIDENCE
+    assert row.size_anomaly_confidence == case.size_confidence
     assert row.wallet_tx_count == 0
     assert row.wallet_age_known is False
-    assert row.weighted_score == _EXPECTED_WEIGHTED_SCORE
+    assert row.weighted_score == case.weighted_score
     assert row.threshold_at_eval == Decimal("0.400")
     assert row.scoring_algorithm_version == VERSION_004_1
 
 
-def _assert_scoring_config(row: RiskAssessmentModel) -> None:
+def _assert_scoring_config(row: RiskAssessmentModel, case: JourneyCase) -> None:
     assert row.scoring_config is not None
     document = read_scoring_config(VERSION_004_1, row.scoring_config)
     assert isinstance(document, Document004)
+    assert document.wallet_group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027
     stored = json.loads(row.scoring_config)
     assert {key: stored[key] for key in _EXPECTED_SCORING_CONFIG} == _EXPECTED_SCORING_CONFIG
-    assert document.evaluation_evidence is not None
-    assert document.evaluation_evidence["result"] == {
-        "weighted_score": str(_EXPECTED_WEIGHTED_SCORE),
+    evidence = document.evaluation_evidence
+    assert evidence is not None
+    assert evidence["result"] == {
+        "weighted_score": str(case.weighted_score),
         "signals_triggered": 1,
-        "should_alert": True,
+        "should_alert": case.should_alert,
     }
+    wallet, size = stored["evaluation_evidence"]["wallet"], stored["evaluation_evidence"]["size"]
+    assert (wallet["confidence"], wallet["age_state"]) == (None, "unknown")
+    assert size["volume_state"] == case.volume_state
 
 
-def _assert_dry_run_disposition(row: RiskAssessmentModel) -> None:
-    assert row.should_alert is True
+def _assert_disposition(row: RiskAssessmentModel, case: JourneyCase) -> None:
+    assert row.should_alert is case.should_alert
     assert row.dry_run is True
-    assert row.delivery_disposition == "dry_run"
-    assert json.loads(row.delivery_channels or "{}") == {
-        "discord": "dry_run",
-        "telegram": "dry_run",
-    }
+    assert row.delivery_disposition == case.disposition
+    channels = json.loads(row.delivery_channels) if row.delivery_channels else None
+    assert channels == case.channels
 
 
+@pytest.mark.parametrize("case", [STAMPED, VOLUME_LESS], ids=["stamped", "volume-less"])
 @pytest.mark.asyncio
 async def test_dry_run_journey_persists_in_disposable_postgres(
     fake_redis: FakeAsyncRedis,
     unused_tcp_port: int,
     monkeypatch: pytest.MonkeyPatch,
+    case: JourneyCase,
 ) -> None:
     """One explainable assessment lands in migrated PostgreSQL; nothing is delivered."""
     with _disposable_database(monkeypatch) as database_url:
@@ -219,7 +263,7 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
         pipeline = await wire_journey_pipeline(
             settings,
             redis=fake_redis,
-            market=stamped_volume_market(trade),
+            market=case.market(trade),
             db_manager=manager,
             channels=[discord, telegram],
             trades=server,
@@ -246,9 +290,31 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
         assert len(rows) == 1
         row = rows[0]
         _assert_trade_identity(row, trade)
-        _assert_score_inputs(row)
-        _assert_scoring_config(row)
-        _assert_dry_run_disposition(row)
+        _assert_score_inputs(row, case)
+        _assert_scoring_config(row, case)
+        _assert_disposition(row, case)
+
+
+@pytest.mark.asyncio
+async def test_earlier_rows_read_back_unchanged_in_disposable_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """T026: seeded 003.1 and legacy-unversioned rows dispatch unchanged; nothing is migrated."""
+    with _disposable_database(monkeypatch) as database_url:
+        manager = DatabaseManager(database_url, async_mode=True)
+        try:
+            async with manager.get_async_session() as session:
+                repository = RiskAssessmentRepository(session)
+                await repository.insert(seeded_row("row-003-1", VERSION_003, ROW_003_1))
+                await repository.insert(seeded_row("row-legacy", LEGACY_VERSION, None))
+        finally:
+            await manager.dispose_async()
+
+        rows = {row.assessment_id: row for row in await _assessment_rows(database_url)}
+        assert_003_1_row_unchanged(rows["row-003-1"])
+        legacy = rows["row-legacy"]
+        assert (legacy.scoring_algorithm_version, legacy.scoring_config) == (LEGACY_VERSION, None)
+        assert read_scoring_config(legacy.scoring_algorithm_version, legacy.scoring_config) is None
 
 
 def test_disposable_database_cleanup_runs_when_journey_raises(

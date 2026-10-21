@@ -48,7 +48,7 @@ live-explicit-arg-positive,available,caller,low_activity_unknown_age,0.500,0.750
 live-explicit-arg-zero,nonpositive,zero,low_activity_unknown_age,0.500,,none,0.480,0,0.000,False,False,1,0.200,False,False,caller-supplied 0 is nonpositive
 live-nonce-4,available,gamma,low_activity_unknown_age,0.500,0.750,numeric,0.384,1,0.450,False,False,2,0.780,False,True,unknown age; nonce 4 still below B=5; exactly 0.50
 live-nonce-5,available,gamma,none,,0.750,numeric,0.384,1,0.450,False,False,1,0.450,False,False,nonce equals B: no wallet signal
-live-below-wallet-min,available,gamma,none,,0.417,numeric,0.120,1,0.250,False,False,1,0.250,False,False,notional 999.99 < 1000: no wallet signal; size signal only
+live-below-wallet-min,available,gamma,none,,0.416,numeric,0.120,1,0.250,False,False,1,0.250,False,False,notional 999.99 < 1000: no wallet signal; size signal only
 live-large-trade-unknown-age,available,gamma,low_activity_unknown_age,0.500,0.750,numeric,0.528,1,0.450,False,False,2,0.780,False,True,"$12,000 unknown age: still exactly 0.50 (no large-trade addition)"
 live-invalid-out-of-range-tiny-number,invalid,out_of_range,low_activity_unknown_age,0.500,,none,0.480,0,0.000,False,False,1,0.200,False,False,"JSON number 1e-30: finite and positive but below 10^-6, so invalid/out_of_range; the ratio is never computed (round-4 N3)"
 live-invalid-out-of-range-tiny-string,invalid,out_of_range,low_activity_unknown_age,0.500,,none,0.480,0,0.000,False,False,1,0.200,False,False,"numeric string '1e-30' (section 1.1b grammar): below 10^-6, invalid/out_of_range (round-4 N3)"

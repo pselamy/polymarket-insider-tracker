@@ -22,7 +22,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from redis.asyncio import Redis
@@ -40,6 +43,7 @@ from tests.fakes.redis_await import settled
 from tests.integration._journey_harness import (
     POLL_START,
     JourneyEnvironment,
+    market_for_trade,
     persisted_assessments,
     pipeline_row,
     run_dry_run_journey,
@@ -47,14 +51,24 @@ from tests.integration._journey_harness import (
 )
 from tests.integration._journey_harness import run_until as _run_until
 from tests.integration.test_postgres_journey import _disposable_database
+from tests.integration.test_scoring_config_rows import evidence_of, member, read_row
 
+from polymarket_insider_tracker.detector.volume_state import VolumeState, classify_volume
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
+from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl, GammaMarketStats
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.observation_boundary import (
     KEY_PREFIX,
     BoundaryOrigin,
     Checkpoint,
     source_id,
+)
+from polymarket_insider_tracker.ingestor.volume_observation import GAMMA_SOURCE
+from polymarket_insider_tracker.ingestor.volume_store import (
+    DEFAULT_VOLUME_KEY_PREFIX,
+    VOLUME_RECORD_TTL_SECONDS,
+    VolumeRecord,
+    VolumeStore,
 )
 from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.storage.database import DatabaseManager
@@ -111,6 +125,40 @@ async def _clear_boundary_and_snapshot(redis: Redis) -> set[bytes]:
     return await _scan_keys(redis)
 
 
+async def _serve_volume_through_real_redis(redis: Redis, market: MarketMetadata) -> MarketMetadata:
+    """T025: store ``market``'s stamped volume as the real Redis volume record the Gamma refresh
+    writes (product TTL), and return the volume-less CLOB metadata the journey caches beside it."""
+    assert market.volume is not None
+    await redis.setex(
+        DEFAULT_VOLUME_KEY_PREFIX + market.condition_id,
+        VOLUME_RECORD_TTL_SECONDS,
+        VolumeRecord(market.volume).to_json(),
+    )
+    return replace(market, volume=None)
+
+
+def _crawl_of(condition_id: str, acquired_at: datetime) -> GammaCrawl:
+    stats = GammaMarketStats(condition_id, acquired_at, True, "10000", GAMMA_SOURCE)
+    return GammaCrawl({condition_id: stats}, 1, 0, False, acquired_at, acquired_at)
+
+
+async def _state_at(
+    store: VolumeStore, metadata: MarketMetadata, now: datetime
+) -> tuple[VolumeState, str]:
+    """The detector's classification of the record ``store`` reads back from real Redis."""
+    merged = await store.merge(metadata)
+    verdict = classify_volume(
+        merged.volume, evaluated_at=now, unavailable_reason=merged.volume_unavailable_reason
+    )
+    return verdict.state, verdict.reason
+
+
+async def _expired(redis: Redis, key: str) -> None:
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while await settled(redis.exists(key)) and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.05)
+
+
 async def _run_real_journey(
     *,
     database_url: str,
@@ -125,6 +173,7 @@ async def _run_real_journey(
     baseline: set[bytes] | None = None
     try:
         baseline = await _clear_boundary_and_snapshot(redis)
+        metadata = await _serve_volume_through_real_redis(redis, market)
         settings = make_test_settings(
             dry_run=True, alert_threshold=0.4, health_port=health_port, trades_url=None
         )
@@ -134,9 +183,12 @@ async def _run_real_journey(
             health_port=health_port, redis=redis, db_manager=manager, engine=engine
         )
         assessment = await run_dry_run_journey(
-            environment, settings, seeded_v2_server(clock), clock, sample_trade, market
+            environment, settings, seeded_v2_server(clock), clock, sample_trade, metadata
         )
-        assert assessment.scoring_algorithm_version == "004.1"
+        # T025: the stamped volume read back from the real Redis record scores 0.450.
+        size = member(evidence_of(read_row(assessment)), "size")
+        assert (size["volume_state"], size["daily_volume"]) == ("available", "10000")
+        assert str(assessment.weighted_score) == "0.450"
         await _assert_boundary_checkpoint(redis, DEFAULT_COVERAGE)
     finally:
         if baseline is not None:
@@ -286,4 +338,45 @@ async def test_v2_default_restart_resumes_the_boundary_and_deduplicates_replay(
     finally:
         if baseline is not None:
             await _delete_keys_created_since(redis, baseline)
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_real_redis_volume_record_reads_available_then_stale_then_expires(
+    sample_trade_event: TradeEvent,
+) -> None:
+    """T025 / T012d (4): the 0-600 s rule over real Redis, then real TTL expiry.
+
+    A record stamped 30 s ago is ``available`` and one stamped 601 s ago is still readable as
+    ``stale`` (the product TTL outlives the recency rule). After real Redis expires the record and
+    the crawl status, the market reads ``unavailable`` with ``no_volume_record``. A unique key
+    prefix keeps the shared local Redis untouched.
+    """
+    redis = await _connect_redis(_required_redis_url())
+    prefix = f"pit-test:volume:{uuid.uuid4().hex}:"
+    metadata = market_for_trade(sample_trade_event, "science")
+    product, expiring = VolumeStore(redis, key_prefix=prefix), VolumeStore(
+        redis, key_prefix=prefix, ttl_seconds=1
+    )
+    now = datetime.now(UTC)
+    try:
+        await product.write_crawl(
+            _crawl_of(metadata.condition_id, now - timedelta(seconds=30)), now
+        )
+        assert 600 < await settled(redis.ttl(prefix + metadata.condition_id)) <= 1200
+        assert await _state_at(product, metadata, now) == (VolumeState.AVAILABLE, "gamma")
+
+        stale_at = now - timedelta(seconds=601)
+        await expiring.write_crawl(_crawl_of(metadata.condition_id, stale_at), now)
+        state, _ = await _state_at(expiring, metadata, now)
+        assert state is VolumeState.STALE
+
+        await _expired(redis, prefix + metadata.condition_id)
+        await _expired(redis, prefix + "_crawl")
+        assert await _state_at(expiring, metadata, now) == (
+            VolumeState.UNAVAILABLE,
+            "no_volume_record",
+        )
+    finally:
+        await redis.delete(prefix + metadata.condition_id, prefix + "_crawl")
         await redis.aclose()

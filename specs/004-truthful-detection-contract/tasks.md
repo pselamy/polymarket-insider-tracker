@@ -55,11 +55,20 @@ Named files, entry points, dependency order:
   ages 0.5 / 599.999999 / 600.000001 / 600.5 / −0.000001 s, with ages computed exactly from aware datetimes),
   `volume_impact` as the exact quotient rounded once (data-model §3; a ratio above 28 digits must not raise),
   niche modifier incl. the D3 (d) rule (decided 2026-10-20: category fallback only when no volume value was observed, i.e. `unavailable`/`missing`, and the category is real metadata; the lookup-failure case and every observed-value state give no size signal), threshold equality (FR-001–011, FR-015, SC-001–003)
-- [ ] T010 [US1] Deterministic pipeline test (extend 003 harness in
+  *Layer 4 note (partial, stays unticked)*: `tests/detector/test_reachability.py` (T028) scores the 65 replay-live
+  cases through the real size detector and scorer and compares them with the committed rows; their volume states
+  are still classified by the replay script's precedence table, not by `detector/volume_state.py`, so the
+  "all eight volume states through the detector" leg is not claimed by that test.
+- [x] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
   flags in analysis, scoring, persistence, and formatted dry-run output; per-participant
   observations sharing one transaction evaluated as separate wallet-bearing trades, never
   collapsed before profiling (FR-016/021, SC-006)
+  *Layer 4 receipt (ticked)*: lives in T022. `test_end_to_end_dry_run_pipeline` captures the real detailed
+  formatter's input and output (`RecordingFormatter`) and asserts the volume state, size confidence, score and the
+  unknown-age flag agree across the scored assessment, the 004.1 document, the row columns and the rendering;
+  `test_end_to_end_volume_less_journey_scores_each_participant_below_threshold` publishes two participant rows of
+  one transaction and asserts two separately evaluated rows sharing one `trade_id`.
 - [ ] T011 [US1] Additive evaluation entry point in `src/polymarket_insider_tracker/detector/`
   (new `evaluation.py`; shared helper with `analyze` — no second acquisition) returning
   immutable wallet/market evidence including known-nonqualifying inputs; evidence flows
@@ -100,6 +109,11 @@ Named files, entry points, dependency order:
   the fakeredis form of (4) are in `tests/ingestor/test_gamma_stamps.py`, `test_gamma_volume_refresh.py` and
   `test_volume_store.py`; the real-Redis expiry journey of (4) and the slow-CLOB `D = 204 s` fake-clock run of (1)
   are not written yet.
+  *Layer 4 receipt (partial, stays unticked)*: (4) real-Redis TTL/expiry now runs in the services profile
+  (`test_a_real_redis_volume_record_reads_available_then_stale_then_expires`, re-exported by
+  `test_redis_contract.py`): product TTL 600 < ttl <= 1200, `available` at 30 s, `stale` at 601 s, then
+  `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock run of (1) is still not
+  written: the CLOB sync and Gamma refresh loops sleep on the event loop, not an injectable clock.
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 
@@ -213,6 +227,8 @@ Named files, entry points, dependency order:
   `detector/alert_path.py`, `ingestor/alert_path_health.py` and `tests/detector/test_alert_path.py`: cases (a), (b),
   (e), (f) and the three surfaces. **Not done**: cases (c) and (d), which need the `qualified` wallet status of the
   gate-opening change (T015b), and the T028 regeneration of `evidence/reachability.md` from the shared function.
+  *Layer 4 receipt (stays unticked)*: the T028 regeneration landed (see T028); cases (c) and (d) still wait
+  for T015b.
 - [ ] T030 [US3] **NOT IN SCOPE (D2 = R0 decided 2026-10-20; R5 not selected; this task is dropped and stays unticked)** — **Only if DECISION D2 selects R5** — assessment-only delivery suppression (FR-022b,
   SC-010). Add the typed code constant `release_posture` (`alert_capable` | `assessment_only`; no
   setting, no environment variable) and make `_score_and_alert` / `_handle_above_threshold`
@@ -231,12 +247,22 @@ Named files, entry points, dependency order:
   strict). **If D2 selects R0 this task is dropped**, delivery stays unchanged, and the T021 journeys at
   `alert_threshold=0.4` are the only end-to-end proof of the delivery stage; no journey proves delivery
   on the shipped 0.80 configuration, because nothing live reaches it.
-- [ ] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
+- [x] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
   `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md` for both
   wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:
   unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
   `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
   SC-009). Also add the 65 `evidence/replay-live/cases.json` cases to the table-driven suite.
+  *Layer 4 receipt*: `scripts/spec004_evidence/real_scoring.py` scores every grid point and replay case through
+  the real `SizeAnomalyDetector.evaluate`, `FreshWalletDetector.evaluate` and `size_group_score` (the function
+  `detector/alert_path.py` uses); `reachability` fails unless its default-posture ceiling equals
+  `alert_path_report(0.80).ceiling`. `tests/detector/test_reachability.py` recomputes the pre-T027 ceilings
+  (0.450/0.175/0.120/0.000 per class and band), the post-T027 scenario ceilings (0.780, 0.450, 0.384, 0.200,
+  0.924, 0.972, 0.642, 0.828), the 0.541 unknown-age break-even, and the 65 replay-live cases against the
+  committed rows. The post-T027 scenario is composed from the scorer's weights, quantization and bonus because
+  main does not wire it (T015b). Regeneration corrected two values of the retired copied model, which skipped
+  the product's 0.0001 ratio rounding (sensitivity 28 -> 27 at 0.40; `live-below-wallet-min` size confidence
+  0.417 -> 0.416); no ceiling or verdict changed (`evidence/source-refresh-f2e2167.md`, twelfth refresh).
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 
@@ -256,31 +282,48 @@ posture** (the posture 004 ships in); the post-T027 values are given in parenthe
 asserted values only in the reviewed change that opens the gate after T027. The change must be made
 deliberately, not by loosening the assertion:
 
-- [ ] T021 [US1] `tests/integration/_journey_harness.py` + `tests/integration/test_end_to_end.py::_market`:
+- [x] T021 [US1] `tests/integration/_journey_harness.py` + `tests/integration/test_end_to_end.py::_market`:
   add a fixture builder for a market whose Gamma volume carries a fresh acquisition stamp
   (state `available`, e.g. $10,000 so a $3,250 trade has ratio 0.325, saturating the 3× cap:
   volume confidence 0.5 × niche 1.5 = 0.75, score pre-T027 `0.75·0.35 + 0.75·0.25 = 0.450`, one group,
   bonus 1; post-T027 `(0.5·0.40+0.75·0.35+0.75·0.25)·1.2 = 0.780`, two groups).
   The dry-run journeys use it so they keep proving "one qualifying assessment, zero deliveries,
   zero dedup keys" at `alert_threshold=0.4` (0.450 ≥ 0.4 pre-T027). Keep `dry_run_assessment` strict.
-- [ ] T022 [US1] `tests/integration/test_end_to_end.py`: replace the pinned `"003.1"` (`:183`)
+  *Layer 4 receipt (ticked)*: `stamped_volume_market` in `_journey_harness.py` (layer 3) is used by every
+  dry-run journey; `test_journey_harness_characterization` pins it.
+- [x] T022 [US1] `tests/integration/test_end_to_end.py`: replace the pinned `"003.1"` (`:183`)
   with the 004.1 identity, keep one deliberate **negative** journey on the volume-less fixture
   asserting score 0.120 (post-T027: 0.384), `signals_triggered == 1`, `should_alert is False`,
   `delivery_disposition == "below_threshold"` and that the persisted evidence says
   `volume_state=unavailable` / age unknown / `wallet.group_status=unqualified_pre_T027`; add the FR-016
   same-evidence assertions (analysis → score → row → dry-run render) and the FR-021
   two-participant assertion (T010 lives here).
-- [ ] T023 [US1] `tests/integration/test_v2_journey.py` (explicit V2 URL, threshold 0.4):
+  *Layer 4 receipt (ticked)*: `test_end_to_end.py` asserts the 004.1 identity through the schema reader
+  (`read_row`), the negative volume-less journey (0.120, one group, `below_threshold`, `volume_state=unavailable`,
+  age `unknown`, `unqualified_pre_T027`) and the T010 assertions.
+- [x] T023 [US1] `tests/integration/test_v2_journey.py` (explicit V2 URL, threshold 0.4):
   switch to the T021 stamped-volume market for the qualifying path; assert the row's
   `scoring_algorithm_version`, `threshold_at_eval == 0.400` and recomputable score; keep
   `test_journey_harness_characterization` (`:53`) in sync with the new fixture builder.
-- [ ] T024 [US1] `tests/integration/test_v2_default_journey.py` (default URL, no env): same
+  *Layer 4 receipt (ticked)*: `test_end_to_end_dry_run_pipeline_v2` asserts `004.1`, `threshold_at_eval`
+  `0.400` and recomputes `0.450` from the stored document (schema + reconstruction rules, then the weights).
+- [x] T024 [US1] `tests/integration/test_v2_default_journey.py` (default URL, no env): same
   fixture change; replace `"003.1"` at `:55` with the 004.1 identity and additionally assert the
   evidence envelope parses under the contract schema (`contracts/scoring-config.md`).
-- [ ] T025 [US1] `tests/integration/test_v2_default_journey_services.py` (real Redis/services):
+  *Layer 4 receipt (ticked)*: the default-URL journey also asserts `contract_errors(...) == []` against
+  `contracts/scoring-config-004.1.schema.json` and the reconstruction rules.
+- [x] T025 [US1] `tests/integration/test_v2_default_journey_services.py` (real Redis/services):
   replace `"003.1"` at `:139`; the stamped-volume market must be served through the real Redis
   metadata cache so the 0-600 s rule is exercised with real expiry, not only with a fake clock.
-- [ ] T026 [US3] `tests/integration/test_postgres_journey.py` (real PostgreSQL): replace the
+  *Layer 4 receipt (pending services CI)*: the journey stores the stamped volume as the real Redis volume
+  record (product TTL) beside volume-less CLOB metadata and asserts `available`/`10000`/`0.450` from the row; the
+  expiry leg is the T012d (4) test above. Ticked only once the services job passes on the PR head (no local
+  PostgreSQL role was available to this run).
+  *Services receipt (2026-10-21)*: "PostgreSQL and Redis required checks" passed on PR #204 head `5a7f3dc`
+  (https://github.com/pselamy/polymarket-insider-tracker/actions/runs/39581900097/job/119161266689): `tests/integration/test_redis_contract.py` 52 passed, 0 skipped, including
+  `test_v2_default_journey_through_real_postgres_and_redis` and
+  `test_a_real_redis_volume_record_reads_available_then_stale_then_expires`.
+- [x] T026 [US3] `tests/integration/test_postgres_journey.py` (real PostgreSQL): replace the
   hard-coded expectations `_EXPECTED_FRESH_WALLET_CONFIDENCE = 0.700`,
   `_EXPECTED_SIZE_ANOMALY_CONFIDENCE = 0.200`, `_EXPECTED_WEIGHTED_SCORE = 0.480`
   (`:65-73`), `_EXPECTED_SCORING_CONFIG` (`:75-85`; exact dict equality, incl. the
@@ -291,6 +334,16 @@ deliberately, not by loosening the assertion:
   0.780 respectively). The stored `scoring_config` becomes the 004.1 envelope and the assertion must parse
   it with the schema's reader dispatch and also read a seeded `003.1` and a
   `legacy-unversioned` row unchanged (no migration, disposable DB only).
+  *Layer 4 receipt (pending services CI)*: parametrized stamped (0.750/0.450, `dry_run`) and volume-less
+  (0.200/0.120, `below_threshold`) cases; the document's `wallet.confidence` is null with
+  `unqualified_pre_T027`. The scalar `fresh_wallet_confidence` column keeps the detector's raw `0.700` as
+  non-scoring evidence, as layer 3 pinned it (`test_scorer_g1.py`); changing that column is not done here and
+  is flagged for review. `test_earlier_rows_read_back_unchanged_in_disposable_postgres` reads a seeded `003.1` and
+  a `legacy-unversioned` row back unchanged. Ticked only once the services job passes on the PR head.
+  *Services receipt (2026-10-21)*: "PostgreSQL and Redis required checks" passed on PR #204 head `5a7f3dc`
+  (https://github.com/pselamy/polymarket-insider-tracker/actions/runs/39581900097/job/119161266689): `tests/integration/test_redis_contract.py` 52 passed, 0 skipped, including
+  `test_dry_run_journey_persists_in_disposable_postgres[stamped|volume-less]` and
+  `test_earlier_rows_read_back_unchanged_in_disposable_postgres`.
 
 Each of T021–T026 lands with the implementation change that alters its expectation, never after
 it (same rule as T009c/T009d/T015a/T015b).

@@ -106,7 +106,7 @@ Grid points are illustrative combinations, **not** live frequencies.
 | 0.70 | 16 | 0.780 |
 | 0.60 | 16 | 0.780 |
 | 0.45 | 25 | 0.780 |
-| 0.40 | 28 | 0.780 |
+| 0.40 | 27 | 0.780 |
 
 ## Recalibration arithmetic
 

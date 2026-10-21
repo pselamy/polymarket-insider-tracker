@@ -224,43 +224,53 @@ async def test_a_detector_failure_row_carries_its_failures_and_no_evaluation_evi
     ]
 
 
-async def test_a_003_1_row_reads_back_unchanged(
-    db_manager: DatabaseManager, async_engine: AsyncEngine
-) -> None:
-    async with db_manager.get_async_session() as session:
-        await RiskAssessmentRepository(session).insert(
-            RiskAssessmentDTO(
-                assessment_id="row-003-1",
-                trade_id="trade-003-1",
-                wallet_address="0x" + "b" * 40,
-                market_id="0x" + "c" * 64,
-                asset_id=None,
-                side="BUY",
-                outcome=None,
-                outcome_index=None,
-                price=Decimal("0.65"),
-                size=Decimal("5000"),
-                notional_usdc=Decimal("3250"),
-                trade_timestamp=datetime(2026, 9, 11, tzinfo=UTC),
-                weighted_score=Decimal("0.600"),
-                signals_triggered=2,
-                fresh_wallet_confidence=Decimal("0.700"),
-                size_anomaly_confidence=Decimal("0.500"),
-                is_niche_market=False,
-                volume_impact=None,
-                book_impact=None,
-                wallet_age_hours=None,
-                should_alert=False,
-                threshold_at_eval=Decimal("0.800"),
-                scoring_algorithm_version=VERSION_003,
-                scoring_config=ROW_003_1,
-            )
-        )
+def seeded_row(assessment_id: str, version: str, config: str | None) -> RiskAssessmentDTO:
+    """A row as an earlier slice wrote it: ``version`` with its verbatim ``config``."""
+    return RiskAssessmentDTO(
+        assessment_id=assessment_id,
+        trade_id=f"trade-{assessment_id}",
+        wallet_address="0x" + "b" * 40,
+        market_id="0x" + "c" * 64,
+        asset_id=None,
+        side="BUY",
+        outcome=None,
+        outcome_index=None,
+        price=Decimal("0.65"),
+        size=Decimal("5000"),
+        notional_usdc=Decimal("3250"),
+        trade_timestamp=datetime(2026, 9, 11, tzinfo=UTC),
+        weighted_score=Decimal("0.600"),
+        signals_triggered=2,
+        fresh_wallet_confidence=Decimal("0.700"),
+        size_anomaly_confidence=Decimal("0.500"),
+        is_niche_market=False,
+        volume_impact=None,
+        book_impact=None,
+        wallet_age_hours=None,
+        should_alert=False,
+        threshold_at_eval=Decimal("0.800"),
+        scoring_algorithm_version=version,
+        scoring_config=config,
+    )
 
-    (row,) = await persisted_assessments(async_engine)
+
+def assert_003_1_row_unchanged(row: RiskAssessmentModel) -> None:
+    """The 003.1 row reads back through the dispatch as the exact document it stored."""
     config = read_scoring_config(row.scoring_algorithm_version, row.scoring_config)
 
     assert isinstance(config, PureConfig)
     assert config.multi_signal_bonus_3 == Decimal("1.3")
     assert config.alert_threshold == row.threshold_at_eval
     assert serialize_pure_config(config) == row.scoring_config == ROW_003_1
+
+
+async def test_a_003_1_row_reads_back_unchanged(
+    db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    async with db_manager.get_async_session() as session:
+        await RiskAssessmentRepository(session).insert(
+            seeded_row("row-003-1", VERSION_003, ROW_003_1)
+        )
+
+    (row,) = await persisted_assessments(async_engine)
+    assert_003_1_row_unchanged(row)

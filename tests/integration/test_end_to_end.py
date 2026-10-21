@@ -12,6 +12,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from typing import Any
 
 import aiohttp
@@ -29,20 +30,24 @@ from tests.fakes import (
 )
 from tests.integration._journey_harness import (
     POLL_START,
+    RecordingFormatter,
     dry_run_assessment,
     journey_settings,
     make_sample_trade_event,
+    market_for_trade,
     persisted_assessments,
     pipeline_row,
     run_until,
     running_pipeline,
+    second_participant_row,
     seeded_server,
     stamped_volume_market,
     wire_journey_pipeline,
 )
+from tests.integration.test_scoring_config_rows import evidence_of, member, read_row
 
 from polymarket_insider_tracker.config import Settings
-from polymarket_insider_tracker.detector.scoring_config import Document004, read_scoring_config
+from polymarket_insider_tracker.detector.scoring_config import WalletGroupStatus
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.pipeline import PipelineState
 from polymarket_insider_tracker.storage.database import DatabaseManager
@@ -133,6 +138,8 @@ class TestEndToEndPipelineHarness:
             trades=server,
             poll_clock=clock,
         )
+        formatter = RecordingFormatter()
+        pipeline._alert_formatter = formatter
 
         async with running_pipeline(pipeline):
             await run_until(lambda: len(server.requests) >= 1)
@@ -183,16 +190,73 @@ class TestEndToEndPipelineHarness:
         # G1: the unknown-age wallet (nonce 0) is recorded evidence; only the size group scores.
         assert assessment_row.signals_triggered == 1
         assert float(assessment_row.weighted_score) == 0.45
-        # The row identifies the exact algorithm and configuration that produced it.
-        assert assessment_row.scoring_algorithm_version == "004.1"
-        document = read_scoring_config("004.1", assessment_row.scoring_config)
-        assert isinstance(document, Document004)
-        assert document.evaluation_evidence is not None
-        assert document.evaluation_evidence["result"] == {
+        # The row is a schema-valid 004.1 document identifying the algorithm that produced it.
+        evidence = evidence_of(read_row(assessment_row))
+        assert evidence["result"] == {
             "weighted_score": "0.450",
             "signals_triggered": 1,
             "should_alert": True,
         }
+        # FR-016: analysis -> score -> row -> dry-run rendering carry the same values and flags.
+        ((assessment, alert),) = formatter.rendered
+        size, signal = member(evidence, "size"), assessment.size_anomaly_signal
+        assert signal is not None and signal.volume_evidence is not None
+        assert signal.volume_evidence.verdict.state == size["volume_state"] == "available"
+        assert f"{signal.confidence:.3f}" == size["confidence"] == "0.750"
+        assert assessment_row.size_anomaly_confidence == Decimal(str(size["confidence"]))
+        assert f"{assessment.weighted_score:.3f}" == str(assessment_row.weighted_score)
+        assert member(evidence, "wallet")["age_state"] == "unknown"
+        assert "Risk Score: 0.45" in alert.plain_text and "(Age:" not in alert.plain_text
+        assert "Size Anomaly: 75%" in str(alert.discord_embed)
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_volume_less_journey_scores_each_participant_below_threshold(
+        self,
+        unused_tcp_port: int,
+        fake_redis: FakeAsyncRedis,
+        db_manager: DatabaseManager,
+        async_engine: AsyncEngine,
+        sample_trade_event: TradeEvent,
+    ) -> None:
+        """T022 negative journey: no volume value, so only the D3 category size signal (0.120).
+
+        Two participants of one transaction (FR-021) are evaluated as separate trades.
+        """
+        clock = FakeClock(POLL_START)
+        server = seeded_server(clock)
+        discord = FakeAlertChannel("discord")
+        pipeline = await wire_journey_pipeline(
+            journey_settings(dry_run=True, health_port=unused_tcp_port),
+            redis=fake_redis,
+            market=market_for_trade(sample_trade_event, "science"),
+            db_manager=db_manager,
+            channels=[discord],
+            trades=server,
+            poll_clock=clock,
+        )
+        other_wallet = "0x" + "e" * 40
+        async with running_pipeline(pipeline):
+            await run_until(lambda: len(server.requests) >= 1)
+            row = pipeline_row(sample_trade_event, clock)
+            server.publish(row)
+            server.publish(second_participant_row(row, other_wallet))
+            await run_until(lambda: pipeline.stats.trades_processed >= 2)
+            await run_until(lambda: len(server.requests) >= 4)
+
+        rows = await persisted_assessments(async_engine)
+        assert sorted(r.wallet_address for r in rows) == sorted(
+            [sample_trade_event.wallet_address.lower(), other_wallet]
+        )
+        assert len({r.trade_id for r in rows}) == 1
+        for stored in rows:
+            assert (stored.weighted_score, stored.signals_triggered) == (Decimal("0.120"), 1)
+            assert (stored.should_alert, stored.delivery_disposition) == (False, "below_threshold")
+            document = read_row(stored)
+            assert document.wallet_group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027
+            evidence = evidence_of(document)
+            assert member(evidence, "size")["volume_state"] == "unavailable"
+            assert member(evidence, "wallet")["age_state"] == "unknown"
+        assert discord.deliveries == [] and pipeline.stats.alerts_sent == 0
 
     @pytest.mark.asyncio
     async def test_end_to_end_live_delivery_and_deduplication(

@@ -19,6 +19,7 @@ from tests.integration._journey_harness import (
     run_dry_run_journey,
     seeded_v2_server,
 )
+from tests.integration.test_scoring_config_rows import contract_errors
 
 from polymarket_insider_tracker.detector.scoring_config import Document004, read_scoring_config
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
@@ -57,3 +58,5 @@ async def test_end_to_end_dry_run_pipeline_through_the_default_url(
     document = read_scoring_config("004.1", assessment.scoring_config)
     assert isinstance(document, Document004)
     assert document.evaluation_evidence is not None
+    # T024: the stored envelope also parses under the contract schema and reconstruction rules.
+    assert contract_errors(assessment.scoring_config) == []

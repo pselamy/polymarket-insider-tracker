@@ -187,3 +187,24 @@ are computed from that scorer's current weights and threshold.
 Review round 1 asks that statements compressed only to keep large files from growing be restored;
 `base_commit` stays 3aafd0b and no behaviour changes. `pipeline.py`: the `WalletAnalyzer(...)` call is
 back to its original multi-line form and the two detector assignments are one statement per line.
+
+## Twelfth refresh: reachability evidence from the product code (T028, 2026-10-21)
+
+Layer 4 changes no product source; every hash and `base_commit` 3aafd0b stand. The evidence
+generators stop copying scoring rules: `scripts/spec004_evidence/real_scoring.py` scores each grid
+point and live-replay case through the real `SizeAnomalyDetector.evaluate`, `FreshWalletDetector.evaluate`
+and the scorer's `size_group_score` (the function the runtime alert-path report uses), and
+`reachability` fails unless its default-posture ceiling equals `alert_path_report(0.80).ceiling`. The
+post-T027 scenario, which main does not wire, is composed from the scorer's weights, quantization and
+bonus, with the proposed unknown-age confidence 0.50.
+
+Regeneration exposed one divergence of the retired copy: it computed the volume ratio as an unrounded
+float, while the product rounds it half-even to 0.0001 once (data-model section 3, layer 2). A ratio
+that rounds to exactly 0.0200 does not exceed the strict 0.02 threshold. Two committed values change;
+no published ceiling, verdict or alert count changes:
+
+- `reachability.md`, post-T027 unknown-age sensitivity at threshold 0.40: 27 grid points (was 28).
+  The point $1,000 on a $49,999 niche market (ratio 0.0200004 -> 0.0200) now carries only the niche base
+  0.2 and scores 0.384 post-T027 (was 0.420), 0.120 pre-T027 (was 0.150).
+- `replay-live/results.csv`, `live-below-wallet-min`: size confidence 0.416 (was 0.417; ratio
+  0.033333 -> 0.0333); both scores stay 0.250.
