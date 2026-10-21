@@ -11,7 +11,7 @@ opengrep runs with `--disable-nosem`, and no baseline, fingerprint or allowlist 
 | opengrep | `quality/security.yml` over every authored `py`/`pyi` file | yes |
 | gitleaks `dir` | the full working tree | yes |
 | gitleaks `git` | `--log-opts=<cut-over>..HEAD`, commits after the cut-over only | yes |
-| osv-scanner | every package in `uv.lock` | report only, see the TODO below |
+| osv-scanner | every package in `uv.lock` | yes, any advisory fails; see Dependency advisories |
 
 ## Deviation from the reference: secret scan cut-over
 
@@ -40,22 +40,23 @@ They were removed by renaming test identifiers (`*_SECRET` to `*_CANARY`, `VALID
 `VALID_CONTRACT`, locals in two tests) and by one line-break change in `dispatcher.py`; no value
 or behaviour changed.
 
-## Dependency advisories (report only)
+## Dependency advisories (enforced)
 
-TODO (separate scoped upgrade PRs per package family, then enforce osv): after the family-1 (HTTP
-stack), family-6 (devtools: virtualenv, filelock), family-3 (pydantic-settings, python-dotenv), family-5
-(pytest, pygments), family-4 (mako), and family-2 (web3) upgrades, no advisory groups remain from the `uv.lock` scan on this
-tree (1 group in 1 package before family 2; 4 groups in 2 packages before family 4; 6 groups in 4 packages before family 5; 8 groups in 6 packages before family 3; 14 groups in 8 packages after family 1 alone). Before
-that upgrade the scan on `main` showed 60 groups in 17 packages (aiohttp 32, urllib3 6, virtualenv 5,
-mako 3, anyio 2, and one each in certifi, filelock, h2, hpack, idna, multidict, pydantic-settings,
-pygments, pytest, python-dotenv, requests, web3); the nine family-1 packages account for 46 of them.
-Remaining groups: none.
+osv-scanner results are enforced. The scan covers every package in `uv.lock`, with no allowlist,
+baseline, ignore file, severity floor or exemption. Any advisory group, of any severity, makes
+`python -m quality.security_main` exit 1 and print each affected package, its locked version and
+the advisory IDs. The gate fails closed: a missing `mise` or scanner, a scanner crash or timeout, a
+missing or malformed report, or a report that does not cover exactly the locked packages also
+fails, with a message that osv-scanner could not prove the lockfile clean. The scan runs as it did
+in report-only mode (pinned by `mise --locked`, `quality/osv-scanner.toml`).
 
-`docs/dependency-upgrades.md` lists the families, fixed versions and PR order. "Groups" here are osv
-alias groups (one per underlying advisory); that document's "Advisories" column counts every
+At enforcement the tree has 0 advisory groups, after the six scoped family upgrades listed in
+`docs/dependency-upgrades.md` (60 groups in 17 packages on `main` before them). "Groups" are osv
+alias groups, one per underlying advisory; that document's "Advisories" column counts every
 GHSA/PYSEC record separately, so its numbers are larger.
 
-The gate prints the live count on every run. An osv-scanner crash or a missing report still fails.
+When a new advisory appears, handle it with a scoped upgrade PR for the affected package family
+(minimum fixed release, existing tests unchanged). Do not add an exemption to unblock the gate.
 
 ## Why the reference hook is not used
 
