@@ -10,12 +10,13 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from . import _channel_delivery
 from ._history_records import AlertRecord as AlertRecord
 from ._history_records import generate_dedup_key as _generate_dedup_key
 from ._history_records import get_signals_from_assessment as _get_signals_from_assessment
+from ._redis_port import HistoryRedis, reply_ids, reply_int, reply_text
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.detector.models import RiskAssessment
@@ -53,7 +54,7 @@ class AlertHistory:
 
     def __init__(
         self,
-        redis: Any,
+        redis: HistoryRedis,
         *,
         dedup_window_hours: int = 1,
         retention_days: int = 30,
@@ -236,11 +237,11 @@ class AlertHistory:
             return False
 
         # Update record
-        record_dict = json.loads(data)
+        record_dict = json.loads(reply_text(data))
         record_dict["feedback_useful"] = useful
 
         # Get remaining TTL
-        ttl = await self.redis.ttl(alert_redis_key)
+        ttl = reply_int(await self.redis.ttl(alert_redis_key))
         if ttl < 0:
             ttl = self._retention_ttl
 
@@ -262,7 +263,7 @@ class AlertHistory:
         data = await self.redis.get(alert_redis_key)
         if not data:
             return None
-        return AlertRecord.from_dict(json.loads(data))
+        return AlertRecord.from_dict(json.loads(reply_text(data)))
 
     def _select_index_key(self, wallet: str | None, market: str | None) -> str:
         if wallet:
@@ -309,12 +310,14 @@ class AlertHistory:
         """
         index_key = self._select_index_key(wallet, market)
 
-        alert_ids = await self.redis.zrangebyscore(
-            index_key,
-            start.timestamp(),
-            end.timestamp(),
-            start=0,
-            num=limit,
+        alert_ids = reply_ids(
+            await self.redis.zrangebyscore(
+                index_key,
+                start.timestamp(),
+                end.timestamp(),
+                start=0,
+                num=limit,
+            )
         )
 
         if not alert_ids:
@@ -353,7 +356,7 @@ class AlertHistory:
             start.timestamp(),
             end.timestamp(),
         )
-        return int(count)
+        return reply_int(count)
 
     async def cleanup_old_alerts(self) -> int:
         """Remove alerts older than retention period.
@@ -365,23 +368,27 @@ class AlertHistory:
         cutoff_score = cutoff.timestamp()
 
         # Get old alert IDs
-        old_ids = await self.redis.zrangebyscore(
-            self.KEY_INDEX_TIME,
-            "-inf",
-            cutoff_score,
+        old_ids = reply_ids(
+            await self.redis.zrangebyscore(
+                self.KEY_INDEX_TIME,
+                "-inf",
+                cutoff_score,
+            )
         )
 
         if not old_ids:
             return 0
 
         # Remove from time index
-        removed = await self.redis.zremrangebyscore(
-            self.KEY_INDEX_TIME,
-            "-inf",
-            cutoff_score,
+        removed = reply_int(
+            await self.redis.zremrangebyscore(
+                self.KEY_INDEX_TIME,
+                "-inf",
+                cutoff_score,
+            )
         )
 
         # Note: Individual alert records will expire via TTL
         # Wallet/market indexes will also expire via TTL
         logger.info(f"Cleaned up {removed} old alert references")
-        return int(removed)
+        return removed

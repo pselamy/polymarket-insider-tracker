@@ -7,7 +7,6 @@ to Redis Streams, enabling downstream consumers to process events independently.
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, cast
 
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
@@ -30,6 +29,7 @@ from ._publisher_codec import (
 from ._publisher_codec import (
     serialize_trade_event as _serialize_trade_event,
 )
+from ._stream_reply import reply_batches, stream_row
 from .models import TradeEvent
 
 logger = logging.getLogger(__name__)
@@ -76,17 +76,26 @@ class StreamEntry:
     event: TradeEvent
 
 
-def _parse_stream_entry(
-    entry_id: bytes | str,
-    data: dict[bytes | str, bytes | str],
-    *,
-    context: str,
-    skip_empty: bool,
-) -> StreamEntry | None:
+def _encodable_fields(data: dict[str, str]) -> dict[FieldT, EncodableT]:
+    # redis-py's mutable dict parameter is invariant even though each string is encodable.
+    fields: dict[FieldT, EncodableT] = {}
+    for key, value in data.items():
+        fields[key] = value
+    return fields
+
+
+def _parse_stream_entry(entry: object, *, context: str, skip_empty: bool) -> StreamEntry | None:
+    row = stream_row(entry)
+    if row is None:
+        logger.warning("Failed to deserialize %s: malformed stream row", context)
+        return None
+    entry_id, data = row
     if skip_empty and not data:
         return None
     entry_id_str = _decode_entry_id(entry_id)
     try:
+        if data is None:
+            raise TypeError("stream entry has no field mapping")
         event = _deserialize_trade_event(data)
         return StreamEntry(entry_id=entry_id_str, event=event)
     except Exception as e:
@@ -100,20 +109,20 @@ def _parse_stream_entry(
 
 
 def _collect_entries_from_stream(
-    stream_entries: list[tuple[bytes | str, dict[bytes | str, bytes | str]]],
+    stream_entries: list[object],
     *,
     context: str,
     skip_empty: bool,
 ) -> list[StreamEntry]:
     entries: list[StreamEntry] = []
-    for entry_id, data in stream_entries:
-        entry = _parse_stream_entry(entry_id, data, context=context, skip_empty=skip_empty)
+    for raw_entry in stream_entries:
+        entry = _parse_stream_entry(raw_entry, context=context, skip_empty=skip_empty)
         if entry is not None:
             entries.append(entry)
     return entries
 
 
-def _parse_stream_results(results: Any, *, context: str, skip_empty: bool) -> list[StreamEntry]:
+def _parse_stream_results(results: object, *, context: str, skip_empty: bool) -> list[StreamEntry]:
     """Flatten ``XREADGROUP`` results into entries.
 
     ``skip_empty`` drops entries whose data is empty; pending re-reads return
@@ -121,8 +130,11 @@ def _parse_stream_results(results: Any, *, context: str, skip_empty: bool) -> li
     """
     if not results:
         return []
+    batches = reply_batches(results)
+    if batches is None:
+        raise PublisherError("malformed XREADGROUP reply")
     entries: list[StreamEntry] = []
-    for _stream_name, stream_entries in results:
+    for stream_entries in batches:
         entries.extend(
             _collect_entries_from_stream(stream_entries, context=context, skip_empty=skip_empty)
         )
@@ -192,8 +204,7 @@ class EventPublisher:
             The entry ID assigned by Redis.
         """
         data = _serialize_trade_event(event)
-        # redis-py's mutable dict parameter is invariant even though each string is encodable.
-        redis_fields = cast(dict[FieldT, EncodableT], data)
+        redis_fields = _encodable_fields(data)
         entry_id = await self._redis.xadd(
             self._stream_name,
             redis_fields,
@@ -221,8 +232,7 @@ class EventPublisher:
         pipe = self._redis.pipeline()
         for event in events:
             data = _serialize_trade_event(event)
-            # redis-py's mutable dict parameter is invariant even though each string is encodable.
-            redis_fields = cast(dict[FieldT, EncodableT], data)
+            redis_fields = _encodable_fields(data)
             pipe.xadd(self._stream_name, redis_fields, maxlen=self._max_len)
 
         results = await pipe.execute()
@@ -353,7 +363,7 @@ class EventPublisher:
         result = await self._redis.xack(self._stream_name, group_name, *entry_ids)
         return int(result)
 
-    async def get_stream_info(self) -> dict[str, Any]:
+    async def get_stream_info(self) -> dict[str, object]:
         """Get information about the stream.
 
         Returns:

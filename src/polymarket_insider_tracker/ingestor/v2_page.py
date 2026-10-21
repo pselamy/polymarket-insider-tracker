@@ -18,7 +18,9 @@ https://docs.polymarket.com/api-reference/data-api/overview
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final, Protocol, cast
+from typing import Final, Protocol
+
+from polymarket_insider_tracker.shapes import object_list, string_keyed
 
 V2_PAGE_LIMIT: Final[int] = 1000
 
@@ -127,12 +129,13 @@ def parse_v2_page(request: V2PageRequest, body: object, *, received_at: float) -
     """Read one documented envelope; raise :class:`V2SourceError` when it cannot be trusted."""
     envelope = _require_mapping(body, "response")
     rows = envelope.get("data")
-    if not isinstance(rows, list):
+    items = object_list(rows)
+    if items is None:
         raise V2EnvelopeError("malformed response envelope: data is not a list")
     pagination = _parse_pagination(envelope.get("pagination"))
     return V2Page(
         request=request,
-        rows=tuple(cast("list[object]", rows)),
+        rows=tuple(items),
         pagination=pagination,
         received_at=received_at,
     )
@@ -152,6 +155,7 @@ def _parse_pagination(value: object) -> V2Pagination:
 
 
 def _require_mapping(value: object, name: str) -> dict[str, object]:
-    if not isinstance(value, dict):
+    narrowed = string_keyed(value)
+    if narrowed is None:
         raise V2EnvelopeError(f"malformed response envelope: {name} is not an object")
-    return cast("dict[str, object]", value)
+    return narrowed

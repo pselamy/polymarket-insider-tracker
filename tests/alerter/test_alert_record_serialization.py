@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from polymarket_insider_tracker.alerter._history_records import AlertRecord
 
 CREATED_AT = datetime(2026, 10, 21, 12, 30, 15, tzinfo=UTC)
@@ -72,3 +74,51 @@ def test_from_dict_without_created_at_stamps_an_aware_utc_time() -> None:
 
     assert record.created_at.tzinfo is UTC
     assert before <= record.created_at <= datetime.now(UTC)
+
+
+_NOT_TEXT = "alert record field {} is not a string"
+_NOT_TEXT_LIST = "alert record field {} is not a list of strings"
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "message"),
+    [
+        ("alert_id", 7, _NOT_TEXT.format("alert_id")),
+        ("wallet_address", None, _NOT_TEXT.format("wallet_address")),
+        ("market_id", ["m"], _NOT_TEXT.format("market_id")),
+        ("dedup_key", 1.5, _NOT_TEXT.format("dedup_key")),
+        ("risk_score", [0.5], "alert record field risk_score is not numeric"),
+        ("risk_score", None, "alert record field risk_score is not numeric"),
+        ("signals_triggered", "size_anomaly", _NOT_TEXT_LIST.format("signals_triggered")),
+        ("channels_attempted", [1], _NOT_TEXT_LIST.format("channels_attempted")),
+        ("channels_succeeded", ["discord", None], _NOT_TEXT_LIST.format("channels_succeeded")),
+        (
+            "feedback_useful",
+            "yes",
+            "alert record field feedback_useful is not a boolean or null",
+        ),
+        ("created_at", 1_700_000_000, "alert record field created_at is not a timestamp"),
+    ],
+)
+def test_from_dict_rejects_a_value_of_the_wrong_type(key: str, value: object, message: str) -> None:
+    data: dict[str, object] = {**_minimal(), key: value}
+
+    with pytest.raises(ValueError) as raised:
+        AlertRecord.from_dict(data)
+
+    assert str(raised.value) == message
+
+
+@pytest.mark.parametrize("key", ["alert_id", "wallet_address", "market_id", "risk_score"])
+def test_from_dict_still_raises_key_error_for_a_missing_required_field(key: str) -> None:
+    data = _minimal()
+    del data[key]
+
+    with pytest.raises(KeyError):
+        AlertRecord.from_dict(data)
+
+
+def test_from_dict_accepts_an_already_parsed_created_at() -> None:
+    record = AlertRecord.from_dict({**_minimal(), "created_at": CREATED_AT})
+
+    assert record.created_at == CREATED_AT

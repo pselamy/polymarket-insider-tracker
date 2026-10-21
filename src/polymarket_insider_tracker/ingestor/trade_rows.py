@@ -11,14 +11,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Any, Literal, cast
+from typing import Literal, TypeVar
 
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
+from polymarket_insider_tracker.shapes import object_mapping
 
 IDENTITY_FIELDS: tuple[str, ...] = (
     "transactionHash",
@@ -33,6 +34,7 @@ IDENTITY_FIELDS: tuple[str, ...] = (
 CLOCK_SKEW_ALLOWANCE_SECONDS = 60
 
 Side = Literal["BUY", "SELL"]
+T = TypeVar("T")
 
 
 class OutcomeResolution(StrEnum):
@@ -143,18 +145,6 @@ def _parse_timestamp(value: object) -> int | None:
     return None
 
 
-_IDENTITY_PARSERS: tuple[tuple[str, Callable[[object], object | None]], ...] = (
-    ("transactionHash", _parse_text),
-    ("proxyWallet", _parse_text),
-    ("conditionId", _parse_text),
-    ("asset", _parse_text),
-    ("side", _parse_side),
-    ("price", _parse_decimal),
-    ("size", _parse_decimal),
-    ("timestamp", _parse_timestamp),
-)
-
-
 @dataclass(frozen=True)
 class _IdentityFields:
     transaction_hash: str
@@ -166,18 +156,20 @@ class _IdentityFields:
     size: Decimal
     timestamp: int
 
-    @classmethod
-    def from_parsed(cls, parsed: dict[str, object]) -> _IdentityFields:
-        return cls(
-            transaction_hash=cast(str, parsed["transactionHash"]),
-            wallet=cast(str, parsed["proxyWallet"]),
-            condition_id=cast(str, parsed["conditionId"]),
-            asset=cast(str, parsed["asset"]),
-            side=cast(Side, parsed["side"]),
-            price=cast(Decimal, parsed["price"]),
-            size=cast(Decimal, parsed["size"]),
-            timestamp=cast(int, parsed["timestamp"]),
-        )
+
+class _FieldError(Exception):
+    """Internal signal: the named identity field failed to parse."""
+
+    def __init__(self, field: str) -> None:
+        super().__init__(field)
+        self.field = field
+
+
+def _required(raw: Mapping[object, object], name: str, parser: Callable[[object], T | None]) -> T:
+    value = parser(raw.get(name))
+    if value is None:
+        raise _FieldError(name)
+    return value
 
 
 _FIELD_DISPOSITIONS: dict[str, RowDisposition] = {
@@ -197,17 +189,23 @@ def _invalid(raw: object, field: str, disposition: RowDisposition | None = None)
     return InvalidRow(disposition=resolved, field=field, row_hash=row_hash(raw))
 
 
-def _parse_identity_fields(raw: dict[str, Any]) -> _IdentityFields | InvalidRow:
-    parsed: dict[str, object] = {}
-    for name, parser in _IDENTITY_PARSERS:
-        value = parser(raw.get(name))
-        if value is None:
-            return _invalid(raw, name)
-        parsed[name] = value
-    return _IdentityFields.from_parsed(parsed)
+def _parse_identity_fields(raw: Mapping[object, object]) -> _IdentityFields | InvalidRow:
+    try:
+        return _IdentityFields(
+            transaction_hash=_required(raw, "transactionHash", _parse_text),
+            wallet=_required(raw, "proxyWallet", _parse_text),
+            condition_id=_required(raw, "conditionId", _parse_text),
+            asset=_required(raw, "asset", _parse_text),
+            side=_required(raw, "side", _parse_side),
+            price=_required(raw, "price", _parse_decimal),
+            size=_required(raw, "size", _parse_decimal),
+            timestamp=_required(raw, "timestamp", _parse_timestamp),
+        )
+    except _FieldError as error:
+        return _invalid(raw, error.field)
 
 
-def _optional_text(raw: dict[str, Any], key: str) -> str:
+def _optional_text(raw: Mapping[object, object], key: str) -> str:
     value = raw.get(key)
     return value if isinstance(value, str) else ""
 
@@ -239,7 +237,7 @@ def observation_identity(fields: _IdentityFields) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-def _build_observation(raw: dict[str, Any], fields: _IdentityFields) -> TradeObservation:
+def _build_observation(raw: Mapping[object, object], fields: _IdentityFields) -> TradeObservation:
     outcome_index = _optional_index(raw.get("outcomeIndex"))
     outcome = _optional_text(raw, "outcome")
     if not outcome or outcome_index is None:
@@ -272,9 +270,9 @@ def _build_observation(raw: dict[str, Any], fields: _IdentityFields) -> TradeObs
 
 def parse_trade_row(raw: object, *, now: int) -> TradeObservation | InvalidRow:
     """Parse one raw provider row strictly; ``now`` is the local clock in epoch seconds."""
-    if not isinstance(raw, dict):
+    row = object_mapping(raw)
+    if row is None:
         return InvalidRow(RowDisposition.INVALID_SCHEMA, "row", row_hash(raw))
-    row = cast(dict[str, Any], raw)
     fields = _parse_identity_fields(row)
     if isinstance(fields, InvalidRow):
         return fields

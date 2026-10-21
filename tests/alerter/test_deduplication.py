@@ -30,6 +30,7 @@ from polymarket_insider_tracker.ingestor.models import TradeEvent
 from tests.fakes import resist_cancellation_for
 from tests.fakes.alerts import discord_webhook
 from tests.fakes.redis_await import key_count
+from tests.fakes.redis_history import DelegatingRedis
 
 
 class FakeChannel:
@@ -326,14 +327,14 @@ class TestChannelScopedDeduplication:
     async def test_dedup_state_outage_does_not_block_delivery(self) -> None:
         """A Redis outage during dispatch must not raise or block the delivery attempt."""
 
-        class BrokenRedis:
-            async def exists(self, _key: str) -> int:
+        class BrokenRedis(DelegatingRedis):
+            async def exists(self, *_names: str) -> object:
                 raise ConnectionError("redis unavailable")
 
-            async def set(self, *_args: object, **_kwargs: object) -> None:
+            async def set(self, *_args: object, **_kwargs: object) -> object:
                 raise ConnectionError("redis unavailable")
 
-        history = AlertHistory(BrokenRedis(), dedup_window_hours=1)
+        history = AlertHistory(BrokenRedis(FakeAsyncRedis()), dedup_window_hours=1)
         discord = FakeChannel("discord")
         dispatcher = AlertDispatcher([discord], history=history)
 

@@ -10,9 +10,12 @@ resolving.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+
+from polymarket_insider_tracker.shapes import object_list
 
 if TYPE_CHECKING:
     from polymarket_insider_tracker.detector.models import RiskAssessment
@@ -46,7 +49,7 @@ class AlertRecord:
     feedback_useful: bool | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Serialize to dictionary for storage."""
         return {
             "alert_id": self.alert_id,
@@ -62,26 +65,60 @@ class AlertRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> AlertRecord:
-        """Deserialize from dictionary."""
-        created_at = data.get("created_at")
-        if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at)
-        elif created_at is None:
-            created_at = datetime.now(UTC)
-
+    def from_dict(cls, data: Mapping[str, object]) -> AlertRecord:
+        """Deserialize from dictionary; a missing required key raises ``KeyError`` and a
+        value of the wrong type raises ``ValueError``."""
         return cls(
-            alert_id=data["alert_id"],
-            wallet_address=data["wallet_address"],
-            market_id=data["market_id"],
-            risk_score=float(data["risk_score"]),
-            signals_triggered=data.get("signals_triggered", []),
-            channels_attempted=data.get("channels_attempted", []),
-            channels_succeeded=data.get("channels_succeeded", []),
-            dedup_key=data["dedup_key"],
-            feedback_useful=data.get("feedback_useful"),
-            created_at=created_at,
+            alert_id=_text(data, "alert_id"),
+            wallet_address=_text(data, "wallet_address"),
+            market_id=_text(data, "market_id"),
+            risk_score=_score(data["risk_score"]),
+            signals_triggered=_text_list(data, "signals_triggered"),
+            channels_attempted=_text_list(data, "channels_attempted"),
+            channels_succeeded=_text_list(data, "channels_succeeded"),
+            dedup_key=_text(data, "dedup_key"),
+            feedback_useful=_feedback(data.get("feedback_useful")),
+            created_at=_created_at(data.get("created_at")),
         )
+
+
+def _text(data: Mapping[str, object], key: str) -> str:
+    value = data[key]
+    if not isinstance(value, str):
+        raise ValueError(f"alert record field {key} is not a string")
+    return value
+
+
+def _text_list(data: Mapping[str, object], key: str) -> list[str]:
+    items = object_list(data.get(key, []))
+    if items is None:
+        raise ValueError(f"alert record field {key} is not a list of strings")
+    names = [item for item in items if isinstance(item, str)]
+    if len(names) != len(items):
+        raise ValueError(f"alert record field {key} is not a list of strings")
+    return names
+
+
+def _score(value: object) -> float:
+    if not isinstance(value, (int, float, str)):
+        raise ValueError("alert record field risk_score is not numeric")
+    return float(value)
+
+
+def _feedback(value: object) -> bool | None:
+    if value is None or isinstance(value, bool):
+        return value
+    raise ValueError("alert record field feedback_useful is not a boolean or null")
+
+
+def _created_at(value: object) -> datetime:
+    if value is None:
+        return datetime.now(UTC)
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    raise ValueError("alert record field created_at is not a timestamp")
 
 
 def generate_dedup_key(wallet_address: str, market_id: str, hour: datetime) -> str:

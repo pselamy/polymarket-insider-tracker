@@ -8,7 +8,6 @@ posture (DECISION D2 R0), not a fault.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from polymarket_insider_tracker.detector.alert_path import (
     AlertPathReport,
@@ -23,6 +22,7 @@ from polymarket_insider_tracker.ingestor.health import (
     HealthReport,
     HealthStatus,
 )
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 
 
 class AlertPathHealthMonitor(HealthMonitor):
@@ -57,6 +57,6 @@ class AlertPathHealthMonitor(HealthMonitor):
         components: dict[str, ComponentStatus],
         overall_status: HealthStatus,
         now: float,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         body = super()._build_health_body(report, components, overall_status, now)
-        return {**body, "alert_path": self.alert_path.fields()}
+        return {**body, "alert_path": dict(self.alert_path.fields())}

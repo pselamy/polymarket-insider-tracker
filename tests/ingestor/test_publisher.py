@@ -12,6 +12,7 @@ from polymarket_insider_tracker.ingestor.publisher import (
     DEFAULT_STREAM_NAME,
     ConsumerGroupExistsError,
     EventPublisher,
+    PublisherError,
     StreamEntry,
 )
 
@@ -407,6 +408,32 @@ class TestEmptyEntryHandling:
         entries = await _read_scripted(monkeypatch, fake_redis, results)
 
         assert [entry.entry_id for entry in entries] == ["1704369600000-1"]
+
+    @pytest.mark.parametrize(
+        "bad_entry",
+        ["1-0", ("1-0",), (7, {"k": "v"}), ("1-0", ["k", "v"]), ("1-0", {"k": 1})],
+    )
+    async def test_read_events_drops_a_malformed_row_and_keeps_its_siblings(
+        self,
+        fake_redis: FakeAsyncRedis,
+        monkeypatch: pytest.MonkeyPatch,
+        sample_trade_event: TradeEvent,
+        bad_entry: object,
+    ) -> None:
+        serialized = codec.serialize_trade_event(sample_trade_event)
+        results = [("trades", [bad_entry, ("1704369600000-1", serialized)])]
+        entries = await _read_scripted(monkeypatch, fake_redis, results)
+
+        assert [entry.entry_id for entry in entries] == ["1704369600000-1"]
+
+    @pytest.mark.parametrize(
+        "results", ["trades", {"trades": [("1-0", dict[str, str]())]}, ["trades"], [7]]
+    )
+    async def test_read_events_rejects_a_malformed_reply(
+        self, fake_redis: FakeAsyncRedis, monkeypatch: pytest.MonkeyPatch, results: object
+    ) -> None:
+        with pytest.raises(PublisherError, match="malformed XREADGROUP reply"):
+            await _read_scripted(monkeypatch, fake_redis, results)
 
     @pytest.mark.asyncio
     async def test_read_pending_keeps_populated_entries_after_an_empty_one(
