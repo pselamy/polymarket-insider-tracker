@@ -128,7 +128,7 @@ When running, the tracker serves HTTP health and metrics endpoints on `--health-
 | `POLYMARKET_TRADES_POLL_INTERVAL_SECONDS` | No | `5` | Seconds between acquisition cycles (1–60) |
 | `POLYMARKET_TRADES_RECOVERY_HORIZON_SECONDS` | No | `600` | Identity retention and loss-detection horizon (60–3600) |
 | `POLYMARKET_WS_URL` | No | — | **Deprecated.** Accepted only with `ws://`/`wss://`, warns, never used |
-| `POLYMARKET_API_KEY` | No | — | Optional API key consumed by the CLOB client only |
+| `POLYMARKET_API_KEY` | No | — | **Deprecated.** Accepted with a warning and ignored: every CLOB and trades request is public and anonymous, so no credential is sent. Will be dropped in a later release |
 | `DISCORD_WEBHOOK_URL` | No | — | Discord alerts |
 | `TELEGRAM_BOT_TOKEN` | No | — | Telegram alerts (needs `TELEGRAM_CHAT_ID` too) |
 | `TELEGRAM_CHAT_ID` | No | — | Telegram chat for alerts |

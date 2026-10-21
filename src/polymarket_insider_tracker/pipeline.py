@@ -415,10 +415,7 @@ class Pipeline:
 
         # Initialize CLOB client
         logger.debug("Initializing CLOB client...")
-        api_key = (
-            settings.polymarket.api_key.get_secret_value() if settings.polymarket.api_key else None
-        )
-        self._clob_client = ClobClient(api_key=api_key)
+        self._clob_client = ClobClient()
 
         # Initialize Market Metadata Sync
         logger.debug("Initializing market metadata sync...")

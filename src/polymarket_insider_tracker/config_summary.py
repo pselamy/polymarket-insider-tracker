@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from polymarket_insider_tracker.config import Settings, websocket_deprecation_message
+from polymarket_insider_tracker.deprecated_api_key import api_key_deprecation_message
 from polymarket_insider_tracker.detector.alert_path import alert_path_report
 from polymarket_insider_tracker.redaction import redact_url
 
@@ -34,6 +35,8 @@ def print_trades_source_summary(settings: Settings) -> None:
     print(f"  WebSocket URL: {polymarket.ws_url_disposition}")
     if polymarket.ws_url is not None:
         print(f"  WARNING: {websocket_deprecation_message()}")
+    if polymarket.api_key is not None:
+        print(f"  WARNING: {api_key_deprecation_message()}")
 
 
 def print_alerting_summary(settings: Settings, summary: dict[str, str | dict[str, str]]) -> None:

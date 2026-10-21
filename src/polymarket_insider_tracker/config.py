@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from pydantic import AfterValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from polymarket_insider_tracker.deprecated_api_key import DeprecatedApiKey
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL, reject_v1_trades_url
 from polymarket_insider_tracker.redaction import is_scannable_url_text, redact_url
 from polymarket_insider_tracker.storage.database_url import normalize_database_url
@@ -262,10 +263,10 @@ class PolymarketSettings(BaseSettings):
         alias="POLYMARKET_WS_URL",
         description="Deprecated legacy WebSocket URL; accepted with a warning and never used",
     )
-    api_key: SecretStr | None = Field(
+    api_key: DeprecatedApiKey | None = Field(
         default=None,
         alias="POLYMARKET_API_KEY",
-        description="Optional Polymarket API key",
+        description="Deprecated Polymarket API key; accepted with a warning and never used",
     )
 
     @property

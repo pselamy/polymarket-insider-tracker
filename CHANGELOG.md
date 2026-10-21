@@ -6,6 +6,11 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 ## [Unreleased]
 
 ### Changed
+- `POLYMARKET_API_KEY` is deprecated and ignored. py-clob-client never accepted a bare key and
+  every CLOB endpoint the tracker calls is public, so `ClobClient` no longer takes an `api_key`
+  or reads the variable, and its startup log no longer reports `api_key_set`. Settings still
+  accept the variable for one release, emit `ApiKeySettingDeprecationWarning` at load and in
+  `--config-check`, and never print the value.
 - **Supported trade ingestion (slice 001)**: trades are now acquired by
   near-real-time polling of the documented anonymous public trades query
   (now the official v2 endpoint, `https://data-api.polymarket.com/v2/trades`)
