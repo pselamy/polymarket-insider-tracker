@@ -94,7 +94,7 @@ count.
 | `REF-CMD-17` | `black --check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-18` | `ruff check src tests quality scripts alembic conftest.py` | **full authored scope** |
 | `REF-CMD-19` | `uv run --isolated --locked --all-extras --python 3.11 mypy src scripts quality alembic conftest.py tests` | **all authored roots**: `src scripts quality alembic conftest.py tests` (step 5 completes `tests/`) |
-| `REF-CMD-20` | `pyright` | **staged**: `src/polymarket_insider_tracker`, `scripts`, `quality`, `alembic`, `conftest.py`, `tests/quality` and four zero-diagnostic top-level test modules and later steps' roots, including `tests/integration` and `tests/test_redaction.py` (see the REF-CMD-20 step 1 and 7b sections); the rest of `tests` stays unenrolled |
+| `REF-CMD-20` | `pyright` | **full authored scope**: `src/polymarket_insider_tracker`, `scripts`, `quality`, `alembic`, `conftest.py`, `tests` (one root; staging complete, see the REF-CMD-20 final step section) |
 | `REF-CMD-22` | `complexipy src tests quality scripts alembic conftest.py --max-complexity-allowed 5` | **full authored scope** |
 | `REF-HOOK-02` | `verify_tracked` | **full**: complete tracked path inventory |
 
@@ -1080,3 +1080,16 @@ Defect-fails: appending `PLANTED: int = "a"` to `tests/ingestor/test_health.py` 
 `pyright` exit 1 (`Type "Literal['a']" is not assignable to declared type "int"`); the clean tree
 exits 0.
 
+
+## REF-CMD-20 final step: `tests` enrolled as one root (2026-10-21)
+
+Pyright staging is complete. Measured from `origin/main` at `9ef2ff8`: `pyright --outputjson tests`
+reported 0 errors over 160 files. `[tool.pyright].include` now lists `tests` once; the staged list of
+`tests/...` sub-paths is gone, so new test files are enforced automatically with no enrolment edit.
+The include is `src/polymarket_insider_tracker`, `scripts`, `quality`, `alembic`, `conftest.py`, `tests`.
+Strict mode, `enableTypeIgnoreComments = false` and `stubPath` are unchanged; no suppression is used.
+
+Enforcement proof: `tests/tooling/test_pyright_tests_root.py` asserts `tests` is the single `tests`
+entry and runs strict pyright with the repository's `[tool.pyright]` settings over a temporary
+project holding a new, nested `tests/nested/test_planted.py` with a type error; pyright exits 1 with
+`reportAssignmentType`. Nothing is planted in the working tree.
