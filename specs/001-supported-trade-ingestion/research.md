@@ -313,3 +313,5 @@ pipeline state propagation, and CLI exit on terminal ingestion failure remain ow
 All Technical Context items are resolved; no `NEEDS CLARIFICATION` remains. The reachable-depth
 limitation and the stall-versus-record choice for aged gaps are recorded for Patrick's confirmation in
 [plan.md](plan.md) and [tasks.md](tasks.md).
+
+> **Correction (POLYMARKET_API_KEY deprecation):** `POLYMARKET_API_KEY` is now deprecated and ignored; no request carries it. The "unchanged" / "consumed by the CLOB client" wording above describes slice 001 as delivered. See CHANGELOG.md.

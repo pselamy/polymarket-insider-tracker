@@ -264,9 +264,7 @@ class PolymarketSettings(BaseSettings):
         description="Deprecated legacy WebSocket URL; accepted with a warning and never used",
     )
     api_key: DeprecatedApiKey | None = Field(
-        default=None,
-        alias="POLYMARKET_API_KEY",
-        description="Deprecated Polymarket API key; accepted with a warning and never used",
+        default=None, alias="POLYMARKET_API_KEY", description="Deprecated; ignored"
     )
 
     @property

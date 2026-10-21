@@ -22,8 +22,9 @@ def api_key_deprecation_message() -> str:
 
 
 def _warn_about_ignored_api_key(value: SecretStr) -> SecretStr:
-    """Accept the legacy key with the deprecation warning; the value is never printed."""
-    warnings.warn(api_key_deprecation_message(), ApiKeySettingDeprecationWarning, stacklevel=2)
+    """Accept the legacy key, warning unless it is empty (unset); the value is never printed."""
+    if value.get_secret_value():
+        warnings.warn(api_key_deprecation_message(), ApiKeySettingDeprecationWarning, stacklevel=2)
     return value
 
 

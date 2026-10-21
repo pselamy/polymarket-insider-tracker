@@ -41,6 +41,21 @@ def test_unset_key_does_not_warn(monkeypatch: pytest.MonkeyPatch) -> None:
         assert PolymarketSettings().api_key is None
 
 
+def test_empty_key_is_treated_as_unset(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+    monkeypatch.setenv("POLYMARKET_API_KEY", "")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ApiKeySettingDeprecationWarning)
+        settings = validate_config()
+    assert settings is not None
+
+    run_config_check(settings)
+
+    assert api_key_deprecation_message() not in capsys.readouterr().out
+
+
 def test_config_check_reports_the_key_as_ignored_without_printing_it(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
