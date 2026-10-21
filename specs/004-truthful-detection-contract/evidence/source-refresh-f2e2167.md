@@ -138,3 +138,22 @@ Every remaining hit is intentionally historical: it names the original base (`46
 `752a918`) in a sentence that also gives the refreshed base, or is the immutable replay receipt in
 `evidence/replay/summary.json` / `evidence/replay.md` / `evidence/implementation-validation.md`
 (historical sections), none of which claim to describe current main.
+
+## Eighth refresh: 3aafd0b plus layer 3 (2026-10-21)
+
+Slice 004 layer 3 changes five hashed files and, unlike the earlier refreshes, **changes scoring
+behaviour on purpose**; `evidence/source-hashes.json` records the new hashes with `base_commit` 3aafd0b.
+`detector/fresh_wallet.py` and `profiler/models.py` stay byte-identical.
+`detector/scorer.py`: the wallet group no longer scores (DECISION D1b G1, FR-007c), the 3+ bonus branch
+is removed (`multi_signal_bonus_3` stays as the neutral `"1"` key, FR-011), the combination arithmetic
+moves into the module function `size_group_score` that the alert-path report also calls, and the
+size diagnostics read the classified volume evidence. The numeric literals T028 checks
+(`0.40/0.35/0.25`, `MULTI_SIGNAL_BONUS_2 = 1.2`, `0.80`) are unchanged.
+`detector/size_anomaly.py`: the volume ratio and the niche basis come from the classified volume state
+(D3 (d)); the confidence literals became the named constants `VOLUME_RATIO_CAP`, `VOLUME_SCORE_CAP` and
+`NICHE_MULTIPLIER` with the same values; `reachability.py` now requires those names.
+`detector/models.py`: `RiskAssessment.wallet_group_status`. `ingestor/models.py`: the lossy
+`daily_volume`/`weekly_volume`/`liquidity` fields are retired. `pipeline.py`: the alert-path report
+(T029) is logged at startup and set on the health monitor.
+The T002 premise (replay conclusions about the 003.1 contract) is unaffected because the replay corpus
+evaluates the old and proposed contracts side by side; the shipped contract is now the proposed one.

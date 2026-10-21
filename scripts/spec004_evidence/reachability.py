@@ -55,10 +55,13 @@ REQUIRED_LITERALS: dict[str, tuple[str, ...]] = {
         "DEFAULT_ALERT_THRESHOLD = 0.80",
     ),
     "detector/size_anomaly.py": (
-        'factors["niche_multiplier"] = 1.5',
+        "NICHE_MULTIPLIER = 1.5",
+        "VOLUME_SCORE_CAP = 0.5",
+        "VOLUME_RATIO_CAP = 3.0",
+        'factors["niche_multiplier"] = NICHE_MULTIPLIER',
         'factors["niche_base"] = 0.2',
-        "ratio / 3.0 * 0.5",
-        "min(volume_impact / self._volume_threshold, 3.0)",
+        "ratio / VOLUME_RATIO_CAP * VOLUME_SCORE_CAP",
+        "min(volume_impact / self._volume_threshold, VOLUME_RATIO_CAP)",
         "confidence < 0.1",
     ),
     "detector/fresh_wallet.py": (

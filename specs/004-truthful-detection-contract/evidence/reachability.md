@@ -7,10 +7,13 @@
 - `detector/scorer.py`: `"niche_market": 0.25`
 - `detector/scorer.py`: `MULTI_SIGNAL_BONUS_2 = 1.2`
 - `detector/scorer.py`: `DEFAULT_ALERT_THRESHOLD = 0.80`
-- `detector/size_anomaly.py`: `factors["niche_multiplier"] = 1.5`
+- `detector/size_anomaly.py`: `NICHE_MULTIPLIER = 1.5`
+- `detector/size_anomaly.py`: `VOLUME_SCORE_CAP = 0.5`
+- `detector/size_anomaly.py`: `VOLUME_RATIO_CAP = 3.0`
+- `detector/size_anomaly.py`: `factors["niche_multiplier"] = NICHE_MULTIPLIER`
 - `detector/size_anomaly.py`: `factors["niche_base"] = 0.2`
-- `detector/size_anomaly.py`: `ratio / 3.0 * 0.5`
-- `detector/size_anomaly.py`: `min(volume_impact / self._volume_threshold, 3.0)`
+- `detector/size_anomaly.py`: `ratio / VOLUME_RATIO_CAP * VOLUME_SCORE_CAP`
+- `detector/size_anomaly.py`: `min(volume_impact / self._volume_threshold, VOLUME_RATIO_CAP)`
 - `detector/size_anomaly.py`: `confidence < 0.1`
 - `detector/fresh_wallet.py`: `BASE_CONFIDENCE = 0.5`
 - `detector/fresh_wallet.py`: `BRAND_NEW_BONUS = 0.2`

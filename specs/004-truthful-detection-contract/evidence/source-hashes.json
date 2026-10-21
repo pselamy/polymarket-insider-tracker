@@ -1,13 +1,13 @@
 {
-  "base_commit": "3e2fd42",
-  "note": "Current-base hashes, regenerated on main f3871cb and re-verified unchanged on 3d5ab59 (src diff vs f3871cb adds only AlertHistory.retention_ttl in alerter/history.py, not hashed; src diff vs 0ddee0b adds Protocol @abstractmethod docstring stubs in fresh_wallet.py and profiler, no scoring change; vs 112a733 renames Pipeline._on_trade to process_trade and adds a database helper; vs f2e2167 Protocol-typing; see source-refresh-f2e2167.md). replay/summary.json stays the immutable receipt of the replay execution checkout. Layer 2 of slice 004 (seventh refresh) changes detector/models.py, detector/size_anomaly.py and ingestor/models.py additively; scorer.py and pipeline.py stay byte-identical (source-refresh-f2e2167.md).",
+  "base_commit": "3aafd0b",
+  "note": "Current-base hashes, regenerated on main f3871cb and re-verified unchanged on 3d5ab59 (src diff vs f3871cb adds only AlertHistory.retention_ttl in alerter/history.py, not hashed; src diff vs 0ddee0b adds Protocol @abstractmethod docstring stubs in fresh_wallet.py and profiler, no scoring change; vs 112a733 renames Pipeline._on_trade to process_trade and adds a database helper; vs f2e2167 Protocol-typing; see source-refresh-f2e2167.md). replay/summary.json stays the immutable receipt of the replay execution checkout. Layer 2 of slice 004 (seventh refresh) changes detector/models.py, detector/size_anomaly.py and ingestor/models.py additively; scorer.py and pipeline.py stay byte-identical (source-refresh-f2e2167.md). Layer 3 of slice 004 (eighth refresh) changes detector/scorer.py, detector/size_anomaly.py, detector/models.py, ingestor/models.py and pipeline.py: the scoring behaviour itself changes (G1 size-only scoring, classified volume state); see source-refresh-f2e2167.md.",
   "source_sha256": {
     "detector/fresh_wallet.py": "b6e4a7831626eb0597dc01a3b92a2a2427bb6f5ab25e177e9256dc97628bb73f",
-    "detector/models.py": "396d91c608527a488ee63807f7854c57d14543fb08df0f8987a6623907d9330b",
-    "detector/scorer.py": "2fd151ee38dc7e44e55c2b309549cc14aea012e591d6451feb074b4571513904",
-    "detector/size_anomaly.py": "e453a2d2848c471f5d91e32d6642a84a6a8ca7076b68dea1965f6ef7a3e9cdf7",
-    "ingestor/models.py": "533593fbfef2a4fcd5b1506aec879dac46ec556a5577c919ff795d1446f2f7f5",
-    "pipeline.py": "50602943d8e7d29cb4f6513bb90f8f353ec69ccfd4d2b120e2feba7b546886cf",
+    "detector/models.py": "5a616470a0c4550c6ce25cbecb57ed6bbfe9c83a2ea922a9ca7f01ddb8ec6374",
+    "detector/scorer.py": "d85a668c57e13c586437ec0fa2920ff53679cc6fcfc795c9e30368386842be0a",
+    "detector/size_anomaly.py": "a219b9f60ef23f35c0ea27c94f835ccf245faba7c8567f941b2d6313716aca9f",
+    "ingestor/models.py": "0aa5c3b9e1ff42eb3f464762d2fbd7d95b112bf962271d0da95e035ea48acf47",
+    "pipeline.py": "674774ceef86c1104c809e4979cef46aba1c91139e07b26a9d40768590eb5e20",
     "profiler/models.py": "a4a4a0e45b6076763b68592ccc70a0c1ca9e2df1d6c4adf597d12ae9fa95b5be"
   }
 }
