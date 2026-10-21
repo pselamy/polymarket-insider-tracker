@@ -36,8 +36,10 @@ from polymarket_insider_tracker.detector.scoring_config import (
 CONTRACTS = (
     Path(__file__).resolve().parents[2] / "specs" / "004-truthful-detection-contract" / "contracts"
 )
-GOLDEN_003_1 = (
-    '{"alert_threshold":"0.800","multi_signal_bonus_2":"1.2","multi_signal_bonus_3":"1.3",'
+# The pure configuration the scorer writes since the 3+ bonus branch was removed (FR-011):
+# the structural key stays, neutral.
+GOLDEN_PURE = (
+    '{"alert_threshold":"0.800","multi_signal_bonus_2":"1.2","multi_signal_bonus_3":"1",'
     '"score_quantum":"0.001","weights":{"fresh_wallet":"0.4","niche_market":"0.25",'
     '"size_anomaly":"0.35"}}'
 )
@@ -67,17 +69,17 @@ def read_document(text: str) -> Document004:
 
 
 class TestScorerOutputUnchanged:
-    def test_scorer_still_writes_the_003_1_golden_bytes(self) -> None:
+    def test_scorer_writes_the_neutral_bonus_3_golden_bytes(self) -> None:
         scorer = RiskScorer(FakeAsyncRedis(), alert_threshold=0.8)
         assert SCORING_ALGORITHM_VERSION == VERSION_003
-        assert scorer.scoring_config == GOLDEN_003_1
+        assert scorer.scoring_config == GOLDEN_PURE
 
     def test_003_1_row_reads_back_and_reserializes_byte_identically(self) -> None:
         scorer = RiskScorer(FakeAsyncRedis(), alert_threshold=0.8)
         config = read_scoring_config(VERSION_003, scorer.scoring_config)
         assert isinstance(config, PureConfig)
         assert config.alert_threshold == Decimal("0.800")
-        assert config.multi_signal_bonus_3 == Decimal("1.3")
+        assert config.multi_signal_bonus_3 == Decimal("1")
         assert config.weights == {
             "fresh_wallet": Decimal("0.4"),
             "niche_market": Decimal("0.25"),
@@ -99,12 +101,12 @@ class TestDispatch:
 
     def test_legacy_row_with_a_document_is_corrupt(self) -> None:
         with pytest.raises(CorruptScoringConfig):
-            read_scoring_config(LEGACY_VERSION, GOLDEN_003_1)
+            read_scoring_config(LEGACY_VERSION, GOLDEN_PURE)
 
     @pytest.mark.parametrize("version", ["004.2", "005.1", ""])
     def test_unknown_version_is_surfaced(self, version: str) -> None:
         with pytest.raises(UnsupportedScoringVersion):
-            read_scoring_config(version, GOLDEN_003_1)
+            read_scoring_config(version, GOLDEN_PURE)
 
     @pytest.mark.parametrize("version", [VERSION_003, VERSION_004_1])
     def test_versioned_row_without_document_is_corrupt(self, version: str) -> None:
@@ -117,7 +119,7 @@ class TestDispatch:
 
     def test_004_1_row_missing_evidence_keys_is_corrupt(self) -> None:
         with pytest.raises(CorruptScoringConfig):
-            read_scoring_config(VERSION_004_1, GOLDEN_003_1)
+            read_scoring_config(VERSION_004_1, GOLDEN_PURE)
 
 
 class TestDocument004:
@@ -241,12 +243,12 @@ class TestCorruptDocuments:
             read_scoring_config(version, text)
 
     def test_float_anywhere_is_corrupt(self) -> None:
-        text = GOLDEN_003_1.replace('"0.4"', "0.4")
+        text = GOLDEN_PURE.replace('"0.4"', "0.4")
         with pytest.raises(CorruptScoringConfig, match="float"):
             read_scoring_config(VERSION_003, text)
 
     def test_integer_where_decimal_string_expected_is_corrupt(self) -> None:
-        text = GOLDEN_003_1.replace('"1.2"', "1")
+        text = GOLDEN_PURE.replace('"1.2"', "1")
         with pytest.raises(CorruptScoringConfig):
             read_scoring_config(VERSION_003, text)
 

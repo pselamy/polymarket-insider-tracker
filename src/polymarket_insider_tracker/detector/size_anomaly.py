@@ -12,7 +12,10 @@ from typing import Protocol
 from polymarket_insider_tracker.detector._batch import gather_signals
 from polymarket_insider_tracker.detector.evaluation_clock import Clock, system_clock
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
-from polymarket_insider_tracker.detector.volume_state import size_volume_evidence
+from polymarket_insider_tracker.detector.volume_state import (
+    SizeVolumeEvidence,
+    size_volume_evidence,
+)
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.redaction import redact_exception_message
 
@@ -25,10 +28,6 @@ DEFAULT_NICHE_VOLUME_THRESHOLD = Decimal("50000")  # $50k daily volume
 # Niche-only path requires real trade size; below this, suppress the base
 # 0.2 confidence so we don't flood alerts with low-value niche trades.
 DEFAULT_NICHE_MIN_TRADE_SIZE = Decimal("500")  # USDC notional
-
-# Niche market categories - markets in these categories with low specificity
-# are more likely to have insider information value
-NICHE_PRONE_CATEGORIES = frozenset({"science", "tech", "finance", "other"})
 
 
 class MarketMetadataSource(Protocol):
@@ -125,9 +124,19 @@ class SizeAnomalyDetector:
         trade_size = trade.notional_value
 
         # Calculate impacts
-        volume_impact = self._calculate_volume_impact(trade_size, daily_volume)
+        # The classified volume state is the only volume input: an unusable volume has no
+        # ratio (0.0 is the legacy non-measurement sentinel) and the D3 (d) basis decides niche.
+        evidence = size_volume_evidence(
+            metadata,
+            category_source,
+            trade_size,
+            self._clock,
+            daily_volume,
+            self._niche_volume_threshold,
+        )
+        volume_impact = self._volume_impact(evidence)
         book_impact = self._calculate_book_impact(trade_size, book_depth)
-        is_niche = self._is_niche_market(metadata, daily_volume)
+        is_niche = evidence.niche_basis != "none"
 
         if self._should_skip_trade(trade, volume_impact, book_impact, is_niche):
             return None
@@ -162,9 +171,7 @@ class SizeAnomalyDetector:
             is_niche_market=is_niche,
             confidence=confidence,
             factors=factors,
-            volume_evidence=size_volume_evidence(
-                metadata, category_source, trade_size, self._clock, daily_volume
-            ),
+            volume_evidence=evidence,
         )
 
     async def _fetch_metadata(self, trade: TradeEvent) -> tuple[MarketMetadata, str]:
@@ -235,23 +242,11 @@ class SizeAnomalyDetector:
             category="other",
         )
 
-    def _calculate_volume_impact(
-        self,
-        trade_size: Decimal,
-        daily_volume: Decimal | None,
-    ) -> float:
-        """Calculate trade size as fraction of daily volume.
-
-        Args:
-            trade_size: Trade notional value in USDC.
-            daily_volume: 24h market volume in USDC.
-
-        Returns:
-            Volume impact ratio, or 0.0 if volume unknown.
-        """
-        if daily_volume is None or daily_volume <= 0:
-            return 0.0
-        return float(trade_size / daily_volume)
+    @staticmethod
+    def _volume_impact(evidence: SizeVolumeEvidence) -> float:
+        """The measured trade/volume ratio; 0.0 (never a measurement) unless state ``available``."""
+        measured = evidence.volume_impact_measured
+        return 0.0 if measured is None else float(measured)
 
     def _calculate_book_impact(
         self,
@@ -270,31 +265,6 @@ class SizeAnomalyDetector:
         if book_depth is None or book_depth <= 0:
             return 0.0
         return float(trade_size / book_depth)
-
-    def _is_niche_market(
-        self,
-        metadata: MarketMetadata,
-        daily_volume: Decimal | None,
-    ) -> bool:
-        """Determine if market is considered niche.
-
-        A market is niche if:
-        - Volume is below threshold ($50k), OR
-        - Category is prone to insider info AND volume is unknown
-
-        Args:
-            metadata: Market metadata with category.
-            daily_volume: Optional 24h volume.
-
-        Returns:
-            True if market is considered niche.
-        """
-        # If volume known and below threshold, it's niche
-        if daily_volume is not None and daily_volume < self._niche_volume_threshold:
-            return True
-
-        # If volume unknown, use category heuristics
-        return daily_volume is None and metadata.category in NICHE_PRONE_CATEGORIES
 
     @staticmethod
     def _apply_niche_multiplier(

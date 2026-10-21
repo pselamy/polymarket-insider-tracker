@@ -204,7 +204,7 @@ class TestGetSignalsFromAssessment:
         sample_trade: TradeEvent,
         fresh_wallet_signal: FreshWalletSignal,
     ) -> None:
-        """Test extraction with fresh wallet signal."""
+        """G1: the non-scoring wallet group is not a triggered signal."""
         assessment = RiskAssessment(
             trade_event=sample_trade,
             wallet_address=sample_trade.wallet_address,
@@ -217,13 +217,12 @@ class TestGetSignalsFromAssessment:
         )
 
         signals = _get_signals_from_assessment(assessment)
-        assert "fresh_wallet" in signals
-        assert "size_anomaly" not in signals
+        assert signals == []
 
     def test_all_signals(self, high_risk_assessment: RiskAssessment) -> None:
         """Test extraction with all signals."""
         signals = _get_signals_from_assessment(high_risk_assessment)
-        assert "fresh_wallet" in signals
+        assert "fresh_wallet" not in signals
         assert "size_anomaly" in signals
         assert "niche_market" in signals
 

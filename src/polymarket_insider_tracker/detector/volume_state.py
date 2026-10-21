@@ -278,10 +278,15 @@ def _category_basis(verdict: VolumeVerdict, category: str, category_source: str)
     return "category" if no_value_observed and real_category else "none"
 
 
-def niche_basis(verdict: VolumeVerdict, category: str, category_source: str) -> str:
+def niche_basis(
+    verdict: VolumeVerdict,
+    category: str,
+    category_source: str,
+    threshold: Decimal = NICHE_VOLUME_THRESHOLD,
+) -> str:
     """``numeric``, ``category`` (DECISION D3 (d)) or ``none`` (data-model section 3)."""
     if verdict.daily_volume is not None:  # set only in state ``available``
-        return "numeric" if verdict.daily_volume < NICHE_VOLUME_THRESHOLD else "none"
+        return "numeric" if verdict.daily_volume < threshold else "none"
     return _category_basis(verdict, category, category_source)
 
 
@@ -291,6 +296,7 @@ def size_volume_evidence(
     notional: Decimal,
     clock: Clock,
     explicit: Decimal | None = None,
+    niche_threshold: Decimal = NICHE_VOLUME_THRESHOLD,
 ) -> SizeVolumeEvidence:
     """Classify ``metadata``'s stored volume at one reading of ``clock``; derive the evidence.
 
@@ -304,6 +310,6 @@ def size_volume_evidence(
         explicit=explicit,
         unavailable_reason=reason or metadata.volume_unavailable_reason,
     )
-    basis = niche_basis(verdict, metadata.category, category_source)
+    basis = niche_basis(verdict, metadata.category, category_source, niche_threshold)
     impact = measured_impact(notional, verdict)
     return SizeVolumeEvidence(verdict, impact, basis, metadata.category, category_source)

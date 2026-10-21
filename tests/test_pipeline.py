@@ -43,6 +43,7 @@ from tests.integration._journey_harness import (
     pipeline_row,
     running_pipeline,
     seeded_server,
+    stamped_volume_market,
     wire_journey_pipeline,
 )
 
@@ -79,8 +80,8 @@ def sample_wallet_profile() -> WalletProfile:
 
 @pytest.fixture
 def niche_market(sample_trade_event: TradeEvent) -> MarketMetadata:
-    """A science market with unknown volume, which the size detector treats as niche."""
-    return market_for_trade(sample_trade_event, "science")
+    """A science market with a fresh stamped $10,000 volume (T021): size-only score 0.450."""
+    return stamped_volume_market(sample_trade_event)
 
 
 @pytest.fixture
@@ -371,8 +372,9 @@ class TestOnTrade:
         assert pipeline.stats.alerts_sent == 1
         rows = await persisted_assessments(async_engine)
         assert [row.should_alert for row in rows] == [True]
-        assert rows[0].signals_triggered == 2
-        assert float(rows[0].weighted_score) >= 0.4
+        # G1: the brand-new wallet is recorded but the size group alone scores (was 2 / 0.888).
+        assert rows[0].signals_triggered == 1
+        assert float(rows[0].weighted_score) == 0.45
         assert [alert.links["wallet"] for alert in channel.deliveries] == [
             f"https://polygonscan.com/address/{sample_trade_event.wallet_address}"
         ]
@@ -391,7 +393,7 @@ class TestScoreAndAlert:
         """Dry run formats the alert and logs it but never hands it to a channel."""
         channel = FakeAlertChannel("discord")
         pipeline = await wire_pipeline(
-            make_test_settings(dry_run=True, persist_assessments=False),
+            make_test_settings(dry_run=True, persist_assessments=False, alert_threshold=0.4),
             redis=fake_redis,
             eth=FakeEth(),
             channels=[channel],
@@ -453,7 +455,8 @@ class TestScoreAndAlert:
         await pipeline._score_and_alert(bundle)
 
         rows = await persisted_assessments(async_engine)
-        assert [(row.should_alert, float(row.weighted_score)) for row in rows] == [(False, 0.2)]
+        # G1: the wallet signal alone is recorded evidence and scores nothing (was 0.2).
+        assert [(row.should_alert, float(row.weighted_score)) for row in rows] == [(False, 0.0)]
         assert channel.deliveries == []
         assert pipeline.stats.alerts_sent == 0
 

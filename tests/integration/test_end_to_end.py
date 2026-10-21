@@ -32,12 +32,12 @@ from tests.integration._journey_harness import (
     dry_run_assessment,
     journey_settings,
     make_sample_trade_event,
-    market_for_trade,
     persisted_assessments,
     pipeline_row,
     run_until,
     running_pipeline,
     seeded_server,
+    stamped_volume_market,
     wire_journey_pipeline,
 )
 
@@ -59,7 +59,8 @@ def sample_trade_event() -> TradeEvent:
 
 @pytest.fixture
 def niche_market(sample_trade_event: TradeEvent) -> MarketMetadata:
-    return market_for_trade(sample_trade_event, "science")
+    """T021: a science market with a fresh stamped $10,000 volume; size-only score 0.450."""
+    return stamped_volume_market(sample_trade_event)
 
 
 async def _await_readiness(
@@ -178,7 +179,9 @@ class TestEndToEndPipelineHarness:
         assessment_row = dry_run_assessment(rows, sample_trade_event)
         assert assessment_row.wallet_tx_count == 0
         assert assessment_row.wallet_age_known is False
-        assert assessment_row.signals_triggered == 2
+        # G1: the unknown-age wallet (nonce 0) is recorded evidence; only the size group scores.
+        assert assessment_row.signals_triggered == 1
+        assert float(assessment_row.weighted_score) == 0.45
         # The row identifies the exact algorithm and configuration that produced it.
         assert assessment_row.scoring_algorithm_version == "003.1"
         assert assessment_row.scoring_config is not None

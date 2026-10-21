@@ -9,6 +9,10 @@ from decimal import Decimal
 from typing import Protocol
 
 from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
+from polymarket_insider_tracker.detector.scoring_config import (
+    DEFAULT_WALLET_GROUP_STATUS,
+    WalletGroupStatus,
+)
 from polymarket_insider_tracker.detector.volume_state import SizeVolumeEvidence
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
@@ -275,6 +279,9 @@ class RiskAssessment:
     wallet_tx_count: int | None = None
     wallet_age_known: bool | None = None
 
+    # FR-007c: whether the wallet group may score. Pre-T027 it is recorded evidence only.
+    wallet_group_status: WalletGroupStatus = DEFAULT_WALLET_GROUP_STATUS
+
     # Scoring reproducibility identity (Patrick's 2026-09-11 schema decision):
     # the algorithm version and the exact active configuration behind this record.
     scoring_algorithm_version: str = SCORING_ALGORITHM_VERSION
@@ -320,6 +327,7 @@ class RiskAssessment:
             "book_depth_available": self.book_depth_available,
             "wallet_tx_count": self.wallet_tx_count,
             "wallet_age_known": self.wallet_age_known,
+            "wallet_group_status": self.wallet_group_status.value,
             "scoring_algorithm_version": self.scoring_algorithm_version,
             "scoring_config": self.scoring_config,
             "timestamp": self.timestamp.isoformat(),

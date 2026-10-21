@@ -20,6 +20,8 @@ from polymarket_insider_tracker.detector.models import (
     RiskAssessment,
     SizeAnomalySignal,
 )
+from polymarket_insider_tracker.detector.scoring_config import DEFAULT_WALLET_GROUP_STATUS
+from polymarket_insider_tracker.detector.volume_state import VolumeState
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 
 logger = logging.getLogger(__name__)
@@ -47,9 +49,10 @@ DEFAULT_WEIGHTS: Mapping[str, float] = MappingProxyType(
     }
 )
 
-# Multi-signal bonuses
-MULTI_SIGNAL_BONUS_2 = 1.2  # 20% bonus for 2 signals
-MULTI_SIGNAL_BONUS_3 = 1.3  # 30% bonus for 3+ signals
+# Multi-signal bonus: only two signal groups exist, so the 3+ branch is removed (FR-011).
+# The ``multi_signal_bonus_3`` configuration key is retained as an inert neutral multiplier.
+MULTI_SIGNAL_BONUS_2 = 1.2  # 20% bonus for two scoring groups
+NEUTRAL_BONUS_3 = 1  # structural key kept for the persisted configuration; never applied
 
 # Confidences, thresholds, and the final score are evaluated at the NUMERIC(4,3)
 # precision the assessment schema persists, so a stored record replays the exact
@@ -194,7 +197,7 @@ class RiskScorer:
         payload = {
             "alert_threshold": str(quantize_score_value(self._alert_threshold)),
             "multi_signal_bonus_2": str(Decimal(str(MULTI_SIGNAL_BONUS_2))),
-            "multi_signal_bonus_3": str(Decimal(str(MULTI_SIGNAL_BONUS_3))),
+            "multi_signal_bonus_3": str(Decimal(NEUTRAL_BONUS_3)),
             "score_quantum": str(SCORE_QUANTUM),
             "weights": {
                 name: str(Decimal(str(weight)))
@@ -238,11 +241,12 @@ class RiskScorer:
     ) -> tuple[bool | None, Decimal | None, bool | None]:
         if signal is None:
             return None, None, None
-        meta = signal.market_metadata
-        vol_avail = meta.daily_volume is not None
-        market_vol = meta.daily_volume
-        book_avail = signal.book_impact > 0.0 or meta.liquidity is not None
-        return vol_avail, market_vol, book_avail
+        # Book depth cannot score and has no source (FR-006): it is recorded as unavailable.
+        evidence = signal.volume_evidence
+        if evidence is None:
+            return None, None, False
+        verdict = evidence.verdict
+        return verdict.state is VolumeState.AVAILABLE, verdict.daily_volume, False
 
     @staticmethod
     def _extract_fresh_diagnostics(
@@ -306,6 +310,7 @@ class RiskScorer:
             book_depth_available=book_avail,
             wallet_tx_count=tx_count,
             wallet_age_known=age_known,
+            wallet_group_status=DEFAULT_WALLET_GROUP_STATUS,
             scoring_algorithm_version=SCORING_ALGORITHM_VERSION,
             scoring_config=self._scoring_config,
         )
@@ -314,12 +319,6 @@ class RiskScorer:
         # A name missing from a partial deprecated mapping contributes zero,
         # exactly as before slice 003; the zero is recorded in scoring_config.
         return Decimal(str(self._weights.get(name, 0.0)))
-
-    def _score_fresh_wallet(self, bundle: SignalBundle) -> tuple[Decimal, int]:
-        if bundle.fresh_wallet_signal is None:
-            return Decimal(0), 0
-        confidence = quantize_score_value(bundle.fresh_wallet_signal.confidence)
-        return confidence * self._weight("fresh_wallet"), 1
 
     def _score_size_anomaly(self, bundle: SignalBundle) -> tuple[Decimal, int]:
         signal = bundle.size_anomaly_signal
@@ -335,8 +334,6 @@ class RiskScorer:
 
     @staticmethod
     def _apply_multi_signal_bonus(score: Decimal, count: int) -> Decimal:
-        if count >= 3:
-            return score * Decimal(str(MULTI_SIGNAL_BONUS_3))
         if count >= 2:
             return score * Decimal(str(MULTI_SIGNAL_BONUS_2))
         return score
@@ -355,11 +352,11 @@ class RiskScorer:
         Returns:
             Tuple of (weighted_score, signals_triggered_count).
         """
-        fresh_score, fresh_count = self._score_fresh_wallet(bundle)
-        size_score, size_count = self._score_size_anomaly(bundle)
-        signals_triggered = fresh_count + size_count
+        # G1 (FR-007c): the wallet group is recorded evidence only, so it neither adds a
+        # contribution nor counts as a scoring group until a T027 PASS receipt qualifies it.
+        size_score, signals_triggered = self._score_size_anomaly(bundle)
 
-        score = fresh_score + size_score + self._score_niche_market(bundle)
+        score = size_score + self._score_niche_market(bundle)
         score = self._apply_multi_signal_bonus(score, signals_triggered)
         quantized = min(score, Decimal(1)).quantize(SCORE_QUANTUM, rounding=ROUND_HALF_EVEN)
         return float(quantized), signals_triggered

@@ -10,8 +10,12 @@ from polymarket_insider_tracker.detector.size_anomaly import (
     DEFAULT_BOOK_THRESHOLD,
     DEFAULT_NICHE_VOLUME_THRESHOLD,
     DEFAULT_VOLUME_THRESHOLD,
-    NICHE_PRONE_CATEGORIES,
     SizeAnomalyDetector,
+)
+from polymarket_insider_tracker.detector.volume_state import (
+    NICHE_PRONE_CATEGORIES,
+    SizeVolumeEvidence,
+    size_volume_evidence,
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from tests.fakes.metadata import FakeMetadataSync
@@ -263,37 +267,33 @@ class TestSizeAnomalyDetectorInit:
 # ============================================================================
 
 
+def _evidence(
+    metadata: MarketMetadata, explicit: Decimal | None = None, source: str = "metadata"
+) -> SizeVolumeEvidence:
+    """The classified volume evidence the detector scores from, at a fixed instant."""
+    return size_volume_evidence(
+        metadata, source, Decimal("1000"), lambda: datetime(2026, 10, 19, tzinfo=UTC), explicit
+    )
+
+
 class TestVolumeImpactCalculation:
-    """Tests for volume impact calculation."""
+    """The volume impact is the measured ratio of the classified state, never a fabricated 0."""
 
-    def test_volume_impact_calculation(self, fake_metadata_sync: FakeMetadataSync) -> None:
-        """Test correct volume impact calculation."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
+    def test_volume_impact_calculation(self, sample_metadata: MarketMetadata) -> None:
         # Trade size $1000, daily volume $50000 = 2% impact
-        impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("50000"))
-        assert impact == pytest.approx(0.02)
+        measured = _evidence(sample_metadata, Decimal("50000")).volume_impact_measured
+        assert measured == Decimal("0.0200")
+        assert SizeAnomalyDetector._volume_impact(_evidence(sample_metadata, Decimal("50000"))) == (
+            pytest.approx(0.02)
+        )
 
-    def test_volume_impact_none_volume(self, fake_metadata_sync: FakeMetadataSync) -> None:
-        """Test volume impact returns 0 when volume is None."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
-        impact = detector._calculate_volume_impact(Decimal("1000"), None)
-        assert impact == 0.0
-
-    def test_volume_impact_zero_volume(self, fake_metadata_sync: FakeMetadataSync) -> None:
-        """Test volume impact returns 0 when volume is zero."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
-        impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("0"))
-        assert impact == 0.0
-
-    def test_volume_impact_negative_volume(self, fake_metadata_sync: FakeMetadataSync) -> None:
-        """Test volume impact returns 0 when volume is negative."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
-        impact = detector._calculate_volume_impact(Decimal("1000"), Decimal("-1000"))
-        assert impact == 0.0
+    @pytest.mark.parametrize("volume", [None, Decimal("0"), Decimal("-1000")])
+    def test_no_usable_volume_has_no_measured_impact(
+        self, sample_metadata: MarketMetadata, volume: Decimal | None
+    ) -> None:
+        evidence = _evidence(sample_metadata, volume)
+        assert evidence.volume_impact_measured is None
+        assert SizeAnomalyDetector._volume_impact(evidence) == 0.0
 
 
 # ============================================================================
@@ -333,62 +333,64 @@ class TestBookImpactCalculation:
 
 
 class TestNicheMarketDetection:
-    """Tests for niche market detection."""
+    """Niche context follows the volume state and the D3 (d) category rule."""
 
-    def test_niche_market_low_volume(
-        self, fake_metadata_sync: FakeMetadataSync, sample_metadata: MarketMetadata
-    ) -> None:
-        """Test market is niche when volume below threshold."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
+    def test_niche_market_low_volume(self, sample_metadata: MarketMetadata) -> None:
         # Volume $40k < $50k threshold
-        is_niche = detector._is_niche_market(sample_metadata, Decimal("40000"))
-        assert is_niche is True
+        assert _evidence(sample_metadata, Decimal("40000")).niche_basis == "numeric"
 
-    def test_not_niche_high_volume(
+    def test_not_niche_high_volume(self, sample_metadata: MarketMetadata) -> None:
+        # Volume $100k > $50k threshold
+        assert _evidence(sample_metadata, Decimal("100000")).niche_basis == "none"
+
+    def test_niche_threshold_is_the_detectors_setting(
         self, fake_metadata_sync: FakeMetadataSync, sample_metadata: MarketMetadata
     ) -> None:
-        """Test market is not niche when volume above threshold."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
+        detector = SizeAnomalyDetector(fake_metadata_sync, niche_volume_threshold=Decimal("1000"))
+        assert detector._niche_volume_threshold == Decimal("1000")
+        evidence = size_volume_evidence(
+            sample_metadata,
+            "metadata",
+            Decimal("1000"),
+            lambda: datetime(2026, 10, 19, tzinfo=UTC),
+            Decimal("40000"),
+            detector._niche_volume_threshold,
+        )
+        assert evidence.niche_basis == "none"
 
-        # Volume $100k > $50k threshold
-        is_niche = detector._is_niche_market(sample_metadata, Decimal("100000"))
-        assert is_niche is False
-
-    def test_niche_market_unknown_volume_niche_category(
-        self, fake_metadata_sync: FakeMetadataSync, sample_token: Token
+    @pytest.mark.parametrize("category", sorted(NICHE_PRONE_CATEGORIES))
+    def test_niche_market_unobserved_volume_niche_category(
+        self, sample_token: Token, category: str
     ) -> None:
-        """Test market is niche when volume unknown and category is niche-prone."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
+        metadata = MarketMetadata(
+            condition_id="test",
+            question="Test",
+            description="",
+            tokens=(sample_token,),
+            category=category,
+        )
+        assert _evidence(metadata).niche_basis == "category"
 
-        for category in NICHE_PRONE_CATEGORIES:
-            metadata = MarketMetadata(
-                condition_id="test",
-                question="Test",
-                description="",
-                tokens=(sample_token,),
-                category=category,
-            )
-            is_niche = detector._is_niche_market(metadata, None)
-            assert is_niche is True, f"Category {category} should be niche"
-
-    def test_not_niche_unknown_volume_mainstream_category(
-        self, fake_metadata_sync: FakeMetadataSync, sample_token: Token
+    @pytest.mark.parametrize("category", ["politics", "sports", "crypto", "entertainment"])
+    def test_not_niche_unobserved_volume_mainstream_category(
+        self, sample_token: Token, category: str
     ) -> None:
-        """Test market is not niche when volume unknown but category is mainstream."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
+        metadata = MarketMetadata(
+            condition_id="test",
+            question="Test",
+            description="",
+            tokens=(sample_token,),
+            category=category,
+        )
+        assert _evidence(metadata).niche_basis == "none"
 
-        mainstream_categories = ["politics", "sports", "crypto", "entertainment"]
-        for category in mainstream_categories:
-            metadata = MarketMetadata(
-                condition_id="test",
-                question="Test",
-                description="",
-                tokens=(sample_token,),
-                category=category,
-            )
-            is_niche = detector._is_niche_market(metadata, None)
-            assert is_niche is False, f"Category {category} should not be niche"
+    def test_a_placeholder_category_after_a_failed_lookup_is_not_niche(
+        self, sample_token: Token
+    ) -> None:
+        metadata = MarketMetadata(
+            condition_id="test", question="", description="", tokens=(sample_token,)
+        )
+        assert _evidence(metadata, source="minimal").niche_basis == "none"
 
 
 # ============================================================================
@@ -705,8 +707,11 @@ class TestAnalyzeMethod:
         fake_metadata_sync.fallback = None
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
-        # Should still work with minimal metadata (category="other" which is niche)
-        signal = await detector.analyze(sample_trade)
+        # D3 (d): the placeholder category is no niche evidence, so there is no signal...
+        assert await detector.analyze(sample_trade) is None
+
+        # ...but a caller-asserted volume still works with the minimal metadata.
+        signal = await detector.analyze(sample_trade, daily_volume=Decimal("10000"))
 
         assert signal is not None
         assert signal.market_metadata.condition_id == sample_trade.market_id
@@ -722,8 +727,9 @@ class TestAnalyzeMethod:
         fake_metadata_sync.failures[sample_trade.market_id] = Exception("Redis error")
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
-        # Should still work with minimal metadata
-        signal = await detector.analyze(sample_trade)
+        # A failed lookup gives no category evidence (D3 (d)); an explicit volume still scores.
+        assert await detector.analyze(sample_trade) is None
+        signal = await detector.analyze(sample_trade, daily_volume=Decimal("10000"))
 
         assert signal is not None
         assert signal.market_metadata.category == "other"
@@ -871,9 +877,11 @@ class TestBatchAnalysis:
         ]
 
         detector = SizeAnomalyDetector(fake_metadata_sync)
-        signals = await detector.analyze_batch(trades)
+        assert await detector.analyze_batch(trades) == []  # no category evidence (D3 (d))
+        volumes = {t.market_id: Decimal("10000") for t in trades}
+        signals = await detector.analyze_batch(trades, volume_data=volumes)
 
-        # Both should still produce signals (with minimal metadata fallback)
+        # Both still produce signals from the asserted volume (minimal metadata fallback)
         assert len(signals) == 2
 
     @pytest.mark.asyncio
