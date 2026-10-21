@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from py_clob_client.clob_types import OrderBookSummary, OrderSummary
 
 from polymarket_insider_tracker.ingestor.models import (
     Market,
@@ -13,6 +12,7 @@ from polymarket_insider_tracker.ingestor.models import (
     Token,
     TradeEvent,
 )
+from tests.fakes.clob import order_book_summary, order_summary
 
 
 def _tight_orderbook() -> Orderbook:
@@ -58,7 +58,7 @@ class TestToken:
         """Test that Token is immutable."""
         token = Token(token_id="123", outcome="Yes", price=Decimal("0.5"))
         with pytest.raises(AttributeError):
-            token.token_id = "456"  # type: ignore[misc]
+            token.__setattr__("token_id", "456")
 
 
 class TestMarket:
@@ -124,7 +124,7 @@ class TestMarket:
             tokens=(),
         )
         with pytest.raises(AttributeError):
-            market.condition_id = "0x456"  # type: ignore[misc]
+            market.__setattr__("condition_id", "0x456")
 
 
 class TestOrderbookLevel:
@@ -142,7 +142,7 @@ class TestOrderbookLevel:
         """Test that OrderbookLevel is immutable."""
         level = OrderbookLevel(price=Decimal("0.5"), size=Decimal("10"))
         with pytest.raises(AttributeError):
-            level.price = Decimal("0.6")  # type: ignore[misc]
+            level.__setattr__("price", Decimal("0.6"))
 
 
 class TestOrderbook:
@@ -150,12 +150,12 @@ class TestOrderbook:
 
     def test_from_clob_orderbook(self) -> None:
         """Test creating Orderbook from py-clob-client response."""
-        clob_ob = OrderBookSummary(
-            market="0xmarket123",
-            asset_id="token123",
-            tick_size="0.01",
-            bids=[OrderSummary(price="0.50", size="100")],
-            asks=[OrderSummary(price="0.52", size="150")],
+        clob_ob = order_book_summary(
+            "0xmarket123",
+            "token123",
+            "0.01",
+            [order_summary("0.50", "100")],
+            [order_summary("0.52", "150")],
         )
 
         orderbook = Orderbook.from_clob_orderbook(clob_ob)
@@ -170,13 +170,7 @@ class TestOrderbook:
 
     def test_from_clob_orderbook_empty(self) -> None:
         """Test creating Orderbook with empty bids/asks."""
-        clob_ob = OrderBookSummary(
-            market="0xmarket",
-            asset_id="token",
-            tick_size="0.01",
-            bids=None,
-            asks=[],
-        )
+        clob_ob = order_book_summary("0xmarket", "token", "0.01", None, [])
 
         orderbook = Orderbook.from_clob_orderbook(clob_ob)
 
@@ -409,4 +403,4 @@ class TestTradeEvent:
             asset_id="token",
         )
         with pytest.raises(AttributeError):
-            trade.market_id = "0x456"  # type: ignore[misc]
+            trade.__setattr__("market_id", "0x456")

@@ -59,3 +59,25 @@ class HashWriter(Protocol):
 async def write_hash(client: HashWriter, key: str, mapping: dict[str, str]) -> int:
     """Set hash fields and return how many were added (the ``hset`` stub is partly untyped)."""
     return await settled(client.hset(key, mapping=mapping))
+
+
+class HashReader(Protocol):
+    """The slice of ``redis.asyncio.Redis`` that ``read_hash`` needs, with a typed result."""
+
+    def hgetall(self, name: str) -> Awaitable[dict[bytes, bytes]] | dict[bytes, bytes]: ...
+
+
+async def read_hash(client: HashReader, key: str) -> dict[bytes, bytes]:
+    """Every field of a hash (the ``hgetall`` stub is partly untyped)."""
+    return await settled(client.hgetall(key))
+
+
+class ListReader(Protocol):
+    """The slice of ``redis.asyncio.Redis`` that ``read_list`` needs, with a typed result."""
+
+    def lrange(self, name: str, start: int, end: int) -> Awaitable[list[bytes]] | list[bytes]: ...
+
+
+async def read_list(client: ListReader, key: str) -> list[bytes]:
+    """Every element of a list, head first (the ``lrange`` stub is partly untyped)."""
+    return await settled(client.lrange(key, 0, -1))
