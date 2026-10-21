@@ -226,6 +226,9 @@ source_paths = [
     "src/polymarket_insider_tracker/ingestor/_retry.py",
     "src/polymarket_insider_tracker/ingestor/_attempt_budget.py",
     "src/polymarket_insider_tracker/ingestor/_cycle_cutoff.py",
+    "src/polymarket_insider_tracker/ingestor/trade_row_v2.py",
+    "src/polymarket_insider_tracker/alerter/channels/pacing.py",
+    "src/polymarket_insider_tracker/alerter/_history_records.py",
 ]
 only_mutate = [
     "*/redaction.py",
@@ -233,6 +236,9 @@ only_mutate = [
     "*/_retry.py",
     "*/_attempt_budget.py",
     "*/_cycle_cutoff.py",
+    "*/trade_row_v2.py",
+    "*/pacing.py",
+    "*/_history_records.py",
 ]
 also_copy = ["src/polymarket_insider_tracker/", "conftest.py"]
 pytest_add_cli_args_test_selection = [
@@ -248,6 +254,12 @@ pytest_add_cli_args_test_selection = [
     "tests/ingestor/test_attempt_budget_properties.py",
     "tests/ingestor/test_trades_source.py",
     "tests/ingestor/test_v2_cursor_walk.py",
+    "tests/ingestor/test_trade_row_v2.py",
+    "tests/alerter/test_channel_pacing.py",
+    "tests/alerter/test_history_extraction.py",
+    "tests/alerter/test_history_gaps.py",
+    "tests/alerter/test_alert_record_serialization.py",
+    "tests/alerter/test_history.py",
     "-q",
     "-p",
     "no:cacheprovider",
