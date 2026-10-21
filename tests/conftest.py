@@ -72,7 +72,7 @@ async def async_engine(tmp_path: Path) -> AsyncIterator[AsyncEngine]:
 
 @pytest.fixture
 async def db_manager(async_engine: AsyncEngine) -> DatabaseManager:
-    """A real DatabaseManager whose async engine is the in-memory SQLite engine.
+    """A real DatabaseManager whose async engine is the file-backed SQLite engine.
 
     ``DatabaseManager`` only accepts PostgreSQL URLs, so the SQLite engine is attached after
     construction; every session, repository, and transaction path is the production code.
