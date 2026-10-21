@@ -12,11 +12,11 @@ import httpx
 import pytest
 
 from polymarket_insider_tracker.ingestor.acquisition import V2TradesSource
-from polymarket_insider_tracker.ingestor.v2_page import V2TransportError
 from polymarket_insider_tracker.ingestor.trades_source import (
     TradesTerminalError,
     TradesTransientError,
 )
+from polymarket_insider_tracker.ingestor.v2_page import V2TransportError
 from tests.fakes import FakeClock, FakeV2TradesServer, trade_row, v2_row
 
 NOW = 1_788_983_720.0
@@ -112,7 +112,7 @@ async def test_the_request_cutoff_survives_a_restart_through_restore_last_end() 
 
 
 async def test_a_bare_transport_error_from_the_wire_is_transient() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_: httpx.Request) -> httpx.Response:
         raise V2TransportError("transport gave up")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))

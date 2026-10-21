@@ -233,4 +233,3 @@ async def test_page_waiting_for_a_slot_is_skipped_once_an_earlier_page_failed(
 
     assert served == [0]
     assert (crawl.pages_ok, crawl.pages_failed, crawl.truncated) == (0, 1, True)
-
