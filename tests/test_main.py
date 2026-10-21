@@ -163,8 +163,6 @@ class TestValidateConfig:
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], env_name: str
     ) -> None:
         """Round-14 High: an NFKC-rejected URL with a secret is mapped to a fixed message."""
-        from polymarket_insider_tracker.__main__ import _sanitized_validation_message
-
         secret = "CONFIGNFKCSECRET_R16"
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
         monkeypatch.setenv("POLYMARKET_TRADES_URL", "https://trades.invalid/trades")
@@ -183,14 +181,9 @@ class TestValidateConfig:
         assert "Configuration validation failed" in captured.err
         assert secret not in captured.err
         assert secret not in captured.out
-        assert "invalid host component" in captured.err
-
-        message = _sanitized_validation_message(
-            "netloc 'host\uff0foops' contains invalid characters under NFKC normalization"
-        )
-        assert secret not in message
-        assert message == (
+        assert (
             "invalid host component: contains characters rejected by URL normalization"
+            in captured.err
         )
 
     @pytest.mark.parametrize(
@@ -410,26 +403,6 @@ class TestMain:
 
         assert exc_info.value.code == EXIT_ERROR
 
-    def test_exit_code_for_pipeline_returns_error_on_pipeline_error_state(self) -> None:
-        """_exit_code_for_pipeline returns EXIT_ERROR when pipeline state is ERROR."""
-        from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
-        from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
-
-        pipeline = Pipeline()
-        pipeline._state = PipelineState.ERROR
-        assert _exit_code_for_pipeline(pipeline) == EXIT_ERROR
-
-    def test_exit_code_is_success_after_graceful_stop_with_recoverable_errors(self) -> None:
-        """Recoverable processing errors must not turn a graceful shutdown into exit 1."""
-        from polymarket_insider_tracker.__main__ import _exit_code_for_pipeline
-        from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
-
-        pipeline = Pipeline()
-        pipeline._state = PipelineState.STOPPED
-        pipeline._stats.errors = 3
-        pipeline._stats.last_error = "transient trade-processing error"
-        assert _exit_code_for_pipeline(pipeline) == EXIT_SUCCESS
-
 
 class HangingStopPipeline(Pipeline):
     """Working fake whose graceful stop never finishes on its own."""
@@ -467,6 +440,31 @@ class CancellationResistantStopPipeline(HangingStopPipeline):
         self.stop_calls += 1
         await resist_cancellation_for(0.5)
         self.stop_finished.set()
+
+
+class TestRunPipelineExitCode:
+    """Only a terminal pipeline failure is a failing exit code."""
+
+    @pytest.mark.parametrize(
+        ("terminal", "errors", "expected"), [(True, 0, EXIT_ERROR), (False, 3, EXIT_SUCCESS)]
+    )
+    async def test_exit_code_follows_the_terminal_state(
+        self, monkeypatch: pytest.MonkeyPatch, terminal: bool, errors: int, expected: int
+    ) -> None:
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/test")
+        settings = validate_config()
+        assert settings is not None
+
+        def factory(settings: Settings, *, dry_run: bool = False) -> CountingStopPipeline:
+            pipeline = CountingStopPipeline(settings, dry_run=dry_run)
+            pipeline.stats.errors = errors
+            if terminal:
+                pipeline.enter_terminal_state()
+            return pipeline
+
+        run = cli.run_pipeline(settings, True, 1.0, pipeline_factory=factory)
+
+        assert await asyncio.wait_for(run, timeout=5.0) == expected
 
 
 class TestRunPipelineShutdownTimeout:

@@ -13,7 +13,22 @@ from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import PipelineTerminalErrorModel
-from tests.fakes import FakeEth, make_test_settings, terminal, wire_pipeline
+from polymarket_insider_tracker.terminal_errors import (
+    DEFAULT_TERMINAL_WORKER,
+    drain_terminal_writes,
+    record_terminal_failure,
+)
+from tests.fakes import (
+    FakeEth,
+    StubPoller,
+    Substitutes,
+    WiredPipeline,
+    ingestion_component,
+    make_test_settings,
+    run_until,
+    terminal,
+    wire_pipeline,
+)
 from tests.fakes.trades import FakeClock, FakeTradesServer
 
 POLL_START = 1_700_000_000.0
@@ -27,48 +42,46 @@ async def _terminal_rows(engine: AsyncEngine) -> list[PipelineTerminalErrorModel
         return list((await session.execute(select(PipelineTerminalErrorModel))).scalars().all())
 
 
-async def _wire_poller_pipeline(
-    fake_redis: FakeAsyncRedis,
-    db_manager: DatabaseManager,
-    server: FakeTradesServer,
-    poll_clock: FakeClock,
-) -> Pipeline:
-    """The real pipeline over the fake boundaries, polling ``server`` on ``poll_clock``."""
+async def _pipeline_with_terminal_401(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, health_port: int
+) -> WiredPipeline:
+    """The real pipeline over fake boundaries, whose next trades poll fails terminally with 401."""
+    clock = FakeClock(POLL_START)
+    server = FakeTradesServer(clock=clock)
+    server.fail_next(terminal(401))
     return await wire_pipeline(
-        make_test_settings(),
+        make_test_settings(health_port=health_port),
         redis=fake_redis,
         eth=FakeEth(),
         db_manager=db_manager,
         trades=server,
-        poll_clock=poll_clock,
+        poll_clock=clock,
     )
 
 
-async def _pipeline_with_terminal_401(
-    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager
-) -> Pipeline:
-    """Wire a pipeline whose next trades poll fails terminally with HTTP 401."""
-    clock = FakeClock(POLL_START)
-    server = FakeTradesServer(clock=clock)
-    pipeline = await _wire_poller_pipeline(fake_redis, db_manager, server, clock)
-    server.fail_next(terminal(401))
+async def _run_until_poller_failure_is_terminal(pipeline: Pipeline) -> None:
+    """Start the pipeline and wait for its failed poller to move it to ERROR."""
+    await pipeline.start()
+    await run_until(lambda: pipeline.state is PipelineState.ERROR)
+
+
+async def _running_pipeline(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, health_port: int
+) -> WiredPipeline:
+    """The real pipeline over fake boundaries, started and running with no trade source."""
+    pipeline = await wire_pipeline(
+        make_test_settings(health_port=health_port),
+        redis=fake_redis,
+        eth=FakeEth(),
+        db_manager=db_manager,
+    )
+    await pipeline.start()
     return pipeline
 
 
-async def _fail_poller_cycle(pipeline: Pipeline) -> None:
-    """Run one poll cycle and require the poller to end FAILED."""
-    assert pipeline._trade_poller is not None
-    await pipeline._trade_poller.run_cycle()
-    assert pipeline._trade_poller.state is IngestionState.FAILED
-
-
-def _report_poller_failure(pipeline: Pipeline) -> None:
-    """Hand the running pipeline its failed poller's last error, as the worker monitor does."""
-    assert pipeline._trade_poller is not None
-    pipeline._state = PipelineState.RUNNING
-    pipeline._handle_worker_failure(
-        pipeline._trade_poller.status.last_error or "ingestion_worker_failed"
-    )
+async def _drain(pipeline: Pipeline) -> None:
+    """Await the retained durable failure writes, as the stop boundary does."""
+    await drain_terminal_writes(pipeline.terminal_writes, pipeline.record_processing_error)
 
 
 async def _assert_poller_401_row(engine: AsyncEngine) -> None:
@@ -85,26 +98,24 @@ class TestTerminalErrorDurable:
         fake_redis: FakeAsyncRedis,
         db_manager: DatabaseManager,
         async_engine: AsyncEngine,
+        unused_tcp_port: int,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        pipeline = await _pipeline_with_terminal_401(fake_redis, db_manager)
+        pipeline = await _pipeline_with_terminal_401(fake_redis, db_manager, unused_tcp_port)
 
         with caplog.at_level(logging.ERROR):
-            await _fail_poller_cycle(pipeline)
+            await _run_until_poller_failure_is_terminal(pipeline)
 
-        state_before = pipeline.state
-        assert state_before is PipelineState.STOPPED
-        _report_poller_failure(pipeline)
         assert pipeline.state is PipelineState.ERROR
         ready, reason, components = await pipeline.check_readiness()
         assert ready is False
         assert components.get("ingestion") == "down"
         assert reason == "ingestion_worker_failed"
-        await pipeline._drain_terminal_writes()
+        await _drain(pipeline)
 
         await _assert_poller_401_row(async_engine)
 
-        ingestion = await pipeline._check_ingestion()
+        ingestion = await ingestion_component(pipeline)
         assert ingestion.status == "down"
         assert ingestion.last_error is not None and "401" in ingestion.last_error
         await pipeline.stop()
@@ -114,28 +125,30 @@ class TestTerminalErrorDurable:
         fake_redis: FakeAsyncRedis,
         db_manager: DatabaseManager,
         async_engine: AsyncEngine,
+        unused_tcp_port: int,
     ) -> None:
-        pipeline = await _pipeline_with_terminal_401(fake_redis, db_manager)
-        await _fail_poller_cycle(pipeline)
-        _report_poller_failure(pipeline)
-        await pipeline._drain_terminal_writes()
+        pipeline = await _pipeline_with_terminal_401(fake_redis, db_manager, unused_tcp_port)
+        await _run_until_poller_failure_is_terminal(pipeline)
+        await _drain(pipeline)
         await _assert_poller_401_row(async_engine)
         await pipeline.stop()
 
     async def test_structured_log_carries_no_secret(
         self,
+        fake_redis: FakeAsyncRedis,
         db_manager: DatabaseManager,
         async_engine: AsyncEngine,
+        unused_tcp_port: int,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        pipeline = Pipeline(make_test_settings())
-        pipeline._db_manager = db_manager
-        pipeline._state = PipelineState.RUNNING
+        pipeline = await _running_pipeline(fake_redis, db_manager, unused_tcp_port)
 
         with caplog.at_level(logging.ERROR):
-            pipeline._handle_worker_failure(f"acquisition stopped: {SECRET_URL}")
+            record_terminal_failure(
+                pipeline, f"acquisition stopped: {SECRET_URL}", DEFAULT_TERMINAL_WORKER
+            )
 
-        await pipeline._drain_terminal_writes()
+        await _drain(pipeline)
         rows = await _terminal_rows(async_engine)
         assert len(rows) == 1
         assert "s3cr3t-k3y-value" not in rows[0].reason
@@ -144,15 +157,15 @@ class TestTerminalErrorDurable:
 
     async def test_non_default_worker_identity_recorded(
         self,
+        fake_redis: FakeAsyncRedis,
         db_manager: DatabaseManager,
         async_engine: AsyncEngine,
+        unused_tcp_port: int,
     ) -> None:
-        pipeline = Pipeline(make_test_settings())
-        pipeline._db_manager = db_manager
-        pipeline._state = PipelineState.RUNNING
+        pipeline = await _running_pipeline(fake_redis, db_manager, unused_tcp_port)
 
-        pipeline._handle_worker_failure("metadata crawl failed", worker="metadata_sync")
-        await pipeline._drain_terminal_writes()
+        record_terminal_failure(pipeline, "metadata crawl failed", "metadata_sync")
+        await _drain(pipeline)
         rows = await _terminal_rows(async_engine)
         assert len(rows) == 1
         assert rows[0].worker == "metadata_sync"
@@ -164,16 +177,15 @@ class TestTerminalErrorDurable:
         fake_redis: FakeAsyncRedis,
         db_manager: DatabaseManager,
         async_engine: AsyncEngine,
+        unused_tcp_port: int,
     ) -> None:
         """The real stop() boundary drains the retained write (drop-drain mutant)."""
-        pipeline = await _pipeline_with_terminal_401(fake_redis, db_manager)
-        await _fail_poller_cycle(pipeline)
-        _report_poller_failure(pipeline)
-        # The real stop boundary must drain the write before disposal; read the
-        # row first, then let stop() dispose the shared in-memory engine.
-        await pipeline._stop_background_services()
-        await _assert_poller_401_row(async_engine)
+        pipeline = await _pipeline_with_terminal_401(fake_redis, db_manager, unused_tcp_port)
+        await _run_until_poller_failure_is_terminal(pipeline)
+
         await pipeline.stop()
+
+        await _assert_poller_401_row(async_engine)
 
     async def test_fresh_pipeline_reads_terminal_reason_from_durable_row(
         self,
@@ -190,19 +202,19 @@ class TestTerminalErrorDurable:
             )
             await session.commit()
 
-        fresh = await _wire_poller_pipeline(
-            fake_redis,
-            db_manager,
-            FakeTradesServer(clock=FakeClock(POLL_START)),
-            FakeClock(POLL_START),
+        failed_poller = StubPoller(fake_redis, IngestionState.FAILED)
+        fresh = await wire_pipeline(
+            make_test_settings(),
+            redis=fake_redis,
+            eth=FakeEth(),
+            db_manager=db_manager,
+            substitutes=Substitutes(poller=failed_poller),
         )
-        assert fresh._trade_poller is not None
-        fresh._state = PipelineState.ERROR
-        fresh._trade_poller._state = IngestionState.FAILED
-        assert fresh._trade_poller.status.last_error is None
+        fresh.enter_terminal_state()
+        assert failed_poller.status.last_error is None
         assert fresh.stats.last_error is None
 
-        ingestion = await fresh._check_ingestion()
+        ingestion = await ingestion_component(fresh)
         assert ingestion.status == "down"
         assert ingestion.last_error == "prior process: HTTP 401"
         await fresh.stop()

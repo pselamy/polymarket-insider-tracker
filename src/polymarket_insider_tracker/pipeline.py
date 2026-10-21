@@ -20,21 +20,11 @@ from typing import TYPE_CHECKING, Protocol, TypeVar, cast
 from redis.asyncio import Redis
 
 from polymarket_insider_tracker import terminal_errors as terminal
-from polymarket_insider_tracker.alerter.channels.discord import DiscordChannel
-from polymarket_insider_tracker.alerter.channels.telegram import TelegramChannel
-from polymarket_insider_tracker.alerter.dispatcher import (
-    AlertChannel,
-    AlertDispatcher,
-    DispatchResult,
-)
+from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher, DispatchResult
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
-from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.assessment_row import assessment_dto
 from polymarket_insider_tracker.config import Settings, get_settings
-from polymarket_insider_tracker.detector.detector_config import (
-    capture_detector_config,
-    default_detector_config,
-)
+from polymarket_insider_tracker.detector.detector_config import default_detector_config
 from polymarket_insider_tracker.detector.evaluation import (
     DetectorError,
     SizeEvaluation,
@@ -46,18 +36,18 @@ from polymarket_insider_tracker.detector.evaluation_clock import (
     read_evaluation_instant,
     system_clock,
 )
-from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
-from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.alert_path_health import AlertPathHealthMonitor
-from polymarket_insider_tracker.ingestor.clob_client import ClobClient
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.readiness import running_ingestion_status
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
-from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
-from polymarket_insider_tracker.profiler.chain import PolygonClient
+from polymarket_insider_tracker.pipeline_components import (
+    Evaluator,
+    PipelineComponents,
+    build_components,
+)
 from polymarket_insider_tracker.profiler.funding import FundingTracer
 from polymarket_insider_tracker.redaction import redact_exception_message, redact_text
 from polymarket_insider_tracker.storage.database import DatabaseManager
@@ -80,14 +70,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
 _EvaluationT = TypeVar("_EvaluationT", covariant=True)
-
-
-class Evaluator(Protocol[_EvaluationT]):
-    """A detector the pipeline evaluates a trade with (satisfied by the real detectors)."""
-
-    async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> _EvaluationT: ...
 
 
 async def _run_detector(
@@ -119,13 +102,6 @@ def _failures_only(evidence: TradeEvidence | None) -> TradeEvidence | None:
     return TradeEvidence(
         evidence.evaluated_at, evidence.detector_config, failures=evidence.failures
     )
-
-
-class RedisFactory(Protocol):
-    """Concrete Redis construction surface used by the pipeline."""
-
-    @classmethod
-    def from_url(cls, url: str) -> Redis: ...
 
 
 class Pingable(Protocol):
@@ -204,17 +180,15 @@ class Pipeline:
         # Components (initialized in start())
         self._redis: Redis | None = None
         self._db_manager: DatabaseManager | None = None
-        self._polygon_client: PolygonClient | None = None
-        self._clob_client: ClobClient | None = None
+        self._owns_connections = True
+        self._components_installed = False
         self._metadata_sync: MarketMetadataSync | None = None
-        self._wallet_analyzer: WalletAnalyzer | None = None
         self._fresh_wallet_detector: Evaluator[WalletEvaluation] | None = None
         self._size_anomaly_detector: Evaluator[SizeEvaluation] | None = None
         self._detector_config = default_detector_config()
         self._clock: Clock = system_clock
         self._risk_scorer: RiskScorer | None = None
         self._alert_formatter: AlertFormatter | None = None
-        self._alert_history: AlertHistory | None = None
         self._alert_dispatcher: AlertDispatcher | None = None
         self._trade_poller: TradePoller | None = None
         self._funding_tracer: FundingTracer | None = None
@@ -226,6 +200,16 @@ class Pipeline:
         self._poller_task: asyncio.Task[None] | None = None
         self._metadata_task: asyncio.Task[None] | None = None
         self._terminal_writes: set[asyncio.Task[None]] = set()
+
+    @property
+    def settings(self) -> Settings:
+        """The application settings this pipeline runs with."""
+        return self._settings
+
+    @property
+    def dry_run(self) -> bool:
+        """Whether alerts are only logged: the constructor override, else the settings flag."""
+        return self._dry_run
 
     @property
     def state(self) -> PipelineState:
@@ -353,7 +337,8 @@ class Pipeline:
         logger.info("Starting pipeline...")
 
         try:
-            await self._initialize_components()
+            if not self._components_installed:
+                await self._initialize_components()
             await self._start_background_services()
             self._stats.started_at = datetime.now(UTC)
             # A worker may already have failed terminally during startup; never
@@ -390,129 +375,37 @@ class Pipeline:
         logger.info("Pipeline stopped")
 
     async def _initialize_components(self) -> None:
-        """Initialize all pipeline components."""
-        settings = self._settings
-
-        # Initialize Redis
-        logger.debug("Initializing Redis connection...")
-        redis_factory = cast(type[RedisFactory], Redis)
-        self._redis = redis_factory.from_url(settings.redis.url)
-
-        # Initialize Database Manager
-        logger.debug("Initializing database manager...")
-        self._db_manager = DatabaseManager(
-            settings.database.url,
-            async_mode=True,
-        )
-
-        # Initialize Polygon client
-        logger.debug("Initializing Polygon client...")
-        self._polygon_client = PolygonClient(
-            settings.polygon.rpc_url,
-            fallback_rpc_url=settings.polygon.fallback_rpc_url,
-            redis=self._redis,
-        )
-
-        # Initialize CLOB client
-        logger.debug("Initializing CLOB client...")
-        self._clob_client = ClobClient()
-
-        # Initialize Market Metadata Sync
-        logger.debug("Initializing market metadata sync...")
-        self._metadata_sync = MarketMetadataSync(
-            redis=self._redis,
-            clob_client=self._clob_client,
-        )
-
-        # Initialize Wallet Analyzer
-        logger.debug("Initializing wallet analyzer...")
-        self._wallet_analyzer = WalletAnalyzer(
-            self._polygon_client,
-            redis=self._redis,
-        )
-
-        # Initialize Funding Tracer
-        logger.debug("Initializing funding tracer...")
-        self._funding_tracer = FundingTracer(self._polygon_client)
-
-        # Initialize Detectors
-        logger.debug("Initializing detectors...")
-        fresh_detector = FreshWalletDetector(self._wallet_analyzer)
-        size_detector = SizeAnomalyDetector(self._metadata_sync)
-        self._detector_config = capture_detector_config(fresh_detector, size_detector)
-        self._fresh_wallet_detector = fresh_detector
-        self._size_anomaly_detector = size_detector
-
-        # Initialize Risk Scorer
-        logger.debug("Initializing risk scorer...")
-        self._risk_scorer = RiskScorer(
-            self._redis,
-            alert_threshold=settings.detector.alert_threshold,
-            dedup_window_seconds=settings.detector.dedup_window_seconds,
-        )
-        logger.info(
-            "RiskScorer threshold=%.2f dedup_window=%ds persist=%s",
-            settings.detector.alert_threshold,
-            settings.detector.dedup_window_seconds,
-            settings.detector.persist_assessments,
-        )
-        self._health_monitor.bind_scorer(self._risk_scorer, logger)
-
-        # Initialize Alerting
-        logger.debug("Initializing alerting components...")
-        self._alert_formatter = AlertFormatter(verbosity="detailed")
-        channels = self._build_alert_channels()
-        self._alert_history = AlertHistory(
-            self._redis,
-            dedup_window_seconds=settings.detector.dedup_window_seconds,
-        )
-        self._alert_dispatcher = AlertDispatcher(
-            channels,
-            history=self._alert_history,
+        """Build the production components from the settings and install them."""
+        components = await build_components(
+            self._settings,
             dry_run=self._dry_run,
+            on_trade=self.process_trade,
+            on_ingestion_state=self.on_ingestion_state,
         )
-
-        # Initialize the trade poller over the documented public trades query
-        logger.debug("Initializing trade poller...")
-        self._trade_poller = TradePoller(
-            self.process_trade,
-            redis=self._redis,
-            settings=settings.polymarket,
-            metadata=self._metadata_sync,
-            on_state_change=self._on_ingestion_state,
-        )
-
+        self.install_components(components)
         logger.info("All components initialized")
 
-    def _build_discord_channel(self) -> DiscordChannel | None:
-        discord = self._settings.discord
-        if not discord.enabled or not discord.webhook_url:
-            return None
-        logger.info("Discord channel enabled")
-        return DiscordChannel(discord.webhook_url.get_secret_value())
+    def install_components(self, components: PipelineComponents) -> None:
+        """Run on ``components`` instead of building them from the settings.
 
-    def _build_telegram_channel(self) -> TelegramChannel | None:
-        telegram = self._settings.telegram
-        if not telegram.enabled or not telegram.bot_token or not telegram.chat_id:
-            return None
-        logger.info("Telegram channel enabled")
-        return TelegramChannel(telegram.bot_token.get_secret_value(), telegram.chat_id)
-
-    def _build_alert_channels(self) -> list[AlertChannel]:
-        """Build list of enabled alert channels."""
-        channels: list[AlertChannel] = []
-        discord_chan = self._build_discord_channel()
-        if discord_chan:
-            channels.append(discord_chan)
-
-        telegram_chan = self._build_telegram_channel()
-        if telegram_chan:
-            channels.append(telegram_chan)
-
-        if not channels:
-            logger.warning("No alert channels configured")
-
-        return channels
+        ``start`` builds and installs the production set unless one is already installed, so an
+        embedding caller can supply its own connections and collaborators. Connections the
+        pipeline did not create (``owns_connections=False``) stay open when it stops.
+        """
+        self._redis = components.redis
+        self._db_manager = components.db_manager
+        self._owns_connections = components.owns_connections
+        self._metadata_sync = components.metadata_sync
+        self._funding_tracer = components.funding_tracer
+        self._fresh_wallet_detector = components.fresh_wallet_detector
+        self._size_anomaly_detector = components.size_anomaly_detector
+        self._detector_config = components.detector_config
+        self._risk_scorer = components.risk_scorer
+        self._alert_formatter = components.alert_formatter
+        self._alert_dispatcher = components.alert_dispatcher
+        self._trade_poller = components.trade_poller
+        self._health_monitor.bind_scorer(components.risk_scorer, logger)
+        self._components_installed = True
 
     async def _start_health_server(self) -> None:
         self._wire_health_monitor()
@@ -586,7 +479,7 @@ class Pipeline:
             self._stats.last_error = redact_exception_message(e)
             self._stats.errors += 1
 
-    def _on_ingestion_state(self, state: IngestionState) -> None:
+    def on_ingestion_state(self, state: IngestionState) -> None:
         """Record terminal ingestion failures on the pipeline statistics."""
         if state is not IngestionState.FAILED or not self._trade_poller:
             return
@@ -613,17 +506,22 @@ class Pipeline:
         await self._drain_terminal_writes()
         await self._health_monitor.stop()
 
-        # Close database connections
+        if self._owns_connections:
+            await self._close_connections()
+
+        logger.debug("Resources cleaned up")
+
+    async def _close_connections(self) -> None:
+        """Close the connections the pipeline created; the next start builds them afresh."""
         if self._db_manager:
             await self._db_manager.dispose_async()
             self._db_manager = None
 
-        # Close Redis connection
         if self._redis:
             await self._redis.aclose()
             self._redis = None
 
-        logger.debug("Resources cleaned up")
+        self._components_installed = False
 
     async def process_trade(self, trade: TradeEvent) -> None:
         """Process a single trade event.
