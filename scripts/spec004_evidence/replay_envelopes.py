@@ -15,9 +15,10 @@ import math
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from fractions import Fraction
-from typing import Any, cast
 
+from polymarket_insider_tracker.shapes import object_list, object_mapping
 from scripts.spec004_evidence import replay_live as rl
+from scripts.spec004_evidence.json_shapes import Obj, as_array, as_decimal, as_int, as_object, at
 from scripts.spec004_evidence.real_scoring import (
     Market,
     Wallet,
@@ -65,11 +66,11 @@ def json_type(value: object) -> str:
 
 
 def children(value: object) -> list[object]:
-    if isinstance(value, list):
-        return list(cast(list[object], value))
-    if isinstance(value, dict):
-        return list(cast(dict[str, object], value).values())
-    return []
+    items = object_list(value)
+    if items is not None:
+        return items
+    mapping = object_mapping(value)
+    return [] if mapping is None else list(mapping.values())
 
 
 def has_nonfinite(value: object) -> bool:
@@ -157,11 +158,9 @@ def raw_fields(obs: rl.Observation, explicit: Decimal | None) -> tuple[bool, obj
     return obs.present, bound_raw(obs.raw)
 
 
-def size_block(
-    spec: dict[str, Any], verdict: rl.Verdict, size: tuple[float, bool] | None
-) -> dict[str, Any]:
+def size_block(spec: Obj, verdict: rl.Verdict, size: tuple[float, bool] | None) -> Obj:
     state, reason, volume = verdict
-    obs = rl.build_observation(spec["observation"])
+    obs = rl.build_observation(at(spec, "observation"))
     explicit = rl.explicit_volume(spec)
     acquired, age = volume_stamp(obs, explicit)
     present, raw = raw_fields(obs, explicit)
@@ -190,9 +189,7 @@ def size_block(
     }
 
 
-def wallet_block(
-    classification: str, wconf: float | None, status: str, nonce: int
-) -> dict[str, Any]:
+def wallet_block(classification: str, wconf: float | None, status: str, nonce: int) -> Obj:
     """``wconf`` is the scoring confidence: always None while the group is unqualified."""
     return {
         "age_basis": "none",
@@ -230,13 +227,11 @@ def contributions(wconf: float | None, size: tuple[float, bool] | None) -> dict[
     }
 
 
-def build_envelope(
-    spec: dict[str, Any], template: dict[str, Any], status: str = PRE_T027
-) -> dict[str, Any]:
+def build_envelope(spec: Obj, template: Obj, status: str = PRE_T027) -> Obj:
     """A complete 004.1 (or, post-T027, 004.2) document for one replay case, based on the example's static keys."""
     notional = Decimal(str(spec["notional"]))
-    nonce = int(spec["nonce"])
-    verdict = rl.classify(rl.build_observation(spec["observation"]), rl.explicit_volume(spec))
+    nonce = as_int(spec["nonce"])
+    verdict = rl.classify(rl.build_observation(at(spec, "observation")), rl.explicit_volume(spec))
     market = Market(
         "m",
         verdict[2],
@@ -251,14 +246,14 @@ def build_envelope(
     wconf = candidate if status == POST_T027 else None
     size = size_signal(market, notional, volume_passed=True)
     proposed = score(wconf, size)
-    doc = cast(dict[str, Any], json.loads(json.dumps(template)))
+    doc = as_object(json.loads(json.dumps(template)))
     doc["evidence_schema"] = VERSION_BY_STATUS[status]
     doc["evaluation_evidence"] = {
         "contributions": contributions(wconf, size),
         "evaluated_at": EVALUATED_AT.isoformat(),
         "notional": plain(notional),
         "result": {
-            "should_alert": proposed >= Decimal(doc["alert_threshold"]),
+            "should_alert": proposed >= as_decimal(doc["alert_threshold"]),
             "signals_triggered": int(wconf is not None) + int(size is not None),
             "weighted_score": plain(proposed.quantize(Decimal("0.001"), ROUND_HALF_EVEN)),
         },
@@ -268,6 +263,7 @@ def build_envelope(
     return doc
 
 
-def replay_specs() -> list[dict[str, Any]]:
-    corpus = json.loads((rl.HERE / "replay-live" / "cases.json").read_text())
-    return [rl.merged(corpus["defaults"], case) for case in corpus["cases"]]
+def replay_specs() -> list[Obj]:
+    corpus = as_object(json.loads((rl.HERE / "replay-live" / "cases.json").read_text()))
+    defaults = as_object(corpus["defaults"])
+    return [rl.merged(defaults, as_object(case)) for case in as_array(corpus["cases"])]

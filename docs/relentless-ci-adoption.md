@@ -1353,6 +1353,33 @@ is tests only, so its spec004 hash is untouched). This supersedes the two
   getter and asserting it supplies no default value; the `"other"` category fallback and a cached
   market with no dates are covered by behavioural tests.
 
+## Escape sweep step 4: typing escapes out of the spec 004 evidence tools (2026-10-21)
+
+Scope: `scripts/spec004_evidence/*.py`. Lines matching `cast(`, `Any`, `type: ignore`,
+`pyright: ignore` or `noqa`, before and after (no file carried an ignore or `noqa`; the one match left
+in `cli.py` is the English word in its docstring, "Any other argument list").
+
+| File | Before | After | Reason it existed and the replacement |
+| --- | --- | --- | --- |
+| `check_envelope.py` | 51 (5 `cast`, 46 `Any`) | 0 | Decoded schemas, envelopes and raw values were `dict[str, Any]`, so every nested index was unchecked. They are `object` narrowed by `json_shapes` (`at`, `as_object`, `as_array`, `as_text`, `as_decimal`, `as_int`, `as_number`); a wrong shape raises `TypeError`, a missing key stays a `KeyError`. |
+| `replay_envelopes.py` | 10 | 0 | Same `dict[str, Any]` envelopes and a `cast` in `children`; now `Obj`, `shapes.object_list` / `object_mapping`. |
+| `replay_live.py` | 6 | 0 | Same corpus dicts and a `cast` in `decoded_raw`; now `Obj` and `shapes.string_keyed`. |
+| `reachability.py`, `real_scoring.py`, `check_source_hashes.py` | 0 | 0 | No escapes. |
+
+`json_shapes.py` is new (it holds the checked narrowing helpers and the JSON Schema type table that
+used to sit in `check_envelope.py`, which does not grow). Every committed evidence file stays
+byte-identical (sha256 of `specs/004-truthful-detection-contract/evidence/**` before and after) and
+the four `--check` tools exit 0. Newly checked shapes, each with a test in `tests/spec004_evidence/`:
+a schema node, `oneOf` member, `items` or `$ref` target that is not an object, a non-string `$ref`,
+`pattern` or non-numeric bound, evidence that is not an object, a non-string timestamp, a
+non-numeric amount, and a corpus case or observation that is not an object each raise `TypeError`.
+Outcome classes that change, stated rather than hidden: a non-object `observation` in a corpus case
+was an `AttributeError` and is now a `TypeError`; a non-list `enum` or a non-object `oneOf` member
+now raises `TypeError` instead of a substring test or a later failure; and `check_envelope.is_object`
+requires string keys, so a raw value with a non-string key (impossible from decoded JSON) skips the
+tag and reserved-key checks. A list or tuple amount stays a `ValueError`, and a non-string-key
+`raw_spec` stays a `KeyError`.
+
 ## Escape sweep step 2: typing escapes out of the profiler, clients, health and storage (2026-10-21)
 
 Scope: ten production files. Lines matching `cast(`, `Any`, `type: ignore`, `pyright: ignore` or
