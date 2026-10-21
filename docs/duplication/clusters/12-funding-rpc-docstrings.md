@@ -1,7 +1,7 @@
 ---
 cluster: 12
 status: resolved
-resolved-by: PR pending (branch ralph/dedup-funding-rpc)
+resolved-by: PR #196
 watch: tests/profiler/test_funding.py <-> tests/profiler/test_funding_rpc.py
 ---
 
