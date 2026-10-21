@@ -41,8 +41,8 @@ from tests.fakes import (
     wire_pipeline,
 )
 from tests.fakes.redis_await import (
-    read_hash,
     ping_ok,
+    read_hash,
     redis_factory,
     scanned_keys,
     settled,
