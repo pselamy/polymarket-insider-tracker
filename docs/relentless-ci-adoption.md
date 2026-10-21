@@ -565,6 +565,9 @@ is used. Dead code removed to get there: three unreachable `"wallet" in links` c
 the public API (signal count maxes at 2) but removing it would change scoring semantics, which belongs
 to slice 004 (PR #167). It waits for that slice; the file is unchanged from main.
 
+Slice 004 layer 1 added two modules born at 100% line and branch (`detector/evaluation_clock.py`,
+`detector/scoring_config.py`) to the enrolled list.
+
 Defect-fails: appending an unexercised two-branch function to `endpoints.py` drops it to 83% and
 `coverage report` exits 2; the reverted tree exits 0 (100%, 1687 statements, 276 branches).
 
