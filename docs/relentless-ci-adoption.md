@@ -1258,7 +1258,7 @@ mutmut keys test coverage by the imported module name; the new tests import the 
 | --- | --- | --- | --- | --- |
 | `shapes.py` | 18 | 0 | 0 | enrolled |
 | `alerter/channels/response_values.py` | 14 | 9 | 0 | enrolled (the `cast` equivalent is gone) |
-| `alerter/_redis_port.py` | 14 | 2 untested | 2 untested | not enrolled (equivalent, below) |
+| `alerter/_redis_port.py` | 14 (71 after #220 added `ScanRedis`/`BoundaryRedis` and the scan/scored-member helpers) | 2 untested | 3 untested (equivalent) + 8 survived in `scan_page`, `reply_scored_members`, `reply_scan` (re-measured after rebasing onto #220; not yet killed) | not enrolled (equivalent, below) |
 | `storage/database_url.py` | 69 | 51 | 1 (equivalent) | not enrolled |
 | `detector/evidence_document.py` | 290 | 6 | 2 (equivalent) | not enrolled |
 | `detector/scoring_config.py` | 505 | 135 | 3 (equivalent) | not enrolled |
@@ -1275,8 +1275,8 @@ defaults-versus-redis-py check in `tests/alerter/test_redis_port.py`.
 
 Equivalent mutants, left in place; each of these modules stays unenrolled:
 
-- `_redis_port.HistoryRedis.pipeline`: `transaction: bool = True` mutated to `False`, and
-  `HistoryRedis.set`: `nx: bool = False` mutated to `True`. These are defaults on `Protocol`
+- `_redis_port.HistoryRedis.pipeline`: `transaction: bool = True` mutated to `False`,
+  `HistoryRedis.set`: `nx: bool = False` mutated to `True`, and `ScanRedis.scan` (same shape). These are defaults on `Protocol`
   method stubs whose body is `...`; nothing executes them, so mutmut reports them as untested and
   no behaviour can differ. The new test pins the declared defaults to redis-py's instead.
 - `database_url.normalize_database_url`: `render_as_string(hide_password=False)` mutated to
