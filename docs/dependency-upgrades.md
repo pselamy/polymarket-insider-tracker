@@ -15,7 +15,7 @@ Scope is `runtime` when the package is reachable without the `dev` extra/group
 (`uv tree --locked --no-dev`, confirmed per package with `--invert`), else `dev-only`.
 Advisory counts include GHSA/PYSEC aliases as separate osv records. `docs/security.md`
 counts osv alias groups instead (one per underlying advisory): 60 groups in 17 packages on
-`main` before family 1, 14 groups in 8 packages after it.
+`main` before family 1, 14 groups in 8 packages after it, 8 groups in 6 packages after family 6.
 
 ## Families
 
@@ -36,8 +36,8 @@ counts osv alias groups instead (one per underlying advisory): 60 groups in 17 p
 | 4 | alembic stack | mako | 1.3.10 | 1.4.2 | 6 | runtime (via alembic) |
 | 5 | pytest/pygments | pytest | 9.0.2 | 9.0.3 | 2 | runtime (via poly-eip712-structs); also dev pin |
 | 5 | pytest/pygments | pygments | 2.19.2 | 2.20.0 | 2 | runtime (via pytest) |
-| 6 | dev tooling | virtualenv | 20.35.4 | 21.7.13 | 10 | dev-only (via pre-commit) |
-| 6 | dev tooling | filelock | 3.20.2 | 3.20.3 | 2 | dev-only (via virtualenv) |
+| 6 | dev tooling | virtualenv | 20.35.4 | 21.7.13 | 10 | dev-only (via pre-commit), done: locked 21.7.13 |
+| 6 | dev tooling | filelock | 3.20.2 | 3.20.3 | 2 | dev-only (via virtualenv), done: locked 3.32.7 |
 
 No advisory lacks a fixed release. h11, httpx and httpcore have no advisories; they are
 not upgraded. Packages not listed (redis, sqlalchemy, websockets, ...) carry no advisories.
@@ -53,7 +53,10 @@ lock alone is enough; no pin edits are expected for family 1.
 1. **Family 1, HTTP stack** (this branch): aiohttp, urllib3, requests, multidict, idna,
    certifi, anyio, h2, hpack. Largest advisory count and the network-facing surface;
    scoped to ingestor/alerter/profiler HTTP clients, covered by existing tests.
-2. **Family 6, dev tooling**: virtualenv, filelock. Dev-only, no runtime effect.
+2. **Family 6, dev tooling** (done): virtualenv 20.35.4 -> 21.7.13, filelock 3.20.2 -> 3.32.7,
+   plus new transitive python-discovery 1.6.4. Dev-only, no runtime effect. filelock lands above
+   its minimum fix (3.20.3) because virtualenv 21.7.13 requires a newer filelock; pinning 3.20.3
+   is unsatisfiable. Clears 12 osv records (6 alias groups); `pyproject.toml` is unchanged.
 3. **Family 3, settings/env**: pydantic-settings, python-dotenv. Small, touches config loading.
 4. **Family 5, pytest/pygments**: patch/minor bumps, test-runner only in practice.
 5. **Family 4, mako** (alembic template engine): 1.3 -> 1.4 is a minor line change; run
