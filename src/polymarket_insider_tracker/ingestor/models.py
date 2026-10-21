@@ -496,15 +496,6 @@ class MarketMetadata:
         except (ValueError, AttributeError):
             return default
 
-    @staticmethod
-    def _parse_opt_dec(val: Any | None) -> Decimal | None:
-        if val is None or val == "":
-            return None
-        try:
-            return Decimal(str(val))
-        except (ValueError, ArithmeticError):
-            return None
-
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MarketMetadata":
         """Deserialize from a dictionary (from Redis storage).
