@@ -276,15 +276,15 @@ class TestSizeAnomalyDetectorInit:
         fake_metadata_sync: FakeMetadataSync,
         sample_trade: TradeEvent,
     ) -> None:
-        depth = Decimal("100000")  # a $6500 trade is 6.5% of this book
         strict = SizeAnomalyDetector(fake_metadata_sync, book_threshold=0.10)
-
-        loose_signal = await detector.analyze(sample_trade, book_depth=depth)
-        strict_signal = await strict.analyze(sample_trade, book_depth=depth)
-
-        assert loose_signal is not None and strict_signal is not None
-        assert "book_impact" in loose_signal.factors
-        assert "book_impact" not in strict_signal.factors
+        depth = Decimal("100000")  # a $6500 trade is 6.5% of this book; 3.25% of twice it
+        signals = [
+            await detector.analyze(sample_trade, book_depth=depth),
+            await strict.analyze(sample_trade, book_depth=depth),
+            await detector.analyze(sample_trade, book_depth=depth * 2),
+        ]
+        assert all(signal is not None for signal in signals)
+        assert ["book_impact" in s.factors for s in signals if s] == [True, False, False]
 
 
 # ============================================================================
