@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
-from typing import cast
+from typing import Literal, cast
 
 import httpx
 
+from polymarket_insider_tracker.ingestor.volume_observation import (
+    GAMMA_SOURCE,
+    VolumeObservation,
+)
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
@@ -38,9 +44,21 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BASE_DELAY_SECONDS = 1.0
 
 
+Clock = Callable[[], datetime]
+
+
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 @dataclass(frozen=True)
 class GammaMarketStats:
-    """Volume / liquidity snapshot for a single market from gamma-api."""
+    """Volume / liquidity snapshot for a single market from gamma-api.
+
+    ``acquired_at`` is the instant the page body carrying this market was received;
+    ``volume24hr_present`` / ``volume24hr_raw`` are the key's presence and its decoded JSON value
+    exactly as received (data-model section 1.1), kept apart from the lossy ``daily_volume``.
+    """
 
     condition_id: str
     daily_volume: Decimal | None
@@ -48,6 +66,39 @@ class GammaMarketStats:
     monthly_volume: Decimal | None
     total_volume: Decimal | None
     liquidity: Decimal | None
+    acquired_at: datetime | None = None
+    volume24hr_present: bool = False
+    volume24hr_raw: object = None
+    daily_volume_source: str | None = None
+
+    def volume_observation(self) -> VolumeObservation:
+        """The acquisition facts of this market's volume, ready for the volume record."""
+        stamp = self.acquired_at.astimezone(UTC).isoformat() if self.acquired_at else None
+        return VolumeObservation(
+            self.volume24hr_present, self.volume24hr_raw, stamp, self.daily_volume_source
+        )
+
+
+@dataclass(frozen=True)
+class GammaPage:
+    """One page fetch: ``items`` and the body-receipt stamp when ``status`` is ``ok``."""
+
+    index: int
+    status: Literal["ok", "failed", "skipped"]
+    acquired_at: datetime | None = None
+    items: tuple[object, ...] = ()
+
+
+@dataclass(frozen=True)
+class GammaCrawl:
+    """Result of one crawl: per-market stats plus what the crawl could and could not see."""
+
+    stats: dict[str, GammaMarketStats]
+    pages_ok: int
+    pages_failed: int
+    truncated: bool
+    started: datetime
+    finished: datetime
 
 
 def _to_decimal(value: object) -> Decimal | None:
@@ -59,7 +110,9 @@ def _to_decimal(value: object) -> Decimal | None:
         return None
 
 
-def _parse_market(raw: dict[str, object]) -> GammaMarketStats | None:
+def _parse_market(
+    raw: dict[str, object], acquired_at: datetime | None = None
+) -> GammaMarketStats | None:
     cid = raw.get("conditionId")
     if not cid or not isinstance(cid, str):
         return None
@@ -70,6 +123,10 @@ def _parse_market(raw: dict[str, object]) -> GammaMarketStats | None:
         monthly_volume=_to_decimal(raw.get("volume1mo")),
         total_volume=_to_decimal(raw.get("volumeNum") or raw.get("volume")),
         liquidity=_to_decimal(raw.get("liquidityNum") or raw.get("liquidity")),
+        acquired_at=acquired_at,
+        volume24hr_present="volume24hr" in raw,
+        volume24hr_raw=raw.get("volume24hr"),
+        daily_volume_source=GAMMA_SOURCE,
     )
 
 
@@ -77,27 +134,41 @@ class GammaClientError(Exception):
     """Raised when gamma-api returns an unrecoverable error."""
 
 
-def _try_parse_item(raw: object) -> GammaMarketStats | None:
+def _try_parse_item(raw: object, acquired_at: datetime | None) -> GammaMarketStats | None:
     if isinstance(raw, dict):
-        return _parse_market(cast(dict[str, object], raw))
+        return _parse_market(cast(dict[str, object], raw), acquired_at)
     return None
 
 
-def _parse_page_items(page: list[object], results: dict[str, GammaMarketStats]) -> None:
-    for raw in page:
-        parsed = _try_parse_item(raw)
+def _supersedes(new: GammaMarketStats, kept: GammaMarketStats) -> bool:
+    """Duplicate-id rule: the later ``acquired_at`` wins; a tie keeps the lower page index."""
+    if new.acquired_at is None:
+        return False
+    return kept.acquired_at is None or new.acquired_at > kept.acquired_at
+
+
+def _keep_freshest(results: dict[str, GammaMarketStats], parsed: GammaMarketStats) -> None:
+    kept = results.get(parsed.condition_id)
+    if kept is None or _supersedes(parsed, kept):
+        results[parsed.condition_id] = parsed
+
+
+def _parse_page_items(page: GammaPage, results: dict[str, GammaMarketStats]) -> None:
+    for raw in page.items:
+        parsed = _try_parse_item(raw, page.acquired_at)
         if parsed is not None:
-            results[parsed.condition_id] = parsed
+            _keep_freshest(results, parsed)
 
 
-def _aggregate_pages(pages: list[list[object]]) -> dict[str, GammaMarketStats]:
+def _aggregate_pages(pages: Sequence[GammaPage]) -> dict[str, GammaMarketStats]:
     """Merge every fetched page into one mapping keyed by condition id.
 
     Every page is already fetched by the time this runs, so no page is
     skipped: a failed or empty page never hides a later page that succeeded.
+    Pages are visited in index order, so a stamp tie keeps the lower page index.
     """
     results: dict[str, GammaMarketStats] = {}
-    for page in pages:
+    for page in sorted(pages, key=lambda candidate: candidate.index):
         _parse_page_items(page, results)
     return results
 
@@ -121,6 +192,7 @@ class GammaClient:
         page_concurrency: int = DEFAULT_PAGE_CONCURRENCY,
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_base_delay_seconds: float = DEFAULT_RETRY_BASE_DELAY_SECONDS,
+        clock: Clock = utc_now,
     ) -> None:
         self._host = host.rstrip("/")
         self._timeout = timeout_seconds
@@ -129,21 +201,23 @@ class GammaClient:
         self._page_concurrency = page_concurrency
         self._max_retries = max_retries
         self._retry_base = retry_base_delay_seconds
+        self._clock = clock
 
-    @staticmethod
     async def _fetch_page_payload(
+        self,
         client: httpx.AsyncClient,
         path: str,
         params: dict[str, str | int],
-    ) -> list[object]:
+    ) -> tuple[list[object], datetime]:
         resp = await client.get(path, params=params)
+        acquired_at = self._clock().astimezone(UTC)
         resp.raise_for_status()
         payload: object = resp.json()
         if not isinstance(payload, list):
             raise GammaClientError(
                 f"Unexpected gamma response shape for {path}: {type(payload).__name__}"
             )
-        return cast(list[object], payload)
+        return cast(list[object], payload), acquired_at
 
     @staticmethod
     async def _retry_sleep(attempt: int, max_retries: int, delay: float) -> float:
@@ -157,7 +231,7 @@ class GammaClient:
         client: httpx.AsyncClient,
         path: str,
         params: dict[str, str | int],
-    ) -> list[object]:
+    ) -> tuple[list[object], datetime]:
         last_exc: Exception | None = None
         delay = self._retry_base
         for attempt in range(self._max_retries):
@@ -182,9 +256,9 @@ class GammaClient:
         sem: asyncio.Semaphore,
         stop: asyncio.Event,
         page_index: int,
-    ) -> list[object]:
+    ) -> GammaPage:
         if stop.is_set():
-            return []
+            return GammaPage(page_index, "skipped")
         params: dict[str, str | int] = {
             "limit": self._page_limit,
             "offset": page_index * self._page_limit,
@@ -195,15 +269,16 @@ class GammaClient:
         }
         async with sem:
             if stop.is_set():
-                return []
+                return GammaPage(page_index, "skipped")
             try:
-                return await self._get_with_retry(client, "/markets", params)
+                items, acquired_at = await self._get_with_retry(client, "/markets", params)
             except GammaClientError as exc:
                 logger.debug("gamma stop at page %d: %s", page_index, exc)
                 stop.set()
-                return []
+                return GammaPage(page_index, "failed")
+            return GammaPage(page_index, "ok", acquired_at, tuple(items))
 
-    async def _fetch_all_pages(self, client: httpx.AsyncClient) -> list[list[object]]:
+    async def _fetch_all_pages(self, client: httpx.AsyncClient) -> list[GammaPage]:
         sem = asyncio.Semaphore(self._page_concurrency)
         stop = asyncio.Event()
         tasks = [
@@ -213,8 +288,8 @@ class GammaClient:
         pages = await asyncio.gather(*tasks)
         return list(pages)
 
-    async def get_active_market_stats(self) -> dict[str, GammaMarketStats]:
-        """Fetch volume/liquidity for the most-traded active markets.
+    async def crawl_active_markets(self) -> GammaCrawl:
+        """Crawl the most-traded active markets, stamping every page at body receipt.
 
         Walks up to `max_pages` pages of `page_limit` markets each, sorted
         by 24h volume descending, with bounded concurrency. Markets beyond
@@ -222,8 +297,9 @@ class GammaClient:
         niche path handles them without needing a ratio.
 
         Returns:
-            Mapping condition_id -> GammaMarketStats.
+            The per-market stats and the page counts that tell absence from truncation.
         """
+        started = self._clock().astimezone(UTC)
         async with httpx.AsyncClient(
             base_url=self._host,
             timeout=self._timeout,
@@ -231,6 +307,23 @@ class GammaClient:
         ) as client:
             pages = await self._fetch_all_pages(client)
 
-        results = _aggregate_pages(pages)
-        logger.info("gamma sync: fetched stats for %d active markets", len(results))
-        return results
+        stats = _aggregate_pages(pages)
+        logger.info("gamma sync: fetched stats for %d active markets", len(stats))
+        pages_ok = sum(page.status == "ok" for page in pages)
+        pages_failed = sum(page.status == "failed" for page in pages)
+        return GammaCrawl(
+            stats=stats,
+            pages_ok=pages_ok,
+            pages_failed=pages_failed,
+            truncated=pages_ok < len(pages),
+            started=started,
+            finished=self._clock().astimezone(UTC),
+        )
+
+    async def get_active_market_stats(self) -> dict[str, GammaMarketStats]:
+        """Fetch volume/liquidity for the most-traded active markets.
+
+        Returns:
+            Mapping condition_id -> GammaMarketStats.
+        """
+        return (await self.crawl_active_markets()).stats

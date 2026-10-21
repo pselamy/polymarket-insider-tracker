@@ -1,0 +1,132 @@
+"""One Gamma market-volume observation and its stored record form.
+
+Contract: ``specs/004-truthful-detection-contract/data-model.md`` sections 1.1 and 1.1a. An
+observation is one market object received in one successful Gamma page response; it carries the
+decoded ``volume24hr`` value untouched (bounded only by the section 1.1a storage rule) and the
+instant the page body was received. Nothing here interprets the value; classification into the
+eight volume states lives in ``detector.volume_state``.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TypeAlias
+
+JsonValue: TypeAlias = "None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]"
+
+GAMMA_SOURCE = "gamma-markets-v1"
+RAW_BOUND_BYTES = 256
+RESERVED_KEYS = frozenset({"$truncated", "$nonfinite"})
+_JSON_TYPE_NAMES: dict[type, str] = {
+    bool: "boolean",
+    int: "number",
+    float: "number",
+    str: "string",
+    list: "array",
+}
+
+
+def _canonical(value: object) -> bytes:
+    """Canonical UTF-8 text; non-finite floats keep Python's ``NaN``/``Infinity`` tokens."""
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return text.encode("utf-8")
+
+
+def _has_nonfinite(value: object) -> bool:
+    """True when any float inside ``value`` is NaN or infinite (strict JSON refuses it)."""
+    try:
+        json.dumps(value, allow_nan=False)
+    except ValueError:
+        return True
+    return False
+
+
+def _has_reserved_key(value: object) -> bool:
+    return isinstance(value, dict) and any(key in value for key in RESERVED_KEYS)
+
+
+def _truncation_reason(value: object, size: int) -> str | None:
+    if _has_nonfinite(value):
+        return "nested_nonfinite"
+    if _has_reserved_key(value):
+        return "reserved_key"
+    return "oversize" if size > RAW_BOUND_BYTES else None
+
+
+def _nonfinite_tag(value: float) -> str:
+    if math.isnan(value):
+        return "NaN"
+    return "Infinity" if value > 0 else "-Infinity"
+
+
+def bound_raw(value: object) -> object:
+    """The stored form of a decoded ``volume24hr`` value (data-model section 1.1a)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"$nonfinite": _nonfinite_tag(value)}
+    body = _canonical(value)
+    reason = _truncation_reason(value, len(body))
+    if reason is None:
+        return value
+    return {
+        "$truncated": True,
+        "bytes": len(body),
+        "reason": reason,
+        "sha256": hashlib.sha256(body).hexdigest(),
+        "type": "object" if isinstance(value, dict) else _JSON_TYPE_NAMES.get(type(value), "null"),
+    }
+
+
+@dataclass(frozen=True)
+class VolumeObservation:
+    """The acquisition facts of one observation; ``acquired_at`` is the stored ISO-8601 text.
+
+    ``source`` is ``None`` for a legacy record that has a value but no provenance.
+    """
+
+    present: bool
+    raw: object
+    acquired_at: str | None
+    source: str | None
+
+    @classmethod
+    def from_page(cls, *, present: bool, raw: object, acquired_at: datetime) -> VolumeObservation:
+        """Observation of a market object received in a Gamma page at ``acquired_at``."""
+        return cls(present, raw, acquired_at.astimezone(UTC).isoformat(), GAMMA_SOURCE)
+
+    def to_record(self) -> dict[str, object]:
+        """The Redis record body; the raw value is bounded by the section 1.1a rule."""
+        return {
+            "present": self.present,
+            "raw": bound_raw(self.raw),
+            "acquired_at": self.acquired_at,
+            "source": self.source,
+        }
+
+    @classmethod
+    def from_record(cls, record: JsonValue) -> VolumeObservation | None:
+        """Read a stored record body; ``None`` when it is not a record (a corrupt entry)."""
+        if not isinstance(record, dict):
+            return None
+        present, acquired_at, source = (record.get(k) for k in ("present", "acquired_at", "source"))
+        if not isinstance(present, bool) or not isinstance(acquired_at, str | None):
+            return None
+        if not isinstance(source, str | None):
+            return None
+        return cls(present, record.get("raw"), acquired_at, source)
+
+    @classmethod
+    def from_cached(cls, data: Mapping[str, JsonValue]) -> VolumeObservation | None:
+        """The observation of a cached metadata dict; a bare ``daily_volume`` is a legacy record.
+
+        A legacy value has no source and no stamp, so it classifies as ``unqualified`` /
+        ``no_provenance`` and is never interpreted.
+        """
+        if "volume" in data:
+            return cls.from_record(data["volume"])
+        legacy = data.get("daily_volume")
+        return None if legacy is None else cls(True, legacy, None, None)
