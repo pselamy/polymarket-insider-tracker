@@ -444,6 +444,7 @@ class MarketMetadataSync:
         pattern = f"{self._key_prefix}*"
 
         cursor = 0
+        # Third-party boundary: redis-py types ``scan`` with ``**kwargs`` and an Any reply.
         scanner = cast(RedisScanner, self._redis)
         while True:
             cursor, keys = await scanner.scan(cursor, match=pattern, count=100)

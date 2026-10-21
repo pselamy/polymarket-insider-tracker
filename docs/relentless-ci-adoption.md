@@ -1441,3 +1441,22 @@ Behaviour notes:
   added to the 100 % coverage include list.
 - Pinned clone scan (`quality.duplication_clusters_main`): 6 groups / 69 lines on `main` and on
   this branch (delta 0).
+
+## Escape sweep step 3: typing escapes out of the poller, dispatcher, CLI, metadata sync and tooling (2026-10-21)
+
+Scope: seven files. Lines matching `cast(`, `Any`, `type: ignore`, `pyright: ignore`, `noqa`,
+`setattr` or `__dict__` writes, before and after. `ingestor/trade_poller.py` and
+`alerter/dispatcher.py` carried none (matches there are prose). `quality/incomplete.py` matches
+only inside its own policy data (the escape-detection regex and the approved-cast table naming
+other files); it contains no escape itself.
+
+| File | Before | After | Reason it existed and the replacement |
+| --- | --- | --- | --- |
+| `__main__.py` | 2 | 0 | `record.__dict__["exc_info"]` write and `object.__setattr__` for `status`. Now a typed `_ExcInfo` assignment and a runtime-checked `_StatusCarrier` protocol. |
+| `ingestor/observation_boundary.py` | 3 | 1 | Decoded loss-event JSON was `cast(dict[str, Any])`; now `JsonValue` with field checks (bad shape raises `ValueError`). One boundary cast stays: redis-py's stubs are not strict-clean (`Any` replies, untyped `multi`), so the `BoundaryRedis` surface is asserted once. |
+| `ingestor/metadata_sync.py` | 1 | 1 | `scan` cast to `RedisScanner`: redis-py types `scan` with `**kwargs` and an `Any` reply, which fails strict pyright when called directly. Kept as a documented boundary. |
+| `scripts/_entry_bootstrap.py` | 2 | 0 | `dict[str, Any]` namespace is `dict[str, object]`; `__file__` is checked to be a string. |
+
+Newly checked shapes, each with a test: a loss event that is not a JSON object, or has a
+non-integer count/time or non-string reason, raises `ValueError`; an entry namespace without a
+string `__file__` raises `TypeError`.

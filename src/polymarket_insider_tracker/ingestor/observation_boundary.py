@@ -16,11 +16,12 @@ from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
-from typing import Any, Protocol, cast
+from typing import Protocol, cast
 
 from redis.asyncio import Redis
 
 from polymarket_insider_tracker.endpoints import OFFICIAL_V1_TRADES_URL, OFFICIAL_V2_TRADES_URL
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 
 SCHEMA_VERSION = 2
 LOSS_EVENT_RETENTION = 50
@@ -180,6 +181,27 @@ class Checkpoint:
         )
 
 
+def _json_object(payload: bytes | str) -> dict[str, JsonValue]:
+    decoded: JsonValue = json.loads(payload)
+    if not isinstance(decoded, dict):
+        raise ValueError("loss event is not a JSON object")
+    return decoded
+
+
+def _str_field(data: Mapping[str, JsonValue], name: str) -> str:
+    value = data[name]
+    if not isinstance(value, str):
+        raise ValueError(f"loss event field {name} is not a string")
+    return value
+
+
+def _int_field(data: Mapping[str, JsonValue], name: str) -> int:
+    value = data[name]
+    if not isinstance(value, int | str):
+        raise ValueError(f"loss event field {name} is not an integer")
+    return int(value)
+
+
 @dataclass(frozen=True)
 class LossEvent:
     """An interval the tracker could not prove it covered."""
@@ -196,14 +218,14 @@ class LossEvent:
 
     @classmethod
     def from_json(cls, payload: bytes | str) -> LossEvent:
-        data = cast(dict[str, Any], json.loads(payload))
+        data = _json_object(payload)
         return cls(
-            from_time=int(data["from_time"]),
-            to_time=int(data["to_time"]),
-            reason=LossReason(data["reason"]),
-            detected_at=int(data["detected_at"]),
-            recorded_at=int(data["recorded_at"]),
-            pages_examined=int(data["pages_examined"]),
+            from_time=_int_field(data, "from_time"),
+            to_time=_int_field(data, "to_time"),
+            reason=LossReason(_str_field(data, "reason")),
+            detected_at=_int_field(data, "detected_at"),
+            recorded_at=_int_field(data, "recorded_at"),
+            pages_examined=_int_field(data, "pages_examined"),
         )
 
 
@@ -248,6 +270,8 @@ class ObservationBoundary:
         horizon_seconds: int,
         clock: Callable[[], float] = time.time,
     ) -> None:
+        # Third-party boundary: redis-py's stubs type replies as Any/Awaitable unions, so the
+        # strict BoundaryRedis surface is asserted here once.
         self._redis = cast(BoundaryRedis, redis)
         self._coverage = coverage
         self._horizon = horizon_seconds

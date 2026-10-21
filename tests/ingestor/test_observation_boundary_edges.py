@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fakeredis import FakeAsyncRedis
 
@@ -9,6 +11,8 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     SCHEMA_VERSION,
     BoundaryOrigin,
     BoundarySchemaError,
+    LossEvent,
+    LossReason,
     ObservationBoundary,
 )
 from tests.fakes import FakeClock
@@ -78,3 +82,34 @@ async def test_retaining_before_the_checkpoint_is_loaded_leaves_it_unloaded(
     assert fresh.checkpoint is None
     assert dict(fresh.window) == {"late": 1_500}
     assert await as_bytes(fake_redis.hget(fresh.checkpoint_key, "last_request_end")) == b"1500"
+
+
+_LOSS_EVENT = {
+    "from_time": 1,
+    "to_time": 2,
+    "reason": "horizon-expired",
+    "detected_at": 3,
+    "recorded_at": 4,
+    "pages_examined": 5,
+}
+
+
+def test_a_well_formed_loss_event_round_trips() -> None:
+    event = LossEvent.from_json(json.dumps(_LOSS_EVENT))
+
+    assert event.reason is LossReason.HORIZON_EXPIRED
+    assert LossEvent.from_json(event.to_json()) == event
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        json.dumps([1, 2]),
+        json.dumps({**_LOSS_EVENT, "from_time": None}),
+        json.dumps({**_LOSS_EVENT, "pages_examined": [5]}),
+        json.dumps({**_LOSS_EVENT, "reason": 7}),
+    ],
+)
+def test_a_loss_event_of_the_wrong_shape_is_rejected(payload: str) -> None:
+    with pytest.raises(ValueError, match="loss event"):
+        LossEvent.from_json(payload)
