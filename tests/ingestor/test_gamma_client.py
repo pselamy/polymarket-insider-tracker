@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 import httpx
 import pytest
@@ -22,49 +21,22 @@ from tests.ingestor.conftest import PatchAsyncClient
 
 
 class TestParseMarket:
-    def test_parses_full_payload(self) -> None:
-        raw: dict[str, JsonValue] = {
-            "conditionId": "0xabc",
-            "volume24hr": "12345.67",
-            "volume1wk": "100000",
-            "volume1mo": "500000",
-            "volumeNum": "999999.5",
-            "liquidityNum": "42000",
-        }
+    def test_keeps_the_volume24hr_value_exactly_as_received(self) -> None:
+        raw: dict[str, JsonValue] = {"conditionId": "0xabc", "volume24hr": "12345.67"}
         stats = _parse_market(raw)
         assert stats is not None
         assert stats.condition_id == "0xabc"
-        assert stats.daily_volume == Decimal("12345.67")
-        assert stats.weekly_volume == Decimal("100000")
-        assert stats.monthly_volume == Decimal("500000")
-        assert stats.total_volume == Decimal("999999.5")
-        assert stats.liquidity == Decimal("42000")
+        assert (stats.volume24hr_present, stats.volume24hr_raw) == (True, "12345.67")
 
-    def test_falls_back_to_alternative_keys(self) -> None:
-        raw: dict[str, JsonValue] = {
-            "conditionId": "0x1",
-            "volume24hr": "1",
-            "volume": "777",
-            "liquidity": "55",
-        }
-        stats = _parse_market(raw)
+    def test_garbage_is_preserved_for_the_classifier_not_dropped(self) -> None:
+        stats = _parse_market({"conditionId": "0x3", "volume24hr": "not-a-number"})
         assert stats is not None
-        assert stats.total_volume == Decimal("777")
-        assert stats.liquidity == Decimal("55")
+        assert stats.volume24hr_raw == "not-a-number"
 
-    def test_handles_missing_numeric_fields(self) -> None:
+    def test_handles_a_missing_volume_key(self) -> None:
         stats = _parse_market({"conditionId": "0x2"})
         assert stats is not None
-        assert stats.daily_volume is None
-        assert stats.liquidity is None
-
-    def test_drops_garbage_decimals(self) -> None:
-        stats = _parse_market(
-            {"conditionId": "0x3", "volume24hr": "not-a-number", "liquidityNum": ""}
-        )
-        assert stats is not None
-        assert stats.daily_volume is None
-        assert stats.liquidity is None
+        assert (stats.volume24hr_present, stats.volume24hr_raw) == (False, None)
 
     def test_rejects_missing_condition_id(self) -> None:
         assert _parse_market({"volume24hr": "1"}) is None
@@ -131,7 +103,7 @@ async def test_get_active_market_stats_single_page(patch_async_client: PatchAsyn
 
     assert set(result.keys()) == {"0xa", "0xb"}
     assert isinstance(result["0xa"], GammaMarketStats)
-    assert result["0xa"].daily_volume == Decimal("100")
+    assert result["0xa"].volume24hr_raw == "100"
     assert calls[0]["limit"] == "2"
     assert calls[0]["order"] == "volume24hr"
     assert calls[0]["ascending"] == "false"
@@ -275,7 +247,7 @@ class TestAggregatePages:
     def test_later_page_wins_for_a_repeated_condition_id(self) -> None:
         pages: list[list[JsonValue]] = [_page("0xa"), [{"conditionId": "0xa", "volume24hr": "9"}]]
 
-        assert _aggregate_pages(_fetched(pages))["0xa"].daily_volume == Decimal("9")
+        assert _aggregate_pages(_fetched(pages))["0xa"].volume24hr_raw == "9"
 
     def test_no_pages_yields_no_stats(self) -> None:
         assert _aggregate_pages(_fetched([])) == {}

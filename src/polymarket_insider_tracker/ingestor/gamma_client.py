@@ -14,7 +14,6 @@ import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 import httpx
@@ -54,19 +53,15 @@ def utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class GammaMarketStats:
-    """Volume / liquidity snapshot for a single market from gamma-api.
+    """The 24h volume observation of a single market from gamma-api.
 
     ``acquired_at`` is the instant the page body carrying this market was received;
     ``volume24hr_present`` / ``volume24hr_raw`` are the key's presence and its decoded JSON value
-    exactly as received (data-model section 1.1), kept apart from the lossy ``daily_volume``.
+    exactly as received (data-model section 1.1). No lossy decimal is derived here: the volume
+    state classifier is the only reader of the value.
     """
 
     condition_id: str
-    daily_volume: Decimal | None
-    weekly_volume: Decimal | None
-    monthly_volume: Decimal | None
-    total_volume: Decimal | None
-    liquidity: Decimal | None
     acquired_at: datetime | None = None
     volume24hr_present: bool = False
     volume24hr_raw: JsonValue = None
@@ -102,15 +97,6 @@ class GammaCrawl:
     finished: datetime
 
 
-def _to_decimal(value: object) -> Decimal | None:
-    if value is None or value == "":
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError):
-        return None
-
-
 def _parse_market(
     raw: dict[str, JsonValue], acquired_at: datetime | None = None
 ) -> GammaMarketStats | None:
@@ -119,11 +105,6 @@ def _parse_market(
         return None
     return GammaMarketStats(
         condition_id=cid,
-        daily_volume=_to_decimal(raw.get("volume24hr")),
-        weekly_volume=_to_decimal(raw.get("volume1wk")),
-        monthly_volume=_to_decimal(raw.get("volume1mo")),
-        total_volume=_to_decimal(raw.get("volumeNum") or raw.get("volume")),
-        liquidity=_to_decimal(raw.get("liquidityNum") or raw.get("liquidity")),
         acquired_at=acquired_at,
         volume24hr_present="volume24hr" in raw,
         volume24hr_raw=raw.get("volume24hr"),

@@ -264,15 +264,13 @@ class TestGetTriggeredSignals:
         assert signals == []
 
     def test_fresh_wallet_only(self, medium_risk_assessment: RiskAssessment) -> None:
-        """Test assessment with only fresh wallet signal."""
-        signals = get_triggered_signals(medium_risk_assessment)
-        assert "Fresh Wallet" in signals
-        assert "Large Position" not in signals
+        """G1: a wallet-only assessment lists no triggered signal (the group is non-scoring)."""
+        assert get_triggered_signals(medium_risk_assessment) == []
 
     def test_both_signals(self, high_risk_assessment: RiskAssessment) -> None:
         """Test assessment with both signals."""
         signals = get_triggered_signals(high_risk_assessment)
-        assert "Fresh Wallet" in signals
+        assert "Fresh Wallet" not in signals
         assert "Large Position" in signals
         assert "Niche Market" in signals  # From size anomaly with is_niche_market=True
 
@@ -389,7 +387,8 @@ class TestDiscordEmbed:
         result = formatter.format(high_risk_assessment)
         signals_field = _embed_field(result, "Signals")
         assert signals_field is not None
-        assert "Fresh Wallet" in signals_field["value"]
+        assert "Fresh Wallet" not in signals_field["value"]
+        assert "Large Position" in signals_field["value"]
 
     def test_detailed_embed_includes_confidence(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that detailed mode includes confidence breakdown."""
@@ -472,7 +471,8 @@ class TestPlainText:
         formatter = AlertFormatter()
         result = formatter.format(high_risk_assessment)
         assert "Signals:" in result.plain_text
-        assert "Fresh Wallet" in result.plain_text
+        assert "Fresh Wallet" not in result.plain_text
+        assert "Large Position" in result.plain_text
 
 
 class TestCompactVerbosity:

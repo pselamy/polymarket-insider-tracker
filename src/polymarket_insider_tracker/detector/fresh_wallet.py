@@ -6,10 +6,18 @@ from fresh wallets and generates alert signals with confidence scores.
 
 import logging
 from abc import abstractmethod
+from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
 
 from polymarket_insider_tracker.detector._batch import gather_signals
+from polymarket_insider_tracker.detector.evaluation import WalletClassification, WalletEvaluation
+from polymarket_insider_tracker.detector.evaluation_clock import (
+    Clock,
+    read_evaluation_instant,
+    system_clock,
+    utc_instant,
+)
 from polymarket_insider_tracker.detector.models import FreshWalletSignal
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
@@ -27,6 +35,13 @@ BRAND_NEW_BONUS = 0.2  # nonce == 0
 VERY_YOUNG_BONUS = 0.1  # age < 2 hours
 LARGE_TRADE_BONUS = 0.1  # trade size > $10,000
 LARGE_TRADE_THRESHOLD = Decimal("10000")
+
+
+def _qualifying_class(profile: WalletProfile) -> WalletClassification:
+    """A qualifying wallet is ``fresh`` only with a known age (data-model section 2)."""
+    if profile.age_hours is None:
+        return WalletClassification.LOW_ACTIVITY_UNKNOWN_AGE
+    return WalletClassification.FRESH
 
 
 class WalletProfiler(Protocol):
@@ -69,6 +84,7 @@ class FreshWalletDetector:
         min_trade_size: Decimal = DEFAULT_MIN_TRADE_SIZE,
         max_nonce: int = DEFAULT_MAX_NONCE,
         max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
+        clock: Clock = system_clock,
     ) -> None:
         """Initialize the fresh wallet detector.
 
@@ -77,11 +93,28 @@ class FreshWalletDetector:
             min_trade_size: Minimum trade size to analyze (default $1,000).
             max_nonce: Maximum nonce to consider wallet fresh (default 5).
             max_age_hours: Maximum age in hours to consider fresh (default 48).
+            clock: Source of the evaluation instant, read once per analyzed trade.
         """
         self._analyzer = wallet_analyzer
         self._min_trade_size = min_trade_size
         self._max_nonce = max_nonce
         self._max_age_hours = max_age_hours
+        self._clock = clock
+
+    @property
+    def fresh_transaction_boundary(self) -> int:
+        """The effective exclusive boundary ``B``: the inclusive ``max_nonce`` plus one."""
+        return self._max_nonce + 1
+
+    @property
+    def min_trade_size(self) -> Decimal:
+        """The minimum notional a trade needs before its wallet is profiled."""
+        return self._min_trade_size
+
+    @property
+    def max_age_hours(self) -> float:
+        """The known-age ceiling in hours."""
+        return self._max_age_hours
 
     async def analyze(self, trade: TradeEvent) -> FreshWalletSignal | None:
         """Analyze a trade event for fresh wallet signals.
@@ -104,6 +137,17 @@ class FreshWalletDetector:
                 it and record why fresh-wallet evidence is absent; swallowing it here
                 would be indistinguishable from "wallet is not fresh".
         """
+        evaluation = await self.evaluate(trade, evaluated_at=read_evaluation_instant(self._clock))
+        return evaluation.signal
+
+    async def evaluate(self, trade: TradeEvent, *, evaluated_at: datetime) -> WalletEvaluation:
+        """Classify the trade's wallet at ``evaluated_at``; the signal is set only if it qualifies.
+
+        Raises:
+            ValueError: ``evaluated_at`` is naive.
+            Exception: A wallet profiling failure propagates, exactly as from ``analyze``.
+        """
+        instant = utc_instant(evaluated_at)
         # Filter by minimum trade size
         if trade.notional_value < self._min_trade_size:
             logger.debug(
@@ -112,7 +156,7 @@ class FreshWalletDetector:
                 trade.notional_value,
                 self._min_trade_size,
             )
-            return None
+            return self._evaluation(instant, WalletClassification.NOT_REQUESTED, None, None)
 
         # Get wallet profile
         profile = await self._analyzer.analyze(trade.wallet_address)
@@ -125,7 +169,9 @@ class FreshWalletDetector:
                 profile.nonce,
                 profile.age_hours,
             )
-            return None
+            return self._evaluation(
+                instant, WalletClassification.KNOWN_NONQUALIFYING, profile, None
+            )
 
         # Calculate confidence score
         confidence, factors = self.calculate_confidence(profile, trade)
@@ -138,12 +184,23 @@ class FreshWalletDetector:
             confidence,
         )
 
-        return FreshWalletSignal(
+        signal = FreshWalletSignal(
             trade_event=trade,
             wallet_profile=profile,
             confidence=confidence,
             factors=factors,
         )
+        return self._evaluation(instant, _qualifying_class(profile), profile, signal)
+
+    def _evaluation(
+        self,
+        instant: datetime,
+        classification: WalletClassification,
+        profile: WalletProfile | None,
+        signal: FreshWalletSignal | None,
+    ) -> WalletEvaluation:
+        boundary = self.fresh_transaction_boundary
+        return WalletEvaluation(instant, classification, boundary, profile, signal)
 
     def _is_wallet_fresh(self, profile: WalletProfile) -> bool:
         """Check if wallet meets freshness criteria.

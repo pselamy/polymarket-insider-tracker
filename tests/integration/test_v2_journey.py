@@ -63,6 +63,7 @@ async def test_journey_harness_characterization(
     assert niche_market.question == other.question
     assert niche_market.description == other.description
     assert niche_market.tokens == other.tokens
+    assert niche_market.volume is not None and other.volume is None  # T021 stamped volume
     assert niche_market.category == other.category == "science"
 
     clock = FakeClock(POLL_START)

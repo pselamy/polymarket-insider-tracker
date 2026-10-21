@@ -55,10 +55,13 @@ REQUIRED_LITERALS: dict[str, tuple[str, ...]] = {
         "DEFAULT_ALERT_THRESHOLD = 0.80",
     ),
     "detector/size_anomaly.py": (
-        'factors["niche_multiplier"] = 1.5',
+        "NICHE_MULTIPLIER = 1.5",
+        "VOLUME_SCORE_CAP = 0.5",
+        "VOLUME_RATIO_CAP = 3.0",
+        'factors["niche_multiplier"] = NICHE_MULTIPLIER',
         'factors["niche_base"] = 0.2',
-        "ratio / 3.0 * 0.5",
-        "min(volume_impact / self._volume_threshold, 3.0)",
+        "ratio / VOLUME_RATIO_CAP * VOLUME_SCORE_CAP",
+        "min(volume_impact / self._volume_threshold, VOLUME_RATIO_CAP)",
         "confidence < 0.1",
     ),
     "detector/fresh_wallet.py": (
@@ -185,14 +188,6 @@ def broad_market(volume: Decimal) -> Market | None:
     return Market("b", volume, False) if volume >= NICHE_VOLUME else None
 
 
-def at_most_large(notional: Decimal) -> bool:
-    return notional <= LARGE_THRESHOLD
-
-
-def above_large(notional: Decimal) -> bool:
-    return notional > LARGE_THRESHOLD
-
-
 MARKETS: tuple[tuple[str, Callable[[Decimal], Market | None]], ...] = (
     ("volume available, niche (< $50k)", niche_market),
     ("volume available, not niche (>= $50k)", broad_market),
@@ -201,7 +196,10 @@ UNAVAILABLE = (
     ("volume unavailable, niche-prone category", Market("c", None, True)),
     ("volume unavailable, other category", Market("d", None, False)),
 )
-BANDS = (("<= $10,000", at_most_large), ("> $10,000", above_large))
+BANDS: tuple[tuple[str, Callable[[Decimal], bool]], ...] = (
+    ("<= $10,000", lambda notional: notional <= LARGE_THRESHOLD),
+    ("> $10,000", lambda notional: notional > LARGE_THRESHOLD),
+)
 
 
 def gated_confidence(wallet: Wallet | None, notional: Decimal, *, proposed: bool) -> float | None:

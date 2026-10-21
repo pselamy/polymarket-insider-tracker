@@ -93,8 +93,6 @@ def generate_dedup_key(wallet_address: str, market_id: str, hour: datetime) -> s
 def get_signals_from_assessment(assessment: RiskAssessment) -> list[str]:
     """Extract triggered signal names from assessment."""
     signals: list[str] = []
-    if assessment.fresh_wallet_signal:
-        signals.append("fresh_wallet")
     if assessment.size_anomaly_signal:
         signals.append("size_anomaly")
         if assessment.size_anomaly_signal.is_niche_market:

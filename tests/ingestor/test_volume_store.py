@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -37,11 +37,6 @@ def _stats(
 ) -> GammaMarketStats:
     return GammaMarketStats(
         condition_id=cid,
-        daily_volume=Decimal("30000"),
-        weekly_volume=Decimal("100000"),
-        monthly_volume=None,
-        total_volume=None,
-        liquidity=Decimal("42"),
         acquired_at=acquired_at,
         volume24hr_present=True,
         volume24hr_raw=raw,
@@ -70,7 +65,6 @@ async def test_written_record_keeps_stamp_source_and_raw(fake_redis: FakeAsyncRe
     assert record.observation.raw == 30000
     assert record.observation.acquired_at == "2026-10-19T12:00:00+00:00"
     assert record.observation.source == "gamma-markets-v1"
-    assert (record.daily_volume, record.weekly_volume) == (Decimal("30000"), Decimal("100000"))
 
 
 @pytest.mark.asyncio
@@ -171,12 +165,12 @@ async def test_corrupt_volume_record_is_not_a_record(fake_redis: FakeAsyncRedis)
     assert [await store.read(key) for key in (CID, "other", "list")] == [None, None, None]
 
 
-def test_record_with_unparseable_decimals_reads_them_as_none() -> None:
+def test_a_record_written_with_the_retired_lossy_decimals_still_reads() -> None:
     text = _stats().volume_observation().to_record()
     record = VolumeRecord.from_json(json.dumps({"observation": text, "daily_volume": "x"}))
 
     assert record is not None
-    assert (record.daily_volume, record.weekly_volume) == (None, None)
+    assert record.observation.raw == "30000"
 
 
 @pytest.mark.asyncio
@@ -190,7 +184,6 @@ async def test_sync_merges_the_volume_into_the_cached_market(fake_redis: FakeAsy
         await sync.stop()
 
     assert market is not None
-    assert market.daily_volume == Decimal("30000")
     assert market.volume is not None
     assert market.volume.acquired_at == now.isoformat()
 
@@ -203,7 +196,8 @@ async def test_clob_cache_record_never_carries_the_volume(fake_redis: FakeAsyncR
 
     stored = json.loads(await fake_redis.get(f"{DEFAULT_REDIS_KEY_PREFIX}{CID}"))
 
-    assert (stored["volume"], stored["daily_volume"]) == (None, None)
+    assert stored["volume"] is None
+    assert not {"daily_volume", "weekly_volume", "liquidity"} & stored.keys()
 
 
 @pytest.mark.asyncio
@@ -331,9 +325,7 @@ async def test_a_later_gamma_page_without_the_key_replaces_the_value_as_missing(
     """A Gamma object without `volume24hr` is a fresh observation of absence, not a CLOB write."""
     store = VolumeStore(fake_redis)
     await store.write_crawl(_crawl(_stats()), STAMP)
-    absent = GammaMarketStats(
-        CID, None, None, None, None, None, STAMP, False, None, "gamma-markets-v1"
-    )
+    absent = GammaMarketStats(CID, STAMP, False, None, "gamma-markets-v1")
 
     await store.write_crawl(_crawl(absent), STAMP)
 
@@ -343,35 +335,12 @@ async def test_a_later_gamma_page_without_the_key_replaces_the_value_as_missing(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("age_seconds", "legacy_kept"),
-    [(0, True), (599, True), (600, True), (601, False), (1200, False), (-1, False)],
-)
-async def test_legacy_volume_fields_are_kept_only_within_600_seconds(
-    fake_redis: FakeAsyncRedis, age_seconds: int, legacy_kept: bool
-) -> None:
+async def test_the_merge_keeps_the_stored_stamp_untouched(fake_redis: FakeAsyncRedis) -> None:
+    """Freshness is judged once, by the volume-state classifier, not by the merge."""
     await VolumeStore(fake_redis).write_crawl(_crawl(_stats()), STAMP)
-    read_at = STAMP + timedelta(seconds=age_seconds)
 
-    merged = await VolumeStore(fake_redis, clock=lambda: read_at).merge(MARKET_METADATA)
+    merged = await VolumeStore(fake_redis).merge(MARKET_METADATA)
 
-    legacy = (merged.daily_volume, merged.weekly_volume, merged.liquidity)
-    expected = (Decimal("30000"), Decimal("100000"), Decimal("42")) if legacy_kept else (None,) * 3
-    assert legacy == expected
     assert merged.volume is not None
     assert merged.volume.acquired_at == STAMP.isoformat()
-
-
-@pytest.mark.asyncio
-async def test_a_fresh_record_gives_the_scorer_the_inputs_main_gave_it(
-    fake_redis: FakeAsyncRedis,
-) -> None:
-    await VolumeStore(fake_redis).write_crawl(_crawl(_stats()), STAMP)
-
-    merged = await VolumeStore(fake_redis, clock=lambda: STAMP).merge(MARKET_METADATA)
-
-    assert (merged.daily_volume, merged.weekly_volume, merged.liquidity) == (
-        Decimal("30000"),
-        Decimal("100000"),
-        Decimal("42"),
-    )
+    assert merged.volume.raw == "30000"

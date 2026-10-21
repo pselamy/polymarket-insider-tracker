@@ -136,7 +136,7 @@ async def _run_real_journey(
         assessment = await run_dry_run_journey(
             environment, settings, seeded_v2_server(clock), clock, sample_trade, market
         )
-        assert assessment.scoring_algorithm_version == "003.1"
+        assert assessment.scoring_algorithm_version == "004.1"
         await _assert_boundary_checkpoint(redis, DEFAULT_COVERAGE)
     finally:
         if baseline is not None:
