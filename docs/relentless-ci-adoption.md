@@ -1304,12 +1304,12 @@ passed, 17 skipped). Line / partial-branch misses before:
 
 | Module | Missed lines / partial branches | Enrolled |
 | --- | --- | --- |
-| `ingestor/gamma_client.py` | 1 / 1 | no (stampless-duplicate guard, unreachable; see below) |
+| `ingestor/gamma_client.py` | 1 / 1 | yes (closed in the follow-up below) |
 | `ingestor/observation_boundary.py` | 3 / 18 | yes |
 | `terminal_errors.py` | 15 / 10 | yes |
 | `detector/sniper.py` | 4 / 5 | yes |
 | `detector/size_anomaly.py` (spec004-hashed, tests only) | 2 / 2 | yes |
-| `ingestor/models.py` (spec004-hashed, tests only) | 3 / 8 | no (7 `->exit` arcs on `...` Protocol stubs; see below) |
+| `ingestor/models.py` (spec004-hashed, tests only) | 3 / 8 | yes (closed in the follow-up below) |
 
 Closed by behavioural tests: sniper noise points, undersized and single-wallet clusters, a
 zero-minimum detector with no entries, and a cluster mostly of new wallets taking a new identity;
@@ -1337,3 +1337,18 @@ a cached non-string date raises out of `MarketMetadata.from_dict`.
 Planted-gap check: an `if self.eps < 0:` branch added to `SniperDetector.get_entry_count` made
 `coverage report --fail-under=100` print `Coverage failure: total of 99 is less than fail-under=100`
 for `detector/sniper.py`; the file was restored and the full gate passes at 100%.
+
+### Coverage step 5 follow-up: `gamma_client` and `ingestor/models` enrolled
+
+Both modules now reach 100% line and branch and are in the `--include` list (`ingestor/models.py`
+is tests only, so its spec004 hash is untouched). This supersedes the two
+"Not enrolled" notes above:
+
+- `gamma_client._supersedes`: the `new.acquired_at is None` guard was unreachable. Only `ok` pages
+  are parsed and each is stamped from the client clock, while failed and skipped pages carry no
+  items. The comparison now orders by a stamp that maps an unstamped market to `datetime.min`
+  (`_stamp_of`), which keeps every outcome of the old guard (unstamped never replaces, any stamp
+  replaces an unstamped one, a tie keeps the earlier page) without the dead branch.
+- `ingestor/models.py`: the `...` Protocol stubs are exercised by reading each declared property
+  getter and asserting it supplies no default value; the `"other"` category fallback and a cached
+  market with no dates are covered by behavioural tests.
