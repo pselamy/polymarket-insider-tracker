@@ -102,7 +102,7 @@ See [research.md](research.md) R02–R07 for full decisions. Concrete pins:
   `profiler/analyzer.py:223–242` unknown-age-`True` path named as an explicit compatibility
   exception. Usable positive current volume
   enables notional/volume ratio; unavailable/nonpositive/stale/invalid volume yields no
-  observed ratio; unavailable volume may use category fallback with basis recorded. Book
+  observed ratio; category fallback with basis recorded only when no volume value was observed and the category is real metadata (D3 = (d)). Book
   depth stays unavailable in the live core.
 - **Evidence**: additive evaluation entry point sharing one acquisition/calculation with
   `analyze`; immutable wallet/market evaluation evidence (including known-nonqualifying

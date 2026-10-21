@@ -1,6 +1,6 @@
 # Tasks: Truthful Detection Contract
 
-**Feature**: `specs/004-truthful-detection-contract` | **Date**: 2026-10-17, repaired 2026-10-17 | **Status**: proposed.
+**Feature**: `specs/004-truthful-detection-contract` | **Date**: 2026-10-17, repaired 2026-10-17 | **Status**: proposed; D1a O1, D1b G1, D2 R0, D3 (d), D4 M1 DECIDED 2026-10-20 (decision-packet.md).
 Implementation and tests are future work; these tasks define obligations with evidence mapping.
 The monitor (ingest → enrich → detect/score → persist → deliver/suppress) is the product MVP;
 planning phases alone are not an MVP, so “MVP = Phases 1–2” below means the completed
@@ -54,7 +54,7 @@ Named files, entry points, dependency order:
   including the §1.1c `out_of_range` bound of DECISION D4, the `1e400` number/string pair and the fractional
   ages 0.5 / 599.999999 / 600.000001 / 600.5 / −0.000001 s, with ages computed exactly from aware datetimes),
   `volume_impact` as the exact quotient rounded once (data-model §3; a ratio above 28 digits must not raise),
-  niche modifier incl. the D3 lookup-failure case, threshold equality (FR-001–011, FR-015, SC-001–003)
+  niche modifier incl. the D3 (d) rule (decided 2026-10-20: category fallback only when no volume value was observed, i.e. `unavailable`/`missing`, and the category is real metadata; the lookup-failure case and every observed-value state give no size signal), threshold equality (FR-001–011, FR-015, SC-001–003)
 - [ ] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
   flags in analysis, scoring, persistence, and formatted dry-run output; per-participant
@@ -181,7 +181,7 @@ Named files, entry points, dependency order:
   ceiling `0.972`, `reachable`; (e) the `/health` overall status, HTTP code, `/ready`, `/live` and
   `/metrics` are identical with and without an unreachable path; (f) `--config-check` prints the line
   without network access. Lands with T028.
-- [ ] T030 [US3] **Only if DECISION D2 selects R5** — assessment-only delivery suppression (FR-022b,
+- [ ] T030 [US3] **NOT IN SCOPE (D2 = R0 decided 2026-10-20; R5 not selected; this task is dropped and stays unticked)** — **Only if DECISION D2 selects R5** — assessment-only delivery suppression (FR-022b,
   SC-010). Add the typed code constant `release_posture` (`alert_capable` | `assessment_only`; no
   setting, no environment variable) and make `_score_and_alert` / `_handle_above_threshold`
   (`pipeline.py`) skip formatting and `AlertDispatcher.dispatch` entirely under `assessment_only`,

@@ -131,9 +131,9 @@ rule: `transaction-override-3-3` (nonce3, B=3) emits no wallet signal; `transact
 uses B everywhere instead of a hardcoded5.
 
 Usable daily volume enables notional/volume ratio. Unusable volume has no observed ratio. Usable
-volume<50000 gives numeric niche context; unavailable volume may use existing category fallback
-`science/tech/finance/other`, with the basis recorded (revised 2026-10-19: only for a category from real
-metadata, never the placeholder `other` of a failed lookup — DECISION D3). Retain existing strict volume threshold,3x
+volume<50000 gives numeric niche context; a category fallback applies only when no volume value was observed
+`science/tech/finance/other`, with the basis recorded (revised 2026-10-19 and decided 2026-10-20: only for a category from real
+metadata, never the placeholder `other` of a failed lookup, and only when no volume value was observed — DECISION D3 = (d)). Retain existing strict volume threshold,3x
 confidence saturation,1.5 niche multiplier and0.2 niche-only confidence subject to notional>=500.
 Book depth stays unavailable in the live core; metadata liquidity is not observed book depth.
 
@@ -359,8 +359,7 @@ as [evidence/reachability.md](evidence/reachability.md); `--check` proves the fi
 caps and bonuses are those of `detector/scorer.py` (0.40/0.35/0.25, ×1.2 for two groups),
 `detector/size_anomaly.py` (volume component ≤ 0.5, ×1.5 niche multiplier, niche-only 0.2) and
 `detector/fresh_wallet.py` (0.5 + 0.2 nonce 0 + 0.1 age < 2 h + 0.1 trade > $10k), plus the proposed
-004 rules (unknown age exactly 0.50; book depth non-operational; category fallback whenever volume is
-not `available`), in both wallet postures: the default pre-T027 posture (FR-007c, wallet group
+004 rules (unknown age exactly 0.50; book depth non-operational; category fallback only when no volume value was observed (D3 = (d)), in both wallet postures: the default pre-T027 posture (FR-007c, wallet group
 non-scoring) and the post-T027 scenario (wallet group qualified).
 
 ### Default pre-T027 posture: maximum attainable score (size group only, no two-group bonus)

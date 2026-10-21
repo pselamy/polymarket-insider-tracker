@@ -45,18 +45,24 @@ after T027 (pre-T027 it is recorded as an observation only).
 ## Result
 
 - **Default pre-T027 posture**: 0 of 65 qualify at 0.80 and 0 at 0.78; the maximum is 0.450, reached
-  by exactly the saturated niche cases. Every non-`available` volume state falls back to the category
-  signal and scores 0.120 (niche-prone category) or 0.000 (otherwise).
+  by exactly the saturated niche cases. Under DECISION D3 (d) (DECIDED 2026-10-20) only the states in
+  which no volume value was observed (`unavailable`, `missing`) fall back to the category signal and
+  score 0.120 (niche-prone category from real metadata) or 0.000 (otherwise); every state in which a value
+  was observed (`unqualified`, `invalid`, `nonpositive`, `invalid_time`, `stale`) has no size signal and
+  scores 0.000.
 - **Post-T027 scenario**: 0 of 65 qualify at 0.80; 11 qualify at 0.78 (all `available`, niche, ratio ≥
-  0.06). The unknown-age ceiling 0.780 is reached by exactly the saturated niche cases; non-`available`
-  states score 0.384 (niche-prone category) or 0.200 (otherwise).
+  0.06). The unknown-age ceiling 0.780 is reached by exactly the saturated niche cases; `unavailable`/`missing`
+  score 0.384 (niche-prone category from real metadata) or 0.200 (otherwise), and the observed-value states
+  score 0.200.
 - `live-metadata-lookup-failed`: 003.1 as wired gives 0.480 (category `other` counts as niche);
   the proposed default gives 0.000 pre-T027 (0.200 post-T027) because a lookup failure is not category
   evidence (DECISION D3).
 - Ages are exact to the microsecond (an age is `evaluated_at − acquired_at`, both aware datetimes):
   599.999999 s and 600 s are `available`, 600.000001 s is `stale`, −0.000001 s is `invalid_time`/`future`.
 - Round-4 correction: `live-available-bigint-300-digits` is renamed `live-invalid-bigint-300-digits`;
-  under the §1.1c bound it is `invalid`/`out_of_range` and scores the category fallback (0.120 pre-T027,
-  0.384 post-T027) instead of 0.000/0.200. No other existing row changed.
+  under the §1.1c bound it is `invalid`/`out_of_range` (a value was observed, so under D3 (d) there is
+  no size signal: 0.000 pre-T027, 0.200 post-T027). Recorded as it stood in round 4; the D3 (d) decision of
+  2026-10-20 then moved every observed-value row in a niche-prone category from the category fallback
+  (0.120 / 0.384) to no size signal (0.000 / 0.200).
 - Deltas against 003.1 are attributable to FR-008 (unknown age 0.50 instead of 0.70 for nonce 0, and no
   large-trade addition), FR-004 (usable volume enables the ratio) and D3 (lookup failure).
