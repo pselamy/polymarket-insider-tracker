@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
+import subprocess
 import sys
 from collections.abc import Callable
 from types import FrameType
@@ -53,22 +55,26 @@ class TestRequestShutdown:
     async def test_request_shutdown_sets_event(self) -> None:
         """Should set the shutdown event when called."""
         shutdown = GracefulShutdown()
-        shutdown._shutdown_event = asyncio.Event()
+        waiter = asyncio.create_task(shutdown.wait())
+        await asyncio.sleep(0)
+        assert not waiter.done()
 
         shutdown.request_shutdown()
 
-        assert shutdown._shutdown_event.is_set()
+        await asyncio.wait_for(waiter, timeout=1.0)
 
     async def test_request_shutdown_idempotent(self) -> None:
         """Multiple requests should be idempotent."""
         shutdown = GracefulShutdown()
-        shutdown._shutdown_event = asyncio.Event()
+        waiter = asyncio.create_task(shutdown.wait())
+        await asyncio.sleep(0)
 
         shutdown.request_shutdown()
         shutdown.request_shutdown()
         shutdown.request_shutdown()
 
         assert shutdown.is_shutdown_requested is True
+        await asyncio.wait_for(waiter, timeout=1.0)
 
 
 class TestWait:
@@ -114,14 +120,14 @@ class TestWait:
 class TestSignalHandlers:
     """Tests for signal handler installation and removal."""
 
-    async def test_install_signal_handlers_creates_event(self) -> None:
-        """Installing handlers should create the shutdown event."""
-        shutdown = GracefulShutdown()
+    async def test_install_signal_handlers_leaves_shutdown_pending(self) -> None:
+        """Installing handlers arms a wait that stays pending until a shutdown is requested."""
+        shutdown = GracefulShutdown(timeout=0.05)
         shutdown.install_signal_handlers()
 
         try:
-            assert shutdown._shutdown_event is not None
-            assert not shutdown._shutdown_event.is_set()
+            assert await shutdown.wait_with_timeout() is False
+            assert shutdown.is_shutdown_requested is False
         finally:
             shutdown.remove_signal_handlers()
 
@@ -161,28 +167,44 @@ class TestSignalHandlers:
 class TestHandleSignal:
     """Tests for signal handling behavior."""
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
     async def test_first_signal_sets_shutdown_event(self) -> None:
-        """First signal should set the shutdown event."""
+        """A delivered SIGTERM should release waiters without forcing an exit."""
         shutdown = GracefulShutdown()
-        shutdown._shutdown_event = asyncio.Event()
+        shutdown.install_signal_handlers()
 
-        shutdown._handle_signal(signal.SIGTERM)
+        try:
+            os.kill(os.getpid(), signal.SIGTERM)
+            await asyncio.wait_for(shutdown.wait(), timeout=2.0)
+        finally:
+            shutdown.remove_signal_handlers()
 
         assert shutdown.is_shutdown_requested is True
-        assert shutdown._shutdown_event.is_set()
         assert shutdown.is_force_exit_requested is False
 
-    async def test_second_signal_force_exits(self) -> None:
-        """Second signal should trigger force exit."""
-        shutdown = GracefulShutdown()
-        shutdown._shutdown_event = asyncio.Event()
-        shutdown._shutdown_requested = True  # First signal already received
+    @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
+    def test_second_signal_force_exits(self) -> None:
+        """A second SIGTERM must end the process with the conventional 128+signal status."""
+        script = (
+            "import asyncio, os, signal\n"
+            "from polymarket_insider_tracker.shutdown import GracefulShutdown\n"
+            "async def main():\n"
+            "    shutdown = GracefulShutdown()\n"
+            "    shutdown.install_signal_handlers()\n"
+            "    os.kill(os.getpid(), signal.SIGTERM)\n"
+            "    await shutdown.wait()\n"
+            "    os.kill(os.getpid(), signal.SIGTERM)\n"
+            "    await asyncio.sleep(5)\n"
+            "asyncio.run(main())\n"
+        )
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
 
-        with pytest.raises(SystemExit) as exc_info:
-            shutdown._handle_signal(signal.SIGTERM)
-
-        assert exc_info.value.code == 128 + signal.SIGTERM.value
-        assert shutdown.is_force_exit_requested is True
+        assert completed.returncode == 128 + signal.SIGTERM.value
 
 
 class TestCleanupCallbacks:
@@ -198,8 +220,9 @@ class TestCleanupCallbacks:
 
         shutdown.register_cleanup(callback)
 
-        assert callback in shutdown._cleanup_callbacks
         assert runs == []
+        await shutdown.run_cleanup_callbacks()
+        assert runs == ["cleanup"]
 
     async def test_run_sync_cleanup_callback(self) -> None:
         """Should run sync cleanup callbacks exactly once."""
@@ -292,8 +315,7 @@ class TestAsyncContextManager:
         shutdown = GracefulShutdown()
 
         async with shutdown:
-            assert shutdown._shutdown_event is not None
-            assert shutdown._loop is not None
+            assert signal.getsignal(signal.SIGINT) is not signal.default_int_handler
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Unix-specific test")
     async def test_context_manager_removes_handlers(self) -> None:
@@ -322,7 +344,7 @@ class TestRunWithGracefulShutdown:
 
     async def test_runs_coroutine_to_completion(self) -> None:
         """Should run the coroutine to completion if no shutdown."""
-        result = []
+        result: list[str] = []
 
         async def my_coro() -> None:
             result.append("done")
@@ -333,7 +355,7 @@ class TestRunWithGracefulShutdown:
 
     async def test_stops_on_shutdown_signal(self) -> None:
         """Should stop when shutdown is signaled."""
-        result = []
+        result: list[str] = []
 
         async def long_running() -> None:
             try:
