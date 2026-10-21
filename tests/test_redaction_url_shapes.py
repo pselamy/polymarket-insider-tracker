@@ -54,6 +54,7 @@ _SHAPES = [
     ("http://h:80/?a=&b=c", "http://h:80/?***&b=***"),
     ("http://h/?SECRET&b=c", "http://h/?***&b=***"),
     ("http://h/?SECRET", "http://h/?***"),
+    ("http://h/?&", "http://h/?***"),
     ("http://h/?a=1&b=2", "http://h/?a=***&b=***"),
     ("http://h/?k%26x=v&b=c", "http://h/?***&b=***"),
     ("http://h/?k%3Dx=v&b=c", "http://h/?***&b=***"),
