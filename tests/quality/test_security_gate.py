@@ -129,6 +129,60 @@ def test_a_planted_advisory_fails_even_if_the_scanner_exits_zero(
         security_gate.audit_enforced(tmp_path, 1.0)
 
 
+def test_scanner_exit_one_with_a_clean_report_still_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found = scanner(tmp_path, CLEAN, security_gate.VULNERABILITIES_FOUND)
+    monkeypatch.setattr(security_gate, "dependencies", found)
+    with pytest.raises(security_gate.AdvisoryError, match="could not prove"):
+        security_gate.audit_enforced(tmp_path, 1.0)
+
+
+def test_a_vulnerability_without_groups_is_listed() -> None:
+    report = {
+        "results": [
+            {
+                "packages": [
+                    {
+                        "package": {"name": "x", "version": "1"},
+                        "vulnerabilities": [{"id": "GHSA-1"}],
+                    }
+                ]
+            }
+        ]
+    }
+    assert security_gate.advisory_lines(report) == ["x 1: GHSA-1"]
+
+
+def test_report_check_failure_with_advisories_lists_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def rejected(_root: Path, _timeout: float) -> None:
+        write_audit(tmp_path, PLANTED)
+        raise ValueError("security findings were reported")
+
+    monkeypatch.setattr(security_gate, "dependencies", rejected)
+    with pytest.raises(security_gate.AdvisoryError, match="left-pad 1.0.0: GHSA-aaaa"):
+        security_gate.audit_enforced(tmp_path, 1.0)
+
+
+NO_NAME: dict[str, object] = json.loads(
+    '{"results": [{"packages": [{"package": {}, "groups": [{"ids": ["a"]}]}]}]}'
+)
+NO_IDS: dict[str, object] = json.loads(
+    '{"results": [{"packages": [{"package": {"name": "x", "version": "1"}, "groups": [{}]}]}]}'
+)
+
+
+@pytest.mark.parametrize("report", [NO_NAME, NO_IDS])
+def test_incomplete_advisory_records_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, report: dict[str, object]
+) -> None:
+    monkeypatch.setattr(security_gate, "dependencies", scanner(tmp_path, report, 1))
+    with pytest.raises(security_gate.AdvisoryError, match="could not prove"):
+        security_gate.audit_enforced(tmp_path, 1.0)
+
+
 def test_a_clean_scan_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(security_gate, "dependencies", scanner(tmp_path, CLEAN, 0))
     security_gate.audit_enforced(tmp_path, 1.0)
