@@ -20,6 +20,7 @@ count stays small while case coverage is preserved.
 from __future__ import annotations
 
 import itertools
+import math
 import random
 from collections.abc import Iterable, Sequence
 
@@ -83,7 +84,7 @@ async def drive_and_check(
         requested_at = clock.now
         expected = oracle_start_time(starts, requested_at, max_attempts, window_seconds)
         await budget.acquire()
-        assert clock.now == pytest.approx(expected), (
+        assert math.isclose(clock.now, expected, rel_tol=1e-6, abs_tol=1e-12), (
             f"request at {requested_at} started at {clock.now}, oracle says {expected}; "
             "limiter over-delayed or under-delayed"
         )

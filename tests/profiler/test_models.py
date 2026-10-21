@@ -1,5 +1,6 @@
 """Tests for the profiler data models."""
 
+import math
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -362,7 +363,7 @@ class TestWalletProfile:
         # nonce_score = 1 - 2/5 = 0.6
         # age_score = 1 - 24/48 = 0.5
         # score = 0.6 * 0.6 + 0.4 * 0.5 = 0.36 + 0.2 = 0.56
-        assert profile.freshness_score == pytest.approx(0.56)
+        assert math.isclose(profile.freshness_score, 0.56, rel_tol=1e-6, abs_tol=1e-12)
 
     def test_profile_frozen(self, fresh_profile: WalletProfile) -> None:
         """Test that wallet profile is immutable."""

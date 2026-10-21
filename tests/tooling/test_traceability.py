@@ -14,6 +14,7 @@ from pathlib import Path
 from types import CodeType, ModuleType
 
 import pytest
+from quality.report_data import is_array, is_object
 from scripts.traceability import LedgerResult
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -117,9 +118,9 @@ def committed_workspace(tmp_path: Path) -> Path:
 
 def _last(document: dict[str, object]) -> dict[str, object]:
     rows = document["rows"]
-    assert isinstance(rows, list)
+    assert is_array(rows)
     row = rows[-1]
-    assert isinstance(row, dict)
+    assert is_object(row)
     return row
 
 
@@ -229,7 +230,7 @@ def test_wrong_head_artifact_digest_fails() -> None:
 def test_actual_source_binding_rejects_wrong_identity(field: str) -> None:
     document = _document()
     manifest = document["manifest"]
-    assert isinstance(manifest, dict)
+    assert is_object(manifest)
     manifest[field] = "0" * 40
     result = _check(document)
     assert not result.ok
@@ -269,7 +270,7 @@ def test_skipped_file_reference_never_grants_credit() -> None:
 def test_history_is_checked_against_git_not_caller_hash(mutation: str) -> None:
     document = _document()
     rows = document["rows"]
-    assert isinstance(rows, list)
+    assert is_array(rows)
     _mutate_history(document, rows, mutation)
     result = _check(document)
     assert not result.ok
@@ -284,7 +285,7 @@ def _mutate_history(document: dict[str, object], rows: list[object], mutation: s
         rows[0], rows[1] = rows[1], rows[0]
         return
     target = rows[0] if mutation == "rewrite" else document["historical_manifest"]
-    assert isinstance(target, dict)
+    assert is_object(target)
     target["scenario"] = "rewritten historical scenario"
 
 
@@ -326,7 +327,7 @@ def test_recorder_retains_actual_ids_and_duplicate_phase_failure(
     spec.loader.exec_module(module)
     recorder = module.Recorder()
     recorder.pytest_collection_finish(request.session)
-    assert request.node.nodeid in recorder.collected
+    assert recorder.collected == sorted(item.nodeid for item in request.session.items)
     report = pytest.TestReport(
         NODE, ("tests/tooling/test_verify.py", 0, "test"), {}, "passed", None, "call"
     )
@@ -372,7 +373,7 @@ def test_real_harness_failures_and_source_mutation_are_rejected(
 def test_duplicate_new_requirement_test_pairs_fail() -> None:
     document = _document()
     rows = document["rows"]
-    assert isinstance(rows, list)
+    assert is_array(rows)
     rows.append(copy.deepcopy(rows[-1]))
     result = _check(document)
     assert not result.ok
@@ -391,12 +392,12 @@ def test_committed_additions_become_immutable_history(tmp_path: Path) -> None:
     _commit_history(clone, ledger)
     context = validator.LedgerContext(clone, ledger)
     rows = document["rows"]
-    assert isinstance(rows, list)
+    assert is_array(rows)
     count = len(rows)
     rows.append(copy.deepcopy(rows[-1]))
     assert validator._history(document, context) == count
     previous = rows[-2]
-    assert isinstance(previous, dict)
+    assert is_object(previous)
     previous["scenario"] = "rewritten prior committed addition"
     with pytest.raises(ValueError, match="append-only history"):
         validator._history(document, context)
@@ -609,7 +610,6 @@ def test_ignored_data_dependency_cannot_change_committed_result(
 def test_ignored_bytecode_cannot_change_committed_result(
     tmp_path: Path, committed_workspace: Path
 ) -> None:
-    import importlib._bootstrap_external
     import importlib.util
     from uuid import uuid4
 

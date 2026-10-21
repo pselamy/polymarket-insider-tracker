@@ -13,6 +13,7 @@ from polymarket_insider_tracker.profiler.analyzer import (
     WalletAnalyzer,
 )
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
+from tests.fakes.redis_await import key_count
 
 # Valid Ethereum addresses for testing
 VALID_ADDRESS = "0x742d35Cc6634C0532925a3b844Bc9e7595f5eaE2"
@@ -34,6 +35,7 @@ class FakePolygonClient:
         self.raise_token_error = raise_token_error
         self.error_on_addresses = {k.lower(): v for k, v in (error_on_addresses or {}).items()}
         self.wallet_info_queries: list[str] = []
+        self.token_queries: list[tuple[str, str]] = []
 
     async def get_wallet_info(self, address: str) -> WalletInfo:
         addr = address.lower()
@@ -50,7 +52,7 @@ class FakePolygonClient:
         )
 
     async def get_token_balance(self, contract_address: str, wallet_address: str) -> Decimal:
-        _ = (contract_address, wallet_address)
+        self.token_queries.append((contract_address, wallet_address))
         if self.raise_token_error is not None:
             raise self.raise_token_error
         return self.token_balance
@@ -74,32 +76,58 @@ def _fresh_and_old_infos() -> dict[str, WalletInfo]:
     }
 
 
+async def _analyzed_fresh(*, nonce: int, age_hours: float | None) -> bool:
+    """Freshness the analyzer reports for a wallet with ``nonce`` txs first seen ``age_hours`` ago."""
+    first_tx = None
+    if age_hours is not None:
+        first_tx = Transaction(
+            hash="0xabc",
+            block_number=1000,
+            timestamp=datetime.now(UTC) - timedelta(hours=age_hours),
+            from_address="0xfaucet",
+            to_address=VALID_ADDRESS.lower(),
+            value=Decimal("1"),
+            gas_used=21000,
+            gas_price=Decimal("1"),
+        )
+    info = WalletInfo(
+        address=VALID_ADDRESS.lower(),
+        transaction_count=nonce,
+        balance_wei=Decimal("0"),
+        first_transaction=first_tx,
+    )
+    client = FakePolygonClient({VALID_ADDRESS: info})
+    return await WalletAnalyzer(client, fresh_threshold=5).is_fresh(VALID_ADDRESS)
+
+
 class TestWalletAnalyzerInit:
     """Tests for WalletAnalyzer initialization."""
 
-    def test_init_default(self) -> None:
+    async def test_init_default(self) -> None:
         """Test initialization with defaults."""
         client = FakePolygonClient()
         analyzer = WalletAnalyzer(client)
 
-        assert analyzer._client is client
-        assert analyzer._redis is None
-        assert analyzer._fresh_threshold == DEFAULT_FRESH_THRESHOLD
-        assert analyzer._usdc_address == USDC_POLYGON_ADDRESS
+        profile = await analyzer.analyze(VALID_ADDRESS)
 
-    def test_init_with_redis(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test initialization with Redis."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, redis=fake_redis)
+        assert profile.fresh_threshold == DEFAULT_FRESH_THRESHOLD
+        assert [token for _, token in client.token_queries] == [USDC_POLYGON_ADDRESS]
 
-        assert analyzer._redis is fake_redis
+    async def test_init_with_redis(self, fake_redis: FakeAsyncRedis) -> None:
+        """Test initialization with Redis: analyses are cached there."""
+        analyzer = WalletAnalyzer(FakePolygonClient(), redis=fake_redis)
 
-    def test_init_custom_threshold(self) -> None:
+        await analyzer.analyze(VALID_ADDRESS)
+
+        assert await key_count(fake_redis) == 1
+
+    async def test_init_custom_threshold(self) -> None:
         """Test initialization with custom threshold."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, fresh_threshold=10)
+        analyzer = WalletAnalyzer(FakePolygonClient(), fresh_threshold=10)
 
-        assert analyzer._fresh_threshold == 10
+        profile = await analyzer.analyze(VALID_ADDRESS)
+
+        assert profile.fresh_threshold == 10
 
 
 class TestWalletAnalyzerAnalyze:
@@ -299,51 +327,30 @@ class TestWalletAnalyzerIsFresh:
 class TestWalletAnalyzerFreshnessLogic:
     """Tests for freshness determination logic."""
 
-    def test_is_wallet_fresh_low_nonce_no_age(self) -> None:
+    async def test_is_wallet_fresh_low_nonce_no_age(self) -> None:
         """Test fresh wallet with low nonce and unknown age."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, fresh_threshold=5)
-        result = analyzer._is_wallet_fresh(nonce=2, age_hours=None)
-        assert result is True
+        assert await _analyzed_fresh(nonce=2, age_hours=None) is True
 
-    def test_is_wallet_fresh_low_nonce_young_age(self) -> None:
+    async def test_is_wallet_fresh_low_nonce_young_age(self) -> None:
         """Test fresh wallet with low nonce and young age."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, fresh_threshold=5)
-        result = analyzer._is_wallet_fresh(nonce=2, age_hours=12.0)
-        assert result is True
+        assert await _analyzed_fresh(nonce=2, age_hours=12.0) is True
 
-    def test_is_wallet_fresh_low_nonce_old_age(self) -> None:
+    async def test_is_wallet_fresh_low_nonce_old_age(self) -> None:
         """Test not fresh when nonce is low but age is old."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, fresh_threshold=5)
-        result = analyzer._is_wallet_fresh(nonce=2, age_hours=100.0)
-        assert result is False
+        assert await _analyzed_fresh(nonce=2, age_hours=100.0) is False
 
-    def test_is_wallet_fresh_high_nonce(self) -> None:
+    async def test_is_wallet_fresh_high_nonce(self) -> None:
         """Test not fresh when nonce is high."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, fresh_threshold=5)
-        result = analyzer._is_wallet_fresh(nonce=10, age_hours=12.0)
-        assert result is False
+        assert await _analyzed_fresh(nonce=10, age_hours=12.0) is False
 
-    def test_is_wallet_fresh_at_threshold(self) -> None:
+    async def test_is_wallet_fresh_at_threshold(self) -> None:
         """Test not fresh when nonce equals threshold."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, fresh_threshold=5)
-        result = analyzer._is_wallet_fresh(nonce=5, age_hours=12.0)
-        assert result is False
+        assert await _analyzed_fresh(nonce=5, age_hours=12.0) is False
 
-    def test_is_wallet_fresh_at_age_boundary(self) -> None:
+    async def test_is_wallet_fresh_at_age_boundary(self) -> None:
         """Test at 48 hour boundary."""
-        client = FakePolygonClient()
-        analyzer = WalletAnalyzer(client, fresh_threshold=5)
-
-        result_under = analyzer._is_wallet_fresh(nonce=2, age_hours=47.9)
-        assert result_under is True
-
-        result_over = analyzer._is_wallet_fresh(nonce=2, age_hours=48.1)
-        assert result_over is False
+        assert await _analyzed_fresh(nonce=2, age_hours=47.9) is True
+        assert await _analyzed_fresh(nonce=2, age_hours=48.1) is False
 
 
 class TestWalletAnalyzerBatch:

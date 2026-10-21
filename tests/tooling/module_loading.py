@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -30,11 +31,16 @@ _IMPORT_SCRIPTS = (
 )
 
 
-def load_module(name: str, path: Path) -> ModuleType:
-    """Execute ``path`` as module ``name`` without registering it in ``sys.modules``."""
+def load_module(name: str, path: Path, *, register: bool = False) -> ModuleType:
+    """Execute ``path`` as module ``name``, registering it in ``sys.modules`` only if asked.
+
+    Registration is what dataclasses need to resolve postponed annotations.
+    """
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    if register:
+        sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 

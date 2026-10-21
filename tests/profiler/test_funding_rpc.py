@@ -45,6 +45,9 @@ def _legacy_classifier() -> Callable[[BaseException], bool]:
     return classifier
 
 
+# The pinned classifier contract: an RPC error mentioning any of these means pruned history.
+PRUNED_HISTORY_MARKERS = ("history has been pruned", "missing trie node", "older than")
+
 RE_EXPORTED_NAMES = (
     "USDC_BRIDGED",
     "USDC_NATIVE",
@@ -104,7 +107,7 @@ class TestReExportIdentity:
 class TestPrunedHistoryClassifier:
     """``is_pruned_history_error`` keeps its marker/substring semantics."""
 
-    @pytest.mark.parametrize("marker", rpc._PRUNED_HISTORY_MARKERS)
+    @pytest.mark.parametrize("marker", PRUNED_HISTORY_MARKERS)
     @pytest.mark.parametrize("cased", ["lower", "upper", "title"])
     def test_marker_anywhere_is_detected(self, marker: str, cased: str) -> None:
         text = getattr(marker, cased)()
@@ -125,7 +128,7 @@ class TestPrunedHistoryClassifier:
             "history",
             "node",
         )
-        markers = rpc._PRUNED_HISTORY_MARKERS
+        markers = PRUNED_HISTORY_MARKERS
         for sample in samples:
             expected = any(marker in sample.lower() for marker in markers)
             assert rpc.is_pruned_history_error(RuntimeError(sample)) is expected

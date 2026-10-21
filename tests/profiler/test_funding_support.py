@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from polymarket_insider_tracker.profiler.chain import PolygonClient
+import pytest
+
+from polymarket_insider_tracker.profiler.chain import PolygonClient, RPCError
 from tests.fakes import FakeEth
-from tests.profiler.funding_support import CHAIN_HEAD, polygon_client_on, transfer_to
+from tests.profiler.funding_support import (
+    CHAIN_HEAD,
+    TEST_WALLET,
+    polygon_client_on,
+    transfer_to,
+)
 
 
 def test_transfer_to_builds_one_usdc_log_with_seeded_hash() -> None:
@@ -14,10 +21,12 @@ def test_transfer_to_builds_one_usdc_log_with_seeded_hash() -> None:
     assert log["transactionHash"] == (7).to_bytes(32, "big")
 
 
-def test_polygon_client_on_binds_fallback_only_when_given() -> None:
-    eth = FakeEth(block_number=CHAIN_HEAD)
-    assert isinstance(polygon_client_on(eth), PolygonClient)
-    assert polygon_client_on(eth)._w3_fallback is None
+async def test_polygon_client_on_binds_fallback_only_when_given() -> None:
+    failing = FakeEth(block_number=CHAIN_HEAD, always_fail=True)
+    healthy = FakeEth(block_number=CHAIN_HEAD, transaction_count=4)
+    assert isinstance(polygon_client_on(failing), PolygonClient)
+    with pytest.raises(RPCError):
+        await polygon_client_on(failing).get_transaction_count(TEST_WALLET)
     assert (
-        polygon_client_on(eth, fallback=FakeEth(block_number=CHAIN_HEAD))._w3_fallback is not None
+        await polygon_client_on(failing, fallback=healthy).get_transaction_count(TEST_WALLET) == 4
     )

@@ -241,7 +241,7 @@ class TestRequestShape:
         page = await client.fetch_primary(boundary_time=None, horizon_seconds=600)
 
         assert page.request.end == int(NOW) + 6
-        assert clock.sleeps == [pytest.approx(int(NOW) + 6 - NOW)]
+        assert [round(delay, 6) for delay in clock.sleeps] == [round(int(NOW) + 6 - NOW, 6)]
 
     async def test_recovery_request_reuses_the_window_at_the_documented_offset(
         self, server: FakeTradesServer, clock: FakeClock
