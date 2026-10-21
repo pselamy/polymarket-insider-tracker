@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+from abc import abstractmethod
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
@@ -38,43 +39,75 @@ _REQUIRED_FIELDS = (
 class BoundaryPipeline(Protocol):
     """The transactional pipeline surface the boundary queues commands on."""
 
-    def watch(self, *names: str) -> Awaitable[bool]: ...
+    @abstractmethod
+    def watch(self, *names: str) -> Awaitable[bool]:
+        """Watch ``names`` for modification before the transaction."""
 
-    def type(self, name: str) -> Awaitable[bytes]: ...
+    @abstractmethod
+    def type(self, name: str) -> Awaitable[bytes]:
+        """Redis type of ``name``."""
 
-    def multi(self) -> None: ...
+    @abstractmethod
+    def multi(self) -> None:
+        """Begin queuing commands for the transaction."""
 
-    def hset(self, name: str, *, mapping: Mapping[str, str | int]) -> object: ...
+    @abstractmethod
+    def hset(self, name: str, *, mapping: Mapping[str, str | int]) -> object:
+        """Queue a hash write."""
 
-    def zadd(self, name: str, mapping: Mapping[str, float]) -> object: ...
+    @abstractmethod
+    def zadd(self, name: str, mapping: Mapping[str, float]) -> object:
+        """Add scored members to a sorted set."""
 
-    def zremrangebyscore(self, name: str, min: str, max: str) -> object: ...
+    @abstractmethod
+    def zremrangebyscore(self, name: str, min: str, max: str) -> object:
+        """Remove sorted-set members whose score is within ``min``..``max``."""
 
-    def lpush(self, name: str, *values: str) -> object: ...
+    @abstractmethod
+    def lpush(self, name: str, *values: str) -> object:
+        """Push ``values`` onto the head of a list."""
 
-    def ltrim(self, name: str, start: int, end: int) -> object: ...
+    @abstractmethod
+    def ltrim(self, name: str, start: int, end: int) -> object:
+        """Trim a list to ``start``..``end``."""
 
-    def execute(self) -> Awaitable[list[object]]: ...
+    @abstractmethod
+    def execute(self) -> Awaitable[list[object]]:
+        """Execute the queued commands atomically."""
 
-    async def __aenter__(self) -> BoundaryPipeline: ...
+    @abstractmethod
+    async def __aenter__(self) -> BoundaryPipeline:
+        """Enter the pipeline context."""
 
-    async def __aexit__(self, *args: object) -> None: ...
+    @abstractmethod
+    async def __aexit__(self, *args: object) -> None:
+        """Leave the pipeline context."""
 
 
 class BoundaryRedis(Protocol):
     """The concrete ``redis.asyncio.Redis`` surface the boundary uses."""
 
-    def hgetall(self, name: str) -> Awaitable[dict[bytes, bytes]]: ...
+    @abstractmethod
+    def hgetall(self, name: str) -> Awaitable[dict[bytes, bytes]]:
+        """All fields of a hash."""
 
-    def zadd(self, name: str, mapping: Mapping[str, float]) -> Awaitable[int]: ...
+    @abstractmethod
+    def zadd(self, name: str, mapping: Mapping[str, float]) -> Awaitable[int]:
+        """Add scored members to a sorted set."""
 
+    @abstractmethod
     def zrangebyscore(
         self, name: str, min: str, max: str, **kwargs: bool
-    ) -> Awaitable[list[tuple[bytes, float]]]: ...
+    ) -> Awaitable[list[tuple[bytes, float]]]:
+        """Sorted-set members within a score range."""
 
-    def lrange(self, name: str, start: int, end: int) -> Awaitable[list[bytes]]: ...
+    @abstractmethod
+    def lrange(self, name: str, start: int, end: int) -> Awaitable[list[bytes]]:
+        """A slice of a list."""
 
-    def pipeline(self, transaction: bool) -> BoundaryPipeline: ...
+    @abstractmethod
+    def pipeline(self, transaction: bool) -> BoundaryPipeline:
+        """Open a pipeline."""
 
 
 class BoundaryOrigin(StrEnum):
