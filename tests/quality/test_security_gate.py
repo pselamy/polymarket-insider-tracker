@@ -1,8 +1,9 @@
-"""The security gate scans the tree plus post-cut-over history and reports osv only."""
+"""The security gate scans the tree plus post-cut-over history and enforces osv advisories."""
 
 import json
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -73,12 +74,28 @@ def test_cutover_outside_the_history_fails_closed(tmp_path: Path) -> None:
         security_gate.cutover(scratch)
 
 
-def test_audit_summary_counts_packages_and_groups() -> None:
-    report: object = json.loads(
-        '{"results": [{"packages": [{"groups": [{}, {}]}, {}, {"groups": [{}]}]},'
-        ' {"packages": [{"groups": []}]}]}'
-    )
-    assert security_gate.audit_summary(report) == "2 packages, 3 advisory groups"
+PLANTED: dict[str, object] = {
+    "results": [
+        {
+            "packages": [
+                {
+                    "package": {"name": "left-pad", "version": "1.0.0"},
+                    "groups": [{"ids": ["GHSA-aaaa-bbbb-cccc", "PYSEC-2026-1"]}],
+                },
+                {"package": {"name": "clean", "version": "2.0.0"}, "groups": []},
+            ]
+        }
+    ]
+}
+CLEAN: dict[str, object] = {
+    "results": [{"packages": [{"package": {"name": "clean", "version": "2.0.0"}}]}]
+}
+
+
+def test_advisory_lines_name_package_version_and_ids() -> None:
+    lines = security_gate.advisory_lines(PLANTED)
+    assert lines == ["left-pad 1.0.0: GHSA-aaaa-bbbb-cccc, PYSEC-2026-1"]
+    assert security_gate.advisory_lines(CLEAN) == []
 
 
 def write_audit(root: Path, report: object) -> None:
@@ -86,38 +103,76 @@ def write_audit(root: Path, report: object) -> None:
     (root / ".quality-results" / "dependencies.json").write_text(json.dumps(report))
 
 
-def test_advisories_are_reported_without_failing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    def found(_root: Path, _timeout: float) -> None:
-        write_audit(tmp_path, json.loads('{"results": [{"packages": [{"groups": [{}]}]}]}'))
-        raise subprocess.CalledProcessError(security_gate.VULNERABILITIES_FOUND, ["osv-scanner"])
+def scanner(root: Path, report: object, status: int) -> Callable[[Path, float], None]:
+    def scan(_root: Path, _timeout: float) -> None:
+        write_audit(root, report)
+        if status:
+            raise subprocess.CalledProcessError(status, ["osv-scanner"])
 
-    monkeypatch.setattr(security_gate, "dependencies", found)
-    security_gate.audit_report_only(tmp_path, 1.0)
-    assert "report only, not enforced): 1 packages, 1 advisory groups" in capsys.readouterr().out
+    return scan
 
 
-def test_a_crashed_dependency_scan_still_fails(
+def test_a_planted_advisory_fails_the_gate_and_lists_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def crashed(_root: Path, _timeout: float) -> None:
-        raise subprocess.CalledProcessError(127, ["osv-scanner"])
-
-    monkeypatch.setattr(security_gate, "dependencies", crashed)
-    with pytest.raises(subprocess.CalledProcessError):
-        security_gate.audit_report_only(tmp_path, 1.0)
+    found = scanner(tmp_path, PLANTED, security_gate.VULNERABILITIES_FOUND)
+    monkeypatch.setattr(security_gate, "dependencies", found)
+    with pytest.raises(security_gate.AdvisoryError, match="left-pad 1.0.0: GHSA-aaaa-bbbb-cccc"):
+        security_gate.audit_enforced(tmp_path, 1.0)
 
 
-def test_a_missing_dependency_report_still_fails(
+def test_a_planted_advisory_fails_even_if_the_scanner_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(security_gate, "dependencies", scanner(tmp_path, PLANTED, 0))
+    with pytest.raises(security_gate.AdvisoryError, match="PYSEC-2026-1"):
+        security_gate.audit_enforced(tmp_path, 1.0)
+
+
+def test_a_clean_scan_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(security_gate, "dependencies", scanner(tmp_path, CLEAN, 0))
+    security_gate.audit_enforced(tmp_path, 1.0)
+
+
+def test_a_missing_scanner_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def missing(_root: Path, _timeout: float) -> None:
+        raise FileNotFoundError("mise")
+
+    monkeypatch.setattr(security_gate, "dependencies", missing)
+    with pytest.raises(security_gate.AdvisoryError, match="could not prove"):
+        security_gate.audit_enforced(tmp_path, 1.0)
+
+
+def test_a_crashed_dependency_scan_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(security_gate, "dependencies", scanner(tmp_path, CLEAN, 127))
+    with pytest.raises(security_gate.AdvisoryError, match="could not prove"):
+        security_gate.audit_enforced(tmp_path, 1.0)
+
+
+def test_a_missing_dependency_report_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def silent(_root: Path, _timeout: float) -> None:
         return None
 
     monkeypatch.setattr(security_gate, "dependencies", silent)
-    with pytest.raises(FileNotFoundError):
-        security_gate.audit_report_only(tmp_path, 1.0)
+    with pytest.raises(security_gate.AdvisoryError, match="could not prove"):
+        security_gate.audit_enforced(tmp_path, 1.0)
+
+
+@pytest.mark.parametrize("content", ["not json", "[]", '{"results": 3}'])
+def test_malformed_output_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str
+) -> None:
+    def garbled(_root: Path, _timeout: float) -> None:
+        write_audit(tmp_path, {})
+        (tmp_path / ".quality-results" / "dependencies.json").write_text(content)
+
+    monkeypatch.setattr(security_gate, "dependencies", garbled)
+    with pytest.raises(security_gate.AdvisoryError, match="could not prove"):
+        security_gate.audit_enforced(tmp_path, 1.0)
 
 
 @NEEDS_MISE

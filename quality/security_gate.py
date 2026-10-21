@@ -1,10 +1,10 @@
-"""Enforce gitleaks (tree plus post-cut-over history) and opengrep; report osv only."""
+"""Enforce gitleaks (tree plus post-cut-over history) opengrep and osv advisories."""
 
 import subprocess
 from pathlib import Path
 
 from quality.deadline import read_deadline
-from quality.report_data import array, record
+from quality.report_data import array, record, text
 from quality.security import REPORTS, dependencies, static_analysis, tool
 from quality.security_reports import read_report, verify_empty
 from quality.source_scope import discover
@@ -42,25 +42,42 @@ def secrets(root: Path, timeout: float) -> None:
     scan_secrets(root, timeout, "git", "history-secrets.json", [log_range])
 
 
-def audit_summary(report: object) -> str:
-    packages = [
-        package
+def advisory_lines(report: object) -> list[str]:
+    """One line per osv alias group: the package, its locked version and the advisory IDs."""
+    return [
+        f"{package_name(package)}: {', '.join(text(item) for item in array(record(group)['ids']))}"
         for result in array(record(report)["results"])
         for package in array(record(result)["packages"])
+        for group in array(record(package).get("groups", []))
     ]
-    groups = [len(array(record(package).get("groups", []))) for package in packages]
-    return f"{sum(1 for count in groups if count)} packages, {sum(groups)} advisory groups"
 
 
-def audit_report_only(root: Path, timeout: float) -> None:
-    """Advisories are reported, not enforced; a crashed or missing scan still fails."""
+def package_name(package: object) -> str:
+    identity = record(record(package)["package"])
+    return f"{text(identity['name'])} {text(identity['version'])}"
+
+
+class AdvisoryError(RuntimeError):
+    """The dependency scan found advisories, or could not prove there were none."""
+
+
+def audit_enforced(root: Path, timeout: float) -> None:
+    """Any advisory fails the gate; so does a scan that crashed or produced unusable output."""
+    try:
+        scan_dependencies(root, timeout)
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
+        raise AdvisoryError(f"osv-scanner could not prove the lockfile clean: {error!r}") from error
+
+
+def scan_dependencies(root: Path, timeout: float) -> None:
     try:
         dependencies(root, timeout)
     except subprocess.CalledProcessError as error:
         if error.returncode != VULNERABILITIES_FOUND:
             raise
-    report = read_report(root / ".quality-results" / "dependencies.json")
-    print(f"osv-scanner (report only, not enforced): {audit_summary(report)}")
+    lines = advisory_lines(read_report(root / ".quality-results" / "dependencies.json"))
+    if lines:
+        raise AdvisoryError("osv-scanner reported advisories:\n" + "\n".join(lines))
 
 
 def verify_security_gate(root: Path) -> None:
@@ -72,4 +89,4 @@ def verify_security_gate(root: Path) -> None:
         (output / name).unlink(missing_ok=True)
     static_analysis(root, timeout, sorted(discover(root)))
     secrets(root, timeout)
-    audit_report_only(root, timeout)
+    audit_enforced(root, timeout)

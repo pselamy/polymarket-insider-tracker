@@ -15,7 +15,7 @@ Scope is `runtime` when the package is reachable without the `dev` extra/group
 (`uv tree --locked --no-dev`, confirmed per package with `--invert`), else `dev-only`.
 Advisory counts include GHSA/PYSEC aliases as separate osv records. `docs/security.md`
 counts osv alias groups instead (one per underlying advisory): 60 groups in 17 packages on
-`main` before family 1, 14 groups in 8 packages after it, 8 groups in 6 packages after family 6, 6 groups in 4 packages after family 3, 4 groups in 2 packages after family 5, 1 group in 1 package after family 4, 0 groups after family 2.
+`main` before family 1, 14 groups in 8 packages after it, 8 groups in 6 packages after family 6, 6 groups in 4 packages after family 3, 4 groups in 2 packages after family 5, 1 group in 1 package after family 4, 0 groups after family 2. The campaign is complete: osv is now enforced by the security gate (`docs/security.md`), and a new advisory is handled by a scoped upgrade PR.
 
 ## Families
 
