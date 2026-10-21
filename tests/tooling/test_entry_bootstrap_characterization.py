@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from quality.report_data import is_array, is_object
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 REPOSITORY_ROOT = SCRIPTS.parent
@@ -81,7 +82,7 @@ def _loader(mode: str, name: str, path: str, prefix: str, cwd: Path) -> dict[str
     )
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
-    assert isinstance(payload, dict)
+    assert is_object(payload)
     return payload
 
 
@@ -110,7 +111,7 @@ def test_loader_mode_owns_siblings_through_a_helper_package(
     payload = _loader("single", "independent.service", str(SCRIPTS / filename), prefix, tmp_path)
 
     helper = payload["created"]
-    assert isinstance(helper, list) and len(helper) == 1
+    assert is_array(helper) and len(helper) == 1
     name = helper[0]
     assert isinstance(name, str) and name.startswith(prefix)
     assert payload["package"] == "independent"
@@ -118,7 +119,7 @@ def test_loader_mode_owns_siblings_through_a_helper_package(
     assert payload["paths"] == [[str(SCRIPTS)]]
     assert payload["specs"] == [name]
     siblings = payload["siblings"]
-    assert isinstance(siblings, list)
+    assert is_array(siblings)
     assert f"{name}.{sibling}" in siblings
 
 
@@ -129,7 +130,7 @@ def test_each_load_gets_its_own_helper_package(
     payload = _loader("double", "ignored", str(SCRIPTS / filename), prefix, tmp_path)
 
     names = payload["created"]
-    assert isinstance(names, list) and len(names) == 2
+    assert is_array(names) and len(names) == 2
     assert len(set(names)) == 2
     assert all(isinstance(name, str) and name.startswith(prefix) for name in names)
     assert payload["paths"] == [[str(SCRIPTS)], [str(SCRIPTS)]]
@@ -150,7 +151,7 @@ def test_copied_standalone_scripts_load_their_own_siblings(
     payload = _loader("single", "standalone.entry", str(copy_root / filename), prefix, tmp_path)
 
     helper = payload["created"]
-    assert isinstance(helper, list) and len(helper) == 1
+    assert is_array(helper) and len(helper) == 1
     assert payload["package"] == "standalone"
     assert payload["spec"] == "standalone.entry"
     assert payload["paths"] == [[str(copy_root)]]

@@ -334,7 +334,9 @@ class TestDispositions:
         duplicate = classify_observation(
             observation, cutoff=NOW, floor=NOW - 100, retained=retained
         )
-        emitted = classify_observation(observation, cutoff=NOW, floor=NOW - 100, retained=set())
+        emitted = classify_observation(
+            observation, cutoff=NOW, floor=NOW - 100, retained=set[str]()
+        )
 
         assert deferred is RowDisposition.DEFERRED_FUTURE_CYCLE
         assert padding is RowDisposition.PADDING
@@ -344,8 +346,10 @@ class TestDispositions:
     def test_deferred_row_is_reacquired_once_the_cutoff_reaches_it(self) -> None:
         observation = _observation(trade_row(timestamp=NOW + 3))
 
-        before = classify_observation(observation, cutoff=NOW, floor=NOW - 100, retained=set())
-        after = classify_observation(observation, cutoff=NOW + 3, floor=NOW - 100, retained=set())
+        before = classify_observation(observation, cutoff=NOW, floor=NOW - 100, retained=set[str]())
+        after = classify_observation(
+            observation, cutoff=NOW + 3, floor=NOW - 100, retained=set[str]()
+        )
 
         assert before is RowDisposition.DEFERRED_FUTURE_CYCLE
         assert after is RowDisposition.EMITTED

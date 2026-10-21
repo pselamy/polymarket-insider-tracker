@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import ast
-import importlib.util
 import json
+import math
 import re
-import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -22,6 +21,7 @@ from tests.fakes import (
     timeout,
     trade_row,
 )
+from tests.tooling.module_loading import load_registered_module
 
 from polymarket_insider_tracker.ingestor.trades_source import PAGE_LIMIT
 
@@ -33,18 +33,9 @@ T0 = int(NOW)
 WALLET_PATTERN = re.compile(r"0x[0-9a-fA-F]{40}")
 
 
-def _load(path: Path, name: str) -> ModuleType:
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # dataclasses resolve postponed annotations through sys.modules
-    spec.loader.exec_module(module)
-    return module
-
-
 @pytest.fixture(scope="module")
 def smoke() -> ModuleType:
-    return _load(SMOKE_PATH, "trades_smoke_under_test")
+    return load_registered_module("trades_smoke_under_test", SMOKE_PATH)
 
 
 @pytest.fixture
@@ -104,7 +95,8 @@ class TestSevenCases:
         assert record.missing_required_fields == {}
         assert record.newest_timestamp == T0 - 1
         assert record.oldest_timestamp == T0 - 20
-        assert record.provider_lag_seconds == pytest.approx(1.0)
+        assert record.provider_lag_seconds is not None
+        assert math.isclose(record.provider_lag_seconds, 1.0, rel_tol=1e-6, abs_tol=1e-12)
         assert record.in_window_rows == 6
         assert record.page_saturated is False
         assert record.cache_control == "public, max-age=300"
@@ -412,7 +404,7 @@ class TestIsolation:
         assert "POLYMARKET_WS_URL" not in source
 
     def test_smoke_is_not_part_of_any_verifier_profile(self) -> None:
-        verify = _load(VERIFY_PATH, "verify_under_smoke_test")
+        verify = load_registered_module("verify_under_smoke_test", VERIFY_PATH)
 
         assert not any("trades_smoke" in gate.command_text for gate in verify.GATES.values())
 

@@ -30,6 +30,7 @@ from types import ModuleType
 
 import pytest
 import yaml
+from quality.report_data import is_array, is_object
 from tests.tooling.module_loading import load_module
 
 from polymarket_insider_tracker.config import DatabaseSettings, RedisSettings
@@ -90,11 +91,11 @@ def _workflow() -> dict[str, object]:
 def _required_job_needs() -> list[str]:
     workflow = _workflow()
     jobs = workflow["jobs"]
-    assert isinstance(jobs, dict)
+    assert is_object(jobs)
     required = jobs["required"]
-    assert isinstance(required, dict)
+    assert is_object(required)
     needs = required["needs"]
-    assert isinstance(needs, list)
+    assert is_array(needs)
     entries = list(needs)
     assert all(isinstance(entry, str) for entry in entries)
     return [entry for entry in entries if isinstance(entry, str)]
@@ -184,15 +185,15 @@ def test_golden_blocking_jobs_are_bound_in_ci_and_verifier() -> None:
         "cyclomatic",
     )
     jobs = _workflow()["jobs"]
-    assert isinstance(jobs, dict)
+    assert is_object(jobs)
     for job_id in GOLDEN_BLOCKING_JOBS:
         assert job_id in jobs
         job = jobs[job_id]
-        assert isinstance(job, dict)
+        assert is_object(job)
         assert "continue-on-error" not in job
     assert _required_job_needs() == list(GOLDEN_BLOCKING_JOBS)
     required = jobs["required"]
-    assert isinstance(required, dict)
+    assert is_object(required)
     assert required.get("if") == "always()"
 
 

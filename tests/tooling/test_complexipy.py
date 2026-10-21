@@ -19,6 +19,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from quality.report_data import is_array
 from tests.tooling.module_loading import load_module
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -211,7 +212,7 @@ def test_no_forbidden_complexipy_escape_hatches() -> None:
     assert complexipy_config["no-ignore"] is True
     assert complexipy_config["check-script"] is True
     paths = complexipy_config["paths"]
-    assert isinstance(paths, list)
+    assert is_array(paths)
     assert tuple(paths) == CANONICAL_SCOPE
 
 

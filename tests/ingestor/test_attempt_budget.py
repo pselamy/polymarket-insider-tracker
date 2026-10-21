@@ -11,6 +11,7 @@ wired into the HTTP client, retries, or poller in this card.
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Callable
 
 import pytest
@@ -22,6 +23,11 @@ from polymarket_insider_tracker.ingestor._attempt_budget import (
     RollingAttemptWindow,
 )
 from tests.fakes import FakeClock
+
+
+def _build_ill_typed(factory: Callable[..., AttemptBudget], **arguments: object) -> AttemptBudget:
+    """Construct through an untyped factory so deliberately ill-typed input stays expressible."""
+    return factory(**arguments)
 
 
 class BlockingSleep:
@@ -62,9 +68,10 @@ class TestInvalidParameters:
         ],
     )
     def test_invalid_parameters_rejected(self, max_attempts: object, window_seconds: float) -> None:
-        build: Callable[..., AttemptBudget] = AttemptBudget  # deliberately ill-typed input
         with pytest.raises(ValueError):
-            build(max_attempts=max_attempts, window_seconds=window_seconds)
+            _build_ill_typed(
+                AttemptBudget, max_attempts=max_attempts, window_seconds=window_seconds
+            )
 
 
 class TestRollingWindow:
@@ -80,7 +87,9 @@ class TestRollingWindow:
     def test_slot_reopens_when_oldest_ages_out(self) -> None:
         window = RollingAttemptWindow(1, 10.0)
         assert window.try_start(0.0) is True
-        assert window.seconds_until_available(9.999) == pytest.approx(0.001)
+        assert math.isclose(
+            window.seconds_until_available(9.999), 0.001, rel_tol=1e-6, abs_tol=1e-12
+        )
         assert window.try_start(10.0) is True
 
     def test_start_at_the_window_boundary_is_expired(self) -> None:

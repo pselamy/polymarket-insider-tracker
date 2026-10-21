@@ -194,6 +194,16 @@ class ClobClient:
             requests_per_second,
         )
 
+    @property
+    def max_retries(self) -> int:
+        """Maximum retry attempts configured for failed requests."""
+        return self._max_retries
+
+    @property
+    def has_api_key(self) -> bool:
+        """Whether an API key is configured (explicitly or from ``POLYMARKET_API_KEY``)."""
+        return bool(self._api_key)
+
     def _fetch_simplified_markets(self, cursor: str | None) -> dict[str, Any]:
         if cursor:
             result = self._client.get_simplified_markets(cursor)

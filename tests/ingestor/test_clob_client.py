@@ -128,18 +128,32 @@ class TestClobClient:
     """Tests for ClobClient wrapper."""
 
     @pytest.fixture
-    def fake_base_client(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeBaseClobClient]:
+    def base_hosts(self) -> list[str]:
+        """The hosts the wrapper handed to the base client constructor."""
+        return []
+
+    @pytest.fixture
+    def fake_base_client(
+        self, monkeypatch: pytest.MonkeyPatch, base_hosts: list[str]
+    ) -> Iterator[FakeBaseClobClient]:
         """Create and monkeypatch working base CLOB client fake."""
         fake = FakeBaseClobClient()
-        monkeypatch.setattr(clob_module, "BaseClobClient", lambda _host: fake)
+
+        def build(host: str) -> FakeBaseClobClient:
+            base_hosts.append(host)
+            return fake
+
+        monkeypatch.setattr(clob_module, "BaseClobClient", build)
         yield fake
 
-    def test_init_defaults(self, fake_base_client: FakeBaseClobClient) -> None:
+    def test_init_defaults(
+        self, fake_base_client: FakeBaseClobClient, base_hosts: list[str]
+    ) -> None:
         """Test client initialization with defaults."""
         _ = fake_base_client
         client = ClobClient()
-        assert client._host == "https://clob.polymarket.com"
-        assert client._max_retries == 3
+        assert base_hosts == ["https://clob.polymarket.com"]
+        assert client.max_retries == 3
 
     def test_init_with_env_api_key(
         self, fake_base_client: FakeBaseClobClient, monkeypatch: pytest.MonkeyPatch
@@ -148,13 +162,21 @@ class TestClobClient:
         _ = fake_base_client
         monkeypatch.setenv("POLYMARKET_API_KEY", "test-key")
         client = ClobClient()
-        assert client._api_key == "test-key"
+        assert client.has_api_key
+
+    def test_init_without_api_key(
+        self, fake_base_client: FakeBaseClobClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test client has no API key when none is given or in the environment."""
+        _ = fake_base_client
+        monkeypatch.delenv("POLYMARKET_API_KEY", raising=False)
+        assert not ClobClient().has_api_key
 
     def test_init_with_explicit_api_key(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test client uses explicitly provided API key."""
         _ = fake_base_client
         client = ClobClient(api_key="explicit-key")
-        assert client._api_key == "explicit-key"
+        assert client.has_api_key
 
     def test_health_check_success(self, fake_base_client: FakeBaseClobClient) -> None:
         """Test health check returns True when API responds OK."""

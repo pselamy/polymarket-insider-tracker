@@ -31,3 +31,33 @@ class KeyLister(Protocol):
 async def key_count(client: KeyLister) -> int:
     """Number of keys in the client's database (via ``keys``; the ``dbsize`` stub is untyped)."""
     return len(await settled(client.keys("*")))
+
+
+class ScoredSetReader(Protocol):
+    """The slice of ``redis.asyncio.Redis`` that ``scored_members`` needs, with a typed result."""
+
+    def zrangebyscore(
+        self,
+        name: str,
+        min: str,
+        max: str,
+        start: int | None = None,
+        num: int | None = None,
+        withscores: bool = False,
+    ) -> Awaitable[list[tuple[bytes, float]]] | list[tuple[bytes, float]]: ...
+
+
+async def scored_members(client: ScoredSetReader, key: str) -> list[tuple[bytes, float]]:
+    """Every ``(member, score)`` of a sorted set (the ``zrangebyscore`` stub is partly untyped)."""
+    return await settled(client.zrangebyscore(key, "-inf", "+inf", withscores=True))
+
+
+class HashWriter(Protocol):
+    """The slice of ``redis.asyncio.Redis`` that ``write_hash`` needs, with a typed result."""
+
+    def hset(self, name: str, *, mapping: dict[str, str]) -> Awaitable[int] | int: ...
+
+
+async def write_hash(client: HashWriter, key: str, mapping: dict[str, str]) -> int:
+    """Set hash fields and return how many were added (the ``hset`` stub is partly untyped)."""
+    return await settled(client.hset(key, mapping=mapping))
