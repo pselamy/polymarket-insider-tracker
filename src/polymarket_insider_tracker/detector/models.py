@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Protocol
 
 from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
+from polymarket_insider_tracker.detector.volume_state import SizeVolumeEvidence
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
@@ -145,6 +146,8 @@ class SizeAnomalySignal:
         confidence: Overall confidence score (0.0 to 1.0).
         factors: Individual factor scores contributing to confidence.
         timestamp: When this signal was generated.
+        volume_evidence: Volume state and measured impact recorded beside the signal; evidence
+            only, no score input (None when the signal was built without classification).
     """
 
     trade_event: TradeEvent
@@ -155,6 +158,7 @@ class SizeAnomalySignal:
     confidence: float
     factors: dict[str, float]
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    volume_evidence: SizeVolumeEvidence | None = None
 
     # Identity and confidence properties have exactly one home in the module
     # helpers above; every signal class reuses the same property objects.

@@ -110,4 +110,3 @@ Grid points are illustrative combinations, **not** live frequencies.
 - Default pre-T027 posture: the highest score of any trade is 0.450, so no alert is possible at any threshold above it; lowering the threshold to 0.78 (R1) still yields zero alerts.
 - Post-T027 scenario: smallest unknown-age confidence that lets the best niche case reach 0.80: 0.541 (vs the proposed exact 0.500).
 - Post-T027 scenario: with confidence fixed at 0.500 the highest unknown-age score is 0.780 for any trade size, so no threshold-0.80 alert is possible while age is unknown.
-

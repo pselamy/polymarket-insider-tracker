@@ -8,20 +8,25 @@ repos:
       - id: check-added-large-files
       - id: check-merge-conflict
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.1.9
-    hooks:
-      - id: ruff
-        args: [--fix]
-
-  - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 26.5.1
+  # Local hooks run the locked project tools with the same commands and scopes as
+  # quality/checks.json, so the hooks and CI cannot drift apart (tests/tooling).
+  - repo: local
     hooks:
       - id: black
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.8.0
-    hooks:
+        name: black
+        entry: uv run --locked --all-extras black --check
+        language: system
+        pass_filenames: false
+        args: [src, tests, quality, scripts, alembic, conftest.py]
+      - id: ruff
+        name: ruff
+        entry: uv run --locked --all-extras ruff check
+        language: system
+        pass_filenames: false
+        args: [src, tests, quality, scripts, alembic, conftest.py]
       - id: mypy
-        additional_dependencies:
-          - pydantic>=2.0.0
+        name: mypy
+        entry: uv run --isolated --locked --all-extras --python 3.11 mypy
+        language: system
+        pass_filenames: false
+        args: [src, scripts, quality, alembic, conftest.py, tests]

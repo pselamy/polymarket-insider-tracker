@@ -1586,9 +1586,7 @@ class TestAdjacentSinkRedaction:
         )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            cached, _ = await sync._cache_markets_batch(
-                _sync_probe_markets(), await sync._fetch_gamma_stats()
-            )
+            cached = await sync._cache_markets_batch(_sync_probe_markets())
             assert cached == 0
             # The batch path swallows the per-market failure into a log line;
             # the direct path raises the same error. Exercise both real paths.

@@ -97,6 +97,7 @@ def test_rejects_asyncpg_specific_query_options_without_leaking_secret(query_key
         "postgresql+psycopg:///tracker",
         "postgresql+psycopg://localhost:99999/tracker",
         "not a URL",
+        "notaurl",
     ],
 )
 def test_rejects_malformed_or_incomplete_urls(source: str) -> None:
