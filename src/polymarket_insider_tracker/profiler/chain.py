@@ -124,6 +124,8 @@ class PolygonClient:
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_delay_seconds: float = DEFAULT_RETRY_DELAY_SECONDS,
         web3: Web3Handle | None = None,
+        fallback_web3: Web3Handle | None = None,
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
         """Initialize the Polygon client.
 
@@ -136,6 +138,10 @@ class PolygonClient:
             max_retries: Maximum retry attempts on failure.
             retry_delay_seconds: Initial delay between retries.
             web3: Optional primary RPC handle replacing the HTTP one built from ``rpc_url``.
+            fallback_web3: Optional fallback RPC handle replacing the HTTP one built from
+                ``fallback_rpc_url``.
+            rate_limiter: Optional request limiter replacing the one built from
+                ``max_requests_per_second``, so several consumers can share one budget.
         """
         self._rpc_url = rpc_url
         self._fallback_rpc_url = fallback_rpc_url
@@ -146,12 +152,12 @@ class PolygonClient:
 
         # Create web3 instances
         self._w3: Web3Handle = web3 or AsyncWeb3(AsyncHTTPProvider(rpc_url))
-        self._w3_fallback: Web3Handle | None = None
-        if fallback_rpc_url:
+        self._w3_fallback: Web3Handle | None = fallback_web3
+        if fallback_web3 is None and fallback_rpc_url:
             self._w3_fallback = AsyncWeb3(AsyncHTTPProvider(fallback_rpc_url))
 
         # Rate limiter
-        self._rate_limiter = RateLimiter.create(max_requests_per_second)
+        self._rate_limiter = rate_limiter or RateLimiter.create(max_requests_per_second)
 
         # Track primary RPC health
         self._primary_healthy = True
