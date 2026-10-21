@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import time
 from collections.abc import Callable
 from functools import wraps
@@ -159,14 +158,13 @@ class ClobClient:
     with exponential backoff on transient errors.
 
     Example:
-        >>> client = ClobClient()  # Uses POLYMARKET_API_KEY env var
+        >>> client = ClobClient()  # Public endpoints only; no credential
         >>> markets = client.get_markets()
         >>> orderbook = client.get_orderbook("token_id_here")
     """
 
     def __init__(
         self,
-        api_key: str | None = None,
         host: str = DEFAULT_HOST,
         max_retries: int = DEFAULT_MAX_RETRIES,
         requests_per_second: float = MAX_REQUESTS_PER_SECOND,
@@ -174,13 +172,10 @@ class ClobClient:
         """Initialize the CLOB client.
 
         Args:
-            api_key: Polymarket API key. If not provided, reads from
-                POLYMARKET_API_KEY environment variable.
             host: CLOB API endpoint URL.
             max_retries: Maximum retry attempts for failed requests.
             requests_per_second: Rate limit for API requests.
         """
-        self._api_key = api_key or os.environ.get("POLYMARKET_API_KEY")
         self._host = host
         self._max_retries = max_retries
         self._rate_limiter = RateLimiter(requests_per_second)
@@ -189,10 +184,9 @@ class ClobClient:
         self._client = BaseClobClient(host)
 
         logger.info(
-            "Initialized ClobClient with host=%s, rate_limit=%.1f req/s, api_key_set=%s",
+            "Initialized ClobClient with host=%s, rate_limit=%.1f req/s",
             host,
             requests_per_second,
-            bool(self._api_key),
         )
 
     def _fetch_simplified_markets(self, cursor: str | None) -> dict[str, Any]:

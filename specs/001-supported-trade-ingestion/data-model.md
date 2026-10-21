@@ -204,3 +204,5 @@ wallet, name, pseudonym, or raw row.
 | `response_sha256` | string | Digest of the raw body; the body itself is discarded |
 | `retained_wallet_identifiers` | boolean | Always `false`; asserted by tests |
 | `passed` | boolean | Case-specific verdict |
+
+> **Correction (POLYMARKET_API_KEY deprecation):** `POLYMARKET_API_KEY` is now deprecated and ignored; no request carries it. The "unchanged" / "consumed by the CLOB client" wording above describes slice 001 as delivered. See CHANGELOG.md.

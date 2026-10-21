@@ -106,3 +106,5 @@ query, all-participant default coverage, the 5-second cadence and its share of t
 possible-data-loss and loss-event semantics, the `POLYMARKET_WS_URL` deprecation window, and that no
 Polymarket credential is required. "Real-time" is replaced by "near-real-time" wherever push delivery
 could be inferred.
+
+> **Correction (POLYMARKET_API_KEY deprecation):** `POLYMARKET_API_KEY` is now deprecated and ignored; no request carries it. The "unchanged" / "consumed by the CLOB client" wording above describes slice 001 as delivered. See CHANGELOG.md.
