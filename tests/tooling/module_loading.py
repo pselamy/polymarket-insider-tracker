@@ -31,24 +31,16 @@ _IMPORT_SCRIPTS = (
 )
 
 
-def load_module(name: str, path: Path) -> ModuleType:
-    """Execute ``path`` as module ``name`` without registering it in ``sys.modules``."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def load_module(name: str, path: Path, *, register: bool = False) -> ModuleType:
+    """Execute ``path`` as module ``name``, registering it in ``sys.modules`` only if asked.
 
-
-def load_registered_module(name: str, path: Path) -> ModuleType:
-    """Execute ``path`` as module ``name`` after registering it in ``sys.modules``.
-
-    Dataclasses resolve postponed annotations through ``sys.modules``.
+    Registration is what dataclasses need to resolve postponed annotations.
     """
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
+    if register:
+        sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 

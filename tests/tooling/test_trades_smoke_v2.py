@@ -18,7 +18,7 @@ import httpx
 import pytest
 from scripts.trades_smoke import SmokeRecord
 from tests.fakes import FakeClock, synthetic_wallet, trade_row, v2_row
-from tests.tooling.module_loading import load_registered_module
+from tests.tooling.module_loading import load_module
 from tests.tooling.test_trades_smoke import NOW, SMOKE_PATH, T0
 
 from polymarket_insider_tracker.endpoints import OFFICIAL_V2_TRADES_URL
@@ -57,7 +57,7 @@ class FakeV2Server:
 
 @pytest.fixture
 def smoke() -> ModuleType:
-    return load_registered_module("trades_smoke_v2_under_test", SMOKE_PATH)
+    return load_module("trades_smoke_v2_under_test", SMOKE_PATH, register=True)
 
 
 @pytest.fixture

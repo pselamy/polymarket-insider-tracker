@@ -21,7 +21,7 @@ from tests.fakes import (
     timeout,
     trade_row,
 )
-from tests.tooling.module_loading import load_registered_module
+from tests.tooling.module_loading import load_module
 
 from polymarket_insider_tracker.ingestor.trades_source import PAGE_LIMIT
 
@@ -35,7 +35,7 @@ WALLET_PATTERN = re.compile(r"0x[0-9a-fA-F]{40}")
 
 @pytest.fixture(scope="module")
 def smoke() -> ModuleType:
-    return load_registered_module("trades_smoke_under_test", SMOKE_PATH)
+    return load_module("trades_smoke_under_test", SMOKE_PATH, register=True)
 
 
 @pytest.fixture
@@ -404,7 +404,7 @@ class TestIsolation:
         assert "POLYMARKET_WS_URL" not in source
 
     def test_smoke_is_not_part_of_any_verifier_profile(self) -> None:
-        verify = load_registered_module("verify_under_smoke_test", VERIFY_PATH)
+        verify = load_module("verify_under_smoke_test", VERIFY_PATH, register=True)
 
         assert not any("trades_smoke" in gate.command_text for gate in verify.GATES.values())
 
