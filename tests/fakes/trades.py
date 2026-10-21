@@ -17,7 +17,7 @@ import json
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard
 
 import httpx
 
@@ -245,14 +245,18 @@ class ProviderFake(ABC):
         return self._http.client()
 
 
-def _sort_timestamp(row: object) -> int:
+def _is_row(row: object) -> TypeGuard[dict[str, object]]:
+    return isinstance(row, dict)
+
+
+def sort_timestamp(row: object) -> int:
     """Order malformed rows as if they were oldest, the way a provider would still serve them."""
-    value = row.get("timestamp", 0) if isinstance(row, dict) else 0
+    value = row.get("timestamp", 0) if _is_row(row) else 0
     return value if isinstance(value, int) else 0
 
 
 def _transaction_of(row: object) -> object:
-    return row.get("transactionHash") if isinstance(row, dict) else None
+    return row.get("transactionHash") if _is_row(row) else None
 
 
 @dataclass(frozen=True)
@@ -352,7 +356,7 @@ class FakeTradesServer(ProviderFake):
             offset = self.page_limit
         taker_only = params.get("takerOnly", "true") == "true"
         entries = [entry for entry in self._ledger if entry.taker or not taker_only]
-        ordered = sorted(entries, key=lambda entry: (-_sort_timestamp(entry.row), -entry.sequence))
+        ordered = sorted(entries, key=lambda entry: (-sort_timestamp(entry.row), -entry.sequence))
         page = [entry.row for entry in ordered[offset : offset + limit]]
         return json.dumps(page).encode()
 

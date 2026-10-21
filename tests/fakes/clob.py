@@ -21,6 +21,13 @@ def _default_pages() -> list[dict[str, Any]]:
     ]
 
 
+def _order_summary(price: str, size: str) -> OrderSummary:
+    summary = OrderSummary()
+    summary.price = price
+    summary.size = size
+    return summary
+
+
 class FakeBaseClobClient:
     """In-memory stand-in for ``py_clob_client.client.ClobClient``.
 
@@ -54,7 +61,7 @@ class FakeBaseClobClient:
         if self.crawl_gate is not None:
             self.crawl_gate.wait()
         self.page_requests.append(next_cursor)
-        cursors = [None] + [page["next_cursor"] for page in self.pages[:-1]]
+        cursors: list[str | None] = [None, *(page["next_cursor"] for page in self.pages[:-1])]
         return self.pages[cursors.index(next_cursor)]
 
     def get_market(self, condition_id: str) -> dict[str, Any]:
@@ -71,13 +78,13 @@ class FakeBaseClobClient:
 
     @staticmethod
     def get_order_book(token_id: str) -> OrderBookSummary:
-        return OrderBookSummary(
-            market="0xmarket",
-            asset_id=token_id,
-            tick_size="0.01",
-            bids=[OrderSummary(price="0.50", size="100")],
-            asks=[OrderSummary(price="0.52", size="150")],
-        )
+        book = OrderBookSummary()
+        book.market = "0xmarket"
+        book.asset_id = token_id
+        book.tick_size = "0.01"
+        book.bids = [_order_summary("0.50", "100")]
+        book.asks = [_order_summary("0.52", "150")]
+        return book
 
     def get_order_books(self, params: list[BookParams]) -> list[OrderBookSummary]:
         return [self.get_order_book(param.token_id) for param in params]

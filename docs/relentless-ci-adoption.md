@@ -452,6 +452,23 @@ Honest fixes, no suppression: `DatabaseManager.is_sync_open` / `is_async_open` a
 public `Pipeline.process_trade` (the documented per-trade entry the poller and replay callers
 use); `wire_pipeline(trace_funding=False)` replaces assigning `_funding_tracer = None`.
 
+## REF-CMD-20 step 4: shutdown test and non-pipeline fakes (2026-10-21)
+
+Enrolled in `[tool.pyright].include` (strict, zero suppressions): `tests/test_shutdown.py` (17 → 0)
+and every `tests/fakes` module except `pipeline.py` (20 → 0). Measured remaining unenrolled roots:
+`tests/test_terminal_error_durable.py` 25, `tests/fakes/pipeline.py` 29, `tests/detector` 57,
+`tests/profiler` 81, `tests/test_redaction.py` 58, `tests/integration` 86, `tests/test_pipeline.py` 90,
+`tests/ingestor` (remainder), `tests/test_main.py`, `tests/tooling`.
+
+Honest fixes: `test_shutdown.py` drives `GracefulShutdown` through delivered `SIGTERM`s and `wait()`
+instead of reading `_shutdown_event`; the second-signal force exit runs in a subprocess and asserts
+exit status `128 + SIGTERM`. Fakes use `inspect.isawaitable`, a typed `KeyLister` Protocol for
+`key_count`, a `TypeGuard` row check (`sort_timestamp` is now shared by both provider fakes instead of
+duplicated), `.get` plus assertions for `FilterParams`, and attribute assignment for the SDK's
+`OrderBookSummary`. `tests/fakes/pipeline.py` (private wiring of `Pipeline` internals) and
+`tests/test_terminal_error_durable.py` (private `Pipeline` state and worker-failure hooks) need
+approved public `src` entry points and stay unenrolled.
+
 ## Merge queue flow (2026-10-20)
 
 Every workflow (`ci.yml`, `relentless-ci.yml`, `mutation.yml`) also triggers on

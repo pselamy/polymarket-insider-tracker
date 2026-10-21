@@ -18,17 +18,12 @@ from typing import Any
 
 import httpx
 
-from tests.fakes.trades import FakeClock, ProviderFake, RecordedRequest
+from tests.fakes.trades import FakeClock, ProviderFake, RecordedRequest, sort_timestamp
 
 V2_PAGE_LIMIT = 1000
 CACHE_CONTROL = "public, max-age=300"
 _CF_CACHE_STATUS = "MISS"
 _CURSOR_PREFIX = "cursor-"
-
-
-def _sort_timestamp(row: object) -> int:
-    value = row.get("timestamp", 0) if isinstance(row, dict) else 0
-    return value if isinstance(value, int) else 0
 
 
 @dataclass
@@ -94,7 +89,7 @@ class FakeV2TradesServer(ProviderFake):
             else min(int(params.get("limit", str(self.page_size))), self.page_size)
         )
         ordered = sorted(
-            enumerate(self._ledger), key=lambda item: (-_sort_timestamp(item[1]), -item[0])
+            enumerate(self._ledger), key=lambda item: (-sort_timestamp(item[1]), -item[0])
         )
         page = [row for _, row in ordered[offset : offset + limit]]
         next_offset = offset + limit

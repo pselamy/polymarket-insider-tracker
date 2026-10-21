@@ -59,8 +59,8 @@ class FakeCursorFeed:
     """Scripted v2 pages keyed by the cursor that requests them (``None`` = first page)."""
 
     pages: Mapping[str | None, object]
-    requests: list[V2PageRequest] = field(default_factory=list)
-    script: list[Exception | None] = field(default_factory=list)
+    requests: list[V2PageRequest] = field(default_factory=list[V2PageRequest])
+    script: list[Exception | None] = field(default_factory=list[Exception | None])
 
     def fail_next(self, error: Exception) -> None:
         """Raise ``error`` for the next physical request instead of serving a page."""
