@@ -312,14 +312,18 @@ deliberately, not by loosening the assertion:
   evidence envelope parses under the contract schema (`contracts/scoring-config.md`).
   *Layer 4 receipt (ticked)*: the default-URL journey also asserts `contract_errors(...) == []` against
   `contracts/scoring-config-004.1.schema.json` and the reconstruction rules.
-- [ ] T025 [US1] `tests/integration/test_v2_default_journey_services.py` (real Redis/services):
+- [x] T025 [US1] `tests/integration/test_v2_default_journey_services.py` (real Redis/services):
   replace `"003.1"` at `:139`; the stamped-volume market must be served through the real Redis
   metadata cache so the 0-600 s rule is exercised with real expiry, not only with a fake clock.
   *Layer 4 receipt (pending services CI)*: the journey stores the stamped volume as the real Redis volume
   record (product TTL) beside volume-less CLOB metadata and asserts `available`/`10000`/`0.450` from the row; the
   expiry leg is the T012d (4) test above. Ticked only once the services job passes on the PR head (no local
   PostgreSQL role was available to this run).
-- [ ] T026 [US3] `tests/integration/test_postgres_journey.py` (real PostgreSQL): replace the
+  *Services receipt (2026-10-21)*: "PostgreSQL and Redis required checks" passed on PR #204 head `5a7f3dc`
+  (https://github.com/pselamy/polymarket-insider-tracker/actions/runs/39581900097/job/119161266689): `tests/integration/test_redis_contract.py` 52 passed, 0 skipped, including
+  `test_v2_default_journey_through_real_postgres_and_redis` and
+  `test_a_real_redis_volume_record_reads_available_then_stale_then_expires`.
+- [x] T026 [US3] `tests/integration/test_postgres_journey.py` (real PostgreSQL): replace the
   hard-coded expectations `_EXPECTED_FRESH_WALLET_CONFIDENCE = 0.700`,
   `_EXPECTED_SIZE_ANOMALY_CONFIDENCE = 0.200`, `_EXPECTED_WEIGHTED_SCORE = 0.480`
   (`:65-73`), `_EXPECTED_SCORING_CONFIG` (`:75-85`; exact dict equality, incl. the
@@ -336,6 +340,10 @@ deliberately, not by loosening the assertion:
   non-scoring evidence, as layer 3 pinned it (`test_scorer_g1.py`); changing that column is not done here and
   is flagged for review. `test_earlier_rows_read_back_unchanged_in_disposable_postgres` reads a seeded `003.1` and
   a `legacy-unversioned` row back unchanged. Ticked only once the services job passes on the PR head.
+  *Services receipt (2026-10-21)*: "PostgreSQL and Redis required checks" passed on PR #204 head `5a7f3dc`
+  (https://github.com/pselamy/polymarket-insider-tracker/actions/runs/39581900097/job/119161266689): `tests/integration/test_redis_contract.py` 52 passed, 0 skipped, including
+  `test_dry_run_journey_persists_in_disposable_postgres[stamped|volume-less]` and
+  `test_earlier_rows_read_back_unchanged_in_disposable_postgres`.
 
 Each of T021–T026 lands with the implementation change that alters its expectation, never after
 it (same rule as T009c/T009d/T015a/T015b).
