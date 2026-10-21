@@ -97,6 +97,9 @@ class GammaCrawl:
     finished: datetime
 
 
+_UNSTAMPED = datetime.min.replace(tzinfo=UTC)
+
+
 def _parse_market(
     raw: dict[str, JsonValue], acquired_at: datetime | None = None
 ) -> GammaMarketStats | None:
@@ -122,11 +125,14 @@ def _try_parse_item(raw: JsonValue, acquired_at: datetime | None) -> GammaMarket
     return None
 
 
+def _stamp_of(stats: GammaMarketStats) -> datetime:
+    """Receipt stamp for ordering; an unstamped market sorts before every stamped one."""
+    return stats.acquired_at or _UNSTAMPED
+
+
 def _supersedes(new: GammaMarketStats, kept: GammaMarketStats) -> bool:
     """Duplicate-id rule: the later ``acquired_at`` wins; a tie keeps the lower page index."""
-    if new.acquired_at is None:
-        return False
-    return kept.acquired_at is None or new.acquired_at > kept.acquired_at
+    return _stamp_of(new) > _stamp_of(kept)
 
 
 def _keep_freshest(results: dict[str, GammaMarketStats], parsed: GammaMarketStats) -> None:

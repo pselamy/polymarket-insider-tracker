@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from abc import abstractmethod
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
@@ -54,9 +55,7 @@ def schedule_terminal_write(
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        close = getattr(write, "close", None)
-        if close is not None:
-            close()
+        write.close()
         return None
     task = loop.create_task(write)
     pending.add(task)
@@ -177,23 +176,37 @@ class TerminalPipeline(Protocol):
     """
 
     @property
-    def state(self) -> StrEnum: ...
+    @abstractmethod
+    def state(self) -> StrEnum:
+        """The pipeline lifecycle state."""
 
     @property
-    def stats(self) -> PipelineStats: ...
+    @abstractmethod
+    def stats(self) -> PipelineStats:
+        """The pipeline counters."""
 
     @property
-    def stop_event(self) -> asyncio.Event | None: ...
+    @abstractmethod
+    def stop_event(self) -> asyncio.Event | None:
+        """The stop signal, if one is armed."""
 
     @property
-    def db_manager(self) -> DatabaseManager | None: ...
+    @abstractmethod
+    def db_manager(self) -> DatabaseManager | None:
+        """The database manager, if one is configured."""
 
     @property
-    def terminal_writes(self) -> set[asyncio.Task[None]]: ...
+    @abstractmethod
+    def terminal_writes(self) -> set[asyncio.Task[None]]:
+        """The retained durable terminal-error writes."""
 
-    def enter_terminal_state(self) -> None: ...
+    @abstractmethod
+    def enter_terminal_state(self) -> None:
+        """Move the pipeline to its terminal state."""
 
-    def record_processing_error(self, message: str) -> None: ...
+    @abstractmethod
+    def record_processing_error(self, message: str) -> None:
+        """Record one processing error message."""
 
 
 def record_terminal_failure(pipeline: TerminalPipeline, error: str, worker: str) -> None:

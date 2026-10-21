@@ -1281,6 +1281,11 @@ Dead code removed (no pragma, omit or threshold change; behaviour for valid inpu
   `dispose` and `dispose_async` clear engine and factory together, so an engine never outlives
   its factory. They are now `_open_*_engine` creators.
 
+Not enrolled: `ingestor/models.py` keeps `...` bodies on the `ClobOrderbook`/`ClobOrderbookLevel`
+Protocols. Those arcs close only by calling the stubs, which would be a line-executing test, and the
+file is spec004-hashed so the idiom used elsewhere cannot be applied. The behavioural misses (non-integer
+timestamp, malformed cached dates) are closed by tests.
+
 Not enrolled: `gamma_client._supersedes` keeps a `new.acquired_at is None` guard that a real
 crawl never reaches (every `ok` page is stamped) and that cannot be reached through the public
 API; it stays private and untested rather than being renamed for a test or rewritten to hide the
@@ -1291,6 +1296,62 @@ Planted-gap check: an `if self._echo:` branch added to `DatabaseManager.dispose`
 `coverage report --fail-under=100` print `Coverage failure: total of 91 is less than
 fail-under=100` for `storage/database.py` (reported with the storage and ingestor suites only, so
 the percentage is that subset's); the file was restored and the full gate passes at 100%.
+
+## Coverage step 5: four more modules enrolled (2026-10-21)
+
+Measured from `0e84fc8` (`coverage run -m pytest tests --ignore=tests/tooling`, branch on: 3558
+passed, 17 skipped). Line / partial-branch misses before:
+
+| Module | Missed lines / partial branches | Enrolled |
+| --- | --- | --- |
+| `ingestor/gamma_client.py` | 1 / 1 | yes (closed in the follow-up below) |
+| `ingestor/observation_boundary.py` | 3 / 18 | yes |
+| `terminal_errors.py` | 15 / 10 | yes |
+| `detector/sniper.py` | 4 / 5 | yes |
+| `detector/size_anomaly.py` (spec004-hashed, tests only) | 2 / 2 | yes |
+| `ingestor/models.py` (spec004-hashed, tests only) | 3 / 8 | yes (closed in the follow-up below) |
+
+Closed by behavioural tests: sniper noise points, undersized and single-wallet clusters, a
+zero-minimum detector with no entries, and a cluster mostly of new wallets taking a new identity;
+a complete checkpoint of another schema version or with a non-integer field being terminal, and
+`retain` before the checkpoint is loaded; the no-loop, failed-write, durable-read and drain paths of
+`terminal_errors`; a non-integer WebSocket timestamp and malformed cached dates in the ingestor
+models; the confidence floor and a negative volume threshold in the size detector.
+
+Source changes (no pragma, omit or threshold change; behaviour unchanged):
+
+- The `Protocol` stubs in `observation_boundary` and `terminal_errors` were `...` one-liners, which
+  coverage reports as never-completed `->exit` arcs. They now follow the repository's existing
+  idiom (`@abstractmethod` with a docstring body, as in `fresh_wallet.WalletProfiler`).
+- `schedule_terminal_write` looked up `close` with `getattr(write, "close", None)` on a typed
+  `Coroutine`, whose `close` always exists; it now calls `write.close()`.
+
+Not enrolled: `gamma_client._supersedes` keeps its `new.acquired_at is None` guard. Every `ok`
+page is stamped from the client clock, so a crawl never reaches it, and it is private. As in step
+4 it stays untested rather than being rewritten to hide the arc.
+
+Found, not changed (spec004-hashed): `MarketMetadata._parse_iso_dt` catches `(ValueError,
+AttributeError)`, but `datetime.fromisoformat` raises `TypeError` for a non-string truthy value, so
+a cached non-string date raises out of `MarketMetadata.from_dict`.
+
+Planted-gap check: an `if self.eps < 0:` branch added to `SniperDetector.get_entry_count` made
+`coverage report --fail-under=100` print `Coverage failure: total of 99 is less than fail-under=100`
+for `detector/sniper.py`; the file was restored and the full gate passes at 100%.
+
+### Coverage step 5 follow-up: `gamma_client` and `ingestor/models` enrolled
+
+Both modules now reach 100% line and branch and are in the `--include` list (`ingestor/models.py`
+is tests only, so its spec004 hash is untouched). This supersedes the two
+"Not enrolled" notes above:
+
+- `gamma_client._supersedes`: the `new.acquired_at is None` guard was unreachable. Only `ok` pages
+  are parsed and each is stamped from the client clock, while failed and skipped pages carry no
+  items. The comparison now orders by a stamp that maps an unstamped market to `datetime.min`
+  (`_stamp_of`), which keeps every outcome of the old guard (unstamped never replaces, any stamp
+  replaces an unstamped one, a tie keeps the earlier page) without the dead branch.
+- `ingestor/models.py`: the `...` Protocol stubs are exercised by reading each declared property
+  getter and asserting it supplies no default value; the `"other"` category fallback and a cached
+  market with no dates are covered by behavioural tests.
 
 ## Escape sweep step 2: typing escapes out of the profiler, clients, health and storage (2026-10-21)
 
