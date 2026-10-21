@@ -87,7 +87,9 @@ class TestImportIdentity:
         module = "polymarket_insider_tracker.alerter.history"
         assert pickled_global(record) == (module, "AlertRecord")
         assert resolve_pickled_global(record) is AlertRecord
-        _, _, state = record.__reduce_ex__(4)[:3]
+        reduced = record.__reduce_ex__(4)
+        assert isinstance(reduced, tuple)
+        state = reduced[2]
         assert state == {f.name: getattr(record, f.name) for f in dataclasses.fields(record)}
         assert copy.deepcopy(record) == record
 
