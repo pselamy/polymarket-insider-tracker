@@ -1,12 +1,16 @@
 """Runtime policy YAML and the pinned native adapters keep rejecting unsafe shapes."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from aiohttp.test_utils import make_mocked_request
 from quality.mutation_workspace import cleanup_unproven
 from quality.native_api import native_callable
 from quality.owned_commands import SupervisionUnproven
 from quality.runtime_data import AnchorFreeLoader, read_yaml
+
+from quality import mutation_worker
 
 
 def _write(tmp_path: Path, source: str) -> Path:
@@ -62,3 +66,29 @@ def test_cleanup_unproven_searches_nested_groups() -> None:
     assert cleanup_unproven(nested)
     assert not cleanup_unproven(BaseExceptionGroup("outer", [KeyboardInterrupt()]))
     assert not cleanup_unproven(ValueError("plain"))
+
+
+async def test_native_handler_rejects_results_that_are_not_responses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def not_awaitable(request: object) -> object:
+        return request
+
+    async def not_a_response(request: object) -> object:
+        return request
+
+    def replace_native(native: Callable[[object], object]) -> None:
+        def stand_in(module_name: str, attribute: str) -> Callable[..., object]:
+            assert (module_name, attribute) == (
+                "cosmic_ray.distribution.http",
+                "handle_mutate_and_test",
+            )
+            return native
+
+        monkeypatch.setattr(mutation_worker, "native_callable", stand_in)
+
+    request = make_mocked_request("POST", "/")
+    for native in (not_awaitable, not_a_response):
+        replace_native(native)
+        with pytest.raises(TypeError):
+            await mutation_worker.native_handler()(request)
