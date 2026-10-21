@@ -699,3 +699,17 @@ resolving that name yields the same object; `yaml.load` became
 `BaseLoader(...).get_single_data()`. The `AlertRecord` test no longer runs `pickle.loads`: it asserts
 the referenced class and that the reduced state equals the dataclass fields, which is weaker than a
 full load round trip. The 6 findings in the table are the pre-fix measurement.
+
+## REF-HOOK-04 step 3: security gate enrolled (2026-10-21)
+
+Decisions applied (review round 1): `quality/checks.json` gains
+`uv run --locked --group dev python -m quality.security_main` (appended; nothing reordered).
+`quality.security_gate` enforces opengrep and gitleaks (`dir` over the tree, `git` over
+`<cut-over>..HEAD`, cut-over `db93cf3c644d3a477038f422b82c91ddad6f59b4` in
+`quality/gitleaks-cutover.txt`) and runs osv-scanner report-only (17 packages and 60 advisory
+groups; the earlier "16 packages" count omitted one: the list above it names 17). The reference
+`verify_security` hook stays unenrolled because `verify_sources` (REF-HOOK-01) fails on
+50 oversized files and the alembic names; the gate runs independently instead. The working-tree
+scan found 8 more gitleaks matches than the history-only measurement above reported, all removed
+by renaming test identifiers (see `docs/security.md`). The vendored `quality/security.py` is
+unchanged; the deviations are documented in `docs/security.md`.
