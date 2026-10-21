@@ -206,6 +206,8 @@ source_paths = [
     "src/polymarket_insider_tracker/ingestor/page_analysis.py",
     "src/polymarket_insider_tracker/ingestor/readiness.py",
     "src/polymarket_insider_tracker/deprecated_api_key.py",
+    "src/polymarket_insider_tracker/shapes.py",
+    "src/polymarket_insider_tracker/alerter/channels/response_values.py",
 ]
 only_mutate = [
     "*/redaction.py",
@@ -224,6 +226,8 @@ only_mutate = [
     "*/page_analysis.py",
     "*/readiness.py",
     "*/deprecated_api_key.py",
+    "*/shapes.py",
+    "*/response_values.py",
 ]
 also_copy = ["src/polymarket_insider_tracker/", "conftest.py", "specs/", "scripts/"]
 pytest_add_cli_args_test_selection = [
@@ -262,6 +266,9 @@ pytest_add_cli_args_test_selection = [
     "tests/ingestor/test_page_analysis.py",
     "tests/ingestor/test_readiness.py",
     "tests/test_api_key_deprecation.py",
+    "tests/test_shapes.py",
+    "tests/alerter/test_channel_response_shapes.py",
+    "tests/alerter/test_response_values.py",
     "-q",
     "-p",
     "no:cacheprovider",

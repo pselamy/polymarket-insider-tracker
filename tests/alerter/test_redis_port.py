@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Callable
+
 import pytest
 from fakeredis import FakeAsyncRedis
+from redis.asyncio import Redis
 
 from polymarket_insider_tracker.alerter._redis_port import (
     HistoryRedis,
@@ -125,3 +129,17 @@ async def test_scan_page_and_settle_read_a_live_client() -> None:
     assert await settle(_awaitable_hash()) == {b"f": b"v"}
     assert await settle({b"f": b"v"}) == {b"f": b"v"}
     assert await settle([b"a"]) == [b"a"]
+
+
+def _defaults(function: Callable[..., object]) -> dict[str, object]:
+    parameters = inspect.signature(function).parameters.values()
+    return {p.name: p.default for p in parameters if p.default is not inspect.Parameter.empty}
+
+
+def test_declared_defaults_match_the_real_client_they_stand_in_for() -> None:
+    """A caller that omits ``transaction`` or ``nx`` must get what redis-py would give it."""
+    assert (
+        _defaults(HistoryRedis.pipeline)["transaction"] is _defaults(Redis.pipeline)["transaction"]
+    )
+    assert _defaults(HistoryRedis.set)["nx"] is _defaults(Redis.set)["nx"]
+    assert _defaults(HistoryRedis.set)["ex"] is _defaults(Redis.set)["ex"]
