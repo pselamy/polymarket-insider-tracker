@@ -709,7 +709,7 @@ Decisions applied (review round 1): `quality/checks.json` gains
 `quality/gitleaks-cutover.txt`) and runs osv-scanner report-only (17 packages and 60 advisory
 groups; the earlier "16 packages" count omitted one: the list above it names 17). The reference
 `verify_security` hook stays unenrolled because `verify_sources` (REF-HOOK-01) fails on
-50 oversized files and the alembic names; the gate runs independently instead. The working-tree
-scan found 8 more gitleaks matches than the history-only measurement above reported, all removed
-by renaming test identifiers (see `docs/security.md`). The vendored `quality/security.py` is
+50 oversized files and the alembic names; the gate runs independently instead. The full-tree
+scan found 8 matches in the current files (also present in history, so part of the 11 above), all
+removed by renaming test identifiers (see `docs/security.md`). The vendored `quality/security.py` is
 unchanged; the deviations are documented in `docs/security.md`.
