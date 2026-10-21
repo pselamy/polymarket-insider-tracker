@@ -119,10 +119,7 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_configs = true
 plugins = ["pydantic.mypy"]
-
-[[tool.mypy.overrides]]
-module = ["py_clob_client.*", "web3.*", "redis.*", "sklearn.*", "prometheus_client.*"]
-ignore_missing_imports = true
+mypy_path = "typings"
 
 [tool.pyright]
 enableTypeIgnoreComments = false

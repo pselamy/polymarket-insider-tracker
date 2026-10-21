@@ -1162,3 +1162,21 @@ Enforcement proof: `tests/tooling/test_pyright_tests_root.py` asserts `tests` is
 entry and runs strict pyright with the repository's `[tool.pyright]` settings over a temporary
 project holding a new, nested `tests/nested/test_planted.py` with a type error; pyright exits 1 with
 `reportAssignmentType`. Nothing is planted in the working tree.
+
+
+## mypy `ignore_missing_imports` override removal (2026-10-21)
+
+The `[[tool.mypy.overrides]]` entry (`py_clob_client.*`, `web3.*`, `redis.*`, `sklearn.*`,
+`prometheus_client.*`, `ignore_missing_imports = true`) is deleted. Per-package findings:
+
+| Package | Finding | Resolution |
+| --- | --- | --- |
+| `web3` | ships `py.typed` | resolved from the installed package |
+| `redis` | ships `py.typed` | resolved from the installed package |
+| `prometheus_client` | ships `py.typed` | resolved from the installed package |
+| `py_clob_client` | no `py.typed` | `typings/py_clob_client` stubs, now found by mypy via `mypy_path = "typings"` (pyright already used `stubPath`) |
+| `sklearn` | no `py.typed`; still a dependency (`DBSCAN` in `detector/sniper.py`) | `typings/sklearn` stubs, found by `mypy_path` |
+
+No source changes were needed. Strict mypy (`--python 3.11`, the gate's interpreter) and strict
+pyright both exit 0 with no override. Plain `mypy` under 3.13 fails on numpy 2.5's 3.12-only stub
+syntax; that predates this change and the gate does not use that interpreter.
