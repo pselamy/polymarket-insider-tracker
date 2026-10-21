@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta, timezone
 
@@ -17,7 +17,7 @@ NOON_UTC = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
 
 
 @contextmanager
-def tokyo_local_zone() -> Iterator[None]:
+def tokyo_local_zone() -> Generator[None]:
     """A local zone (UTC+9) that differs from both UTC and the test offsets."""
     previous = os.environ.get("TZ")
     os.environ["TZ"] = "Asia/Tokyo"
