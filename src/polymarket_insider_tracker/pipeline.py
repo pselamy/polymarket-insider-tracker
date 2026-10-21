@@ -30,6 +30,7 @@ from polymarket_insider_tracker.alerter.dispatcher import (
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.alerter.history import AlertHistory
 from polymarket_insider_tracker.config import Settings, get_settings
+from polymarket_insider_tracker.detector.alert_path import alert_path_report, log_alert_path
 from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.models import RiskAssessment
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
@@ -174,6 +175,9 @@ class Pipeline:
         self._funding_tracer: FundingTracer | None = None
         self._health_monitor: HealthMonitor = HealthMonitor()
         self._wire_health_monitor()
+        self._health_monitor.set_alert_path(
+            alert_path_report(self._settings.detector.alert_threshold).fields()
+        )
 
         # Synchronization
         self._stop_event: asyncio.Event | None = None
@@ -410,6 +414,7 @@ class Pipeline:
             settings.detector.dedup_window_seconds,
             settings.detector.persist_assessments,
         )
+        log_alert_path(logger, alert_path_report(settings.detector.alert_threshold))
 
         # Initialize Alerting
         logger.debug("Initializing alerting components...")

@@ -28,6 +28,7 @@ from polymarket_insider_tracker.config import (
     get_settings,
     websocket_deprecation_message,
 )
+from polymarket_insider_tracker.detector.alert_path import alert_path_report
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.redaction import (
     FAILSAFE_EXCEPTION_MESSAGE,
@@ -186,6 +187,7 @@ def print_config_summary(settings: Settings) -> None:
     print(f"  Dry Run: {settings.dry_run}")
     print(f"  Discord: {'enabled' if summary['discord_enabled'] == 'True' else 'disabled'}")
     print(f"  Telegram: {'enabled' if summary['telegram_enabled'] == 'True' else 'disabled'}")
+    print(f"  {alert_path_report(settings.detector.alert_threshold).console_line()}")
     print()
 
 

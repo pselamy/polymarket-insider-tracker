@@ -809,7 +809,9 @@ class TestUpstreamSinkRedaction:
 
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            signal = await detector.analyze(trade)
+            # D3 (d): a failed lookup gives no category evidence, so the fallback is exercised
+            # with a caller-asserted volume.
+            signal = await detector.analyze(trade, daily_volume=Decimal("10000"))
 
         assert secret not in caplog.text
         assert "***" in caplog.text
@@ -857,7 +859,10 @@ class TestUpstreamSinkRedaction:
         )
         with caplog.at_level(logging.WARNING):
             caplog.clear()
-            size_signals = await SizeAnomalyDetector(failing_sync).analyze_batch([trade])
+            # D3 (d): a failed lookup supplies no category evidence, so assert a volume.
+            size_signals = await SizeAnomalyDetector(failing_sync).analyze_batch(
+                [trade], volume_data={trade.market_id: Decimal("10000")}
+            )
         assert len(size_signals) == 1
         assert size_secret not in caplog.text
         assert "***" in caplog.text

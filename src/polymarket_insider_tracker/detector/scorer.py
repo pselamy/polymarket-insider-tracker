@@ -65,6 +65,32 @@ def quantize_score_value(value: float) -> Decimal:
     return Decimal(str(value)).quantize(SCORE_QUANTUM, rounding=ROUND_HALF_EVEN)
 
 
+def apply_multi_signal_bonus(score: Decimal, count: int) -> Decimal:
+    """The two-group bonus; it needs two scoring groups, so it is unreachable while the
+    wallet group is non-scoring (FR-007c)."""
+    if count >= 2:
+        return score * Decimal(str(MULTI_SIGNAL_BONUS_2))
+    return score
+
+
+def size_group_score(
+    weights: Mapping[str, float], confidence: float, *, niche: bool
+) -> tuple[float, int]:
+    """The score and scoring-group count of one size signal under ``weights``.
+
+    The one place the combination (weights, niche term, bonus, cap, quantization) lives, so the
+    runtime alert-path ceiling is computed by exactly the arithmetic that scores assessments.
+    A signal name missing from a partial deprecated mapping contributes zero, as before slice 003.
+    """
+    quantized = quantize_score_value(confidence)
+    score = quantized * Decimal(str(weights.get("size_anomaly", 0.0)))
+    if niche:
+        score += quantized * Decimal(str(weights.get("niche_market", 0.0)))
+    score = apply_multi_signal_bonus(score, 1)
+    capped = min(score, Decimal(1)).quantize(SCORE_QUANTUM, rounding=ROUND_HALF_EVEN)
+    return float(capped), 1
+
+
 def _warn_deprecated_weights(surface: str) -> None:
     warnings.warn(
         f"{surface} is deprecated and will be removed after the slice-003"
@@ -315,29 +341,6 @@ class RiskScorer:
             scoring_config=self._scoring_config,
         )
 
-    def _weight(self, name: str) -> Decimal:
-        # A name missing from a partial deprecated mapping contributes zero,
-        # exactly as before slice 003; the zero is recorded in scoring_config.
-        return Decimal(str(self._weights.get(name, 0.0)))
-
-    def _score_size_anomaly(self, bundle: SignalBundle) -> tuple[Decimal, int]:
-        signal = bundle.size_anomaly_signal
-        if signal is None:
-            return Decimal(0), 0
-        return quantize_score_value(signal.confidence) * self._weight("size_anomaly"), 1
-
-    def _score_niche_market(self, bundle: SignalBundle) -> Decimal:
-        signal = bundle.size_anomaly_signal
-        if signal is None or not signal.is_niche_market:
-            return Decimal(0)
-        return quantize_score_value(signal.confidence) * self._weight("niche_market")
-
-    @staticmethod
-    def _apply_multi_signal_bonus(score: Decimal, count: int) -> Decimal:
-        if count >= 2:
-            return score * Decimal(str(MULTI_SIGNAL_BONUS_2))
-        return score
-
     def calculate_weighted_score(self, bundle: SignalBundle) -> tuple[float, int]:
         """Calculate weighted score from all signals.
 
@@ -346,20 +349,19 @@ class RiskScorer:
         decimal arithmetic, so recomputing from the persisted inputs and the weights
         recorded in the assessment's scoring_config reproduces the score exactly.
 
+        G1 (FR-007c): the wallet group is recorded evidence only, so it neither adds a
+        contribution nor counts as a scoring group until a T027 PASS receipt qualifies it.
+
         Args:
             bundle: SignalBundle with all available signals.
 
         Returns:
             Tuple of (weighted_score, signals_triggered_count).
         """
-        # G1 (FR-007c): the wallet group is recorded evidence only, so it neither adds a
-        # contribution nor counts as a scoring group until a T027 PASS receipt qualifies it.
-        size_score, signals_triggered = self._score_size_anomaly(bundle)
-
-        score = size_score + self._score_niche_market(bundle)
-        score = self._apply_multi_signal_bonus(score, signals_triggered)
-        quantized = min(score, Decimal(1)).quantize(SCORE_QUANTUM, rounding=ROUND_HALF_EVEN)
-        return float(quantized), signals_triggered
+        signal = bundle.size_anomaly_signal
+        if signal is None:
+            return 0.0, 0
+        return size_group_score(self._weights, signal.confidence, niche=signal.is_niche_market)
 
     async def assess_batch(self, bundles: list[SignalBundle]) -> list[RiskAssessment]:
         """Assess multiple trade bundles.

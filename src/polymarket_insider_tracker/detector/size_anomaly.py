@@ -29,6 +29,15 @@ DEFAULT_NICHE_VOLUME_THRESHOLD = Decimal("50000")  # $50k daily volume
 # 0.2 confidence so we don't flood alerts with low-value niche trades.
 DEFAULT_NICHE_MIN_TRADE_SIZE = Decimal("500")  # USDC notional
 
+# Confidence caps. The volume term saturates at 3x the threshold; book depth cannot score
+# (FR-006), so the operational best case is the saturated volume term, with and without the
+# niche multiplier. The alert-path report (FR-022a) derives its ceiling from these.
+VOLUME_RATIO_CAP = 3.0
+VOLUME_SCORE_CAP = 0.5
+NICHE_MULTIPLIER = 1.5
+MAX_VOLUME_CONFIDENCE = VOLUME_SCORE_CAP
+MAX_NICHE_CONFIDENCE = VOLUME_SCORE_CAP * NICHE_MULTIPLIER
+
 
 class MarketMetadataSource(Protocol):
     """Market lookup the detector needs (satisfied structurally by ``MarketMetadataSync``)."""
@@ -275,8 +284,8 @@ class SizeAnomalyDetector:
         if not is_niche:
             return confidence
         if confidence > 0:
-            factors["niche_multiplier"] = 1.5
-            return confidence * 1.5
+            factors["niche_multiplier"] = NICHE_MULTIPLIER
+            return confidence * NICHE_MULTIPLIER
         # Niche but no other signal: give a small base confidence.
         if confidence == 0:
             factors["niche_base"] = 0.2
@@ -312,8 +321,8 @@ class SizeAnomalyDetector:
 
         # Volume impact component
         if volume_impact > self._volume_threshold:
-            ratio = min(volume_impact / self._volume_threshold, 3.0)
-            volume_score = ratio / 3.0 * 0.5
+            ratio = min(volume_impact / self._volume_threshold, VOLUME_RATIO_CAP)
+            volume_score = ratio / VOLUME_RATIO_CAP * VOLUME_SCORE_CAP
             factors["volume_impact"] = volume_score
             confidence += volume_score
 

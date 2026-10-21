@@ -211,6 +211,7 @@ class HealthMonitor:
         self._last_acquisition_time: float | None = None
         self._last_trade_time: float | None = None
         self._last_error_provider: LastErrorProvider | None = None
+        self._alert_path: dict[str, str] | None = None
 
     @property
     def is_running(self) -> bool:
@@ -235,6 +236,14 @@ class HealthMonitor:
     def set_component_checker(self, name: str, checker: ComponentChecker) -> None:
         """Register an async health checker for a component."""
         self._component_checkers[name] = checker
+
+    def set_alert_path(self, alert_path: dict[str, str]) -> None:
+        """Register the informational alert-path object shown in the ``/health`` body (FR-022a).
+
+        It never changes the overall status, the HTTP code, ``/ready``, ``/live`` or ``/metrics``:
+        an unreachable default is a disclosed posture, not a fault.
+        """
+        self._alert_path = dict(alert_path)
 
     def set_last_error_provider(self, provider: LastErrorProvider) -> None:
         """Register a callable that reports the pipeline's most recent error, if any."""
@@ -662,7 +671,7 @@ class HealthMonitor:
         overall_status: HealthStatus,
         now: float,
     ) -> dict[str, Any]:
-        return {
+        body: dict[str, Any] = {
             "status": overall_status.value,
             "uptime_seconds": round(report.uptime_seconds, 1),
             "last_acquisition_time": self._last_acquisition_time,
@@ -678,6 +687,9 @@ class HealthMonitor:
             "last_error": self._current_last_error(),
             "timestamp": now,
         }
+        if self._alert_path is not None:
+            body["alert_path"] = dict(self._alert_path)
+        return body
 
     async def _handle_health(self, _request: web.Request) -> web.Response:
         """Handle /health diagnostic endpoint."""

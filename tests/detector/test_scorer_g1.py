@@ -4,7 +4,11 @@ import pytest
 from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.detector.models import FreshWalletSignal, SizeAnomalySignal
-from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
+from polymarket_insider_tracker.detector.scorer import (
+    RiskScorer,
+    SignalBundle,
+    apply_multi_signal_bonus,
+)
 from polymarket_insider_tracker.detector.scoring_config import (
     DEFAULT_WALLET_GROUP_STATUS,
     WalletGroupStatus,
@@ -123,4 +127,4 @@ async def test_no_bonus_is_applied_to_a_size_only_score(
 def test_the_third_group_bonus_is_removed(count: int, factor: object) -> None:
     from decimal import Decimal
 
-    assert RiskScorer._apply_multi_signal_bonus(Decimal(1), count) == Decimal(str(factor))
+    assert apply_multi_signal_bonus(Decimal(1), count) == Decimal(str(factor))
