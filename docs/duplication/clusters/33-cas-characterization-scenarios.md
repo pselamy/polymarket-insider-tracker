@@ -1,7 +1,7 @@
 ---
 cluster: 33
 status: resolved
-resolved-by: PR pending (branch ralph/dedup-unclustered-src)
+resolved-by: PR #212
 watch: tests/alerter/test_cas_characterization.py <-> tests/alerter/test_cas_characterization.py
 ---
 
