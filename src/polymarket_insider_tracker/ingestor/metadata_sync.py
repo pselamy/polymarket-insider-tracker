@@ -157,6 +157,21 @@ class MarketMetadataSync:
         return self._state
 
     @property
+    def sync_interval_seconds(self) -> int:
+        """Seconds between background syncs."""
+        return self._sync_interval
+
+    @property
+    def cache_ttl_seconds(self) -> int:
+        """Time-to-live of every cached market entry, in seconds."""
+        return self._cache_ttl
+
+    @property
+    def key_prefix(self) -> str:
+        """Redis key prefix under which market metadata is cached."""
+        return self._key_prefix
+
+    @property
     def stats(self) -> SyncStats:
         """Current sync statistics."""
         return self._stats

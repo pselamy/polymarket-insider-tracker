@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
@@ -12,36 +13,9 @@ from polymarket_insider_tracker.ingestor.gamma_client import (
     GammaClient,
     GammaClientError,
     GammaMarketStats,
-    GammaPage,
-    _aggregate_pages,
-    _parse_market,
 )
 from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 from tests.ingestor.conftest import PatchAsyncClient
-
-
-class TestParseMarket:
-    def test_keeps_the_volume24hr_value_exactly_as_received(self) -> None:
-        raw: dict[str, JsonValue] = {"conditionId": "0xabc", "volume24hr": "12345.67"}
-        stats = _parse_market(raw)
-        assert stats is not None
-        assert stats.condition_id == "0xabc"
-        assert (stats.volume24hr_present, stats.volume24hr_raw) == (True, "12345.67")
-
-    def test_garbage_is_preserved_for_the_classifier_not_dropped(self) -> None:
-        stats = _parse_market({"conditionId": "0x3", "volume24hr": "not-a-number"})
-        assert stats is not None
-        assert stats.volume24hr_raw == "not-a-number"
-
-    def test_handles_a_missing_volume_key(self) -> None:
-        stats = _parse_market({"conditionId": "0x2"})
-        assert stats is not None
-        assert (stats.volume24hr_present, stats.volume24hr_raw) == (False, None)
-
-    def test_rejects_missing_condition_id(self) -> None:
-        assert _parse_market({"volume24hr": "1"}) is None
-        assert _parse_market({"conditionId": ""}) is None
-        assert _parse_market({"conditionId": 123}) is None
 
 
 def _make_client(
@@ -217,37 +191,110 @@ def _page(*condition_ids: str) -> list[JsonValue]:
     return [{"conditionId": cid, "volume24hr": "1"} for cid in condition_ids]
 
 
-def _fetched(pages: list[list[JsonValue]]) -> list[GammaPage]:
-    """Pages as fetched one second apart, in index order."""
+def _paged_client(
+    patch_async_client: PatchAsyncClient, pages: list[list[JsonValue]]
+) -> GammaClient:
+    """A client over ``pages`` fetched one at a time, each stamped one second after the last."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        index = int(request.url.params.get("offset", "0")) // 100
+        return httpx.Response(200, json=pages[index] if index < len(pages) else [])
+
+    patch_async_client(httpx.MockTransport(handler))
+    ticks = itertools.count()
     epoch = datetime(2026, 10, 19, tzinfo=UTC)
-    return [
-        GammaPage(index, "ok", epoch + timedelta(seconds=index), tuple(items))
-        for index, items in enumerate(pages)
-    ]
+    return GammaClient(
+        page_limit=100,
+        max_pages=len(pages),
+        page_concurrency=1,
+        max_retries=1,
+        retry_base_delay_seconds=0.0,
+        clock=lambda: epoch + timedelta(seconds=next(ticks)),
+    )
+
+
+async def _stats_of(
+    patch_async_client: PatchAsyncClient, *items: JsonValue
+) -> dict[str, GammaMarketStats]:
+    """The stats the client keeps from one page holding ``items``."""
+    page: list[JsonValue] = list(items)
+    return await _paged_client(patch_async_client, [page]).get_active_market_stats()
+
+
+class TestParseMarket:
+    @pytest.mark.asyncio
+    async def test_keeps_the_volume24hr_value_exactly_as_received(
+        self, patch_async_client: PatchAsyncClient
+    ) -> None:
+        raw: dict[str, JsonValue] = {"conditionId": "0xabc", "volume24hr": "12345.67"}
+        stats = (await _stats_of(patch_async_client, raw)).get("0xabc")
+        assert stats is not None
+        assert stats.condition_id == "0xabc"
+        assert (stats.volume24hr_present, stats.volume24hr_raw) == (True, "12345.67")
+
+    @pytest.mark.asyncio
+    async def test_garbage_is_preserved_for_the_classifier_not_dropped(
+        self, patch_async_client: PatchAsyncClient
+    ) -> None:
+        result = await _stats_of(
+            patch_async_client, {"conditionId": "0x3", "volume24hr": "not-a-number"}
+        )
+        assert result["0x3"].volume24hr_raw == "not-a-number"
+
+    @pytest.mark.asyncio
+    async def test_handles_a_missing_volume_key(self, patch_async_client: PatchAsyncClient) -> None:
+        stats = (await _stats_of(patch_async_client, {"conditionId": "0x2"}))["0x2"]
+        assert (stats.volume24hr_present, stats.volume24hr_raw) == (False, None)
+
+    @pytest.mark.asyncio
+    async def test_rejects_missing_condition_id(self, patch_async_client: PatchAsyncClient) -> None:
+        result = await _stats_of(
+            patch_async_client, {"volume24hr": "1"}, {"conditionId": ""}, {"conditionId": 123}
+        )
+        assert result == {}
 
 
 class TestAggregatePages:
     """Pages arrive fully fetched, so aggregation must never discard a later page."""
 
-    def test_keeps_every_page_after_empty_pages(self) -> None:
+    @pytest.mark.asyncio
+    async def test_keeps_every_page_after_empty_pages(
+        self, patch_async_client: PatchAsyncClient
+    ) -> None:
         pages: list[list[JsonValue]] = [_page("0xa", "0xb"), [], [], _page("0xd")]
 
-        assert set(_aggregate_pages(_fetched(pages))) == {"0xa", "0xb", "0xd"}
+        result = await _paged_client(patch_async_client, pages).get_active_market_stats()
 
-    def test_keeps_pages_after_a_short_page(self) -> None:
+        assert set(result) == {"0xa", "0xb", "0xd"}
+
+    @pytest.mark.asyncio
+    async def test_keeps_pages_after_a_short_page(
+        self, patch_async_client: PatchAsyncClient
+    ) -> None:
         pages: list[list[JsonValue]] = [_page("0xa"), [], _page("0xc")]
 
-        assert set(_aggregate_pages(_fetched(pages))) == {"0xa", "0xc"}
+        result = await _paged_client(patch_async_client, pages).get_active_market_stats()
 
-    def test_skips_non_dict_and_unparseable_items(self) -> None:
-        pages: list[list[JsonValue]] = [[*_page("0xa"), "garbage", {"conditionId": ""}]]
+        assert set(result) == {"0xa", "0xc"}
 
-        assert set(_aggregate_pages(_fetched(pages))) == {"0xa"}
+    @pytest.mark.asyncio
+    async def test_skips_non_dict_and_unparseable_items(
+        self, patch_async_client: PatchAsyncClient
+    ) -> None:
+        result = await _stats_of(patch_async_client, *_page("0xa"), "garbage", {"conditionId": ""})
 
-    def test_later_page_wins_for_a_repeated_condition_id(self) -> None:
+        assert set(result) == {"0xa"}
+
+    @pytest.mark.asyncio
+    async def test_later_page_wins_for_a_repeated_condition_id(
+        self, patch_async_client: PatchAsyncClient
+    ) -> None:
         pages: list[list[JsonValue]] = [_page("0xa"), [{"conditionId": "0xa", "volume24hr": "9"}]]
 
-        assert _aggregate_pages(_fetched(pages))["0xa"].volume24hr_raw == "9"
+        result = await _paged_client(patch_async_client, pages).get_active_market_stats()
 
-    def test_no_pages_yields_no_stats(self) -> None:
-        assert _aggregate_pages(_fetched([])) == {}
+        assert result["0xa"].volume24hr_raw == "9"
+
+    @pytest.mark.asyncio
+    async def test_no_pages_yields_no_stats(self, patch_async_client: PatchAsyncClient) -> None:
+        assert await _paged_client(patch_async_client, []).get_active_market_stats() == {}
