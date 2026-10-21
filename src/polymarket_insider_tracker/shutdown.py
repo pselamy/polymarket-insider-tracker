@@ -26,13 +26,9 @@ import asyncio
 import logging
 import signal
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import suppress
 from types import FrameType
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from typing import Any
 
 from polymarket_insider_tracker.redaction import redact_exception_message
 
@@ -41,11 +37,14 @@ logger = logging.getLogger(__name__)
 # Default shutdown timeout in seconds
 DEFAULT_SHUTDOWN_TIMEOUT = 30.0
 
+# What ``signal.signal`` accepts and returns for a signal's disposition
+SignalHandler = Callable[[int, FrameType | None], object] | int | signal.Handlers | None
+
 # Signals to trap for graceful shutdown
 SHUTDOWN_SIGNALS = (signal.SIGTERM, signal.SIGINT)
 
 
-def _consume_abandoned_result(task: asyncio.Task[Any]) -> None:
+def _consume_abandoned_result(task: asyncio.Future[object]) -> None:
     if task.cancelled():
         return
     exception = task.exception()
@@ -56,7 +55,7 @@ def _consume_abandoned_result(task: asyncio.Task[Any]) -> None:
         )
 
 
-async def wait_bounded(awaitable: Awaitable[Any], timeout: float) -> bool:
+async def wait_bounded(awaitable: Awaitable[object], timeout: float) -> bool:
     """Await ``awaitable`` for at most ``timeout`` seconds of wall time.
 
     Unlike ``asyncio.wait_for``, the deadline holds even when the awaited coroutine
@@ -114,8 +113,8 @@ class GracefulShutdown:
         self._shutdown_event: asyncio.Event | None = None
         self._shutdown_requested = False
         self._force_exit_requested = False
-        self._original_handlers: dict[signal.Signals, Any] = {}
-        self._cleanup_callbacks: list[Callable[[], Any]] = []
+        self._original_handlers: dict[signal.Signals, SignalHandler] = {}
+        self._cleanup_callbacks: list[Callable[[], object]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
@@ -133,7 +132,7 @@ class GracefulShutdown:
         """Check if force exit has been requested (second signal received)."""
         return self._force_exit_requested
 
-    def register_cleanup(self, callback: Callable[[], Any]) -> None:
+    def register_cleanup(self, callback: Callable[[], object]) -> None:
         """Register a cleanup callback to run during shutdown.
 
         Args:
@@ -285,7 +284,7 @@ class GracefulShutdown:
         sig_enum = signal.Signals(sig)
         self._handle_signal(sig_enum)
 
-    async def _run_cleanup_callback(self, callback: Callable[[], Any]) -> None:
+    async def _run_cleanup_callback(self, callback: Callable[[], object]) -> None:
         result = callback()
         if not asyncio.iscoroutine(result):
             return
@@ -318,14 +317,14 @@ class GracefulShutdown:
         self.install_signal_handlers()
         return self
 
-    async def __aexit__(self, *_args: Any) -> None:
+    async def __aexit__(self, *_args: object) -> None:
         """Async context manager exit - cleanup."""
         self.remove_signal_handlers()
         await self.run_cleanup_callbacks()
 
 
 async def run_with_graceful_shutdown(
-    coro: Any,
+    coro: Coroutine[object, object, object],
     *,
     timeout: float = DEFAULT_SHUTDOWN_TIMEOUT,
 ) -> None:

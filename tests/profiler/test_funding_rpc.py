@@ -304,3 +304,57 @@ class TestTransferLogScanner:
 
         assert result == []
         assert logs.queries == []
+
+
+def _log(**overrides: object) -> dict[str, object]:
+    log: dict[str, object] = {
+        "topics": [b"\x01" * 32, b"\x02" * 32, b"\x03" * 32],
+        "data": (7).to_bytes(32, "big"),
+        "transactionHash": b"\xaa" * 32,
+        "blockNumber": 123,
+    }
+    return {**log, **overrides}
+
+
+def test_parse_transfer_log_reads_the_fields_the_tracer_needs() -> None:
+    fields = rpc.parse_transfer_log(_log())
+
+    assert fields == rpc.TransferLogFields(
+        from_topic=b"\x02" * 32,
+        to_topic=b"\x03" * 32,
+        amount=7,
+        block_number=123,
+        tx_hash=b"\xaa" * 32,
+    )
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"topics": None},
+        {"topics": "0x0102"},
+        {"topics": [b"\x01" * 32, b"\x02" * 32]},
+        {"topics": [b"\x01" * 32, "0x02", b"\x03" * 32]},
+        {"topics": [b"\x01" * 32, b"\x02" * 32, 3]},
+        {"data": "0x07"},
+        {"data": None},
+        {"transactionHash": "0xaa"},
+        {"blockNumber": "123"},
+        {"blockNumber": None},
+    ],
+    ids=[
+        "topics-missing",
+        "topics-text",
+        "topics-short",
+        "sender-not-bytes",
+        "recipient-not-bytes",
+        "data-text",
+        "data-missing",
+        "tx-hash-text",
+        "block-number-text",
+        "block-number-missing",
+    ],
+)
+def test_parse_transfer_log_rejects_malformed_shapes(override: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="Transfer log"):
+        rpc.parse_transfer_log(_log(**override))

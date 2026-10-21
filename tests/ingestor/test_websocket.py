@@ -301,8 +301,15 @@ class TestTradeStreamHandler:
             # no payload key is ignored
             json.dumps({"connection_id": "abc", "status": "ok"}),
             "not valid json",
+            json.dumps([{"payload": {"transactionHash": "0xtx", "proxyWallet": "0xw"}}]),
         ],
-        ids=["non-trade", "missing-proxy-wallet", "no-payload-key", "invalid-json"],
+        ids=[
+            "non-trade",
+            "missing-proxy-wallet",
+            "no-payload-key",
+            "invalid-json",
+            "not-an-object",
+        ],
     )
     async def test_handle_message_ignores_non_trades(
         self,
