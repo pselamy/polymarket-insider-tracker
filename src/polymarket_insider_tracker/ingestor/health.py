@@ -180,6 +180,7 @@ class HealthMonitor:
         stale_threshold_seconds: float = DEFAULT_STALE_THRESHOLD_SECONDS,
         health_check_interval: float = DEFAULT_HEALTH_CHECK_INTERVAL,
         on_health_change: HealthCallback | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         """Initialize the health monitor.
 
@@ -187,10 +188,12 @@ class HealthMonitor:
             stale_threshold_seconds: Seconds without events before stream is stale.
             health_check_interval: Seconds between health check updates.
             on_health_change: Optional callback when health status changes.
+            clock: Source of the current time in epoch seconds.
         """
         self._stale_threshold = stale_threshold_seconds
         self._health_check_interval = health_check_interval
         self._on_health_change = on_health_change
+        self._clock = clock
 
         self._streams: dict[str, StreamHealth] = {}
         self._start_time: float | None = None
@@ -223,6 +226,11 @@ class HealthMonitor:
         return self._stale_threshold
 
     @property
+    def health_check_interval(self) -> float:
+        """Seconds between background health checks."""
+        return self._health_check_interval
+
+    @property
     def last_acquisition_time(self) -> float | None:
         """Return timestamp of last polling acquisition."""
         return self._last_acquisition_time
@@ -251,11 +259,11 @@ class HealthMonitor:
 
     def record_acquisition(self, timestamp: float | None = None) -> None:
         """Record a polling acquisition cycle timestamp."""
-        self._last_acquisition_time = time.time() if timestamp is None else timestamp
+        self._last_acquisition_time = self._clock() if timestamp is None else timestamp
 
     def record_trade_arrival(self, timestamp: float | None = None) -> None:
         """Record trade arrival timestamp."""
-        self._last_trade_time = time.time() if timestamp is None else timestamp
+        self._last_trade_time = self._clock() if timestamp is None else timestamp
 
     def register_stream(self, name: str) -> None:
         """Register a stream for monitoring.
@@ -277,7 +285,7 @@ class HealthMonitor:
         self.register_stream(name)
         stream = self._streams[name]
         stream.status = StreamStatus.ACTIVE
-        stream.connected_since = time.time()
+        stream.connected_since = self._clock()
         stream.last_error = None
         STREAM_STATUS.labels(stream=name).set(1.0)
         logger.debug("Stream connected: %s", name)
@@ -312,7 +320,7 @@ class HealthMonitor:
             processing_time: Optional processing latency in seconds.
         """
         self.register_stream(stream_name)
-        now = time.time()
+        now = self._clock()
         if stream_name == "trades":
             self._last_trade_time = now
 
@@ -350,7 +358,7 @@ class HealthMonitor:
         if not window:
             return 0.0
 
-        now = time.time()
+        now = self._clock()
         cutoff = now - self._window_duration
 
         # Count events in window
@@ -401,7 +409,7 @@ class HealthMonitor:
 
     def _check_stream_staleness(self) -> None:
         """Check all streams for staleness."""
-        now = time.time()
+        now = self._clock()
         for name, stream in self._streams.items():
             self._check_single_stream_staleness(name, stream, now)
 
@@ -459,7 +467,7 @@ class HealthMonitor:
         total_eps = self._update_stream_metrics()
         overall_status = self._determine_overall_status()
 
-        uptime = time.time() - self._start_time if self._start_time else 0.0
+        uptime = self._clock() - self._start_time if self._start_time else 0.0
         streams_copy = {name: copy.copy(stream) for name, stream in self._streams.items()}
 
         return HealthReport(
@@ -507,7 +515,7 @@ class HealthMonitor:
             return
 
         self._running = True
-        self._start_time = time.time()
+        self._start_time = self._clock()
         self._health_task = asyncio.create_task(self._health_check_loop())
         logger.info("Health monitor started")
 
@@ -684,7 +692,7 @@ class HealthMonitor:
         report, components, overall_status = await self.evaluate_overall_health()
         status_code = 503 if overall_status == HealthStatus.UNHEALTHY else 200
 
-        now = time.time()
+        now = self._clock()
         body = self._build_health_body(report, components, overall_status, now)
         return web.json_response(body, status=status_code)
 

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-from fakeredis import FakeAsyncRedis
+from fakeredis import FakeAsyncRedis, FakeRedis, FakeServer
 from redis.typing import KeyT
 
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl, GammaMarketStats
@@ -32,7 +32,7 @@ MARKET = Market(CID, "Will a trial succeed?", "", (Token("t1", "Yes", Decimal("0
 MARKET_METADATA = MarketMetadata.from_market(MARKET)
 
 
-def _stats(
+def volume_stats(
     raw: JsonValue = "30000", cid: str = CID, acquired_at: datetime = STAMP
 ) -> GammaMarketStats:
     return GammaMarketStats(
@@ -57,7 +57,7 @@ def _sync(redis: FakeAsyncRedis, gamma: FakeGammaClient | None = None) -> Market
 @pytest.mark.asyncio
 async def test_written_record_keeps_stamp_source_and_raw(fake_redis: FakeAsyncRedis) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(_stats(raw=30000)), STAMP)
+    await store.write_crawl(_crawl(volume_stats(raw=30000)), STAMP)
 
     record = await store.read(CID)
 
@@ -71,7 +71,7 @@ async def test_written_record_keeps_stamp_source_and_raw(fake_redis: FakeAsyncRe
 async def test_record_outlives_the_recency_rule_with_a_1200_second_ttl(
     fake_redis: FakeAsyncRedis,
 ) -> None:
-    await VolumeStore(fake_redis).write_crawl(_crawl(_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
 
     remaining = await fake_redis.ttl(DEFAULT_VOLUME_KEY_PREFIX + CID)
 
@@ -81,7 +81,7 @@ async def test_record_outlives_the_recency_rule_with_a_1200_second_ttl(
 @pytest.mark.asyncio
 async def test_a_cache_read_never_restamps(fake_redis: FakeAsyncRedis) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(_stats()), STAMP)
+    await store.write_crawl(_crawl(volume_stats()), STAMP)
     first = await store.read(CID)
 
     assert await store.read(CID) == first
@@ -90,7 +90,7 @@ async def test_a_cache_read_never_restamps(fake_redis: FakeAsyncRedis) -> None:
 @pytest.mark.asyncio
 async def test_failed_crawl_keeps_the_older_observation(fake_redis: FakeAsyncRedis) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(_stats()), STAMP)
+    await store.write_crawl(_crawl(volume_stats()), STAMP)
 
     written = await store.write_crawl(None, datetime(2026, 10, 19, 12, 3, tzinfo=UTC))
 
@@ -106,8 +106,8 @@ async def test_failed_crawl_keeps_the_older_observation(fake_redis: FakeAsyncRed
     [
         (None, "gamma_fetch_failed"),
         (_crawl(pages_ok=0), "gamma_fetch_failed"),
-        (_crawl(_stats(cid="0xother"), truncated=True), "crawl_truncated"),
-        (_crawl(_stats(cid="0xother")), "absent_from_complete_crawl"),
+        (_crawl(volume_stats(cid="0xother"), truncated=True), "crawl_truncated"),
+        (_crawl(volume_stats(cid="0xother")), "absent_from_complete_crawl"),
     ],
     ids=["raised", "no-page-read", "truncated", "complete"],
 )
@@ -146,7 +146,7 @@ async def test_expiry_leaves_stale_data_readable_then_unavailable(
     fake_redis: FakeAsyncRedis,
 ) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(_stats()), STAMP)
+    await store.write_crawl(_crawl(volume_stats()), STAMP)
     assert (await store.merge(MarketMetadata.from_market(MARKET))).volume is not None
 
     await fake_redis.delete(DEFAULT_VOLUME_KEY_PREFIX + CID, DEFAULT_VOLUME_KEY_PREFIX + "_crawl")
@@ -166,7 +166,7 @@ async def test_corrupt_volume_record_is_not_a_record(fake_redis: FakeAsyncRedis)
 
 
 def test_a_record_written_with_the_retired_lossy_decimals_still_reads() -> None:
-    text = _stats().volume_observation().to_record()
+    text = volume_stats().volume_observation().to_record()
     record = VolumeRecord.from_json(json.dumps({"observation": text, "daily_volume": "x"}))
 
     assert record is not None
@@ -176,7 +176,7 @@ def test_a_record_written_with_the_retired_lossy_decimals_still_reads() -> None:
 @pytest.mark.asyncio
 async def test_sync_merges_the_volume_into_the_cached_market(fake_redis: FakeAsyncRedis) -> None:
     now = datetime.now(UTC)
-    sync = _sync(fake_redis, FakeGammaClient({CID: _stats(acquired_at=now)}))
+    sync = _sync(fake_redis, FakeGammaClient({CID: volume_stats(acquired_at=now)}))
     await sync.start()
     try:
         market = await sync.get_market(CID)
@@ -190,7 +190,7 @@ async def test_sync_merges_the_volume_into_the_cached_market(fake_redis: FakeAsy
 
 @pytest.mark.asyncio
 async def test_clob_cache_record_never_carries_the_volume(fake_redis: FakeAsyncRedis) -> None:
-    sync = _sync(fake_redis, FakeGammaClient({CID: _stats()}))
+    sync = _sync(fake_redis, FakeGammaClient({CID: volume_stats()}))
     await sync.start()
     await sync.stop()
 
@@ -202,7 +202,7 @@ async def test_clob_cache_record_never_carries_the_volume(fake_redis: FakeAsyncR
 
 @pytest.mark.asyncio
 async def test_clob_resync_never_replaces_a_stamped_volume(fake_redis: FakeAsyncRedis) -> None:
-    sync = _sync(fake_redis, FakeGammaClient({CID: _stats()}))
+    sync = _sync(fake_redis, FakeGammaClient({CID: volume_stats()}))
     await sync.start()
     try:
         await sync.force_sync()
@@ -230,7 +230,7 @@ async def test_miss_path_makes_no_volume_claim_and_names_its_reason(
 
 @pytest.mark.asyncio
 async def test_miss_path_uses_a_stamped_record_when_one_exists(fake_redis: FakeAsyncRedis) -> None:
-    await VolumeStore(fake_redis).write_crawl(_crawl(_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
 
     market = await _sync(fake_redis).get_market(CID)
 
@@ -239,19 +239,35 @@ async def test_miss_path_uses_a_stamped_record_when_one_exists(fake_redis: FakeA
     assert market.volume.source == "gamma-markets-v1"
 
 
+class RacingClob(FakeClobClient):
+    """A CLOB whose answer arrives after a concurrent sync has already cached the market."""
+
+    def __init__(self, winner: MarketMetadata, writer: FakeRedis) -> None:
+        super().__init__([Market(CID, "late", "", ())])
+        self._winner = winner
+        self._writer = writer
+
+    def get_market(self, condition_id: str) -> Market:
+        self._writer.set(f"{DEFAULT_REDIS_KEY_PREFIX}{CID}", json.dumps(self._winner.to_dict()))
+        return super().get_market(condition_id)
+
+
 @pytest.mark.asyncio
-async def test_miss_path_write_after_a_sync_write_leaves_the_record_intact(
-    fake_redis: FakeAsyncRedis,
-) -> None:
-    sync = _sync(fake_redis)
-    key = f"{DEFAULT_REDIS_KEY_PREFIX}{CID}"
+async def test_miss_path_write_after_a_sync_write_leaves_the_record_intact() -> None:
+    server = FakeServer()
+    redis = FakeAsyncRedis(server=server)
     winner = MarketMetadata.from_market(MARKET)
-    await sync._cache_market_if_absent(winner)
-    before = await fake_redis.get(key)
+    sync = MarketMetadataSync(
+        redis=redis,
+        clob_client=RacingClob(winner, FakeRedis(server=server)),
+        gamma_client=FakeGammaClient(),
+    )
 
-    await sync._cache_market_if_absent(MarketMetadata(CID, "late", "", ()))
+    await sync.get_market(CID)
 
-    assert await fake_redis.get(key) == before
+    stored = await redis.get(f"{DEFAULT_REDIS_KEY_PREFIX}{CID}")
+    assert MarketMetadata.from_dict(json.loads(stored)) == winner
+    await redis.aclose()
 
 
 @pytest.mark.asyncio
@@ -264,7 +280,7 @@ async def test_legacy_cached_value_upgrades_to_unqualified_then_to_the_stamped_r
     sync = _sync(fake_redis)
 
     before = await sync.get_cached_market(CID)
-    await VolumeStore(fake_redis).write_crawl(_crawl(_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
     after = await sync.get_cached_market(CID)
 
     assert before is not None and before.volume is not None
@@ -275,7 +291,7 @@ async def test_legacy_cached_value_upgrades_to_unqualified_then_to_the_stamped_r
 
 @pytest.mark.asyncio
 async def test_category_scan_merges_the_volume_too(fake_redis: FakeAsyncRedis) -> None:
-    sync = _sync(fake_redis, FakeGammaClient({CID: _stats()}))
+    sync = _sync(fake_redis, FakeGammaClient({CID: volume_stats()}))
     await sync.start()
     try:
         found = await sync.get_markets_by_category(MarketMetadata.from_market(MARKET).category)
@@ -324,7 +340,7 @@ async def test_a_later_gamma_page_without_the_key_replaces_the_value_as_missing(
 ) -> None:
     """A Gamma object without `volume24hr` is a fresh observation of absence, not a CLOB write."""
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(_stats()), STAMP)
+    await store.write_crawl(_crawl(volume_stats()), STAMP)
     absent = GammaMarketStats(CID, STAMP, False, None, "gamma-markets-v1")
 
     await store.write_crawl(_crawl(absent), STAMP)
@@ -337,7 +353,7 @@ async def test_a_later_gamma_page_without_the_key_replaces_the_value_as_missing(
 @pytest.mark.asyncio
 async def test_the_merge_keeps_the_stored_stamp_untouched(fake_redis: FakeAsyncRedis) -> None:
     """Freshness is judged once, by the volume-state classifier, not by the merge."""
-    await VolumeStore(fake_redis).write_crawl(_crawl(_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
 
     merged = await VolumeStore(fake_redis).merge(MARKET_METADATA)
 

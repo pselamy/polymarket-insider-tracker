@@ -24,6 +24,8 @@ from polymarket_insider_tracker.detector.scorer import (
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from tests.batch_trades import indexed_trades
+from tests.closeness import is_close
+from tests.fakes.redis_await import key_count
 
 # ============================================================================
 # Fixtures
@@ -213,19 +215,13 @@ class TestRiskScorerInit:
         """Test scorer initializes with default values."""
         scorer = RiskScorer(fake_redis)
 
-        assert scorer._alert_threshold == DEFAULT_ALERT_THRESHOLD
-        assert scorer._dedup_window == 3600
+        assert scorer.alert_threshold == DEFAULT_ALERT_THRESHOLD
 
     def test_custom_configuration(self, fake_redis: FakeAsyncRedis) -> None:
-        """Test scorer with custom threshold and window configuration."""
-        scorer = RiskScorer(
-            fake_redis,
-            alert_threshold=0.7,
-            dedup_window_seconds=1800,
-        )
+        """Test scorer with a custom threshold."""
+        scorer = RiskScorer(fake_redis, alert_threshold=0.7)
 
-        assert scorer._alert_threshold == 0.7
-        assert scorer._dedup_window == 1800
+        assert scorer.alert_threshold == 0.7
 
 
 # ============================================================================
@@ -283,7 +279,7 @@ class TestWeightedScoreCalculation:
 
         # 0.7 confidence * 0.35 weight + 0.7 * 0.25 niche weight = 0.42
         expected = 0.7 * DEFAULT_WEIGHTS["size_anomaly"] + 0.7 * DEFAULT_WEIGHTS["niche_market"]
-        assert score == pytest.approx(expected)
+        assert is_close(score, expected)
         assert count == 1
 
     def test_size_anomaly_non_niche(
@@ -308,11 +304,11 @@ class TestWeightedScoreCalculation:
             size_anomaly_signal=signal,
         )
 
-        score, count = scorer.calculate_weighted_score(bundle)
+        score, _ = scorer.calculate_weighted_score(bundle)
 
         # 0.7 * 0.35 = 0.245 (no niche bonus)
         expected = 0.7 * DEFAULT_WEIGHTS["size_anomaly"]
-        assert score == pytest.approx(expected)
+        assert is_close(score, expected)
 
     def test_wallet_signal_adds_no_bonus_while_the_group_is_non_scoring(
         self,
@@ -332,7 +328,7 @@ class TestWeightedScoreCalculation:
         score, count = scorer.calculate_weighted_score(bundle)
 
         expected = 0.7 * DEFAULT_WEIGHTS["size_anomaly"] + 0.7 * DEFAULT_WEIGHTS["niche_market"]
-        assert score == pytest.approx(expected)
+        assert is_close(score, expected)
         assert count == 1
 
     def test_full_confidence_size_score_is_the_size_ceiling_without_wallet_inflation(
@@ -448,7 +444,7 @@ class TestAssessMethod:
         stored_score = Decimal(str(assessment.weighted_score))
         stored_threshold = Decimal(str(round(0.4, 3)))
         assert assessment.should_alert is (stored_score >= stored_threshold)
-        assert await fake_redis.dbsize() == 0
+        assert await key_count(fake_redis) == 0
 
     @pytest.mark.asyncio
     async def test_assessment_replays_exactly_from_persisted_precision_inputs(
@@ -501,7 +497,7 @@ class TestAssessMethod:
 
         assert assessment1.should_alert is True
         assert assessment2.should_alert is True
-        assert await fake_redis.dbsize() == 0
+        assert await key_count(fake_redis) == 0
 
     @pytest.mark.asyncio
     async def test_assess_preserves_signals(
@@ -540,7 +536,7 @@ class TestBatchAnalysis:
         """Test batch assessment returns assessments for all bundles."""
         scorer = RiskScorer(fake_redis)
 
-        bundles = []
+        bundles: list[SignalBundle] = []
         for trade in indexed_trades(3):
             signal = FreshWalletSignal(
                 trade_event=trade,
@@ -746,7 +742,7 @@ class TestDeprecatedWeightCompatibilityInputs:
         )
 
         assert count == 1
-        assert score == pytest.approx(0.42)
+        assert is_close(score, 0.42)
         assert scorer.get_weights() == dict(DEFAULT_WEIGHTS)
 
     def test_partial_constructor_weights_score_missing_signals_as_zero(
@@ -763,7 +759,7 @@ class TestDeprecatedWeightCompatibilityInputs:
         )
 
         assert count == 1
-        assert score == pytest.approx(0.7)
+        assert is_close(score, 0.7)
         assert scorer.get_weights() == {"size_anomaly": 1.0}
 
     def test_partial_set_weights_scores_missing_signals_as_zero(
@@ -781,7 +777,7 @@ class TestDeprecatedWeightCompatibilityInputs:
         )
 
         assert count == 1
-        assert score == pytest.approx(0.7)
+        assert is_close(score, 0.7)
 
     def test_partial_weights_record_effective_zero_contributions(
         self,

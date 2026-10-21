@@ -225,9 +225,9 @@ class TestMarketMetadataSync:
 
         assert sync.state == SyncState.STOPPED
         assert sync.stats.total_syncs == 0
-        assert sync._sync_interval == DEFAULT_SYNC_INTERVAL_SECONDS
-        assert sync._cache_ttl == DEFAULT_CACHE_TTL_SECONDS
-        assert sync._key_prefix == DEFAULT_REDIS_KEY_PREFIX
+        assert sync.sync_interval_seconds == DEFAULT_SYNC_INTERVAL_SECONDS
+        assert sync.cache_ttl_seconds == DEFAULT_CACHE_TTL_SECONDS
+        assert sync.key_prefix == DEFAULT_REDIS_KEY_PREFIX
 
     def test_init_custom_config(
         self, fake_redis: FakeAsyncRedis, fake_clob: FakeClobClient, fake_gamma: FakeGammaClient
@@ -242,9 +242,9 @@ class TestMarketMetadataSync:
             key_prefix="custom:",
         )
 
-        assert sync._sync_interval == 60
-        assert sync._cache_ttl == 120
-        assert sync._key_prefix == "custom:"
+        assert sync.sync_interval_seconds == 60
+        assert sync.cache_ttl_seconds == 120
+        assert sync.key_prefix == "custom:"
 
     @pytest.mark.asyncio
     async def test_start_stop(
@@ -511,9 +511,9 @@ class TestMarketMetadataSync:
             clob_client=fake_clob,
             gamma_client=fake_gamma,
         )
-        sync._state = SyncState.IDLE
-
+        await sync.start()
         results = await sync.get_markets_by_category("crypto")
+        await sync.stop()
 
         assert len(results) == 1
         assert results[0].category == "crypto"

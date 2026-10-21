@@ -978,3 +978,45 @@ round trip, defaults, aware-UTC fallback) and two `RateLimitWindow` tests in
 Gate: `ENROLLED_MODULES` gained the three modules (list only grows; the test pins the prefix).
 Planted weakening: narrowing the boundary test to a single 61s age made the gate exit 1
 (`pacing: 2 mutant(s) survived`); restored.
+
+## REF-CMD-20 step 6: rest of `tests/detector` and `tests/ingestor` (2026-10-21)
+
+Measured from `origin/main` at `e7ff163` with strict pyright `1.1.411`, path passed explicitly:
+
+| Root | Before | After | State |
+| --- | ---: | ---: | --- |
+| `tests/detector` | 54 | 0 | **enrolled this step** (whole directory) |
+| `tests/ingestor` (remainder; 12 modules were already enrolled) | 121 | 0 | **enrolled this step** (whole directory) |
+
+Per file before: `test_health` 48, `test_size_anomaly` 25, `test_websocket` 24, `test_scorer` 15,
+`test_models` 14, `test_observation_boundary` 13, `test_health_server` 10, `test_metadata_sync` 7,
+`test_fresh_wallet` 6, `test_sniper` 6, `test_gamma_client` 2, `test_volume_store` 2,
+`test_alert_path` 1, `test_size_volume_evidence` 1, `test_gamma_volume_refresh` 1 (175 in total).
+Per rule before: `reportPrivateUsage` 120, `reportUnknownMemberType` 33, `reportCallIssue` 10,
+`reportUnknownArgumentType` 5, `reportAttributeAccessIssue` 4, `reportUnusedVariable` 2,
+`reportUnknownVariableType` 1. Unenrolled `tests/` roots after this step: `tests/integration`,
+`tests/test_pipeline.py`, `tests/fakes/pipeline.py`, `tests/test_terminal_error_durable.py`,
+`tests/test_redaction.py`, `tests/test_main.py`.
+
+Honest fixes, no suppression, cast or `Any`: private reads became public behaviour (streams driven
+through `TradeStreamHandler.start`/`stop` with a scripted connection; the `HealthMonitor` served over
+its real HTTP server on a free port via `tests/fakes/health_http.py`; confidence, book impact and
+volume impact observed on the emitted signals; the miss-path `nx` write exercised by a CLOB fake that
+loses a race to a concurrent writer; the gamma parsing/aggregation tests run through
+`GammaClient.get_active_market_stats`; a dropped Redis connection simulated with `FakeServer.connected`).
+`pytest.approx` became `math.isclose` with the same tolerances. Frozen-dataclass checks use the
+repository's existing `obj.__setattr__` idiom (`tests/profiler/test_models.py`), because the stale
+`# type: ignore[misc]` comments are inert under `enableTypeIgnoreComments = false`.
+
+New public `src` names (read-only observability or an injectable seam, behaviour unchanged):
+`MarketMetadataSync.sync_interval_seconds` / `cache_ttl_seconds` / `key_prefix`,
+`HealthMonitor.health_check_interval` and the keyword-only `HealthMonitor(clock=time.time)`.
+`detector/size_anomaly.py` is spec-004 hash-pinned and unchanged; `detector/scorer.py` was refreshed (hash regenerated): the
+unused `RiskScorer` `dedup_window_seconds` constructor argument and its stored `_dedup_window` were
+removed (no scoring change; the setting still drives `AlertHistory` TTL via the pipeline), and the
+book threshold is asserted through detector behaviour.
+
+Defect-fails: appending `PLANTED: int = "a"` to `tests/ingestor/test_health.py` makes the bare
+`pyright` exit 1 (`Type "Literal['a']" is not assignable to declared type "int"`); the clean tree
+exits 0.
+

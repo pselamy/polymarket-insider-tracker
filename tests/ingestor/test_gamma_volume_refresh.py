@@ -17,12 +17,12 @@ from polymarket_insider_tracker.ingestor.models import Market
 from polymarket_insider_tracker.ingestor.volume_store import VolumeStore
 from tests.fakes import FakeGammaClient
 from tests.ingestor.test_metadata_sync import FakeClobClient
-from tests.ingestor.test_volume_store import CID, MARKET, MARKET_METADATA, _stats
+from tests.ingestor.test_volume_store import CID, MARKET, MARKET_METADATA, volume_stats
 
 
 class CountingGamma(FakeGammaClient):
     def __init__(self) -> None:
-        super().__init__({CID: _stats()})
+        super().__init__({CID: volume_stats()})
         self.crawls = 0
 
     async def crawl_active_markets(self) -> GammaCrawl:

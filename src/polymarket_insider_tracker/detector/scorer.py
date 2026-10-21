@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 # margin below 0.85+ so we don't drop borderline-high signals on a hard cliff.
 # Override at runtime via DETECTOR_ALERT_THRESHOLD env var.
 DEFAULT_ALERT_THRESHOLD = 0.80
-DEFAULT_DEDUP_WINDOW_SECONDS = 3600  # 1 hour
 DEFAULT_REDIS_KEY_PREFIX = "polymarket:dedup:"
 
 # The algorithm's default signal weights, immutable so no caller can change scoring
@@ -182,7 +181,6 @@ class RiskScorer:
         *,
         weights: dict[str, float] | None = None,
         alert_threshold: float = DEFAULT_ALERT_THRESHOLD,
-        dedup_window_seconds: int = DEFAULT_DEDUP_WINDOW_SECONDS,
         key_prefix: str = DEFAULT_REDIS_KEY_PREFIX,
     ) -> None:
         """Initialize the risk scorer.
@@ -198,12 +196,10 @@ class RiskScorer:
                 recorded in every new assessment's ``scoring_config`` so records
                 stay replayable.
             alert_threshold: Minimum score to trigger alert (default 0.80).
-            dedup_window_seconds: Retained for API compatibility; unused by scoring.
             key_prefix: Retained for API compatibility; unused by scoring.
         """
         self._redis = redis
         self._alert_threshold = alert_threshold
-        self._dedup_window = dedup_window_seconds
         self._key_prefix = key_prefix
         if weights is not None:
             _warn_deprecated_weights("the RiskScorer weights constructor argument")

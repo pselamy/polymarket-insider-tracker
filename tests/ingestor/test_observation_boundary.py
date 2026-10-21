@@ -6,7 +6,7 @@ import hashlib
 import json
 
 import pytest
-from fakeredis import FakeAsyncRedis
+from fakeredis import FakeAsyncRedis, FakeServer
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
@@ -23,7 +23,14 @@ from polymarket_insider_tracker.ingestor.observation_boundary import (
     source_id,
 )
 from tests.fakes import FakeClock
-from tests.fakes.redis_await import as_bytes, settled
+from tests.fakes.redis_await import (
+    ScoredSetReader,
+    as_bytes,
+    read_hash,
+    read_list,
+    scored_members,
+    write_hash,
+)
 
 URL = "https://trades.invalid/trades"
 NOW = 1_788_983_720
@@ -42,9 +49,8 @@ def _boundary(
     )
 
 
-async def _zset(redis: Redis, key: str) -> dict[str, int]:
-    members = await redis.zrangebyscore(key, "-inf", "+inf", withscores=True)
-    return {member.decode(): int(score) for member, score in members}
+async def _zset(redis: ScoredSetReader, key: str) -> dict[str, int]:
+    return {member.decode(): int(score) for member, score in await scored_members(redis, key)}
 
 
 def _event(from_time: int, reason: LossReason = LossReason.HORIZON_EXPIRED) -> LossEvent:
@@ -106,7 +112,7 @@ class TestLoad:
             coverage="all",
             last_request_end=NOW + 1,
         )
-        assert await settled(fake_redis.hgetall(boundary.checkpoint_key)) == {
+        assert await read_hash(fake_redis, boundary.checkpoint_key) == {
             b"schema_version": str(SCHEMA_VERSION).encode(),
             b"boundary_time": str(NOW).encode(),
             b"emission_floor": str(NOW).encode(),
@@ -125,19 +131,18 @@ class TestLoad:
 
     async def test_coverage_mismatch_is_treated_as_absent(self, fake_redis: FakeAsyncRedis) -> None:
         boundary = _boundary(fake_redis)
-        await settled(
-            fake_redis.hset(
-                boundary.checkpoint_key,
-                mapping={
-                    "schema_version": SCHEMA_VERSION,
-                    "boundary_time": NOW,
-                    "emission_floor": NOW,
-                    "boundary_origin": "proven",
-                    "written_at": NOW,
-                    "coverage": "taker-only",
-                    "last_request_end": NOW,
-                },
-            )
+        await write_hash(
+            fake_redis,
+            boundary.checkpoint_key,
+            {
+                "schema_version": str(SCHEMA_VERSION),
+                "boundary_time": str(NOW),
+                "emission_floor": str(NOW),
+                "boundary_origin": "proven",
+                "written_at": str(NOW),
+                "coverage": "taker-only",
+                "last_request_end": str(NOW),
+            },
         )
         await fake_redis.zadd(boundary.identities_key, {"stale": NOW})
 
@@ -147,25 +152,25 @@ class TestLoad:
     @pytest.mark.parametrize(
         "mapping",
         [
-            {"schema_version": 2, "boundary_time": NOW, "coverage": "all"},
-            {"schema_version": "one", "boundary_time": NOW, "coverage": "all"},
-            {"boundary_time": NOW, "coverage": "all"},
-            {"schema_version": 1, "coverage": "all"},
+            {"schema_version": str(2), "boundary_time": str(NOW), "coverage": "all"},
+            {"schema_version": "one", "boundary_time": str(NOW), "coverage": "all"},
+            {"boundary_time": str(NOW), "coverage": "all"},
+            {"schema_version": str(1), "coverage": "all"},
             {
-                "schema_version": 1,
-                "boundary_time": NOW,
+                "schema_version": str(1),
+                "boundary_time": str(NOW),
                 "boundary_origin": "unexpected",
-                "written_at": NOW,
+                "written_at": str(NOW),
                 "coverage": "all",
-                "last_request_end": NOW,
+                "last_request_end": str(NOW),
             },
         ],
     )
     async def test_unknown_or_incomplete_schema_is_terminal(
-        self, fake_redis: FakeAsyncRedis, mapping: dict[str, object]
+        self, fake_redis: FakeAsyncRedis, mapping: dict[str, str]
     ) -> None:
         boundary = _boundary(fake_redis)
-        await settled(fake_redis.hset(boundary.checkpoint_key, mapping=mapping))
+        await write_hash(fake_redis, boundary.checkpoint_key, mapping)
 
         with pytest.raises(BoundarySchemaError):
             await boundary.load()
@@ -416,32 +421,26 @@ class TestWrites:
             loss_events=[_event(n) for n in range(LOSS_EVENT_RETENTION + 10)],
         )
 
-        stored = await settled(fake_redis.lrange(boundary.loss_events_key, 0, -1))
+        stored = await read_list(fake_redis, boundary.loss_events_key)
         assert len(stored) == LOSS_EVENT_RETENTION
         assert LossEvent.from_json(stored[0]).from_time == LOSS_EVENT_RETENTION + 9
         assert len(boundary.loss_events) == LOSS_EVENT_RETENTION
         assert boundary.loss_events[0].from_time == LOSS_EVENT_RETENTION + 9
         assert boundary.loss_events[-1].from_time == 10
 
-    async def test_failed_advance_leaves_memory_and_checkpoint_untouched(
-        self, fake_redis: FakeAsyncRedis
-    ) -> None:
-        seeded = _boundary(fake_redis)
-        await seeded.advance(
+    async def test_failed_advance_leaves_memory_and_checkpoint_untouched(self) -> None:
+        server = FakeServer()
+        redis = FakeAsyncRedis(server=server)
+        boundary = _boundary(redis)
+        await boundary.advance(
             boundary_time=1_000,
             origin=BoundaryOrigin.PROVEN,
             last_request_end=1_000,
             identities={"kept": 1_000},
         )
-        unreachable = Redis.from_url("redis://127.0.0.1:1", socket_connect_timeout=0.2)
-        boundary = _boundary(unreachable)
-        boundary_state = ObservationBoundary(
-            fake_redis, trades_url=URL, coverage="all", horizon_seconds=HORIZON
-        )
-        await boundary_state.load()
-        boundary._checkpoint = boundary_state.checkpoint
-        boundary._window.update(boundary_state.window)
+        before = boundary.checkpoint
 
+        server.connected = False
         with pytest.raises(RedisConnectionError):
             await boundary.advance(
                 boundary_time=2_000,
@@ -451,8 +450,9 @@ class TestWrites:
             )
         with pytest.raises(RedisConnectionError):
             await boundary.record_identity("lost-too", 2_000)
-        await unreachable.aclose()
+        server.connected = True
 
-        assert boundary.checkpoint == boundary_state.checkpoint
+        assert boundary.checkpoint == before
         assert dict(boundary.window) == {"kept": 1_000}
-        assert await as_bytes(fake_redis.hget(seeded.checkpoint_key, "boundary_time")) == b"1000"
+        assert await as_bytes(redis.hget(boundary.checkpoint_key, "boundary_time")) == b"1000"
+        await redis.aclose()

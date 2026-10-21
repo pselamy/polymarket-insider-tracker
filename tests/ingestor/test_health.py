@@ -4,7 +4,6 @@ import asyncio
 import time
 
 import pytest
-from aiohttp import web
 
 from polymarket_insider_tracker.ingestor.health import (
     DEFAULT_HEALTH_CHECK_INTERVAL,
@@ -15,6 +14,9 @@ from polymarket_insider_tracker.ingestor.health import (
     StreamHealth,
     StreamStatus,
 )
+from tests.closeness import is_close
+from tests.fakes import FakeClock
+from tests.fakes.health_http import served
 
 
 class TestStreamHealth:
@@ -102,8 +104,8 @@ class TestHealthMonitor:
         """Test initialization."""
         monitor = HealthMonitor()
 
-        assert monitor._stale_threshold == DEFAULT_STALE_THRESHOLD_SECONDS
-        assert monitor._health_check_interval == DEFAULT_HEALTH_CHECK_INTERVAL
+        assert monitor.stale_threshold_seconds == DEFAULT_STALE_THRESHOLD_SECONDS
+        assert monitor.health_check_interval == DEFAULT_HEALTH_CHECK_INTERVAL
         assert not monitor.is_running
 
     def test_init_custom_config(self) -> None:
@@ -113,8 +115,8 @@ class TestHealthMonitor:
             health_check_interval=10,
         )
 
-        assert monitor._stale_threshold == 30
-        assert monitor._health_check_interval == 10
+        assert monitor.stale_threshold_seconds == 30
+        assert monitor.health_check_interval == 10
 
     def test_register_stream(self) -> None:
         """Test registering a stream."""
@@ -122,9 +124,9 @@ class TestHealthMonitor:
 
         monitor.register_stream("trades")
 
-        assert "trades" in monitor._streams
-        assert monitor._streams["trades"].name == "trades"
-        assert monitor._streams["trades"].status == StreamStatus.DISCONNECTED
+        stream = monitor.get_health_report().streams["trades"]
+        assert stream.name == "trades"
+        assert stream.status == StreamStatus.DISCONNECTED
 
     def test_register_stream_idempotent(self) -> None:
         """Test that registering the same stream twice is idempotent."""
@@ -134,7 +136,7 @@ class TestHealthMonitor:
         monitor.record_event("trades")  # Adds an event
         monitor.register_stream("trades")  # Should not reset
 
-        assert monitor._streams["trades"].events_received == 1
+        assert monitor.get_health_report().streams["trades"].events_received == 1
 
     def test_set_stream_connected(self) -> None:
         """Test marking a stream as connected."""
@@ -142,9 +144,10 @@ class TestHealthMonitor:
 
         monitor.set_stream_connected("trades")
 
-        assert monitor._streams["trades"].status == StreamStatus.ACTIVE
-        assert monitor._streams["trades"].connected_since is not None
-        assert monitor._streams["trades"].last_error is None
+        stream = monitor.get_health_report().streams["trades"]
+        assert stream.status == StreamStatus.ACTIVE
+        assert stream.connected_since is not None
+        assert stream.last_error is None
 
     def test_set_stream_disconnected(self) -> None:
         """Test marking a stream as disconnected."""
@@ -153,9 +156,10 @@ class TestHealthMonitor:
         monitor.set_stream_connected("trades")
         monitor.set_stream_disconnected("trades", error="Connection reset")
 
-        assert monitor._streams["trades"].status == StreamStatus.DISCONNECTED
-        assert monitor._streams["trades"].connected_since is None
-        assert monitor._streams["trades"].last_error == "Connection reset"
+        stream = monitor.get_health_report().streams["trades"]
+        assert stream.status == StreamStatus.DISCONNECTED
+        assert stream.connected_since is None
+        assert stream.last_error == "Connection reset"
 
     def test_set_stream_disconnected_redacts_error_at_intake(
         self, caplog: pytest.LogCaptureFixture
@@ -172,7 +176,7 @@ class TestHealthMonitor:
                 "trades", error=f"dial failed for https://user:{secret}@stream.example/ws"
             )
 
-        stored = monitor._streams["trades"].last_error or ""
+        stored = monitor.get_health_report().streams["trades"].last_error or ""
         assert secret not in stored
         assert "dial failed" in stored
         assert "***" in stored
@@ -184,7 +188,7 @@ class TestHealthMonitor:
 
         monitor.record_event("trades")
 
-        stream = monitor._streams["trades"]
+        stream = monitor.get_health_report().streams["trades"]
         assert stream.events_received == 1
         assert stream.last_event_time is not None
         assert stream.status == StreamStatus.ACTIVE
@@ -196,7 +200,7 @@ class TestHealthMonitor:
         for _ in range(10):
             monitor.record_event("trades")
 
-        assert monitor._streams["trades"].events_received == 10
+        assert monitor.get_health_report().streams["trades"].events_received == 10
 
     def test_record_event_with_processing_time(self) -> None:
         """Test recording event with processing time."""
@@ -205,69 +209,66 @@ class TestHealthMonitor:
         # Should not raise
         monitor.record_event("trades", processing_time=0.001)
 
-        assert monitor._streams["trades"].events_received == 1
+        assert monitor.get_health_report().streams["trades"].events_received == 1
 
     def test_calculate_throughput_empty(self) -> None:
         """Test throughput calculation with no events."""
         monitor = HealthMonitor()
 
-        rate = monitor._calculate_throughput("nonexistent")
+        report = monitor.get_health_report()
 
-        assert rate == 0.0
+        assert "nonexistent" not in report.streams
+        assert report.total_events_per_second == 0.0
 
     def test_calculate_throughput(self) -> None:
         """Test throughput calculation."""
-        monitor = HealthMonitor()
+        clock = FakeClock(1_000.0)
+        monitor = HealthMonitor(clock=clock)
 
         # Add events
         for _ in range(10):
             monitor.record_event("trades")
 
-        rate = monitor._calculate_throughput("trades")
+        rate = monitor.get_health_report().streams["trades"].events_per_second
 
-        # Should have ~10 events in the window
-        assert rate > 0
+        # 10 events inside the 10 second window
+        assert is_close(rate, 1.0)
 
     def test_check_stream_staleness_active(self) -> None:
         """Test that active stream is not marked stale."""
         monitor = HealthMonitor(stale_threshold_seconds=60)
 
         monitor.record_event("trades")
-        monitor._check_stream_staleness()
 
-        assert monitor._streams["trades"].status == StreamStatus.ACTIVE
+        assert monitor.get_health_report().streams["trades"].status == StreamStatus.ACTIVE
 
     def test_check_stream_staleness_stale(self) -> None:
         """Test that stream becomes stale after threshold."""
-        monitor = HealthMonitor(stale_threshold_seconds=1)
+        clock = FakeClock(1_000.0)
+        monitor = HealthMonitor(stale_threshold_seconds=1, clock=clock)
 
         monitor.record_event("trades")
         # Simulate time passing
-        monitor._streams["trades"].last_event_time = time.time() - 2
+        clock.advance(2)
 
-        monitor._check_stream_staleness()
-
-        assert monitor._streams["trades"].status == StreamStatus.STALE
+        assert monitor.get_health_report().streams["trades"].status == StreamStatus.STALE
 
     def test_check_stream_staleness_connected_no_events(self) -> None:
         """Test staleness when connected but no events received."""
-        monitor = HealthMonitor(stale_threshold_seconds=1)
+        clock = FakeClock(1_000.0)
+        monitor = HealthMonitor(stale_threshold_seconds=1, clock=clock)
 
         monitor.set_stream_connected("trades")
         # Simulate time passing since connection
-        monitor._streams["trades"].connected_since = time.time() - 2
+        clock.advance(2)
 
-        monitor._check_stream_staleness()
-
-        assert monitor._streams["trades"].status == StreamStatus.STALE
+        assert monitor.get_health_report().streams["trades"].status == StreamStatus.STALE
 
     def test_determine_overall_status_no_streams(self) -> None:
         """Test overall status with no streams."""
         monitor = HealthMonitor()
 
-        status = monitor._determine_overall_status()
-
-        assert status == HealthStatus.HEALTHY
+        assert monitor.get_health_report().status == HealthStatus.HEALTHY
 
     def test_determine_overall_status_all_active(self) -> None:
         """Test overall status with all active streams."""
@@ -276,21 +277,21 @@ class TestHealthMonitor:
         monitor.record_event("trades")
         monitor.record_event("orderbook")
 
-        status = monitor._determine_overall_status()
-
-        assert status == HealthStatus.HEALTHY
+        assert monitor.get_health_report().status == HealthStatus.HEALTHY
 
     def test_determine_overall_status_some_stale(self) -> None:
         """Test overall status with some stale streams."""
-        monitor = HealthMonitor()
+        clock = FakeClock(1_000.0)
+        monitor = HealthMonitor(stale_threshold_seconds=60, clock=clock)
 
+        monitor.record_event("orderbook")
+        clock.advance(120)
         monitor.record_event("trades")
-        monitor.register_stream("orderbook")
-        monitor._streams["orderbook"].status = StreamStatus.STALE
 
-        status = monitor._determine_overall_status()
+        report = monitor.get_health_report()
 
-        assert status == HealthStatus.DEGRADED
+        assert report.streams["orderbook"].status == StreamStatus.STALE
+        assert report.status == HealthStatus.DEGRADED
 
     def test_determine_overall_status_some_disconnected(self) -> None:
         """Test overall status with some disconnected streams."""
@@ -299,9 +300,7 @@ class TestHealthMonitor:
         monitor.record_event("trades")
         monitor.set_stream_disconnected("orderbook")
 
-        status = monitor._determine_overall_status()
-
-        assert status == HealthStatus.DEGRADED
+        assert monitor.get_health_report().status == HealthStatus.DEGRADED
 
     def test_determine_overall_status_all_disconnected(self) -> None:
         """Test overall status with all disconnected streams."""
@@ -310,19 +309,21 @@ class TestHealthMonitor:
         monitor.set_stream_disconnected("trades")
         monitor.set_stream_disconnected("orderbook")
 
-        status = monitor._determine_overall_status()
+        assert monitor.get_health_report().status == HealthStatus.UNHEALTHY
 
-        assert status == HealthStatus.UNHEALTHY
-
-    def test_get_health_report(self) -> None:
+    @pytest.mark.asyncio
+    async def test_get_health_report(self) -> None:
         """Test getting a health report."""
-        monitor = HealthMonitor()
-        monitor._start_time = time.time() - 100
+        clock = FakeClock(1_000.0)
+        monitor = HealthMonitor(clock=clock)
+        await monitor.start()
+        clock.advance(100)
 
         monitor.record_event("trades")
         monitor.record_event("trades")
 
         report = monitor.get_health_report()
+        await monitor.stop()
 
         assert report.status == HealthStatus.HEALTHY
         assert "trades" in report.streams
@@ -349,11 +350,9 @@ class TestHealthMonitor:
 
         await monitor.start()
         assert monitor.is_running
-        assert monitor._health_task is not None
 
         await monitor.stop()
         assert not monitor.is_running
-        assert monitor._health_task is None
 
     @pytest.mark.asyncio
     async def test_start_idempotent(self) -> None:
@@ -446,21 +445,12 @@ class TestHealthMonitorHTTPEndpoints:
         """Create a monitor instance."""
         return HealthMonitor()
 
-    @pytest.fixture
-    def app(self, monitor: HealthMonitor) -> web.Application:
-        """Create the aiohttp application."""
-        return monitor._create_app()
-
     @pytest.mark.asyncio
-    async def test_health_endpoint_healthy(
-        self, monitor: HealthMonitor, app: web.Application
-    ) -> None:
+    async def test_health_endpoint_healthy(self, monitor: HealthMonitor) -> None:
         """Test /health endpoint when healthy."""
-        from aiohttp.test_utils import TestClient, TestServer
-
         monitor.record_event("trades")
 
-        async with TestClient(TestServer(app)) as client:
+        async with served(monitor) as client:
             resp = await client.get("/health")
             assert resp.status == 200
 
@@ -469,15 +459,11 @@ class TestHealthMonitorHTTPEndpoints:
             assert "trades" in data["streams"]
 
     @pytest.mark.asyncio
-    async def test_health_endpoint_unhealthy(
-        self, monitor: HealthMonitor, app: web.Application
-    ) -> None:
+    async def test_health_endpoint_unhealthy(self, monitor: HealthMonitor) -> None:
         """Test /health endpoint when unhealthy."""
-        from aiohttp.test_utils import TestClient, TestServer
-
         monitor.set_stream_disconnected("trades")
 
-        async with TestClient(TestServer(app)) as client:
+        async with served(monitor) as client:
             resp = await client.get("/health")
             assert resp.status == 503
 
@@ -485,13 +471,11 @@ class TestHealthMonitorHTTPEndpoints:
             assert data["status"] == "unhealthy"
 
     @pytest.mark.asyncio
-    async def test_metrics_endpoint(self, monitor: HealthMonitor, app: web.Application) -> None:
+    async def test_metrics_endpoint(self, monitor: HealthMonitor) -> None:
         """Test /metrics endpoint returns Prometheus format."""
-        from aiohttp.test_utils import TestClient, TestServer
-
         monitor.record_event("trades")
 
-        async with TestClient(TestServer(app)) as client:
+        async with served(monitor) as client:
             resp = await client.get("/metrics")
             assert resp.status == 200
 
@@ -503,13 +487,11 @@ class TestHealthMonitorHTTPEndpoints:
             assert "polymarket_health_status" in text
 
     @pytest.mark.asyncio
-    async def test_ready_endpoint_ready(self, monitor: HealthMonitor, app: web.Application) -> None:
+    async def test_ready_endpoint_ready(self, monitor: HealthMonitor) -> None:
         """Test /ready endpoint when ready."""
-        from aiohttp.test_utils import TestClient, TestServer
-
         monitor.record_event("trades")
 
-        async with TestClient(TestServer(app)) as client:
+        async with served(monitor) as client:
             resp = await client.get("/ready")
             assert resp.status == 200
 
@@ -517,15 +499,11 @@ class TestHealthMonitorHTTPEndpoints:
             assert data["ready"] is True
 
     @pytest.mark.asyncio
-    async def test_ready_endpoint_not_ready(
-        self, monitor: HealthMonitor, app: web.Application
-    ) -> None:
+    async def test_ready_endpoint_not_ready(self, monitor: HealthMonitor) -> None:
         """Test /ready endpoint when not ready."""
-        from aiohttp.test_utils import TestClient, TestServer
-
         monitor.set_stream_disconnected("trades")
 
-        async with TestClient(TestServer(app)) as client:
+        async with served(monitor) as client:
             resp = await client.get("/ready")
             assert resp.status == 503
 
@@ -533,11 +511,9 @@ class TestHealthMonitorHTTPEndpoints:
             assert data["ready"] is False
 
     @pytest.mark.asyncio
-    async def test_live_endpoint(self, app: web.Application) -> None:
+    async def test_live_endpoint(self, monitor: HealthMonitor) -> None:
         """Test /live endpoint always returns 200."""
-        from aiohttp.test_utils import TestClient, TestServer
-
-        async with TestClient(TestServer(app)) as client:
+        async with served(monitor) as client:
             resp = await client.get("/live")
             assert resp.status == 200
 
@@ -547,17 +523,17 @@ class TestHealthMonitorHTTPEndpoints:
     @pytest.mark.asyncio
     async def test_start_stop_http_server(self, monitor: HealthMonitor) -> None:
         """Test starting and stopping HTTP server."""
-        await monitor.start_http_server(port=18080)
-        assert monitor._runner is not None
+        await monitor.start_http_server(port=0)
+        assert monitor.http_addresses != []
 
         await monitor.stop_http_server()
-        assert monitor._runner is None
+        assert monitor.http_addresses == []
 
     @pytest.mark.asyncio
     async def test_start_http_server_idempotent(self, monitor: HealthMonitor) -> None:
         """Test that starting HTTP server twice is safe."""
-        await monitor.start_http_server(port=18081)
-        await monitor.start_http_server(port=18081)  # Should not raise
+        await monitor.start_http_server(port=0)
+        await monitor.start_http_server(port=0)  # Should not raise
 
         await monitor.stop_http_server()
 
@@ -600,17 +576,17 @@ class TestEdgeCases:
 
     def test_throughput_with_old_events(self) -> None:
         """Test throughput calculation ignores old events."""
-        monitor = HealthMonitor()
+        clock = FakeClock(1_000.0)
+        monitor = HealthMonitor(clock=clock)
 
         monitor.record_event("trades")
-        # Manually add old event to window
-        monitor._event_windows["trades"].append(time.time() - 100)
+        clock.advance(100)
+        monitor.record_event("trades")
 
-        rate = monitor._calculate_throughput("trades")
+        rate = monitor.get_health_report().streams["trades"].events_per_second
 
-        # Old event should be filtered out
-        # Rate should only count recent events
-        assert rate >= 0
+        # Only the recent event counts: 1 event over the 10 second window
+        assert is_close(rate, 0.1)
 
     def test_multiple_streams_independent(self) -> None:
         """Test that multiple streams are tracked independently."""
@@ -620,10 +596,11 @@ class TestEdgeCases:
         monitor.record_event("trades")
         monitor.set_stream_disconnected("orderbook")
 
-        assert monitor._streams["trades"].events_received == 2
-        assert monitor._streams["trades"].status == StreamStatus.ACTIVE
-        assert monitor._streams["orderbook"].events_received == 0
-        assert monitor._streams["orderbook"].status == StreamStatus.DISCONNECTED
+        streams = monitor.get_health_report().streams
+        assert streams["trades"].events_received == 2
+        assert streams["trades"].status == StreamStatus.ACTIVE
+        assert streams["orderbook"].events_received == 0
+        assert streams["orderbook"].status == StreamStatus.DISCONNECTED
 
     def test_report_streams_are_copied(self) -> None:
         """Test that report streams are a copy."""
@@ -634,7 +611,7 @@ class TestEdgeCases:
 
         # Modifying report should not affect monitor
         report.streams["trades"].events_received = 999
-        assert monitor._streams["trades"].events_received == 1
+        assert monitor.get_health_report().streams["trades"].events_received == 1
 
     @pytest.mark.asyncio
     async def test_stop_cleans_up_http_server(self) -> None:
@@ -642,9 +619,9 @@ class TestEdgeCases:
         monitor = HealthMonitor()
 
         await monitor.start()
-        await monitor.start_http_server(port=18082)
+        await monitor.start_http_server(port=0)
 
         await monitor.stop()
 
         assert not monitor.is_running
-        assert monitor._runner is None
+        assert monitor.http_addresses == []

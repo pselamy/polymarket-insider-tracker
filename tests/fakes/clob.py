@@ -21,11 +21,28 @@ def _default_pages() -> list[dict[str, Any]]:
     ]
 
 
-def _order_summary(price: str, size: str) -> OrderSummary:
+def order_summary(price: str, size: str) -> OrderSummary:
     summary = OrderSummary()
     summary.price = price
     summary.size = size
     return summary
+
+
+def order_book_summary(
+    market: str,
+    asset_id: str,
+    tick_size: str,
+    bids: list[OrderSummary] | None,
+    asks: list[OrderSummary] | None,
+) -> OrderBookSummary:
+    """A real SDK ``OrderBookSummary`` (its constructor takes no arguments, so fields are set)."""
+    book = OrderBookSummary()
+    book.market = market
+    book.asset_id = asset_id
+    book.tick_size = tick_size
+    book.bids = bids
+    book.asks = asks
+    return book
 
 
 class FakeBaseClobClient:
@@ -78,13 +95,13 @@ class FakeBaseClobClient:
 
     @staticmethod
     def get_order_book(token_id: str) -> OrderBookSummary:
-        book = OrderBookSummary()
-        book.market = "0xmarket"
-        book.asset_id = token_id
-        book.tick_size = "0.01"
-        book.bids = [_order_summary("0.50", "100")]
-        book.asks = [_order_summary("0.52", "150")]
-        return book
+        return order_book_summary(
+            "0xmarket",
+            token_id,
+            "0.01",
+            [order_summary("0.50", "100")],
+            [order_summary("0.52", "150")],
+        )
 
     def get_order_books(self, params: list[BookParams]) -> list[OrderBookSummary]:
         return [self.get_order_book(param.token_id) for param in params]

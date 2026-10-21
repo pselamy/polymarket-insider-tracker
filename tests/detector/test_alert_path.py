@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 import pytest
-from aiohttp.test_utils import TestClient, TestServer
 from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.config_summary import print_config_summary
@@ -29,6 +28,7 @@ from polymarket_insider_tracker.ingestor.health import HealthMonitor
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.pipeline import Pipeline
 from tests.fakes import make_test_settings
+from tests.fakes.health_http import served
 
 
 def _best_case_bundle(trade: TradeEvent) -> SignalBundle:
@@ -172,7 +172,7 @@ class HealthSurface:
 
 async def _health(monitor: HealthMonitor) -> HealthSurface:
     monitor.record_event("trades")
-    async with TestClient(TestServer(monitor._create_app())) as client:
+    async with served(monitor) as client:
         statuses: dict[str, int] = {}
         for path in ("/health", "/ready", "/live", "/metrics"):
             statuses[path] = (await client.get(path)).status
