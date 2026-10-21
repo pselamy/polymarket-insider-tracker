@@ -136,6 +136,7 @@ include = [
     "tests/alerter",
     "tests/detector",
     "tests/ingestor",
+    "tests/closeness.py",
     "tests/conftest.py",
     "tests/console_capture.py",
     "tests/fakes/__init__.py",

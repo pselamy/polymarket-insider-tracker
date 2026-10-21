@@ -1,7 +1,6 @@
 """Tests for the connection health monitor."""
 
 import asyncio
-import math
 import time
 
 import pytest
@@ -15,6 +14,7 @@ from polymarket_insider_tracker.ingestor.health import (
     StreamHealth,
     StreamStatus,
 )
+from tests.closeness import is_close
 from tests.fakes import FakeClock
 from tests.fakes.health_http import served
 
@@ -232,7 +232,7 @@ class TestHealthMonitor:
         rate = monitor.get_health_report().streams["trades"].events_per_second
 
         # 10 events inside the 10 second window
-        assert math.isclose(rate, 1.0, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(rate, 1.0)
 
     def test_check_stream_staleness_active(self) -> None:
         """Test that active stream is not marked stale."""
@@ -586,7 +586,7 @@ class TestEdgeCases:
         rate = monitor.get_health_report().streams["trades"].events_per_second
 
         # Only the recent event counts: 1 event over the 10 second window
-        assert math.isclose(rate, 0.1, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(rate, 0.1)
 
     def test_multiple_streams_independent(self) -> None:
         """Test that multiple streams are tracked independently."""

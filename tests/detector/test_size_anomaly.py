@@ -1,6 +1,5 @@
 """Tests for position size anomaly detection."""
 
-import math
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -19,6 +18,7 @@ from polymarket_insider_tracker.detector.volume_state import (
 )
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from tests.batch_trades import indexed_trades
+from tests.closeness import is_close
 from tests.fakes.metadata import FakeMetadataSync
 
 # ============================================================================
@@ -358,7 +358,7 @@ class TestBookImpactCalculation:
         )
 
         assert signal is not None
-        assert math.isclose(signal.book_impact, expected, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(signal.book_impact, expected)
 
 
 # ============================================================================
@@ -437,9 +437,9 @@ class TestConfidenceScoring:
             is_niche=False,
         )
 
-        assert math.isclose(confidence, 0.5, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(confidence, 0.5)
         assert "volume_impact" in factors
-        assert math.isclose(factors["volume_impact"], 0.5, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(factors["volume_impact"], 0.5)
 
     def test_confidence_book_impact_only(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence with only book impact."""
@@ -452,9 +452,9 @@ class TestConfidenceScoring:
             is_niche=False,
         )
 
-        assert math.isclose(confidence, 0.3, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(confidence, 0.3)
         assert "book_impact" in factors
-        assert math.isclose(factors["book_impact"], 0.3, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(factors["book_impact"], 0.3)
 
     def test_confidence_combined_impacts(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence with both volume and book impact."""
@@ -467,7 +467,7 @@ class TestConfidenceScoring:
             is_niche=False,
         )
 
-        assert math.isclose(confidence, 0.8, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(confidence, 0.8)
         assert "volume_impact" in factors
         assert "book_impact" in factors
 
@@ -482,7 +482,7 @@ class TestConfidenceScoring:
             is_niche=True,
         )
 
-        assert math.isclose(confidence, 0.5, rel_tol=0.01, abs_tol=0)
+        assert is_close(confidence, 0.5, rel_tol=0.01, abs_tol=0)
         assert "niche_multiplier" in factors
         assert factors["niche_multiplier"] == 1.5
 
@@ -551,7 +551,7 @@ class TestAnalyzeMethod:
         )
 
         assert signal is not None
-        assert math.isclose(signal.volume_impact, 0.10, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(signal.volume_impact, 0.10)
         assert signal.confidence > 0.1
 
     @pytest.mark.asyncio
@@ -569,7 +569,7 @@ class TestAnalyzeMethod:
         )
 
         assert signal is not None
-        assert math.isclose(signal.book_impact, 0.20, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(signal.book_impact, 0.20)
         assert signal.confidence > 0.1
 
     @pytest.mark.asyncio
@@ -840,7 +840,7 @@ class TestBatchAnalysis:
         )
 
         assert len(signals) == 1
-        assert math.isclose(signals[0].volume_impact, 0.10, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(signals[0].volume_impact, 0.10)
 
     @pytest.mark.asyncio
     async def test_analyze_batch_handles_errors(

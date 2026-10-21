@@ -14,7 +14,6 @@ Tests verify:
 from __future__ import annotations
 
 import asyncio
-import math
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -25,6 +24,7 @@ from polymarket_insider_tracker.ingestor.health import (
     ComponentStatus,
     HealthMonitor,
 )
+from tests.closeness import is_close
 from tests.fakes import FakeClock
 
 
@@ -153,14 +153,14 @@ async def test_health_endpoint_quiet_market_period() -> None:
         ):
             assert resp.status == 200
             assert monitor.last_acquisition_time is not None and monitor.last_trade_time is not None
-            assert math.isclose(monitor.last_acquisition_time, now - 2.0, rel_tol=0, abs_tol=1.0)
-            assert math.isclose(monitor.last_trade_time, now - 120.0, rel_tol=0, abs_tol=1.0)
+            assert is_close(monitor.last_acquisition_time, now - 2.0, rel_tol=0, abs_tol=1.0)
+            assert is_close(monitor.last_trade_time, now - 120.0, rel_tol=0, abs_tol=1.0)
             data = await resp.json()
             assert data["status"] == "healthy"
-            assert math.isclose(data["last_acquisition_time"], now - 2.0, rel_tol=0, abs_tol=1.0)
-            assert math.isclose(data["last_trade_time"], now - 120.0, rel_tol=0, abs_tol=1.0)
-            assert math.isclose(data["acquisition_freshness_seconds"], 2.0, rel_tol=0, abs_tol=1.0)
-            assert math.isclose(data["trade_freshness_seconds"], 120.0, rel_tol=0, abs_tol=1.0)
+            assert is_close(data["last_acquisition_time"], now - 2.0, rel_tol=0, abs_tol=1.0)
+            assert is_close(data["last_trade_time"], now - 120.0, rel_tol=0, abs_tol=1.0)
+            assert is_close(data["acquisition_freshness_seconds"], 2.0, rel_tol=0, abs_tol=1.0)
+            assert is_close(data["trade_freshness_seconds"], 120.0, rel_tol=0, abs_tol=1.0)
             assert data["components"]["database"]["status"] == "up"
             assert data["components"]["redis"]["status"] == "up"
             assert data["components"]["ingestion"]["status"] == "up"

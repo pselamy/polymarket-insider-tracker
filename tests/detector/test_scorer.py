@@ -1,7 +1,6 @@
 """Tests for composite risk scorer."""
 
 import json
-import math
 from collections.abc import MutableMapping
 from dataclasses import replace
 from decimal import Decimal
@@ -25,6 +24,7 @@ from polymarket_insider_tracker.detector.scorer import (
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 from tests.batch_trades import indexed_trades
+from tests.closeness import is_close
 from tests.detector.dedup_window import DedupWindowScorer
 from tests.fakes.redis_await import key_count
 
@@ -282,7 +282,7 @@ class TestWeightedScoreCalculation:
 
         # 0.7 confidence * 0.35 weight + 0.7 * 0.25 niche weight = 0.42
         expected = 0.7 * DEFAULT_WEIGHTS["size_anomaly"] + 0.7 * DEFAULT_WEIGHTS["niche_market"]
-        assert math.isclose(score, expected, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(score, expected)
         assert count == 1
 
     def test_size_anomaly_non_niche(
@@ -311,7 +311,7 @@ class TestWeightedScoreCalculation:
 
         # 0.7 * 0.35 = 0.245 (no niche bonus)
         expected = 0.7 * DEFAULT_WEIGHTS["size_anomaly"]
-        assert math.isclose(score, expected, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(score, expected)
 
     def test_wallet_signal_adds_no_bonus_while_the_group_is_non_scoring(
         self,
@@ -331,7 +331,7 @@ class TestWeightedScoreCalculation:
         score, count = scorer.calculate_weighted_score(bundle)
 
         expected = 0.7 * DEFAULT_WEIGHTS["size_anomaly"] + 0.7 * DEFAULT_WEIGHTS["niche_market"]
-        assert math.isclose(score, expected, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(score, expected)
         assert count == 1
 
     def test_full_confidence_size_score_is_the_size_ceiling_without_wallet_inflation(
@@ -745,7 +745,7 @@ class TestDeprecatedWeightCompatibilityInputs:
         )
 
         assert count == 1
-        assert math.isclose(score, 0.42, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(score, 0.42)
         assert scorer.get_weights() == dict(DEFAULT_WEIGHTS)
 
     def test_partial_constructor_weights_score_missing_signals_as_zero(
@@ -762,7 +762,7 @@ class TestDeprecatedWeightCompatibilityInputs:
         )
 
         assert count == 1
-        assert math.isclose(score, 0.7, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(score, 0.7)
         assert scorer.get_weights() == {"size_anomaly": 1.0}
 
     def test_partial_set_weights_scores_missing_signals_as_zero(
@@ -780,7 +780,7 @@ class TestDeprecatedWeightCompatibilityInputs:
         )
 
         assert count == 1
-        assert math.isclose(score, 0.7, rel_tol=1e-6, abs_tol=1e-12)
+        assert is_close(score, 0.7)
 
     def test_partial_weights_record_effective_zero_contributions(
         self,

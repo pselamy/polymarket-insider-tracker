@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -13,6 +12,7 @@ from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.detector.volume_state import VolumeState
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.ingestor.volume_observation import GAMMA_SOURCE, VolumeObservation
+from tests.closeness import is_close
 from tests.fakes.metadata import FakeMetadataSync
 
 NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
@@ -102,7 +102,7 @@ async def test_an_available_volume_drives_the_score_and_no_volume_scores_the_cat
     without = await _signal(_metadata())
 
     assert (with_volume.volume_impact, with_volume.is_niche_market) == (0.325, True)
-    assert math.isclose(
+    assert is_close(
         with_volume.confidence, 0.75, rel_tol=1e-6, abs_tol=1e-12
     )  # 0.5 volume term x 1.5 niche
     assert with_volume.factors == {"volume_impact": 0.5, "niche_multiplier": 1.5}
