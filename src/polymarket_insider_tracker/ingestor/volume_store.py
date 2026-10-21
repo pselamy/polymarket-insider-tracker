@@ -12,13 +12,10 @@ import json
 import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from redis.asyncio import Redis
 
-from polymarket_insider_tracker.detector.evaluation_clock import Clock, system_clock
-from polymarket_insider_tracker.detector.volume_state import RECENCY_SECONDS, read_stamp
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl, GammaMarketStats
 from polymarket_insider_tracker.ingestor.models import MarketMetadata
 from polymarket_insider_tracker.ingestor.volume_observation import JsonValue, VolumeObservation
@@ -40,41 +37,20 @@ _UNAVAILABLE_BY_OUTCOME: dict[str, str] = {
 NO_VOLUME_RECORD = "no_volume_record"
 
 
-def _decimal_or_none(value: JsonValue) -> Decimal | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return Decimal(value)
-    except InvalidOperation:
-        return None
-
-
-def _decimal_text(value: Decimal | None) -> str | None:
-    return None if value is None else str(value)
-
-
 @dataclass(frozen=True)
 class VolumeRecord:
-    """A stored observation plus the lossy decimals older consumers read from the metadata."""
+    """A stored volume observation."""
 
     observation: VolumeObservation
-    daily_volume: Decimal | None
-    weekly_volume: Decimal | None
-    liquidity: Decimal | None
 
     @classmethod
     def from_stats(cls, stats: GammaMarketStats) -> VolumeRecord:
-        return cls(
-            stats.volume_observation(), stats.daily_volume, stats.weekly_volume, stats.liquidity
-        )
+        return cls(stats.volume_observation())
 
     def to_json(self) -> str:
         return json.dumps(
             {
                 "observation": self.observation.to_record(),
-                "daily_volume": _decimal_text(self.daily_volume),
-                "weekly_volume": _decimal_text(self.weekly_volume),
-                "liquidity": _decimal_text(self.liquidity),
             }
         )
 
@@ -90,12 +66,7 @@ class VolumeRecord:
         observation = VolumeObservation.from_record(data.get("observation"))
         if observation is None:
             return None
-        return cls(
-            observation,
-            _decimal_or_none(data.get("daily_volume")),
-            _decimal_or_none(data.get("weekly_volume")),
-            _decimal_or_none(data.get("liquidity")),
-        )
+        return cls(observation)
 
 
 def crawl_outcome(crawl: GammaCrawl | None) -> CrawlOutcome:
@@ -114,9 +85,7 @@ class VolumeStore:
         *,
         key_prefix: str = DEFAULT_VOLUME_KEY_PREFIX,
         ttl_seconds: int = VOLUME_RECORD_TTL_SECONDS,
-        clock: Clock = system_clock,
     ) -> None:
-        self._clock = clock
         self._redis = redis
         self._prefix = key_prefix
         self._ttl = ttl_seconds
@@ -196,17 +165,4 @@ class VolumeStore:
                 return metadata
             reason = no_record_reason or await self._reason_or_default()
             return replace(metadata, volume_unavailable_reason=reason)
-        fresh = self._is_fresh(record)
-        return replace(
-            metadata,
-            volume=record.observation,
-            daily_volume=record.daily_volume if fresh else None,
-            weekly_volume=record.weekly_volume if fresh else None,
-            liquidity=record.liquidity if fresh else None,
-        )
-
-    def _is_fresh(self, record: VolumeRecord) -> bool:
-        """Whether the record's age is within 0..600 s: the bound the lossy legacy fields had on
-        main (the metadata cache TTL). The ``volume`` evidence keeps the true age regardless."""
-        age = read_stamp(record.observation.acquired_at, self._clock()).age
-        return age is not None and 0 <= age <= RECENCY_SECONDS
+        return replace(metadata, volume=record.observation)

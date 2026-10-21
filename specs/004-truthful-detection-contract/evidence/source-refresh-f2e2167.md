@@ -138,3 +138,52 @@ Every remaining hit is intentionally historical: it names the original base (`46
 `752a918`) in a sentence that also gives the refreshed base, or is the immutable replay receipt in
 `evidence/replay/summary.json` / `evidence/replay.md` / `evidence/implementation-validation.md`
 (historical sections), none of which claim to describe current main.
+
+## Eighth refresh: 3aafd0b plus layer 3 (2026-10-21)
+
+Slice 004 layer 3 changes five hashed files and, unlike the earlier refreshes, **changes scoring
+behaviour on purpose**; `evidence/source-hashes.json` records the new hashes with `base_commit` 3aafd0b.
+`detector/fresh_wallet.py` and `profiler/models.py` stay byte-identical.
+`detector/scorer.py`: the wallet group no longer scores (DECISION D1b G1, FR-007c), the 3+ bonus branch
+is removed (`multi_signal_bonus_3` stays as the neutral `"1"` key, FR-011), the combination arithmetic
+moves into the module function `size_group_score` that the alert-path report also calls, and the
+size diagnostics read the classified volume evidence. The numeric literals T028 checks
+(`0.40/0.35/0.25`, `MULTI_SIGNAL_BONUS_2 = 1.2`, `0.80`) are unchanged.
+`detector/size_anomaly.py`: the volume ratio and the niche basis come from the classified volume state
+(D3 (d)); the confidence literals became the named constants `VOLUME_RATIO_CAP`, `VOLUME_SCORE_CAP` and
+`NICHE_MULTIPLIER` with the same values; `reachability.py` now requires those names.
+`detector/models.py`: `RiskAssessment.wallet_group_status`. `ingestor/models.py`: the lossy
+`daily_volume`/`weekly_volume`/`liquidity` fields are retired. `pipeline.py`: the alert-path report
+(T029) builds the alert-path health monitor and logs the report at startup.
+The T002 premise (replay conclusions about the 003.1 contract) is unaffected because the replay corpus
+evaluates the old and proposed contracts side by side; the shipped contract is now the proposed one.
+
+## Ninth refresh: layer 3 review round 1 (2026-10-21)
+
+Review round 1 of the layer-3 PR implements T017 (rows written as `004.1`) with the minimal part of
+T011 it needs; `base_commit` stays 3aafd0b. No scoring rule, weight, bonus, threshold or confidence
+literal changes, so the scores of the eighth refresh stand.
+`detector/fresh_wallet.py` and `detector/size_anomaly.py`: additive `evaluate(trade, *, evaluated_at)`
+methods returning the frozen evaluation snapshots of `detector/evaluation.py`; `analyze` reads the
+injectable clock once and returns the evaluation's signal; read-only configuration properties (the
+fresh detector's exclusive boundary is `max_nonce + 1`); the size detector's market lookup moves
+unchanged to `detector/market_lookup.py`. `detector/models.py`: `SCORING_ALGORITHM_VERSION` is `004.1`
+and `RiskAssessment` carries the evaluation evidence. `detector/scorer.py`: the pure configuration is
+serialized through `scoring_config.serialize_pure_config` (byte-identical output) and the bundle's
+evidence is passed to the assessment. `pipeline.py`: one evaluation instant per trade for both
+detectors, detector failures keep their exception class, and the row projection moves to
+`assessment_row.py`, which writes the composed 004.1 document.
+
+## Tenth refresh: alert-path report from the effective scorer configuration (2026-10-21)
+
+Review round 1 requires the FR-022a report to use the same effective weights and threshold as the
+running `RiskScorer`; `base_commit` stays 3aafd0b and no scoring rule or literal changes.
+`detector/scorer.py`: a read-only `alert_threshold` property. `pipeline.py`: the startup call binds the
+alert-path health monitor to the scorer it built (`bind_scorer`), so `/health` and the startup record
+are computed from that scorer's current weights and threshold.
+
+## Eleventh refresh: statement layout restored (2026-10-21)
+
+Review round 1 asks that statements compressed only to keep large files from growing be restored;
+`base_commit` stays 3aafd0b and no behaviour changes. `pipeline.py`: the `WalletAnalyzer(...)` call is
+back to its original multi-line form and the two detector assignments are one statement per line.

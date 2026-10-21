@@ -13,8 +13,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from redis.asyncio import Redis
@@ -36,6 +36,7 @@ from tests.fakes.pipeline import TradesServer
 from polymarket_insider_tracker.alerter.dispatcher import AlertChannel
 from polymarket_insider_tracker.config import Settings
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
+from polymarket_insider_tracker.ingestor.volume_observation import GAMMA_SOURCE, VolumeObservation
 from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from polymarket_insider_tracker.storage.models import RiskAssessmentModel
@@ -85,6 +86,19 @@ def market_for_trade(trade: TradeEvent, category: str) -> MarketMetadata:
         tokens=(Token(token_id=trade.asset_id, outcome=trade.outcome, price=trade.price),),
         category=category,
     )
+
+
+def stamped_volume_market(
+    trade: TradeEvent, category: str = "science", volume: str = "10000", age_seconds: int = 30
+) -> MarketMetadata:
+    """T021: a market whose Gamma volume carries a fresh acquisition stamp (state ``available``).
+
+    A $10,000 volume gives a $3,250 trade the ratio 0.325, which saturates the 3x cap: the size
+    confidence is 0.5 x 1.5 niche = 0.75 and the size-only score is 0.75 x (0.35 + 0.25) = 0.450.
+    """
+    stamp = (datetime.now(UTC) - timedelta(seconds=age_seconds)).isoformat()
+    observation = VolumeObservation(True, volume, stamp, GAMMA_SOURCE)
+    return replace(market_for_trade(trade, category), volume=observation)
 
 
 def seeded_server(clock: FakeClock) -> FakeTradesServer:

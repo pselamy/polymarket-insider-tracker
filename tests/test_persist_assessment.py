@@ -63,7 +63,8 @@ class TestPersistAssessment:
         assert row.trade_id == sample_trade.trade_id
         assert row.wallet_address == sample_trade.wallet_address.lower()
         assert row.should_alert is False
-        assert abs(float(row.weighted_score) - 0.2) < 1e-3
+        # G1: the recorded wallet confidence below does not score (was 0.2 = 0.5 x 0.4).
+        assert float(row.weighted_score) == 0.0
         assert row.fresh_wallet_confidence is not None
         assert abs(float(row.fresh_wallet_confidence) - 0.5) < 1e-3
         assert abs(float(row.threshold_at_eval) - 0.8) < 1e-3
@@ -97,5 +98,6 @@ class TestPersistAssessment:
         assert [alert.links["wallet"] for alert in channel.deliveries] == [
             f"https://polygonscan.com/address/{sample_trade.wallet_address}"
         ]
-        assert "Risk Score: 0.38" in channel.deliveries[0].body
+        # size-only 0.2 x (0.35 + 0.25); it was 0.38 with the wallet term
+        assert "Risk Score: 0.12" in channel.deliveries[0].body
         assert pipeline.stats.alerts_sent == 1
