@@ -1491,7 +1491,7 @@ prose or tool flags. All 19 that remain are prose or policy: docstrings and comm
 | `pipeline_components.py` | 1 | 0 | `cast(type[RedisFactory], Redis)`; a `_redis_factory()` returns `Redis` as `type[RedisFactory]` (the idiom already used in `scripts/runtime_services.py`). |
 | `pipeline.py` | 3 | 0 | `cast(Pingable, self._redis)` and `Any` in `__aexit__` and its import. `Pingable` moved to `pipeline_components.py` with `ping_redis`, which awaits the `Awaitable[bool] | bool` reply and raises `TypeError` for a reply that cannot be awaited; `__aexit__(*args: object)`. |
 | `profiler/rpc_handle.py` | 2 | 0 | The documented web3 `contract()` boundary (`**kwargs: Any) -> Any`) was avoidable: it is now `**kwargs: object) -> object` (structurally compatible with web3), and `erc20_balance_of` checks the runtime shape (`ContractProxy` protocol, integer balance). |
-| `ingestor/models.py` | 10 | 0 | `dict[str, Any]` inputs are `Mapping[str, object]`; token lists go through `_parse_tokens` (`shapes.object_sequence`/`string_keyed`); `outcomeIndex` through `_int_field`; `to_dict` returns the `MarketMetadataRecord` TypedDict; the two cached volume keys are re-typed by the new `ingestor/_json_value.json_value`. |
+| `ingestor/models.py` | 10 | 0 | `dict[str, Any]` inputs are `Mapping[str, object]`; the new `ingestor/_model_shapes.py` holds the checked helpers (`token_entries`, `int_field`, `iso_text`, `cached_volume_fields`) and the `TokenRecord`/`MarketMetadataRecord` TypedDicts that `to_dict` returns; the two cached volume keys are re-typed by `ingestor/_json_value.json_value`. |
 
 No `Any` remains in scope, so no boundary `Any` is documented.
 

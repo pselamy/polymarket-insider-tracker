@@ -6,7 +6,7 @@
   "detector/models.py": "c40e895b11cb5d01495dcd3beedee33ac8f22008390c3f7dfaa161c934b4c9d6",
   "detector/scorer.py": "721f1d3814761681d83e7e0790a8af7a2f9dca06468837d83f6defba77fecf3c",
   "detector/size_anomaly.py": "bd0c86956172f388ab641d772fafb640d253a630002361be1456852c7ffb13d3",
-  "ingestor/models.py": "d56715d5864907f72dba4ea5af011807840a1c0d76df7ecbbed19e5a761f982e",
+  "ingestor/models.py": "91f98bf37bc7f3f68761d3f8c31ca44ef6b492e5632637f9e9cc8934f769e6ff",
   "pipeline.py": "045a42299505ce60e9a0435c5a55df745bd681c40c224b8ad70226d792fa00cc",
   "profiler/models.py": "a4a4a0e45b6076763b68592ccc70a0c1ca9e2df1d6c4adf597d12ae9fa95b5be"
  }
