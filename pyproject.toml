@@ -203,6 +203,9 @@ source_paths = [
     "src/polymarket_insider_tracker/detector/volume_state.py",
     "src/polymarket_insider_tracker/ingestor/volume_observation.py",
     "src/polymarket_insider_tracker/detector/alert_path.py",
+    "src/polymarket_insider_tracker/ingestor/page_analysis.py",
+    "src/polymarket_insider_tracker/ingestor/readiness.py",
+    "src/polymarket_insider_tracker/deprecated_api_key.py",
 ]
 only_mutate = [
     "*/redaction.py",
@@ -218,6 +221,9 @@ only_mutate = [
     "*/volume_state.py",
     "*/volume_observation.py",
     "*/alert_path.py",
+    "*/page_analysis.py",
+    "*/readiness.py",
+    "*/deprecated_api_key.py",
 ]
 also_copy = ["src/polymarket_insider_tracker/", "conftest.py", "specs/", "scripts/"]
 pytest_add_cli_args_test_selection = [
@@ -253,6 +259,9 @@ pytest_add_cli_args_test_selection = [
     "tests/ingestor/test_volume_observation.py",
     "tests/ingestor/test_volume_store.py",
     "tests/ingestor/test_gamma_stamps.py",
+    "tests/ingestor/test_page_analysis.py",
+    "tests/ingestor/test_readiness.py",
+    "tests/test_api_key_deprecation.py",
     "-q",
     "-p",
     "no:cacheprovider",

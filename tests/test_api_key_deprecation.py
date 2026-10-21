@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import inspect
 import logging
+import sys
 import warnings
+from collections.abc import Callable
+from types import FrameType
 
 import pytest
+from pydantic import SecretStr, TypeAdapter
 
 import polymarket_insider_tracker.ingestor.clob_client as clob_module
 from polymarket_insider_tracker.__main__ import run_config_check, validate_config
 from polymarket_insider_tracker.config import PolymarketSettings
 from polymarket_insider_tracker.deprecated_api_key import (
     ApiKeySettingDeprecationWarning,
+    DeprecatedApiKey,
     api_key_deprecation_message,
 )
 from polymarket_insider_tracker.ingestor.clob_client import ClobClient
@@ -91,3 +96,38 @@ def test_clob_client_takes_no_key_and_ignores_the_environment(
     assert hosts == ["https://clob.polymarket.com"]
     assert SECRET not in caplog.text
     assert "api_key" not in caplog.text
+
+
+def test_deprecation_message_is_the_exact_actionable_text() -> None:
+    assert api_key_deprecation_message() == (
+        "POLYMARKET_API_KEY is deprecated and ignored: every CLOB and trades request the tracker "
+        "makes is public and anonymous, and no credential is sent. Remove it; support for the "
+        "setting will be dropped in a later release."
+    )
+
+
+def _callers_of_validator_body(call: Callable[[], object]) -> list[tuple[str, int]]:
+    """Where each run of the validator body was called from (file, line), via a call profile."""
+    callers: list[tuple[str, int]] = []
+
+    def record(frame: FrameType, event: str, _arg: object) -> None:
+        caller = frame.f_back
+        if event == "call" and "warn_about_ignored_api_key" in frame.f_code.co_name and caller:
+            callers.append((caller.f_code.co_filename, caller.f_lineno))
+
+    sys.setprofile(record)
+    try:
+        call()
+    finally:
+        sys.setprofile(None)
+    return callers
+
+
+def test_warning_is_attributed_to_the_line_that_called_the_validator() -> None:
+    """``stacklevel=2``: the warning points at the validator's caller, not at the module."""
+    adapter: TypeAdapter[SecretStr] = TypeAdapter(DeprecatedApiKey)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        callers = _callers_of_validator_body(lambda: adapter.validate_python(SecretStr(SECRET)))
+
+    assert [(w.filename, w.lineno) for w in caught] == callers

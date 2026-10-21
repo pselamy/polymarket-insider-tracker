@@ -28,6 +28,9 @@ ENROLLED_MODULES = (
     "polymarket_insider_tracker.detector.volume_state",
     "polymarket_insider_tracker.ingestor.volume_observation",
     "polymarket_insider_tracker.detector.alert_path",
+    "polymarket_insider_tracker.ingestor.page_analysis",
+    "polymarket_insider_tracker.ingestor.readiness",
+    "polymarket_insider_tracker.deprecated_api_key",
 )
 DETECTED_STATUSES = frozenset({"killed", "timeout"})
 _MUTANT_LINE = re.compile(r"^\s*(?P<module>[\w.]+)\.x[^.\s:]*__mutmut_\d+: (?P<status>.+?)\s*$")

@@ -34,7 +34,13 @@ STEP_4_MODULES = (
     f"{PACKAGE}.ingestor.volume_observation",
     f"{PACKAGE}.detector.alert_path",
 )
-ENROLLED = (*STEP_1_MODULES, REDACTION, *STEP_3_MODULES, *STEP_4_MODULES)
+# The step-5 enrollment: page analysis, ingestion readiness, the deprecated API key setting.
+STEP_5_MODULES = (
+    f"{PACKAGE}.ingestor.page_analysis",
+    f"{PACKAGE}.ingestor.readiness",
+    f"{PACKAGE}.deprecated_api_key",
+)
+ENROLLED = (*STEP_1_MODULES, REDACTION, *STEP_3_MODULES, *STEP_4_MODULES, *STEP_5_MODULES)
 
 
 def _all_killed() -> list[str]:
