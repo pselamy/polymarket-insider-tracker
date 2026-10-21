@@ -155,27 +155,35 @@ class DatabaseManager:
         self._async_engine = engine
         self._async_session_factory = create_async_session_factory(engine)
 
-    def _get_sync_engine(self) -> Engine:
-        """Get or create the synchronous engine."""
-        if self._sync_engine is None:
-            self._sync_engine = create_sync_engine(
-                self.database_url,
-                pool_size=self._pool_size,
-                max_overflow=self._max_overflow,
-                echo=self._echo,
-            )
-        return self._sync_engine
+    def _open_sync_engine(self) -> Engine:
+        """Create and keep the synchronous engine.
 
-    def _get_async_engine(self) -> AsyncEngine:
-        """Get or create the asynchronous engine."""
-        if self._async_engine is None:
-            self._async_engine = create_async_db_engine(
-                self.database_url,
-                pool_size=self._pool_size,
-                max_overflow=self._max_overflow,
-                echo=self._echo,
-            )
-        return self._async_engine
+        Only called while no session factory exists; ``dispose`` and ``dispose_async`` clear the
+        engine and its factory together, so an engine never outlives its factory.
+        """
+        engine = create_sync_engine(
+            self.database_url,
+            pool_size=self._pool_size,
+            max_overflow=self._max_overflow,
+            echo=self._echo,
+        )
+        self._sync_engine = engine
+        return engine
+
+    def _open_async_engine(self) -> AsyncEngine:
+        """Create and keep the asynchronous engine.
+
+        Only called while no session factory exists; ``dispose`` and ``dispose_async`` clear the
+        engine and its factory together, so an engine never outlives its factory.
+        """
+        engine = create_async_db_engine(
+            self.database_url,
+            pool_size=self._pool_size,
+            max_overflow=self._max_overflow,
+            echo=self._echo,
+        )
+        self._async_engine = engine
+        return engine
 
     def get_sync_session(self) -> Session:
         """Get a new synchronous session.
@@ -184,7 +192,7 @@ class DatabaseManager:
             SQLAlchemy Session instance.
         """
         if self._sync_session_factory is None:
-            self._sync_session_factory = create_sync_session_factory(self._get_sync_engine())
+            self._sync_session_factory = create_sync_session_factory(self._open_sync_engine())
         return self._sync_session_factory()
 
     @asynccontextmanager
@@ -195,7 +203,7 @@ class DatabaseManager:
             SQLAlchemy AsyncSession instance.
         """
         if self._async_session_factory is None:
-            self._async_session_factory = create_async_session_factory(self._get_async_engine())
+            self._async_session_factory = create_async_session_factory(self._open_async_engine())
 
         session = self._async_session_factory()
         try:

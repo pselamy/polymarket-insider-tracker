@@ -167,23 +167,20 @@ class CursorWalk:
         return None
 
     async def _fetch(self, request: V2PageRequest) -> object:
-        for attempt in range(self._retry.attempt_limit()):
+        for attempt in range(self._retry.max_retries):
             try:
                 return await self._attempt(request)
             except V2TransientError as error:
-                await self._retry_or_raise(attempt, error)
-        raise AssertionError("retry loop always returns or raises")
+                await self._sleeper(
+                    self._retry.delay_seconds(
+                        attempt, retry_after_seconds=error.retry_after_seconds
+                    )
+                )
+        return await self._attempt(request)
 
     async def _attempt(self, request: V2PageRequest) -> object:
         await self._budget.acquire()
         return await self._transport.fetch(request)
-
-    async def _retry_or_raise(self, attempt: int, error: V2TransientError) -> None:
-        if attempt == self._retry.max_retries:
-            raise error
-        await self._sleeper(
-            self._retry.delay_seconds(attempt, retry_after_seconds=error.retry_after_seconds)
-        )
 
 
 @dataclass

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -200,3 +201,35 @@ async def test_worst_case_entry_age_stays_inside_the_recency_rule(
 
     assert DEFAULT_GAMMA_REFRESH_INTERVAL_SECONDS + 2 * offset + write <= 600
     assert VOLUME_RECORD_TTL_SECONDS == 2 * 600
+
+
+@pytest.mark.asyncio
+async def test_duplicate_id_with_equal_stamps_keeps_the_lower_page(
+    patch_async_client: PatchAsyncClient,
+) -> None:
+    patch_async_client(
+        _serve({0: [_market("0xa", volume24hr="1")], 1: [_market("0xa", volume24hr="9")], 2: []})
+    )
+
+    crawl = await _client(clock=lambda: START).crawl_active_markets()
+
+    assert crawl.stats["0xa"].volume24hr_raw == "1"
+
+
+@pytest.mark.asyncio
+async def test_page_waiting_for_a_slot_is_skipped_once_an_earlier_page_failed(
+    patch_async_client: PatchAsyncClient,
+) -> None:
+    served: list[int] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        served.append(int(request.url.params["offset"]) // 2)
+        await asyncio.sleep(0)
+        return httpx.Response(500, json={})
+
+    patch_async_client(httpx.MockTransport(handler))
+
+    crawl = await _client().crawl_active_markets()
+
+    assert served == [0]
+    assert (crawl.pages_ok, crawl.pages_failed, crawl.truncated) == (0, 1, True)

@@ -3,7 +3,7 @@
 The v1 ``TradesSourceClient`` and the v2 bounded cursor walk retry transient failures with one
 policy: an exponential backoff capped at ``BACKOFF_CAP_SECONDS``, multiplied by an injected random
 source (full jitter), plus any ``Retry-After`` delay capped at ``RETRY_AFTER_CAP_SECONDS``. The
-constants, the delay formula, and the attempt-count classification (``attempt_limit``) live here so
+constants and the delay formula live here so
 neither acquisition path re-declares them. Each client keeps its own transient predicate because the
 provider error types differ, but it counts and delays its retries through this one policy.
 """
@@ -52,10 +52,6 @@ class RetryPolicy:
 
     max_retries: int = MAX_RETRIES
     random_source: RandomSource = random.random
-
-    def attempt_limit(self) -> int:
-        """The number of physical attempts permitted: the first try plus ``max_retries``."""
-        return self.max_retries + 1
 
     def delay_seconds(self, attempt: int, *, retry_after_seconds: float) -> float:
         """The jittered sleep before retrying ``attempt``, honouring ``Retry-After``."""
