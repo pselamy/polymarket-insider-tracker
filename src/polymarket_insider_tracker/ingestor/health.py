@@ -13,11 +13,11 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
 
 from aiohttp import web
 from prometheus_client import Counter, Gauge, Histogram, generate_latest
 
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 from polymarket_insider_tracker.redaction import redact_exception_message, redact_text
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class ComponentStatus:
         """Return True if the component is unavailable or terminally failed."""
         return self.status == "down"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, JsonValue]:
         """Convert component status to dictionary for health output (error redacted)."""
         return {
             "status": self.status,
@@ -651,8 +651,8 @@ class HealthMonitor:
         return round(now - timestamp, 1)
 
     @staticmethod
-    def _format_streams(streams: dict[str, StreamHealth]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
+    def _format_streams(streams: dict[str, StreamHealth]) -> dict[str, JsonValue]:
+        result: dict[str, JsonValue] = {}
         for name, stream in streams.items():
             result[name] = {
                 "status": stream.status.value,
@@ -669,7 +669,7 @@ class HealthMonitor:
         components: dict[str, ComponentStatus],
         overall_status: HealthStatus,
         now: float,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         return {
             "status": overall_status.value,
             "uptime_seconds": round(report.uptime_seconds, 1),
@@ -760,6 +760,6 @@ class HealthMonitor:
         await self.start()
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, *args: object) -> None:
         """Async context manager exit."""
         await self.stop()

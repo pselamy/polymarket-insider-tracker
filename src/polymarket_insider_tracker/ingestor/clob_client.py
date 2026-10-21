@@ -1,17 +1,23 @@
 """Wrapper around py-clob-client with rate limiting and retry logic."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 from collections.abc import Callable
-from functools import wraps
-from typing import Any, ParamSpec, TypeVar, cast
+from dataclasses import dataclass
+from functools import partial, wraps
+from typing import TYPE_CHECKING, ParamSpec, TypeVar
 
 from py_clob_client.client import ClobClient as BaseClobClient
 from py_clob_client.clob_types import BookParams
 
 from polymarket_insider_tracker.ingestor.models import Market, Orderbook
 from polymarket_insider_tracker.redaction import redact_exception_message
+
+if TYPE_CHECKING:
+    from py_clob_client.client import SimplifiedMarketsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -84,22 +90,23 @@ def _sleep_backoff(
     time.sleep(delay)
 
 
-def _attempt_call(
-    func: Callable[P, T],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
-    retry_on: tuple[type[Exception], ...],
-) -> tuple[T | None, Exception | None]:
+@dataclass(frozen=True)
+class _Raised:
+    """A retryable failure of one attempt, as a value distinct from any result."""
+
+    error: Exception
+
+
+def _attempt_call(call: Callable[[], T], retry_on: tuple[type[Exception], ...]) -> T | _Raised:
     try:
-        return func(*args, **kwargs), None
+        return call()
     except retry_on as e:
-        return None, e
+        return _Raised(e)
 
 
 def _execute_with_retry(
-    func: Callable[P, T],
-    args: tuple[Any, ...],
-    kwargs: dict[str, Any],
+    call: Callable[[], T],
+    name: str,
     max_retries: int,
     base_delay: float,
     retry_on: tuple[type[Exception], ...],
@@ -107,15 +114,15 @@ def _execute_with_retry(
     last_exception: Exception | None = None
 
     for attempt in range(max_retries + 1):
-        res, exc = _attempt_call(func, args, kwargs, retry_on)
-        if exc is None:
-            return cast(T, res)
-        last_exception = exc
+        res = _attempt_call(call, retry_on)
+        if not isinstance(res, _Raised):
+            return res
+        last_exception = res.error
         if attempt < max_retries:
-            _sleep_backoff(attempt, max_retries, base_delay, exc)
+            _sleep_backoff(attempt, max_retries, base_delay, res.error)
 
     raise RetryError(
-        f"All {max_retries + 1} attempts failed for {func.__name__}",
+        f"All {max_retries + 1} attempts failed for {name}",
         last_exception=last_exception,
     )
 
@@ -139,7 +146,9 @@ def with_retry(
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            return _execute_with_retry(func, args, kwargs, max_retries, base_delay, retry_on)
+            return _execute_with_retry(
+                partial(func, *args, **kwargs), func.__name__, max_retries, base_delay, retry_on
+            )
 
         return wrapper
 
@@ -189,15 +198,15 @@ class ClobClient:
             requests_per_second,
         )
 
-    def _fetch_simplified_markets(self, cursor: str | None) -> dict[str, Any]:
+    def _fetch_simplified_markets(self, cursor: str | None) -> SimplifiedMarketsResponse:
         if cursor:
-            result = self._client.get_simplified_markets(cursor)
-        else:
-            result = self._client.get_simplified_markets()
-        return cast(dict[str, Any], result)
+            return self._client.get_simplified_markets(cursor)
+        return self._client.get_simplified_markets()
 
     @staticmethod
-    def _extract_page_markets(market_list: list[dict[str, Any]], active_only: bool) -> list[Market]:
+    def _extract_page_markets(
+        market_list: list[dict[str, object]], active_only: bool
+    ) -> list[Market]:
         markets: list[Market] = []
         for market_data in market_list:
             market = Market.from_dict(market_data)

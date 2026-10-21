@@ -195,13 +195,13 @@ class FakeEth:
         if self._always_fail or self.call_count <= self._fail_count:
             raise Web3Exception("RPC error")
 
-    async def get_transaction_count(self, address: str) -> int:
-        _ = address
+    async def get_transaction_count(self, account: str) -> int:
+        _ = account
         self._count_call()
         return self._transaction_count
 
-    async def get_balance(self, address: str) -> int:
-        _ = address
+    async def get_balance(self, account: str) -> int:
+        _ = account
         self._count_call()
         return self._balance_wei
 

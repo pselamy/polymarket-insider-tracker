@@ -506,6 +506,44 @@ class TestPolygonClientBlock:
         assert block["timestamp"] == 1704369600
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("cached", [b"[1, 2]", b'"text"', b"7", b"null"])
+    async def test_get_block_non_object_cache_entry_is_a_miss(
+        self, fake_redis: FakeAsyncRedis, cached: bytes
+    ) -> None:
+        """A cached value that is not a JSON object is refetched, not returned."""
+        client = PolygonClient(
+            "https://polygon-rpc.com",
+            redis=fake_redis,
+            web3=FakeAsyncWeb3(FakeEth(block_timestamp=1704369600)),
+        )
+        await fake_redis.set("polygon:block:50000000", cached)
+
+        block = await client.get_block(50000000)
+
+        assert block["timestamp"] == 1704369600
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("timestamp", ["1704369600", None, 1.5])
+    async def test_get_block_rejects_a_non_integer_timestamp(
+        self, fake_redis: FakeAsyncRedis, timestamp: object
+    ) -> None:
+        """A block whose timestamp is not an integer fails instead of being coerced or cached."""
+
+        class OddTimestampEth(FakeEth):
+            async def get_block(self, block_identifier: Any) -> dict[str, Any]:
+                _ = block_identifier
+                return {"timestamp": timestamp}
+
+        client = PolygonClient(
+            "https://polygon-rpc.com", redis=fake_redis, web3=FakeAsyncWeb3(OddTimestampEth())
+        )
+
+        with pytest.raises(ValueError, match="timestamp is not an integer"):
+            await client.get_block(50000000)
+
+        assert await fake_redis.get("polygon:block:50000000") is None
+
+    @pytest.mark.asyncio
     async def test_get_block_uncached(self, fake_redis: FakeAsyncRedis) -> None:
         """Test getting block from blockchain."""
         client = PolygonClient(

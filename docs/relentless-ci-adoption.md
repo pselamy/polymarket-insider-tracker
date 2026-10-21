@@ -1352,3 +1352,27 @@ is tests only, so its spec004 hash is untouched). This supersedes the two
 - `ingestor/models.py`: the `...` Protocol stubs are exercised by reading each declared property
   getter and asserting it supplies no default value; the `"other"` category fallback and a cached
   market with no dates are covered by behavioural tests.
+
+## Escape sweep step 2: typing escapes out of the profiler, clients, health and storage (2026-10-21)
+
+Scope: ten production files. Lines matching `cast(`, `Any`, `type: ignore`, `pyright: ignore` or
+`noqa`, before and after (no file carried an ignore or `noqa`; every escape was a `cast` or an `Any`):
+
+| File | Before | After | Reason it existed and the replacement |
+| --- | --- | --- | --- |
+| `profiler/chain.py` | 14 | 0 | `getattr(w3.eth, name)(*args)` dispatch returned `Any`; block JSON was cast. Typed `RpcCall[T]` operations, an `RpcFailure` value instead of a `(bool, Any, error)` tuple, and a checked cache decode. |
+| `profiler/_funding_rpc.py` | 10 | 0 | Logs and topics were `list[Any]`. `HexStr` topics, `Mapping[str, object]` logs, and `parse_transfer_log` rejecting bad shapes. |
+| `profiler/funding.py` | 3 | 0 | Raw log indexing; now reads `TransferLogFields`. |
+| `profiler/rpc_handle.py` | 4 | 2 | `EthRpc` gains the typed calls the client uses. One boundary `Any` stays: web3's overloaded `contract` proxy (the single confined line, documented in the PR body). |
+| `shutdown.py` | 9 | 0 | Callback, signal-handler and coroutine annotations are now `object`, `Future[object]`, `Coroutine` and a `SignalHandler` alias. |
+| `ingestor/clob_client.py` | 9 | 0 | Retry helper unpacked `*args`/`**kwargs` as `Any` and cast the result; now a `partial` plus a `_Raised` value. The market page cast was redundant with the typed stub. |
+| `ingestor/websocket.py` | 7 | 0 | Frames are `str | bytes`; messages decode as `JsonValue` and non-objects are rejected. |
+| `ingestor/health.py` | 6 | 0 | Health bodies are `dict[str, JsonValue]`. |
+| `storage/repos.py` | 4 | 0 | `cast(RowCountResult, ...)` replaced by an `isinstance(CursorResult)` check in `rows_affected`. |
+| `storage/database.py` | 3 | 0 | Engine `**kwargs: Any` is now `Unpack[EngineOptions]`. |
+
+Newly checked shapes, each with a test: a cached block that is not a JSON object is a cache miss;
+a block timestamp that is not an integer is rejected; a transfer log with missing or mistyped
+topics, data, transaction hash or block number raises `ValueError`; a WebSocket frame that is
+valid JSON but not an object is logged and dropped; a DML result that is not a cursor result
+raises `TypeError`.

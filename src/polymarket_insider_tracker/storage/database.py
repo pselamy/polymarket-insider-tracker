@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -25,7 +25,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def create_sync_engine(database_url: str, **kwargs: Any) -> Engine:
+class EngineOptions(TypedDict, total=False):
+    """The engine options this layer passes through to SQLAlchemy."""
+
+    pool_size: int
+    max_overflow: int
+    echo: bool
+
+
+def create_sync_engine(database_url: str, **kwargs: Unpack[EngineOptions]) -> Engine:
     """Create a synchronous SQLAlchemy engine.
 
     Args:
@@ -38,7 +46,7 @@ def create_sync_engine(database_url: str, **kwargs: Any) -> Engine:
     return create_engine(normalize_database_url(database_url), **kwargs)
 
 
-def create_async_db_engine(database_url: str, **kwargs: Any) -> AsyncEngine:
+def create_async_db_engine(database_url: str, **kwargs: Unpack[EngineOptions]) -> AsyncEngine:
     """Create an asynchronous SQLAlchemy engine.
 
     Args:

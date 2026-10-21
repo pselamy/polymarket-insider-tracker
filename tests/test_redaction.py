@@ -817,8 +817,8 @@ class TestUpstreamSinkRedaction:
         secret = "upstream-retry-secret-r10"
 
         class LeakyRetryEth(FakeEth):
-            async def get_transaction_count(self, address: str) -> int:
-                _ = address
+            async def get_transaction_count(self, account: str) -> int:
+                _ = account
                 raise Web3Exception(f"node refused https://rpc.internal?k={secret}")
 
         client = PolygonClient(
