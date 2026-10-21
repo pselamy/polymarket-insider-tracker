@@ -1,7 +1,7 @@
 """Build one 004.1 evaluation envelope per live-replay case (contracts/scoring-config.md).
 
-Stdlib only; never imports from src/. The verdicts come from ``replay_live`` (the executable
-precedence table) and the scoring arithmetic from ``reachability``; this module only lays the
+The verdicts come from ``replay_live`` (the executable precedence table) and the scores from
+``real_scoring`` (the product detectors and scorer, T028); this module only lays the
 results out in the stored envelope shape so ``check_envelope`` can validate every volume state.
 Envelopes are built in the default pre-T027 posture (FR-007c, ``wallet.group_status =
 unqualified_pre_T027``) unless the post-T027 scenario (``qualified``) is requested.
@@ -18,7 +18,7 @@ from fractions import Fraction
 from typing import Any, cast
 
 from scripts.spec004_evidence import replay_live as rl
-from scripts.spec004_evidence.reachability import (
+from scripts.spec004_evidence.real_scoring import (
     Market,
     Wallet,
     score,

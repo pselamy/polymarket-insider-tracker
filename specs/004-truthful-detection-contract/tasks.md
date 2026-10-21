@@ -55,6 +55,10 @@ Named files, entry points, dependency order:
   ages 0.5 / 599.999999 / 600.000001 / 600.5 / −0.000001 s, with ages computed exactly from aware datetimes),
   `volume_impact` as the exact quotient rounded once (data-model §3; a ratio above 28 digits must not raise),
   niche modifier incl. the D3 (d) rule (decided 2026-10-20: category fallback only when no volume value was observed, i.e. `unavailable`/`missing`, and the category is real metadata; the lookup-failure case and every observed-value state give no size signal), threshold equality (FR-001–011, FR-015, SC-001–003)
+  *Layer 4 note (partial, stays unticked)*: `tests/detector/test_reachability.py` (T028) scores the 65 replay-live
+  cases through the real size detector and scorer and compares them with the committed rows; their volume states
+  are still classified by the replay script's precedence table, not by `detector/volume_state.py`, so the
+  "all eight volume states through the detector" leg is not claimed by that test.
 - [x] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
   flags in analysis, scoring, persistence, and formatted dry-run output; per-participant
@@ -223,6 +227,8 @@ Named files, entry points, dependency order:
   `detector/alert_path.py`, `ingestor/alert_path_health.py` and `tests/detector/test_alert_path.py`: cases (a), (b),
   (e), (f) and the three surfaces. **Not done**: cases (c) and (d), which need the `qualified` wallet status of the
   gate-opening change (T015b), and the T028 regeneration of `evidence/reachability.md` from the shared function.
+  *Layer 4 receipt (stays unticked)*: the T028 regeneration landed (see T028); cases (c) and (d) still wait
+  for T015b.
 - [ ] T030 [US3] **NOT IN SCOPE (D2 = R0 decided 2026-10-20; R5 not selected; this task is dropped and stays unticked)** — **Only if DECISION D2 selects R5** — assessment-only delivery suppression (FR-022b,
   SC-010). Add the typed code constant `release_posture` (`alert_capable` | `assessment_only`; no
   setting, no environment variable) and make `_score_and_alert` / `_handle_above_threshold`
@@ -241,12 +247,22 @@ Named files, entry points, dependency order:
   strict). **If D2 selects R0 this task is dropped**, delivery stays unchanged, and the T021 journeys at
   `alert_threshold=0.4` are the only end-to-end proof of the delivery stage; no journey proves delivery
   on the shipped 0.80 configuration, because nothing live reaches it.
-- [ ] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
+- [x] T028 [US3] Reachability regression test (`tests/detector/test_scorer.py` or a new
   `tests/detector/test_reachability.py`): recompute the ceilings in `evidence/reachability.md` for both
   wallet postures (pre-T027 default: 0.450 niche / 0.175 not niche / 0.120 / 0.000; post-T027:
   unknown-age 0.780, not-niche 0.450/0.642, etc.) from the real `FreshWalletDetector`,
   `SizeAnomalyDetector` and `RiskScorer`, so any weight/cap/bonus/threshold change fails loudly (FR-022,
   SC-009). Also add the 65 `evidence/replay-live/cases.json` cases to the table-driven suite.
+  *Layer 4 receipt*: `scripts/spec004_evidence/real_scoring.py` scores every grid point and replay case through
+  the real `SizeAnomalyDetector.evaluate`, `FreshWalletDetector.evaluate` and `size_group_score` (the function
+  `detector/alert_path.py` uses); `reachability` fails unless its default-posture ceiling equals
+  `alert_path_report(0.80).ceiling`. `tests/detector/test_reachability.py` recomputes the pre-T027 ceilings
+  (0.450/0.175/0.120/0.000 per class and band), the post-T027 scenario ceilings (0.780, 0.450, 0.384, 0.200,
+  0.924, 0.972, 0.642, 0.828), the 0.541 unknown-age break-even, and the 65 replay-live cases against the
+  committed rows. The post-T027 scenario is composed from the scorer's weights, quantization and bonus because
+  main does not wire it (T015b). Regeneration corrected two values of the retired copied model, which skipped
+  the product's 0.0001 ratio rounding (sensitivity 28 -> 27 at 0.40; `live-below-wallet-min` size confidence
+  0.417 -> 0.416); no ceiling or verdict changed (`evidence/source-refresh-f2e2167.md`, twelfth refresh).
 
 ## Phase 5b: V2 journey suites (added 2026-10-19; future implementation)
 

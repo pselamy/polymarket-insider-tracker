@@ -353,8 +353,9 @@ G3)**
 
 ## R10 — Threshold reachability under live evidence (added 2026-10-19; resolves F03, F04, F05)
 
-Every number below is recomputed by `uv run python -m scripts.spec004_evidence.reachability` (stdlib only, no `src/`
-import; it re-reads the product source as text and fails if a copied constant drifted) and is committed
+Every number below is recomputed by `uv run python -m scripts.spec004_evidence.reachability` (since T028 every
+grid point is scored by the product detectors and scorer, and the default-posture ceiling must equal the
+runtime alert-path report; the tool also re-reads the scoring literals from the product source as text) and is committed
 as [evidence/reachability.md](evidence/reachability.md); `--check` proves the file is current. Weights,
 caps and bonuses are those of `detector/scorer.py` (0.40/0.35/0.25, ×1.2 for two groups),
 `detector/size_anomaly.py` (volume component ≤ 0.5, ×1.5 niche multiplier, niche-only 0.2) and

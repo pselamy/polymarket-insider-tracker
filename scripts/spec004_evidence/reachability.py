@@ -1,50 +1,53 @@
-"""Recompute the slice-004 threshold-reachability table (research.md R10).
+"""Recompute the slice-004 threshold-reachability table (research.md R10, T028).
 
 Usage:
     python3 -m scripts.spec004_evidence.reachability                 # print the markdown report
     python3 -m scripts.spec004_evidence.reachability --check FILE    # exit 0 iff FILE equals the report byte for byte; 1 if stale or
                                                                      # missing; 2 on any other arguments
 
-Stdlib only. It never imports from src/; the scoring constants below are copies, and
-``verify_constants`` re-reads the product source as text (default: the repository containing this
-file) and fails if a copied literal is no longer present, so the table cannot silently diverge
-from detector/scorer.py, detector/size_anomaly.py and detector/fresh_wallet.py.
+Every grid point is scored by the product code (``real_scoring``): the real size and fresh-wallet
+detectors and the scorer's ``size_group_score``, the same function the runtime alert-path report
+(``detector/alert_path.py``) computes its ceiling with; ``report`` fails if the two ceilings differ.
+``verify_constants`` additionally re-reads the product source as text and lists the scoring literals,
+so a weight, cap or bonus change shows up as a reviewed diff of the committed report.
 
-Rules modelled: the *proposed* 004 contract (unknown age = exactly 0.50, book depth
-non-operational, volume usable only when ``available``, category fallback only when no volume value
-was observed, DECISION D3 (d)) in its two wallet postures -- the default pre-T027 posture (FR-007c: wallet group
+Rules modelled: the 004 contract (unknown age = exactly 0.50, book depth non-operational, volume
+usable only when ``available``, category fallback only when no volume value was observed, DECISION
+D3 (d)) in its two wallet postures -- the default pre-T027 posture (FR-007c: wallet group
 non-scoring, so only the size group can score and the two-group bonus never applies) and the
-post-T027 scenario (wallet group qualified) -- next to the *003.1* rules as currently wired on main
-(the live pipeline passes no volume, so the size signal can only come from the category fallback).
+post-T027 scenario (wallet group qualified) -- next to the *003.1* rules (the pre-004 live pipeline
+passed no volume, so the size signal could only come from the category fallback).
 """
 
 from __future__ import annotations
 
 import sys
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import Decimal
 from itertools import product
 from pathlib import Path
 
+from polymarket_insider_tracker.detector.alert_path import alert_path_report
+from polymarket_insider_tracker.detector.fresh_wallet import LARGE_TRADE_THRESHOLD
+from polymarket_insider_tracker.detector.scorer import (
+    DEFAULT_ALERT_THRESHOLD,
+    quantize_score_value,
+)
+from polymarket_insider_tracker.detector.size_anomaly import DEFAULT_NICHE_VOLUME_THRESHOLD
 from scripts.spec004_evidence.cli import print_or_check
+from scripts.spec004_evidence.real_scoring import (
+    Market,
+    Wallet,
+    score,
+    size_signal,
+    wallet_confidence,
+)
 
-QUANTUM = Decimal("0.001")
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "src" / "polymarket_insider_tracker"
-
-# --- constants copied from product source (verified textually by verify_constants) ------------
-W_WALLET, W_SIZE, W_NICHE = Decimal("0.40"), Decimal("0.35"), Decimal("0.25")  # scorer.py
-BONUS_TWO = Decimal("1.2")  # scorer.py MULTI_SIGNAL_BONUS_2
-BASE, BRAND_NEW, VERY_YOUNG, LARGE = 0.5, 0.2, 0.1, 0.1  # fresh_wallet.py
-LARGE_THRESHOLD = Decimal(10000)  # fresh_wallet.py
-WALLET_MIN_NOTIONAL = Decimal(1000)  # fresh_wallet.py DEFAULT_MIN_TRADE_SIZE
-VOLUME_THRESHOLD = 0.02  # size_anomaly.py DEFAULT_VOLUME_THRESHOLD
-NICHE_VOLUME = Decimal(50000)  # size_anomaly.py DEFAULT_NICHE_VOLUME_THRESHOLD
-NICHE_MIN_NOTIONAL = Decimal(500)  # size_anomaly.py DEFAULT_NICHE_MIN_TRADE_SIZE
-NICHE_MULTIPLIER, NICHE_BASE = 1.5, 0.2  # size_anomaly.py
-THRESHOLD = Decimal("0.80")  # scorer.py DEFAULT_ALERT_THRESHOLD
-UNKNOWN_AGE_CONFIDENCE = 0.5  # proposed FR-008 (exactly)
+LARGE_THRESHOLD = LARGE_TRADE_THRESHOLD
+NICHE_VOLUME = DEFAULT_NICHE_VOLUME_THRESHOLD
+THRESHOLD = quantize_score_value(DEFAULT_ALERT_THRESHOLD)
 
 REQUIRED_LITERALS: dict[str, tuple[str, ...]] = {
     "detector/scorer.py": (
@@ -87,88 +90,6 @@ def verify_constants(source: Path = SOURCE) -> list[str]:
     for relative, literals in REQUIRED_LITERALS.items():
         lines += check_literals(relative, (source / relative).read_text(), literals)
     return lines
-
-
-def quantize(value: float | Decimal) -> Decimal:
-    return Decimal(str(value)).quantize(QUANTUM, rounding=ROUND_HALF_EVEN)
-
-
-@dataclass(frozen=True)
-class Wallet:
-    name: str
-    nonce: int
-    age_hours: float | None  # None = unknown
-
-
-@dataclass(frozen=True)
-class Market:
-    name: str
-    volume: Decimal | None  # usable positive 24h volume, else None
-    niche_prone_category: bool  # category in science/tech/finance/other
-
-
-def known_age_confidence(wallet: Wallet, notional: Decimal) -> float:
-    confidence = BASE
-    if wallet.nonce == 0:
-        confidence += BRAND_NEW
-    if wallet.age_hours is not None and wallet.age_hours < 2.0:
-        confidence += VERY_YOUNG
-    if notional > LARGE_THRESHOLD:
-        confidence += LARGE
-    return max(0.0, min(1.0, confidence))
-
-
-def wallet_confidence(wallet: Wallet, notional: Decimal, *, proposed: bool) -> float | None:
-    """None = no wallet signal. ``proposed`` applies the 004 unknown-age rule."""
-    if notional < WALLET_MIN_NOTIONAL:
-        return None
-    if proposed and wallet.age_hours is None:
-        return UNKNOWN_AGE_CONFIDENCE
-    return known_age_confidence(wallet, notional)
-
-
-def is_niche_market(market: Market, volume: Decimal | None) -> bool:
-    if volume is None:
-        return market.niche_prone_category
-    return volume < NICHE_VOLUME
-
-
-def raw_size_confidence(impact: float, *, is_niche: bool) -> float:
-    confidence = 0.0
-    if impact > VOLUME_THRESHOLD:
-        confidence = min(impact / VOLUME_THRESHOLD, 3.0) / 3.0 * 0.5
-    if not is_niche:
-        return confidence
-    return confidence * NICHE_MULTIPLIER if confidence > 0 else NICHE_BASE
-
-
-def size_signal(
-    market: Market, notional: Decimal, *, volume_passed: bool
-) -> tuple[float, bool] | None:
-    """(confidence, is_niche) or None when no size signal is emitted."""
-    volume = market.volume if volume_passed else None
-    impact = float(notional / volume) if volume is not None else 0.0
-    is_niche = is_niche_market(market, volume)
-    if is_niche and impact <= VOLUME_THRESHOLD and notional < NICHE_MIN_NOTIONAL:
-        return None
-    confidence = max(0.0, min(1.0, raw_size_confidence(impact, is_niche=is_niche)))
-    return (confidence, is_niche) if confidence >= 0.1 else None
-
-
-def score(wallet_conf: float | None, size: tuple[float, bool] | None) -> Decimal:
-    total = Decimal(0)
-    count = 0
-    if wallet_conf is not None:
-        total += quantize(wallet_conf) * W_WALLET
-        count += 1
-    if size is not None:
-        total += quantize(size[0]) * W_SIZE
-        if size[1]:
-            total += quantize(size[0]) * W_NICHE
-        count += 1
-    if count >= 2:
-        total *= BONUS_TWO
-    return min(total, Decimal(1)).quantize(QUANTUM, rounding=ROUND_HALF_EVEN)
 
 
 WALLETS = (
@@ -329,11 +250,16 @@ def sensitivity_table(wallet: Wallet | None) -> list[str]:
 
 
 def gated_ceiling() -> Decimal:
-    return max(
+    """The grid maximum of the default posture; it must equal the runtime alert-path ceiling."""
+    best = max(
         s
         for regime, (_, band) in product(range(4), BANDS)
         for s, _ in grid(None, regime, band, proposed=True)
     )
+    runtime = alert_path_report(DEFAULT_ALERT_THRESHOLD).ceiling
+    if best != runtime:
+        raise SystemExit(f"grid ceiling {best} differs from the alert-path ceiling {runtime}")
+    return best
 
 
 def unknown_confidence_needed() -> str:

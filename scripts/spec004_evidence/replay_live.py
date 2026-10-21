@@ -5,8 +5,8 @@ Usage:
     python3 -m scripts.spec004_evidence.replay_live --check FILE    # exit 0 iff FILE equals the CSV byte for byte; 1 if stale or
                                                                     # missing; 2 on any other arguments
 
-Stdlib only; never imports from src/. Scoring arithmetic is shared with reachability.py (whose
-constants are textually verified against the product source). The volume-state classifier below is
+Scoring goes through the product detectors and scorer (``real_scoring``, shared with
+reachability.py, T028). The volume-state classifier below is
 the executable form of the precedence table in data-model.md section 1; the cases cover every
 state and reason. ``old_score_as_wired`` is the 003.1 rule with the live wiring (no volume passed).
 Each case is scored in both wallet postures: ``pre_T027`` is the default (FR-007c: the wallet group
@@ -28,12 +28,12 @@ from pathlib import Path
 from typing import Any, cast
 
 from scripts.spec004_evidence.cli import print_or_check
-from scripts.spec004_evidence.reachability import (
+from scripts.spec004_evidence.reachability import verify_constants
+from scripts.spec004_evidence.real_scoring import (
     Market,
     Wallet,
     score,
     size_signal,
-    verify_constants,
     wallet_confidence,
 )
 
