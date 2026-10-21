@@ -216,7 +216,6 @@ class TestRiskScorerInit:
         scorer = RiskScorer(fake_redis)
 
         assert scorer.alert_threshold == DEFAULT_ALERT_THRESHOLD
-        assert scorer.dedup_window_seconds == 3600
 
     def test_custom_configuration(self, fake_redis: FakeAsyncRedis) -> None:
         """Test scorer with custom threshold and window configuration."""
@@ -227,7 +226,6 @@ class TestRiskScorerInit:
         )
 
         assert scorer.alert_threshold == 0.7
-        assert scorer.dedup_window_seconds == 1800
 
 
 # ============================================================================

@@ -109,11 +109,6 @@ class SizeAnomalyDetector:
         return self._volume_threshold
 
     @property
-    def book_threshold(self) -> float:
-        """The book-impact ratio a trade must exceed."""
-        return self._book_threshold
-
-    @property
     def niche_volume_threshold(self) -> Decimal:
         """The daily volume below which an available volume makes a market niche."""
         return self._niche_volume_threshold

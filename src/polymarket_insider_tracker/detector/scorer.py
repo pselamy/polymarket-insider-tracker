@@ -253,11 +253,6 @@ class RiskScorer:
         return self._alert_threshold
 
     @property
-    def dedup_window_seconds(self) -> int:
-        """The configured deduplication window in seconds."""
-        return self._dedup_window
-
-    @property
     def scoring_config(self) -> str:
         """The canonical configuration JSON recorded on every new assessment."""
         return self._scoring_config

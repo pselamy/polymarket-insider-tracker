@@ -67,6 +67,21 @@ class FakeWebSocket:
         return self.messages.pop(0)
 
 
+MINIMAL_TRADE_MESSAGE = json.dumps(
+    {
+        "connection_id": "abc",
+        "payload": {
+            "conditionId": "0x",
+            "transactionHash": "0x",
+            "proxyWallet": "0x",
+            "side": "BUY",
+            "price": 0.5,
+            "size": 10,
+        },
+    }
+)
+
+
 class StoppingWebSocket(FakeWebSocket):
     """Fake WebSocket that yields its messages, then stops the handler streaming from it."""
 
@@ -274,69 +289,30 @@ class TestTradeStreamHandler:
         assert handler.stats.trades_received == 1
 
     @pytest.mark.asyncio
-    async def test_handle_message_non_trade(
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # no transactionHash/proxyWallet
+            json.dumps({"connection_id": "abc123", "payload": {"body": "Hello"}}),
+            # transactionHash but no proxyWallet is not a trade
+            json.dumps(
+                {"connection_id": "abc", "payload": {"transactionHash": "0xtx", "other": "x"}}
+            ),
+            # no payload key is ignored
+            json.dumps({"connection_id": "abc", "status": "ok"}),
+            "not valid json",
+        ],
+        ids=["non-trade", "missing-proxy-wallet", "no-payload-key", "invalid-json"],
+    )
+    async def test_handle_message_ignores_non_trades(
         self,
         handler: TradeStreamHandler,
         on_trade_recorder: RecordingTradeCallback,
         monkeypatch: pytest.MonkeyPatch,
+        message: str,
     ) -> None:
-        """Test handling a non-trade message (no transactionHash/proxyWallet)."""
-        message = json.dumps(
-            {
-                "connection_id": "abc123",
-                "payload": {"body": "Hello"},
-            }
-        )
-
+        """Messages that are not trades, or not JSON, never reach the trade callback."""
         await stream(handler, [StoppingWebSocket([message])], monkeypatch)
-
-        assert not on_trade_recorder.called
-        assert handler.stats.trades_received == 0
-
-    @pytest.mark.asyncio
-    async def test_handle_message_payload_missing_proxy_wallet(
-        self,
-        handler: TradeStreamHandler,
-        on_trade_recorder: RecordingTradeCallback,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Ratchet: payload with transactionHash but no proxyWallet is not a trade."""
-        message = json.dumps(
-            {
-                "connection_id": "abc",
-                "payload": {"transactionHash": "0xtx", "other": "field"},
-            }
-        )
-
-        await stream(handler, [StoppingWebSocket([message])], monkeypatch)
-
-        assert not on_trade_recorder.called
-        assert handler.stats.trades_received == 0
-
-    @pytest.mark.asyncio
-    async def test_handle_message_no_payload_key(
-        self,
-        handler: TradeStreamHandler,
-        on_trade_recorder: RecordingTradeCallback,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Ratchet: message without payload key is ignored."""
-        message = json.dumps({"connection_id": "abc", "status": "ok"})
-
-        await stream(handler, [StoppingWebSocket([message])], monkeypatch)
-
-        assert not on_trade_recorder.called
-        assert handler.stats.trades_received == 0
-
-    @pytest.mark.asyncio
-    async def test_handle_message_invalid_json(
-        self,
-        handler: TradeStreamHandler,
-        on_trade_recorder: RecordingTradeCallback,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Test handling invalid JSON message."""
-        await stream(handler, [StoppingWebSocket(["not valid json"])], monkeypatch)
 
         assert not on_trade_recorder.called
         assert handler.stats.trades_received == 0
@@ -347,19 +323,7 @@ class TestTradeStreamHandler:
         recorder = RecordingTradeCallback(raise_error=ValueError("Callback error"))
         handler = TradeStreamHandler(on_trade=recorder)
 
-        message = json.dumps(
-            {
-                "connection_id": "abc",
-                "payload": {
-                    "conditionId": "0x",
-                    "transactionHash": "0x",
-                    "proxyWallet": "0x",
-                    "side": "BUY",
-                    "price": 0.5,
-                    "size": 10,
-                },
-            }
-        )
+        message = MINIMAL_TRADE_MESSAGE
 
         # Should not raise
         await stream(handler, [StoppingWebSocket([message])], monkeypatch)
@@ -399,19 +363,7 @@ class TestTradeStreamHandler:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A reconnect that leaves the handler running must assign its connection."""
-        message = json.dumps(
-            {
-                "connection_id": "abc",
-                "payload": {
-                    "conditionId": "0x",
-                    "transactionHash": "0x",
-                    "proxyWallet": "0x",
-                    "side": "BUY",
-                    "price": 0.5,
-                    "size": 10,
-                },
-            }
-        )
+        message = MINIMAL_TRADE_MESSAGE
         lost = LostWebSocket()
         revived = StoppingWebSocket([message])
 

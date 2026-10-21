@@ -8,7 +8,6 @@ import pytest
 
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.detector.size_anomaly import (
-    DEFAULT_BOOK_THRESHOLD,
     DEFAULT_NICHE_VOLUME_THRESHOLD,
     DEFAULT_VOLUME_THRESHOLD,
     SizeAnomalyDetector,
@@ -239,6 +238,15 @@ class TestSizeAnomalySignal:
 # ============================================================================
 
 
+@pytest.fixture
+def detector(
+    fake_metadata_sync: FakeMetadataSync, sample_metadata: MarketMetadata
+) -> SizeAnomalyDetector:
+    """A default detector whose metadata source serves ``sample_metadata`` for any market."""
+    fake_metadata_sync.fallback = sample_metadata
+    return SizeAnomalyDetector(fake_metadata_sync)
+
+
 class TestSizeAnomalyDetectorInit:
     """Tests for SizeAnomalyDetector initialization."""
 
@@ -247,7 +255,6 @@ class TestSizeAnomalyDetectorInit:
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         assert detector.volume_threshold == DEFAULT_VOLUME_THRESHOLD
-        assert detector.book_threshold == DEFAULT_BOOK_THRESHOLD
         assert detector.niche_volume_threshold == DEFAULT_NICHE_VOLUME_THRESHOLD
 
     def test_custom_thresholds(self, fake_metadata_sync: FakeMetadataSync) -> None:
@@ -260,8 +267,24 @@ class TestSizeAnomalyDetectorInit:
         )
 
         assert detector.volume_threshold == 0.05
-        assert detector.book_threshold == 0.10
         assert detector.niche_volume_threshold == Decimal("100000")
+
+    @pytest.mark.asyncio
+    async def test_book_threshold_is_the_detectors_setting(
+        self,
+        detector: SizeAnomalyDetector,
+        fake_metadata_sync: FakeMetadataSync,
+        sample_trade: TradeEvent,
+    ) -> None:
+        depth = Decimal("100000")  # a $6500 trade is 6.5% of this book
+        strict = SizeAnomalyDetector(fake_metadata_sync, book_threshold=0.10)
+
+        loose_signal = await detector.analyze(sample_trade, book_depth=depth)
+        strict_signal = await strict.analyze(sample_trade, book_depth=depth)
+
+        assert loose_signal is not None and strict_signal is not None
+        assert "book_impact" in loose_signal.factors
+        assert "book_impact" not in strict_signal.factors
 
 
 # ============================================================================
@@ -297,14 +320,10 @@ class TestVolumeImpactCalculation:
     @pytest.mark.parametrize("volume", [Decimal("0"), Decimal("-1000")])
     async def test_no_usable_volume_signals_zero_impact(
         self,
-        fake_metadata_sync: FakeMetadataSync,
+        detector: SizeAnomalyDetector,
         sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
         volume: Decimal,
     ) -> None:
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
         signal = await detector.analyze(
             sample_trade, daily_volume=volume, book_depth=Decimal("32500")
         )
@@ -322,39 +341,24 @@ class TestBookImpactCalculation:
     """Tests for order book impact calculation."""
 
     @pytest.mark.asyncio
-    async def test_book_impact_calculation(
+    @pytest.mark.parametrize(
+        ("depth", "expected"),
+        [(Decimal("65000"), 0.10), (None, 0.0), (Decimal("0"), 0.0)],
+    )
+    async def test_book_impact_is_notional_over_depth_or_zero(
         self,
-        fake_metadata_sync: FakeMetadataSync,
+        detector: SizeAnomalyDetector,
         sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
-    ) -> None:
-        """Test correct book impact calculation."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
-        # Trade notional $6500, book depth $65000 = 10% impact
-        signal = await detector.analyze(sample_trade, book_depth=Decimal("65000"))
-        assert signal is not None
-        assert math.isclose(signal.book_impact, 0.10, rel_tol=1e-6, abs_tol=1e-12)
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("depth", [None, Decimal("0")])
-    async def test_book_impact_without_usable_depth_is_zero(
-        self,
-        fake_metadata_sync: FakeMetadataSync,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
         depth: Decimal | None,
+        expected: float,
     ) -> None:
-        """Test book impact is 0 when depth is None or zero."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
+        """A $6500 trade over a $65000 book is 10%; no usable depth is 0."""
         signal = await detector.analyze(
             sample_trade, daily_volume=Decimal("65000"), book_depth=depth
         )
+
         assert signal is not None
-        assert signal.book_impact == 0.0
+        assert math.isclose(signal.book_impact, expected, rel_tol=1e-6, abs_tol=1e-12)
 
 
 # ============================================================================
@@ -535,13 +539,10 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_high_volume_impact(
         self,
-        fake_metadata_sync: FakeMetadataSync,
+        detector: SizeAnomalyDetector,
         sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects high volume impact trade."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade notional = 6500, volume = 65000, impact = 10% > 2% threshold
         signal = await detector.analyze(
@@ -556,13 +557,10 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_high_book_impact(
         self,
-        fake_metadata_sync: FakeMetadataSync,
+        detector: SizeAnomalyDetector,
         sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects high book impact trade."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Trade notional = 6500, book depth = 32500, impact = 20% > 5% threshold
         signal = await detector.analyze(
@@ -577,13 +575,10 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_niche_market(
         self,
-        fake_metadata_sync: FakeMetadataSync,
+        detector: SizeAnomalyDetector,
         sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
     ) -> None:
         """Test analyze detects niche market trade."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # Low volume market (science category with volume unknown)
         signal = await detector.analyze(sample_trade)
@@ -595,12 +590,9 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_niche_only_below_min_trade_size_skipped(
         self,
-        fake_metadata_sync: FakeMetadataSync,
-        sample_metadata: MarketMetadata,
+        detector: SizeAnomalyDetector,
     ) -> None:
         """Niche-only trades below the min trade size are suppressed."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         tiny_trade = TradeEvent(
             market_id="market_abc123",
@@ -622,12 +614,9 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_analyze_niche_only_at_min_trade_size_emits(
         self,
-        fake_metadata_sync: FakeMetadataSync,
-        sample_metadata: MarketMetadata,
+        detector: SizeAnomalyDetector,
     ) -> None:
         """Niche-only trades at or above the min trade size still emit."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         ok_trade = TradeEvent(
             market_id="market_abc123",
@@ -651,12 +640,9 @@ class TestAnalyzeMethod:
     @pytest.mark.asyncio
     async def test_niche_min_trade_size_does_not_block_real_anomalies(
         self,
-        fake_metadata_sync: FakeMetadataSync,
-        sample_metadata: MarketMetadata,
+        detector: SizeAnomalyDetector,
     ) -> None:
         """A trade that exceeds volume/book thresholds is never blocked by the niche guard."""
-        fake_metadata_sync.fallback = sample_metadata
-        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         small_but_high_impact_trade = TradeEvent(
             market_id="market_abc123",
@@ -806,14 +792,8 @@ class TestBatchAnalysis:
     """Tests for batch analysis."""
 
     @pytest.mark.asyncio
-    async def test_analyze_batch_returns_signals(
-        self,
-        fake_metadata_sync: FakeMetadataSync,
-        sample_metadata: MarketMetadata,
-    ) -> None:
+    async def test_analyze_batch_returns_signals(self, detector: SizeAnomalyDetector) -> None:
         """Test batch analysis returns signals for anomalous trades."""
-        fake_metadata_sync.fallback = sample_metadata
-
         trades = [
             TradeEvent(
                 market_id="market_abc123",
@@ -830,21 +810,14 @@ class TestBatchAnalysis:
             for i in range(3)
         ]
 
-        detector = SizeAnomalyDetector(fake_metadata_sync)
         signals = await detector.analyze_batch(trades)
 
         # All trades are in niche category with unknown volume
         assert len(signals) == 3
 
     @pytest.mark.asyncio
-    async def test_analyze_batch_with_volume_data(
-        self,
-        fake_metadata_sync: FakeMetadataSync,
-        sample_metadata: MarketMetadata,
-    ) -> None:
+    async def test_analyze_batch_with_volume_data(self, detector: SizeAnomalyDetector) -> None:
         """Test batch analysis uses provided volume data."""
-        fake_metadata_sync.fallback = sample_metadata
-
         trades = [
             TradeEvent(
                 market_id="market_abc123",
@@ -859,8 +832,6 @@ class TestBatchAnalysis:
                 asset_id="token_123",
             )
         ]
-
-        detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # $5000 trade / $50000 volume = 10% impact
         signals = await detector.analyze_batch(

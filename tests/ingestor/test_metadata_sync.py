@@ -512,10 +512,8 @@ class TestMarketMetadataSync:
             gamma_client=fake_gamma,
         )
         await sync.start()
-        try:
-            results = await sync.get_markets_by_category("crypto")
-        finally:
-            await sync.stop()
+        results = await sync.get_markets_by_category("crypto")
+        await sync.stop()
 
         assert len(results) == 1
         assert results[0].category == "crypto"

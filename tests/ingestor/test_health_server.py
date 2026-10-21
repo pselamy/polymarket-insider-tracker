@@ -58,20 +58,9 @@ async def probe(monitor: HealthMonitor, port: int, route: str) -> tuple[int, Any
 @pytest.mark.asyncio
 async def test_live_endpoint() -> None:
     """Test /live endpoint returns 200 and live: true."""
-    monitor = HealthMonitor()
-    port = 19101
-    await monitor.start()
-    await monitor.start_http_server(port=port)
-    try:
-        async with (
-            aiohttp.ClientSession() as session,
-            session.get(f"http://127.0.0.1:{port}/live") as resp,
-        ):
-            assert resp.status == 200
-            data = await resp.json()
-            assert data == {"live": True}
-    finally:
-        await monitor.stop()
+    status, data = await probe(HealthMonitor(), 19101, "/live")
+    assert status == 200
+    assert data == {"live": True}
 
 
 @pytest.mark.asyncio
@@ -163,8 +152,7 @@ async def test_health_endpoint_quiet_market_period() -> None:
             session.get(f"http://127.0.0.1:{port}/health") as resp,
         ):
             assert resp.status == 200
-            assert monitor.last_acquisition_time is not None
-            assert monitor.last_trade_time is not None
+            assert monitor.last_acquisition_time is not None and monitor.last_trade_time is not None
             assert math.isclose(monitor.last_acquisition_time, now - 2.0, rel_tol=0, abs_tol=1.0)
             assert math.isclose(monitor.last_trade_time, now - 120.0, rel_tol=0, abs_tol=1.0)
             data = await resp.json()
@@ -180,14 +168,19 @@ async def test_health_endpoint_quiet_market_period() -> None:
         await monitor.stop()
 
 
-def test_quiet_stream_with_fresh_acquisition_stays_active() -> None:
-    """A previously active stream with no recent trades but fresh acquisitions is active."""
-    now = 1_000_000.0
-    clock = FakeClock(now - 120.0)
+def quiet_trades_monitor(acquired_seconds_ago: float) -> HealthMonitor:
+    """A monitor whose only trade arrived 120 seconds ago and whose last acquisition is given."""
+    clock = FakeClock(1_000_000.0 - 120.0)
     monitor = HealthMonitor(stale_threshold_seconds=60, clock=clock)
     monitor.record_event("trades")
     clock.advance(120.0)
-    monitor.record_acquisition(now - 2.0)
+    monitor.record_acquisition(clock() - acquired_seconds_ago)
+    return monitor
+
+
+def test_quiet_stream_with_fresh_acquisition_stays_active() -> None:
+    """A previously active stream with no recent trades but fresh acquisitions is active."""
+    monitor = quiet_trades_monitor(acquired_seconds_ago=2.0)
 
     report = monitor.get_health_report()
 
@@ -197,12 +190,7 @@ def test_quiet_stream_with_fresh_acquisition_stays_active() -> None:
 
 def test_stream_goes_stale_when_acquisition_also_stops() -> None:
     """When both trades and acquisitions age past the threshold the stream is stale."""
-    now = 1_000_000.0
-    clock = FakeClock(now - 120.0)
-    monitor = HealthMonitor(stale_threshold_seconds=60, clock=clock)
-    monitor.record_event("trades")
-    clock.advance(120.0)
-    monitor.record_acquisition(now - 90.0)
+    monitor = quiet_trades_monitor(acquired_seconds_ago=90.0)
 
     report = monitor.get_health_report()
 

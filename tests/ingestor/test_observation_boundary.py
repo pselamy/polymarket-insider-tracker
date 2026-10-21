@@ -50,8 +50,7 @@ def _boundary(
 
 
 async def _zset(redis: ScoredSetReader, key: str) -> dict[str, int]:
-    members = await scored_members(redis, key)
-    return {member.decode(): int(score) for member, score in members}
+    return {member.decode(): int(score) for member, score in await scored_members(redis, key)}
 
 
 def _event(from_time: int, reason: LossReason = LossReason.HORIZON_EXPIRED) -> LossEvent:
