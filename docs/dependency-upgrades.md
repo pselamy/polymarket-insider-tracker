@@ -19,7 +19,7 @@ Advisory counts include GHSA/PYSEC aliases as separate osv records.
 
 | # | Family | Package | Locked | Minimum fixed | Advisories | Scope |
 |---|--------|---------|--------|---------------|-----------:|-------|
-| 1 | HTTP | aiohttp | 3.13.3 | 3.14.4 | 54 | runtime (direct) |
+| 1 | HTTP | aiohttp | 3.13.3 | 3.14.4 | 56 | runtime (direct) |
 | 1 | HTTP | urllib3 | 2.6.2 | 2.8.0 | 12 | runtime (via requests) |
 | 1 | HTTP | requests | 2.32.5 | 2.33.0 | 2 | runtime (via py-builder-signing-sdk) |
 | 1 | HTTP | multidict | 6.7.0 | 6.9.1 | 2 | runtime (via aiohttp) |
