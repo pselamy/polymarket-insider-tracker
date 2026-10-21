@@ -53,9 +53,15 @@ async def fake_redis() -> AsyncIterator[FakeAsyncRedis]:
 
 
 @pytest.fixture
-async def async_engine() -> AsyncIterator[AsyncEngine]:
-    """Real in-memory SQLite engine with the product schema created."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+async def async_engine(tmp_path: Path) -> AsyncIterator[AsyncEngine]:
+    """Real file-backed SQLite engine with the product schema created.
+
+    The database is a per-test file, not ``:memory:``: an in-memory database lives and dies with
+    its single pooled connection, so a task cancelled mid-statement (the pipeline stopping its
+    poller) invalidates that connection and the next checkout opens a fresh, empty database
+    ("no such table: risk_assessments"). A file survives connection replacement.
+    """
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'tracker.db'}", echo=False)
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     try:
@@ -66,7 +72,7 @@ async def async_engine() -> AsyncIterator[AsyncEngine]:
 
 @pytest.fixture
 async def db_manager(async_engine: AsyncEngine) -> DatabaseManager:
-    """A real DatabaseManager whose async engine is the in-memory SQLite engine.
+    """A real DatabaseManager whose async engine is the file-backed SQLite engine.
 
     ``DatabaseManager`` only accepts PostgreSQL URLs, so the SQLite engine is attached after
     construction; every session, repository, and transaction path is the production code.
