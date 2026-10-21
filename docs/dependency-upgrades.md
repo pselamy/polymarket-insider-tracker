@@ -72,8 +72,12 @@ lock alone is enough; no pin edits are expected for family 1.
    byte-identical revision under mako 1.3.10 and 1.4.2 (compared with the Create Date masked).
    The Postgres migration tests are service-gated (`RUN_SERVICE_TESTS`) and were not run here.
 6. **Family 2, web3** (runtime chain client, done): web3 7.14.0 -> 7.15.0, the minimum fixed
-   release (`uv lock --upgrade-package web3==7.15.0`). New transitive dependency: none (`uv.lock`
+   release per the inventory table above (`uv lock --upgrade-package web3==7.15.0`). New transitive dependency: none (`uv.lock`
    changes only the web3 entry); `pyproject.toml` is unchanged (`web3>=6.0.0` is a floor). Clears
    2 osv records (1 alias group); `python -m quality.security_main` now reports 0 advisory groups.
-   Full suite passes unchanged (3639 passed, 11 skipped), including the profiler chain and funding
-   RPC tests that run against the fakes.
+   Full suite passes unchanged (3639 passed, 11 skipped). The upstream 7.14.0 -> 7.15.0 changelog
+   was NOT reviewed (no network in the upgrade environment). The profiler chain and funding RPC
+   tests exercise web3 only through fakes, so as a substitute an offline smoke check built a real
+   `AsyncWeb3(AsyncHTTPProvider(...))`, `to_checksum_address`, `eth.contract(...).functions`, and
+   confirmed `eth.get_logs`/`get_block`/`block_number` exist. No live RPC call was made. Treat the
+   changelog review as outstanding for the human reviewer.

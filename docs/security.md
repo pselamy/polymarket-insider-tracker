@@ -43,8 +43,8 @@ or behaviour changed.
 ## Dependency advisories (report only)
 
 TODO (separate scoped upgrade PRs per package family, then enforce osv): after the family-1 (HTTP
-stack), family-6 (devtools: virtualenv, filelock), family-3 (pydantic-settings, python-dotenv) and family-5
-(pytest, pygments), family-4 (mako) and family-2 (web3) upgrades, no advisory groups remain from the `uv.lock` scan on this
+stack), family-6 (devtools: virtualenv, filelock), family-3 (pydantic-settings, python-dotenv), family-5
+(pytest, pygments), family-4 (mako), and family-2 (web3) upgrades, no advisory groups remain from the `uv.lock` scan on this
 tree (1 group in 1 package before family 2; 4 groups in 2 packages before family 4; 6 groups in 4 packages before family 5; 8 groups in 6 packages before family 3; 14 groups in 8 packages after family 1 alone). Before
 that upgrade the scan on `main` showed 60 groups in 17 packages (aiohttp 32, urllib3 6, virtualenv 5,
 mako 3, anyio 2, and one each in certifi, filelock, h2, hpack, idna, multidict, pydantic-settings,
