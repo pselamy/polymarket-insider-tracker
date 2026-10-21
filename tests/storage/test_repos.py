@@ -23,6 +23,7 @@ from polymarket_insider_tracker.storage.repos import (
     WalletProfileDTO,
     WalletRelationshipDTO,
     WalletRepository,
+    rows_affected,
 )
 
 # ============================================================================
@@ -559,3 +560,8 @@ class TestDTOs:
         assert dto.wallet_a == "0xaaa"
         assert dto.relationship_type == "funded_by"
         assert dto.confidence == Decimal("0.95")
+
+
+def test_rows_affected_rejects_a_result_that_is_not_a_cursor() -> None:
+    with pytest.raises(TypeError, match="not a cursor result"):
+        rows_affected(object())

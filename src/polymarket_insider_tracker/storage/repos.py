@@ -11,11 +11,12 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 
 from polymarket_insider_tracker.constants import UNRECORDED_DELIVERY_DISPOSITION
@@ -32,11 +33,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class RowCountResult(Protocol):
-    """DML result surface returned by SQLAlchemy but omitted from its generic Result type."""
-
-    @property
-    def rowcount(self) -> int | None: ...
+def rows_affected(result: object) -> bool:
+    """Whether the DML ``result`` touched at least one row; rejects non-DML results."""
+    if not isinstance(result, CursorResult):
+        raise TypeError("DML result is not a cursor result")
+    return (result.rowcount or 0) > 0
 
 
 @dataclass
@@ -249,8 +250,7 @@ class WalletRepository:
         result = await self.session.execute(
             delete(WalletProfileModel).where(WalletProfileModel.address == address.lower())
         )
-        rowcount = cast(RowCountResult, result).rowcount
-        return (rowcount or 0) > 0
+        return rows_affected(result)
 
     async def mark_stale(self, address: str) -> bool:
         """Mark a wallet profile as stale (soft delete).
@@ -269,8 +269,7 @@ class WalletRepository:
             .where(WalletProfileModel.address == address.lower())
             .values(analyzed_at=stale_time, updated_at=datetime.now(UTC))
         )
-        rowcount = cast(RowCountResult, result).rowcount
-        return (rowcount or 0) > 0
+        return rows_affected(result)
 
 
 class FundingRepository:
@@ -533,8 +532,7 @@ class RelationshipRepository:
                 WalletRelationshipModel.relationship_type == relationship_type,
             )
         )
-        rowcount = cast(RowCountResult, result).rowcount
-        return (rowcount or 0) > 0
+        return rows_affected(result)
 
 
 @dataclass
@@ -652,5 +650,4 @@ class RiskAssessmentRepository:
                 dry_run=dry_run,
             )
         )
-        rowcount = cast(RowCountResult, result).rowcount
-        return (rowcount or 0) > 0
+        return rows_affected(result)

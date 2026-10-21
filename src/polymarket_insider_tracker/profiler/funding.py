@@ -10,10 +10,11 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from polymarket_insider_tracker.profiler.entities import EntityRegistry
 from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer
+from polymarket_insider_tracker.profiler.rpc_handle import block_timestamp
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 from ._funding_rpc import (
@@ -36,12 +37,15 @@ from ._funding_rpc import (
 )
 from ._funding_rpc import (
     TransferLogScanner,
+    parse_transfer_log,
 )
 from ._funding_rpc import (
     is_pruned_history_error as _is_pruned_history_error,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from polymarket_insider_tracker.profiler.chain import PolygonClient
 
 logger = logging.getLogger(__name__)
@@ -251,7 +255,7 @@ class FundingTracer:
         limit: int = 10,
         from_block: int | str = 0,
         to_block: int | str = "latest",
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, object]]:
         """Get ERC20 Transfer event logs.
 
         Delegates to the shared provider-safe chunk walker; see
@@ -278,7 +282,7 @@ class FundingTracer:
 
     async def _log_to_funding_transfer(
         self,
-        log: dict[str, Any],
+        log: Mapping[str, object],
         token_address: str,
     ) -> FundingTransfer:
         """Convert a log entry to a FundingTransfer.
@@ -290,18 +294,15 @@ class FundingTracer:
         Returns:
             FundingTransfer object.
         """
-        # Extract addresses from topics (padded to 32 bytes)
-        from_address = "0x" + log["topics"][1].hex()[-40:]
-        to_address = "0x" + log["topics"][2].hex()[-40:]
+        fields = parse_transfer_log(log)
+        # Addresses are the low 20 bytes of the 32-byte padded topics
+        from_address = "0x" + fields.from_topic.hex()[-40:]
+        to_address = "0x" + fields.to_topic.hex()[-40:]
 
-        # Extract amount from data
-        amount = int(log["data"].hex(), 16)
-
-        # Get block timestamp
-        block_number = log["blockNumber"]
+        block_number = fields.block_number
         try:
             block = await self.polygon_client.get_block(block_number)
-            timestamp = datetime.fromtimestamp(block["timestamp"], tz=UTC)
+            timestamp = datetime.fromtimestamp(block_timestamp(block), tz=UTC)
         except Exception:
             timestamp = datetime.now(UTC)
 
@@ -311,9 +312,9 @@ class FundingTracer:
         return FundingTransfer(
             from_address=from_address.lower(),
             to_address=to_address.lower(),
-            amount=Decimal(amount),
+            amount=Decimal(fields.amount),
             token=token,
-            tx_hash=log["transactionHash"].hex(),
+            tx_hash=fields.tx_hash.hex(),
             block_number=block_number,
             timestamp=timestamp,
         )

@@ -12,12 +12,13 @@ import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Protocol, cast
+from typing import Protocol
 
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
+from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,13 @@ TradeCallback = Callable[[TradeEvent], Awaitable[None]]
 StateCallback = Callable[[ConnectionState], Awaitable[None]]
 
 
+def _message_object(message: str) -> dict[str, JsonValue]:
+    decoded: JsonValue = json.loads(message)
+    if not isinstance(decoded, dict):
+        raise TypeError("WebSocket message is not a JSON object")
+    return decoded
+
+
 class StreamConnection(Protocol):
     """The slice of a WebSocket connection the handler uses (satisfied by websockets' client)."""
 
@@ -68,7 +76,7 @@ class StreamConnection(Protocol):
 
     async def close(self) -> None: ...
 
-    def __aiter__(self) -> AsyncIterator[Any]: ...
+    def __aiter__(self) -> AsyncIterator[str | bytes]: ...
 
 
 class TradeStreamHandler:
@@ -161,9 +169,9 @@ class TradeStreamHandler:
         logger.info("Connection state: %s -> %s", old_state.value, new_state.value)
         await self._notify_state_change(new_state)
 
-    def _build_subscription_message(self) -> dict[str, Any]:
+    def _build_subscription_message(self) -> dict[str, str | list[dict[str, str]]]:
         """Build the WebSocket subscription message."""
-        subscription: dict[str, Any] = {
+        subscription: dict[str, str] = {
             "topic": "activity",
             "type": "trades",
         }
@@ -222,14 +230,14 @@ class TradeStreamHandler:
     async def _handle_message(self, message: str) -> None:
         """Parse and process an incoming WebSocket message."""
         try:
-            data = json.loads(message)
+            data = _message_object(message)
             payload = data.get("payload")
             if (
                 isinstance(payload, dict)
                 and "transactionHash" in payload
                 and "proxyWallet" in payload
             ):
-                trade = TradeEvent.from_websocket_message(cast(dict[str, Any], payload))
+                trade = TradeEvent.from_websocket_message(payload)
                 await self._emit_trade(trade)
             else:
                 logger.debug("Received non-trade message: %s", str(data)[:120])
@@ -238,7 +246,7 @@ class TradeStreamHandler:
         except Exception as e:
             logger.error("Error processing message: %s", redact_exception_message(e))
 
-    async def _process_stream_item(self, message: Any) -> None:
+    async def _process_stream_item(self, message: str | bytes) -> None:
         if isinstance(message, str):
             await self._handle_message(message)
         else:
@@ -357,6 +365,6 @@ class TradeStreamHandler:
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(self, *args: object) -> None:
         """Async context manager exit."""
         await self.stop()

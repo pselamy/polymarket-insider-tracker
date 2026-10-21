@@ -16,15 +16,23 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, cast
 
+from eth_typing import ABI
 from redis.asyncio import Redis
 from web3 import AsyncWeb3
 from web3.exceptions import Web3Exception
 from web3.providers import AsyncHTTPProvider
 
 from polymarket_insider_tracker.profiler.models import Transaction, WalletInfo
-from polymarket_insider_tracker.profiler.rpc_handle import Web3Handle, erc20_balance_of
+from polymarket_insider_tracker.profiler.rpc_handle import (
+    RpcCall,
+    RpcFailure,
+    T,
+    Web3Handle,
+    block_timestamp,
+    decode_cached_block,
+    erc20_balance_of,
+)
 from polymarket_insider_tracker.redaction import redact_exception_message
 
 logger = logging.getLogger(__name__)
@@ -219,16 +227,13 @@ class PolygonClient:
         w3: Web3Handle,
         provider_name: str,
         func_name: str,
-        *args: Any,
-        **kwargs: Any,
-    ) -> tuple[bool, Any, Exception | None]:
+        call: RpcCall[T],
+    ) -> T | RpcFailure:
         delay = self._retry_delay
         last_error: Exception | None = None
         for attempt in range(self._max_retries):
             try:
-                method = getattr(w3.eth, func_name)
-                result = await method(*args, **kwargs)
-                return True, result, None
+                return await call(w3.eth)
             except Web3Exception as e:
                 last_error = e
                 logger.warning(
@@ -240,46 +245,32 @@ class PolygonClient:
                     redact_exception_message(e),
                 )
                 delay = await self._sleep_retry_backoff(attempt, delay)
-        return False, None, last_error
+        return RpcFailure(last_error)
 
-    async def _try_primary_rpc(
-        self, func_name: str, *args: Any, **kwargs: Any
-    ) -> tuple[bool, Any, Exception | None]:
+    async def _try_primary_rpc(self, func_name: str, call: RpcCall[T]) -> T | RpcFailure:
         if not self._should_try_primary():
-            return False, None, None
-        ok, res, err = await self._try_rpc_provider(self._w3, "Primary", func_name, *args, **kwargs)
-        if ok:
-            self._primary_healthy = True
-            return True, res, None
-        self._primary_healthy = False
+            return RpcFailure(None)
+        res = await self._try_rpc_provider(self._w3, "Primary", func_name, call)
+        self._primary_healthy = not isinstance(res, RpcFailure)
+        if self._primary_healthy:
+            return res
         self._last_primary_check = time.monotonic()
-        return False, None, err
+        return res
 
-    async def _try_fallback_rpc(
-        self, func_name: str, *args: Any, **kwargs: Any
-    ) -> tuple[bool, Any, Exception | None]:
+    async def _try_fallback_rpc(self, func_name: str, call: RpcCall[T]) -> T | RpcFailure:
         if not self._w3_fallback:
-            return False, None, None
-        ok, res, err = await self._try_rpc_provider(
-            self._w3_fallback, "Fallback", func_name, *args, **kwargs
-        )
-        if ok:
+            return RpcFailure(None)
+        res = await self._try_rpc_provider(self._w3_fallback, "Fallback", func_name, call)
+        if not isinstance(res, RpcFailure):
             logger.info("Fallback RPC succeeded for %s", func_name)
-            return True, res, None
-        return False, None, err
+        return res
 
-    async def _execute_with_retry(
-        self,
-        func_name: str,
-        *args: Any,
-        **kwargs: Any,
-    ) -> Any:
+    async def _execute_with_retry(self, func_name: str, call: RpcCall[T]) -> T:
         """Execute an RPC call with retry and failover logic.
 
         Args:
-            func_name: Name of the web3.eth method to call.
-            *args: Positional arguments for the method.
-            **kwargs: Keyword arguments for the method.
+            func_name: Name of the web3.eth method, for logs and errors.
+            call: The typed ``eth`` operation to run against each provider.
 
         Returns:
             Result from the RPC call.
@@ -288,17 +279,15 @@ class PolygonClient:
             RPCError: If all retries and failover fail.
         """
         await self._rate_limiter.acquire()
-        ok, res, err = await self._try_primary_rpc(func_name, *args, **kwargs)
-        if ok:
+        res = await self._try_primary_rpc(func_name, call)
+        if not isinstance(res, RpcFailure):
             return res
 
-        fallback_ok, fallback_res, fallback_err = await self._try_fallback_rpc(
-            func_name, *args, **kwargs
-        )
-        if fallback_ok:
+        fallback_res = await self._try_fallback_rpc(func_name, call)
+        if not isinstance(fallback_res, RpcFailure):
             return fallback_res
 
-        last_error = fallback_err or err
+        last_error = fallback_res.error or res.error
         # The upstream message may embed the credential-bearing RPC endpoint or
         # carry it inside non-string arguments; compose the raised text through
         # the fail-closed exception renderer, not only at log sinks.
@@ -322,9 +311,10 @@ class PolygonClient:
             return int(cached)
 
         # Query blockchain
+        checksum = AsyncWeb3.to_checksum_address(address)
         count = await self._execute_with_retry(
             "get_transaction_count",
-            AsyncWeb3.to_checksum_address(address),
+            lambda eth: eth.get_transaction_count(checksum),
         )
 
         # Cache result
@@ -339,7 +329,9 @@ class PolygonClient:
             return address.lower(), int(cached), True
         return address, 0, False
 
-    def _record_query_result(self, results: dict[str, int], addr: str, count_or_exc: Any) -> None:
+    def _record_query_result(
+        self, results: dict[str, int], addr: str, count_or_exc: int | BaseException
+    ) -> None:
         if isinstance(count_or_exc, BaseException):
             logger.warning(
                 "Failed to get nonce for %s: %s", addr, redact_exception_message(count_or_exc)
@@ -400,9 +392,9 @@ class PolygonClient:
             return Decimal(cached)
 
         # Query blockchain
+        checksum = AsyncWeb3.to_checksum_address(address)
         balance = await self._execute_with_retry(
-            "get_balance",
-            AsyncWeb3.to_checksum_address(address),
+            "get_balance", lambda eth: eth.get_balance(checksum)
         )
 
         # Cache result
@@ -432,9 +424,11 @@ class PolygonClient:
             return Decimal(cached)
 
         # ERC20 balanceOf ABI
-        erc20_abi = [
+        erc20_abi: ABI = [
             {
                 "constant": True,
+                "payable": False,
+                "stateMutability": "view",
                 "inputs": [{"name": "_owner", "type": "address"}],
                 "name": "balanceOf",
                 "outputs": [{"name": "balance", "type": "uint256"}],
@@ -455,7 +449,7 @@ class PolygonClient:
 
         return Decimal(balance)
 
-    async def get_block(self, block_number: int) -> dict[str, Any]:
+    async def get_block(self, block_number: int) -> dict[str, object]:
         """Get block by number.
 
         Args:
@@ -468,14 +462,15 @@ class PolygonClient:
 
         # Check cache
         cached = await self._get_cached(cache_key)
-        if cached is not None:
-            return cast(dict[str, Any], json.loads(cached))
+        cached_block = decode_cached_block(cached)
+        if cached_block is not None:
+            return cached_block
 
-        block = await self._execute_with_retry("get_block", block_number)
+        block = await self._execute_with_retry("get_block", lambda eth: eth.get_block(block_number))
 
         # Convert to serializable dict
         block_dict = dict(block)
-        block_dict["timestamp"] = int(block_dict["timestamp"])
+        block_dict["timestamp"] = block_timestamp(block_dict)
 
         # Cache result (blocks are immutable, use longer TTL)
         await self._set_cached(cache_key, json.dumps(block_dict), ttl=3600)
@@ -559,7 +554,7 @@ class PolygonClient:
             True if healthy, False otherwise.
         """
         try:
-            await self._execute_with_retry("get_block_number")
+            await self._execute_with_retry("get_block_number", lambda eth: eth.get_block_number())
             return True
         except RPCError:
             return False

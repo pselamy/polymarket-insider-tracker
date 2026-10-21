@@ -12,8 +12,11 @@ and holds no per-trace state of its own.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypeGuard
 
+from eth_typing import HexStr
 from web3 import AsyncWeb3
 
 from polymarket_insider_tracker.redaction import redact_exception_message
@@ -34,7 +37,7 @@ USDC_NATIVE = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 # ``invalid argument 0: hex string without 0x prefix``. Always pass the
 # 0x-prefixed form to ``eth_getLogs``.
 TRANSFER_EVENT_SIGNATURE = AsyncWeb3.keccak(text="Transfer(address,address,uint256)")
-TRANSFER_EVENT_TOPIC = "0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x")
+TRANSFER_EVENT_TOPIC = HexStr("0x" + TRANSFER_EVENT_SIGNATURE.hex().removeprefix("0x"))
 
 # eth_getLogs block-range chunking. Most public Polygon RPCs (publicnode, ankr,
 # llamarpc) cap the range at 10_000 blocks per call; pick a window slightly
@@ -70,6 +73,53 @@ def is_pruned_history_error(err: BaseException) -> bool:
     return any(marker in text for marker in _PRUNED_HISTORY_MARKERS)
 
 
+@dataclass(frozen=True)
+class TransferLogFields:
+    """The fields of an ERC-20 ``Transfer`` log the funding tracer reads, shape-checked."""
+
+    from_topic: bytes
+    to_topic: bytes
+    amount: int
+    block_number: int
+    tx_hash: bytes
+
+
+def _bytes_field(value: object, name: str) -> bytes:
+    if not isinstance(value, bytes):
+        raise ValueError(f"Transfer log {name} is not bytes")
+    return value
+
+
+def _is_entry_sequence(value: object) -> TypeGuard[Sequence[object]]:
+    return isinstance(value, Sequence) and not isinstance(value, str | bytes)
+
+
+def _address_topics(log: Mapping[str, object]) -> tuple[bytes, bytes]:
+    topics = log.get("topics")
+    if not _is_entry_sequence(topics) or len(topics) < 3:
+        raise ValueError("Transfer log topics must hold the event, sender and recipient")
+    return _bytes_field(topics[1], "sender topic"), _bytes_field(topics[2], "recipient topic")
+
+
+def _block_number(log: Mapping[str, object]) -> int:
+    block_number = log.get("blockNumber")
+    if not isinstance(block_number, int):
+        raise ValueError("Transfer log blockNumber is not an integer")
+    return block_number
+
+
+def parse_transfer_log(log: Mapping[str, object]) -> TransferLogFields:
+    """Narrow one ``eth_getLogs`` entry to :class:`TransferLogFields`, rejecting bad shapes."""
+    from_topic, to_topic = _address_topics(log)
+    return TransferLogFields(
+        from_topic=from_topic,
+        to_topic=to_topic,
+        amount=int(_bytes_field(log.get("data"), "data").hex(), 16),
+        block_number=_block_number(log),
+        tx_hash=_bytes_field(log.get("transactionHash"), "transactionHash"),
+    )
+
+
 class TransferLogScanner:
     """Walk ``eth_getLogs`` over a block range in provider-safe chunks."""
 
@@ -91,7 +141,7 @@ class TransferLogScanner:
         limit: int = 10,
         from_block: int | str = 0,
         to_block: int | str = "latest",
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, object]]:
         """Get ERC20 Transfer event logs.
 
         Public Polygon RPCs (publicnode, ankr, llamarpc) cap ``eth_getLogs`` at
@@ -119,7 +169,7 @@ class TransferLogScanner:
             List of log dictionaries, oldest first, capped at ``limit``.
         """
         # Pad address to 32 bytes for topic filter
-        padded_to = "0x" + to_address.lower().replace("0x", "").zfill(64)
+        padded_to = HexStr("0x" + to_address.lower().replace("0x", "").zfill(64))
         topics = [
             TRANSFER_EVENT_TOPIC,  # Transfer event (must be 0x-prefixed for drpc)
             None,  # from (any)
@@ -138,11 +188,11 @@ class TransferLogScanner:
     async def _fetch_chunk_with_handling(
         self,
         contract_address: str,
-        topics: list[Any],
+        topics: list[HexStr | None],
         chunk_start: int,
         chunk_end: int,
         to_address: str,
-    ) -> tuple[list[Any] | None, bool]:
+    ) -> tuple[Sequence[Mapping[str, object]] | None, bool]:
         """Fetch logs for a chunk, returning (logs, should_stop)."""
         try:
             logs = await self._fetch_logs_chunk(
@@ -171,7 +221,10 @@ class TransferLogScanner:
             return None, False
 
     def _append_chunk_logs(
-        self, results: list[dict[str, Any]], chunk_logs: list[Any] | None, limit: int
+        self,
+        results: list[dict[str, object]],
+        chunk_logs: Sequence[Mapping[str, object]] | None,
+        limit: int,
     ) -> bool:
         if not chunk_logs:
             return False
@@ -184,13 +237,13 @@ class TransferLogScanner:
     async def _scan_log_chunks(
         self,
         contract_address: str,
-        topics: list[Any],
+        topics: list[HexStr | None],
         start_block: int,
         end_block: int,
         to_address: str,
         limit: int,
-    ) -> list[dict[str, Any]]:
-        results: list[dict[str, Any]] = []
+    ) -> list[dict[str, object]]:
+        results: list[dict[str, object]] = []
         chunk_size = max(1, self._chunk_size_blocks)
         chunk_start = start_block
 
@@ -238,10 +291,10 @@ class TransferLogScanner:
     async def _fetch_logs_chunk(
         self,
         contract_address: str,
-        topics: list[Any],
+        topics: list[HexStr | None],
         from_block: int,
         to_block: int,
-    ) -> list[Any]:
+    ) -> list[Mapping[str, object]]:
         """Issue a single bounded ``eth_getLogs`` call."""
         await self.polygon_client.acquire_rate_limit()
         w3 = self._select_w3()
