@@ -35,11 +35,11 @@ from tests.integration._journey_harness import (
     POLL_START,
     journey_settings,
     make_sample_trade_event,
-    market_for_trade,
     pipeline_row,
     run_until,
     running_pipeline,
     seeded_server,
+    stamped_volume_market,
     wire_journey_pipeline,
 )
 
@@ -205,7 +205,7 @@ async def test_dry_run_journey_persists_in_disposable_postgres(
         pipeline = await wire_journey_pipeline(
             settings,
             redis=fake_redis,
-            market=market_for_trade(trade, "science"),
+            market=stamped_volume_market(trade),
             db_manager=manager,
             channels=[discord, telegram],
             trades=server,
