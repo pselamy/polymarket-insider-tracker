@@ -161,6 +161,18 @@ include = [
     "tests/test_endpoints.py",
     "tests/ingestor/test_retry_policy.py",
     "tests/ingestor/test_attempt_budget_validation.py",
+    "tests/tooling",
+    "tests/profiler",
+    "tests/ingestor/test_attempt_budget.py",
+    "tests/ingestor/test_attempt_budget_properties.py",
+    "tests/ingestor/test_endpoint_switch_resume.py",
+    "tests/ingestor/test_source_namespace_continuity.py",
+    "tests/ingestor/test_trades_source.py",
+    "tests/ingestor/_v2_walk_harness.py",
+    "tests/ingestor/test_publisher.py",
+    "tests/ingestor/test_trade_rows.py",
+    "tests/ingestor/test_clob_client.py",
+    "tests/ingestor/test_trade_poller.py",
 ]
 pythonVersion = "3.11"
 stubPath = "typings"

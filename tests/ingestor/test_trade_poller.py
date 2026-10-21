@@ -41,6 +41,7 @@ from tests.fakes import (
 )
 from tests.fakes.redis_await import as_bytes, scored_members, settled
 from tests.fakes.trades import Fault, synthetic_transaction
+from tests.ingestor._poller_harness import TradeProvider
 
 NOW = 1_788_983_720.0
 T0 = int(NOW)
@@ -112,7 +113,7 @@ async def anchored(
 
 
 def _poller(
-    server: FakeTradesServer,
+    server: TradeProvider,
     clock: FakeClock,
     fake_redis: FakeAsyncRedis,
     settings: PolymarketSettings,
