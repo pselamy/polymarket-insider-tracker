@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import logging
 
-from polymarket_insider_tracker.__main__ import _RedactingLogFilter
+from tests.console_capture import production_console_handler
+
+_EXC_INFO_ATTR = "exc_info"
 
 
 class InitStatusError(Exception):
@@ -23,6 +25,8 @@ class InitStatusError(Exception):
 
 class LateStatusError(Exception):
     """Has no ``status`` until the raiser assigns one after construction."""
+
+    status: int
 
 
 class ClassStatusError(Exception):
@@ -37,8 +41,8 @@ class PlainError(Exception):
 
 def _filtered(exc_info: tuple[object, object, object]) -> logging.LogRecord:
     record = logging.LogRecord("t", logging.ERROR, __file__, 1, "boom", None, None)
-    setattr(record, "exc_info", exc_info)
-    _RedactingLogFilter().filter(record)
+    setattr(record, _EXC_INFO_ATTR, exc_info)
+    production_console_handler().filter(record)
     return record
 
 
@@ -54,16 +58,16 @@ def test_init_status_reaches_the_sanitized_clone_with_the_original_value() -> No
     exc = InitStatusError("x")
     exc.status = 429
     clone = _clone_of(exc)
-    assert type(clone) is InitStatusError
-    assert getattr(clone, "status") == 429
+    assert isinstance(clone, InitStatusError)
+    assert clone.status == 429
 
 
 def test_status_assigned_after_construction_is_carried_to_the_clone() -> None:
     exc = LateStatusError("x")
-    setattr(exc, "status", 502)
+    exc.status = 502
     clone = _clone_of(exc)
-    assert type(clone) is LateStatusError
-    assert getattr(clone, "status") == 502
+    assert isinstance(clone, LateStatusError)
+    assert clone.status == 502
 
 
 def test_class_level_status_stays_visible_on_the_clone() -> None:
@@ -80,4 +84,4 @@ def test_exception_without_status_gets_none_added() -> None:
 
 def test_exc_info_with_type_but_no_value_is_left_untouched() -> None:
     record = _filtered((ValueError, None, None))
-    assert record.exc_info == (ValueError, None, None)
+    assert tuple(record.exc_info or ()) == (ValueError, None, None)

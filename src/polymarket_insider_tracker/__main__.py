@@ -546,9 +546,11 @@ def _redact_record_exc_info(record: logging.LogRecord) -> None:
     if record.exc_info and record.exc_info[0] is not None:
         # The stubs type ``exc_info`` as a paired tuple, but callers may log
         # ``(Type, None, None)``; the wider shape is kept exactly as before.
-        setattr(record, "exc_info", _sanitized_exc_info(record.exc_info))
+        setattr(record, _EXC_INFO_ATTR, _sanitized_exc_info(record.exc_info))
 
 
+_EXC_INFO_ATTR = "exc_info"
+_STATUS_ATTR = "status"
 _ExcInfo = tuple[type[BaseException] | None, BaseException | None, TracebackType | None]
 
 
@@ -699,7 +701,7 @@ def _set_cloned_status(clone: BaseException, exc: _StatusCarrier) -> None:
     with contextlib.suppress(AttributeError, TypeError):
         # The clone may be built without ``status`` (set after construction on
         # the original), so the attribute is created rather than only updated.
-        setattr(clone, "status", exc.status)
+        setattr(clone, _STATUS_ATTR, exc.status)
 
 
 async def run_pipeline(
