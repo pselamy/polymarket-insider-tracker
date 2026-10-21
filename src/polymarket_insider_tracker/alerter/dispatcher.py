@@ -458,7 +458,11 @@ class AlertDispatcher:
             return
         try:
             renewed = await self.history.extend_channel_claim(
-                channel_name, wallet, market, token, ttl=self.claim_ttl_seconds
+                channel_name,
+                wallet,
+                market,
+                token,
+                ttl=self.claim_ttl_seconds,
             )
         except Exception as e:
             logger.warning(

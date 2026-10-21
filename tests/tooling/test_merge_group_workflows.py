@@ -15,7 +15,11 @@ WORKFLOW_FILES = ("ci.yml", "relentless-ci.yml", "mutation.yml")
 def _load(name: str) -> dict[str, Any]:
     # BaseLoader keeps the bare key `on` a string instead of resolving it to boolean True.
     text = (WORKFLOW_DIRECTORY / name).read_text("utf-8")
-    loaded: dict[str, Any] = yaml.load(text, Loader=yaml.BaseLoader)
+    loader = yaml.BaseLoader(text)
+    try:
+        loaded: dict[str, Any] = loader.get_single_data()
+    finally:
+        loader.dispose()
     return loaded
 
 

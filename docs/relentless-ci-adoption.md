@@ -660,3 +660,56 @@ still mutated by the same job (kept target) but stays unenrolled: 136 to 137 sur
 untested mutants (run-to-run variance of one), a later step. Planted weakening: relaxing the
 `attempt_limit` assertions to `>=` made the gate exit 1 (`_retry: 1 mutant(s) survived`); the
 tests were restored. Local job time: mutmut 1m35s to 2m15s over 625 mutants with 8 workers.
+
+## REF-HOOK-04 step 1: reference security gate mapping (2026-10-21)
+
+Reference: `selamy-labs/relentless-ci-python` at `b8b1913`, read-only clone under `/tmp`. The
+reference `quality/security.py`, `quality/security_reports.py`, `quality/security.yml`,
+`quality/gitleaks.toml`, `quality/gitleaks.ignore`, `quality/osv-scanner.toml` and the three `mise.toml`
+pins are already byte-identical in this repository (vendored); nothing is enrolled yet.
+
+| Reference element | Detail at `b8b1913` | This repository |
+| --- | --- | --- |
+| Hook | `quality.pipeline` calls `verify_security(root, policy)` after `verify_sources`; it deletes the four stale reports, then runs the three scanners | `quality/pipeline.py` and `quality/security.py` identical; REF-HOOK-04 unenrolled |
+| Secrets | `gitleaks git .` (all history) and `gitleaks dir .` (tree), 8.30.1, `--redact --ignore-gitleaks-allow`, `quality/gitleaks.toml`, empty `quality/gitleaks.ignore`; report must be empty | pins and files identical |
+| Dependencies | `osv-scanner scan source --lockfile uv.lock --all-vulns --all-packages`, 2.6.0, `quality/osv-scanner.toml` (no ignores or severity filters); `verify_audit` checks every lockfile package was scanned and none has a vulnerability | pins and files identical |
+| SAST | `opengrep scan --config quality/security.yml --error --strict --disable-nosem --taint-intrafile --no-git-ignore --max-target-bytes 0` (1.30.0) over the exact `verify_sources` inventory; `verify_sast` checks the scanned-file set equals the inventory and no findings | identical; three Python rules apply (dynamic evaluation, unsafe deserialization, input-to-shell) |
+| Provisioning | `mise --yes --locked exec --` with hash-locked `mise.lock` | tools provision and run locally |
+| CI | `.github/workflows/ci.yml` uploads `static-security.json` and `workflows-security.json` | not yet wired |
+| Suppressions | none (`--disable-nosem`, empty ignore files) | none allowed |
+
+Measured here, calling the reference scanner functions directly because `verify_sources`
+(REF-HOOK-01) still fails earlier on the tree (non-snake_case `alembic/versions` name, 50 files
+over 399 lines) and would stop `verify_security` before any scan:
+
+| Scanner | Result |
+| --- | --- |
+| `gitleaks git` (432 commits) | 11 findings, all in history: test fixtures with fake tokens (`tests/test_redaction.py` x5, `tests/tooling/test_gate_negatives.py` x2, `tests/tooling/test_secret_redaction.py`, `tests/alerter/test_dispatcher.py`, `tests/profiler/test_chain.py`) and one false positive on `extend_channel_claim(... ttl=...)` in historical `alerter/dispatcher.py` |
+| `osv-scanner` | 60 advisory groups across 16 of 129 locked packages (aiohttp, anyio, certifi, filelock, h2, hpack, idna, mako, multidict, pydantic-settings, pygments, pytest, python-dotenv, requests, urllib3, virtualenv, web3) |
+| `opengrep` (298 files) | 6 findings, all `python-unsafe-deserialization` in tests: `pickle.loads` round trips (5) and `yaml.load(..., Loader=yaml.BaseLoader)` (1) |
+
+Open questions for the reviewer (no suppression is permitted): the gitleaks history findings are in
+immutable commits and cannot be fixed by a code change; the gate also cannot run end to end until
+REF-HOOK-01 is enrolled.
+
+Correction/receipt (step 2): the 6 opengrep findings above were fixed in tests, with no suppression.
+The five `pickle.loads` round trips now assert the module and name `pickle.dumps` references
+(`tests/pickle_reference.py` reads the opcode stream with `pickletools`, never unpickling) and that
+resolving that name yields the same object; `yaml.load` became
+`BaseLoader(...).get_single_data()`. The `AlertRecord` test no longer runs `pickle.loads`: it asserts
+the referenced class and that the reduced state equals the dataclass fields, which is weaker than a
+full load round trip. The 6 findings in the table are the pre-fix measurement.
+
+## REF-HOOK-04 step 3: security gate enrolled (2026-10-21)
+
+Decisions applied (review round 1): `quality/checks.json` gains
+`uv run --locked --group dev python -m quality.security_main` (appended; nothing reordered).
+`quality.security_gate` enforces opengrep and gitleaks (`dir` over the tree, `git` over
+`<cut-over>..HEAD`, cut-over `db93cf3c644d3a477038f422b82c91ddad6f59b4` in
+`quality/gitleaks-cutover.txt`) and runs osv-scanner report-only (17 packages and 60 advisory
+groups; the earlier "16 packages" count omitted one: the list above it names 17). The reference
+`verify_security` hook stays unenrolled because `verify_sources` (REF-HOOK-01) fails on
+50 oversized files and the alembic names; the gate runs independently instead. The full-tree
+scan found 8 matches in the current files (also present in history, so part of the 11 above), all
+removed by renaming test identifiers (see `docs/security.md`). The vendored `quality/security.py` is
+unchanged; the deviations are documented in `docs/security.md`.

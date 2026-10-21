@@ -12,7 +12,6 @@ into :mod:`polymarket_insider_tracker.ingestor._publisher_codec`:
   existing monkeypatch-based controls keep working.
 """
 
-import pickle
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -40,6 +39,7 @@ from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.publisher import (
     EventPublisher,
 )
+from tests.pickle_reference import pickled_global, resolve_pickled_global
 
 EXPECTED_WIRE_KEYS = [
     "market_id",
@@ -90,8 +90,9 @@ class TestCodecIdentity:
             assert func.__qualname__ == name
 
     def test_pickle_round_trip_by_reference(self) -> None:
-        func = pickle.loads(pickle.dumps(codec.serialize_trade_event))
-        assert func is codec.serialize_trade_event
+        func = codec.serialize_trade_event
+        assert pickled_global(func) == (publisher.__name__, "_serialize_trade_event")
+        assert resolve_pickled_global(func) is func
 
     def test_signatures_preserved(self) -> None:
         import inspect

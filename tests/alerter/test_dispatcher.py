@@ -209,21 +209,21 @@ class TestChannelErrorRedaction:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Round-18: the API ``description`` is server text and may echo the token URL."""
-        secret = "TELEGRAM_ECHO_SECRET_R18"
-        token = "12345:SECRET-BOT-TOKEN"
+        echoed = "TELEGRAM_ECHO_SECRET_R18"
+        bot_path = "12345:SECRET-BOT-TOKEN"
         failure = httpx.Response(
             200,
             json={
                 "ok": False,
                 "error_code": 401,
                 "description": (
-                    f"unauthorized for https://api.telegram.org/bot{token}/sendMessage"
-                    f" via https://edge.example/relay?key={secret}"
+                    f"unauthorized for https://api.telegram.org/bot{bot_path}/sendMessage"
+                    f" via https://edge.example/relay?key={echoed}"
                 ),
             },
         )
         channel, server = wired_channel(
-            "telegram", monkeypatch, max_retries=1, credential=token, failure=failure
+            "telegram", monkeypatch, max_retries=1, credential=bot_path, failure=failure
         )
 
         await assert_failure_logged_without(
@@ -232,7 +232,7 @@ class TestChannelErrorRedaction:
             sample_alert,
             caplog,
             logged=("Telegram API error", "401"),
-            secrets=(token, secret),
+            secrets=(bot_path, echoed),
         )
 
     @pytest.mark.asyncio

@@ -63,7 +63,7 @@ FRESH_PASSWORD_SECRET = "fresh-userinfo-secret-r7"
 FRESH_QUERY_SECRET = "fresh-query-secret-r7"
 SIZE_TOKEN_SECRET = "size-lone-token-secret-r7"
 SIZE_QUERY_SECRET = "size-query-secret-r7"
-SIZE_FRAGMENT_SECRET = "size-fragment-secret-r7"
+SIZE_FRAGMENT_CANARY = "size-fragment-secret-r7"
 PATH_SEGMENT_SECRET = "path-segment-secret-r10"
 PATH_FALLBACK_SECRET = "fallback-path-secret-r10"
 TRADE_PATH_SECRET = "trades-path-secret-r12"
@@ -71,7 +71,7 @@ TRADE_QUERY_SECRET = "trades-query-secret-r12"
 METADATA_CACHE_SECRET = "metadata-cache-secret-r12"
 METADATA_FETCH_SECRET = "metadata-fetch-secret-r12"
 METADATA_STARTUP_SECRET = "metadata-startup-secret-r12"
-PUBLISHER_SECRET = "publisher-deserialize-secret-r12"
+PUBLISHER_CANARY = "publisher-deserialize-secret-r12"
 CLOB_SECRET = "clob-retry-secret-r12"
 DISPATCHER_SECRET = "dispatcher-claim-secret-r12"
 WEBSOCKET_SECRET = "websocket-connect-secret-r12"
@@ -80,10 +80,10 @@ POLLER_CALLBACK_SECRET = "poller-callback-secret-r12"
 POLLER_REPAIR_SECRET = "poller-repair-secret-r12"
 USERINFO_URL_SECRET = "explicit-userinfo-secret-r10"
 QUERY_URL_SECRET = "explicit-query-secret-r10"
-FRAGMENT_URL_SECRET = "explicit-fragment-secret-r10"
+FRAGMENT_URL_CANARY = "explicit-fragment-secret-r10"
 MALFORMED_NESTED_SECRET = "nested-path-secret-r10"
 TRAILING_PAREN_FRAGMENT_SECRET = "trailing-paren-fragment-secret-r10"
-R21_POLLER_SECRET = "poller-sink-secret-r21"
+R21_POLLER_CANARY = "poller-sink-secret-r21"
 R21_QUOTED_SECRET = "quoted-endpoint-secret-r21"
 R21_GRAPH_SECRET = "graph-bytes-secret-r21"
 
@@ -357,15 +357,15 @@ class TestAmbiguousUrlShapes:
         assert redacted.endswith(") z")
 
     def test_fragment_trailing_punctuation_does_not_reemit_secret(self) -> None:
-        secret = "fragment-tail-secret-r12"
+        leaked = "fragment-tail-leaked-r12"
         for trail in (".", ",", ")", "]", "!"):
-            redacted = redact_text(f"(see https://meta.example#{secret}{trail}) end")
+            redacted = redact_text(f"(see https://meta.example#{leaked}{trail}) end")
 
-            assert secret not in redacted
+            assert leaked not in redacted
             assert "meta.example" in redacted
             round_tripped = redact_url(redacted.split("(see ")[1].split(") end")[0].rstrip(".,)!]"))
             assert round_tripped == redact_text(round_tripped)
-            assert secret not in round_tripped
+            assert leaked not in round_tripped
             assert "meta.example" in round_tripped
 
     @pytest.mark.parametrize(
@@ -479,7 +479,7 @@ class TestRedactText:
     def test_userinfo_query_fragment_and_malformed_nested_shapes_are_redacted(self) -> None:
         message = (
             f"poll failed for https://operator:{USERINFO_URL_SECRET}@rpc.example?apikey={QUERY_URL_SECRET}"
-            f" (see https://meta.example#{FRAGMENT_URL_SECRET})"
+            f" (see https://meta.example#{FRAGMENT_URL_CANARY})"
             f" nested wss://https://operator:{MALFORMED_NESTED_SECRET}@meta.example"
         )
 
@@ -487,7 +487,7 @@ class TestRedactText:
 
         assert USERINFO_URL_SECRET not in redacted
         assert QUERY_URL_SECRET not in redacted
-        assert FRAGMENT_URL_SECRET not in redacted
+        assert FRAGMENT_URL_CANARY not in redacted
         assert MALFORMED_NESTED_SECRET not in redacted
         assert "rpc.example" in redacted
         # The ordinary fragment URL keeps its host readable while its secret
@@ -886,7 +886,7 @@ class TestDetectorFailureRedaction:
             (
                 "size metadata blew up for "
                 f"https://{SIZE_TOKEN_SECRET}@meta.example?token={SIZE_QUERY_SECRET} "
-                f"(see https://meta.example#{SIZE_FRAGMENT_SECRET}) (connection reset)"
+                f"(see https://meta.example#{SIZE_FRAGMENT_CANARY}) (connection reset)"
             ),
             (
                 "size metadata fallback path-credential failure "
@@ -901,7 +901,7 @@ class TestDetectorFailureRedaction:
             FRESH_QUERY_SECRET,
             SIZE_TOKEN_SECRET,
             SIZE_QUERY_SECRET,
-            SIZE_FRAGMENT_SECRET,
+            SIZE_FRAGMENT_CANARY,
             PATH_SEGMENT_SECRET,
             PATH_FALLBACK_SECRET,
         ]
@@ -1647,7 +1647,7 @@ class TestAdjacentSinkRedaction:
     ) -> None:
         from polymarket_insider_tracker.ingestor.publisher import _parse_stream_entry
 
-        secret = f"https://x.internal?k={PUBLISHER_SECRET}"
+        secret = f"https://x.internal?k={PUBLISHER_CANARY}"
         bad_payload: dict[bytes | str, bytes | str] = {
             "market_id": "mkt-publisher-probe",
             "trade_id": "trade-publisher-probe",
@@ -1671,7 +1671,7 @@ class TestAdjacentSinkRedaction:
             )
 
         assert entry is None
-        assert PUBLISHER_SECRET not in caplog.text
+        assert PUBLISHER_CANARY not in caplog.text
         assert "***" in caplog.text
         assert "Failed to deserialize replay 1-1" in caplog.text
 
@@ -1977,9 +1977,9 @@ class TestPollerFailureSinkRedaction:
     @pytest.mark.parametrize(
         "payload",
         [
-            f"prefix-{R21_POLLER_SECRET}".encode(),
-            {"secret": R21_POLLER_SECRET},
-            [R21_POLLER_SECRET],
+            f"prefix-{R21_POLLER_CANARY}".encode(),
+            {"secret": R21_POLLER_CANARY},
+            [R21_POLLER_CANARY],
         ],
     )
     async def test_nonstring_boundary_failure_never_reaches_log_or_status(
@@ -2009,16 +2009,16 @@ class TestPollerFailureSinkRedaction:
         assert status.state is (IngestionState.FAILED if terminal else IngestionState.DEGRADED)
         assert status.consecutive_failures == 1
         assert status.last_error
-        assert R21_POLLER_SECRET not in status.last_error
-        assert R21_POLLER_SECRET not in caplog.text
+        assert R21_POLLER_CANARY not in status.last_error
+        assert R21_POLLER_CANARY not in caplog.text
         assert ("acquisition stopped" if terminal else "acquisition cycle failed") in caplog.text
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "payload",
         [
-            f"prefix-{R21_POLLER_SECRET}".encode(),
-            f"request https://rpc.invalid/v2/prefix'{R21_POLLER_SECRET}",
+            f"prefix-{R21_POLLER_CANARY}".encode(),
+            f"request https://rpc.invalid/v2/prefix'{R21_POLLER_CANARY}",
         ],
     )
     async def test_health_endpoint_reports_failure_without_the_secret(
@@ -2066,11 +2066,11 @@ class TestPollerFailureSinkRedaction:
             await redis.aclose()
 
         assert status_code == 503
-        assert R21_POLLER_SECRET not in body
-        assert R21_POLLER_SECRET not in capture.getvalue()
+        assert R21_POLLER_CANARY not in body
+        assert R21_POLLER_CANARY not in capture.getvalue()
         last_error = poller.status.last_error
         assert last_error
-        assert R21_POLLER_SECRET not in last_error
+        assert R21_POLLER_CANARY not in last_error
 
 
 class TestQuotedEndpointTextRedaction:
