@@ -233,3 +233,13 @@ hash is unchanged.
 which still receives `settings.detector.dedup_window_seconds` for delivery deduplication. The
 `scorer.py` hash was re-pinned from the output of `check_source_hashes`; every other hash, including
 `pipeline.py`, is unchanged.
+
+## Sixteenth refresh: assessment persistence completes under cancellation (2026-10-21)
+
+`base_commit` stays 3aafd0b. Only `pipeline.py` changes: `Pipeline._persist_assessment` writes the
+row through `insert_despite_cancellation` (`assessment_row.py`, not hashed), so a cancellation
+delivered while the INSERT is in flight waits for the write (bounded by the 30 s
+`DEFAULT_SHUTDOWN_TIMEOUT`) before it is re-raised; assessment persistence completes under
+cancellation; no scoring change (no scoring rule, literal, ordering or persisted value changes). The
+`pipeline.py` hash was re-pinned from the output of `check_source_hashes`; every other hash is
+unchanged.

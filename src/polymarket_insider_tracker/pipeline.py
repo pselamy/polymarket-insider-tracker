@@ -22,7 +22,7 @@ from redis.asyncio import Redis
 from polymarket_insider_tracker import terminal_errors as terminal
 from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher, DispatchResult
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
-from polymarket_insider_tracker.assessment_row import assessment_dto
+from polymarket_insider_tracker.assessment_row import assessment_dto, insert_despite_cancellation
 from polymarket_insider_tracker.config import Settings, get_settings
 from polymarket_insider_tracker.detector.detector_config import default_detector_config
 from polymarket_insider_tracker.detector.evaluation import (
@@ -809,7 +809,8 @@ class Pipeline:
         """Write the assessment row. Best-effort; never raises.
 
         Returns True when the row is durably written. A failure is observable
-        (counted, surfaced at /health) without blocking delivery (FR-013).
+        (counted, surfaced at /health) without blocking delivery (FR-013). A
+        cancellation mid-write is re-raised only after the write completes (bounded).
         """
         if not self._db_manager:
             return False
@@ -819,9 +820,7 @@ class Pipeline:
             detector_config=self._detector_config,
         )
         try:
-            async with self._db_manager.get_async_session() as session:
-                repo = RiskAssessmentRepository(session)
-                await repo.insert(dto)
+            await insert_despite_cancellation(self._db_manager, dto, self._record_processing_error)
         except Exception as e:
             self._record_processing_error(
                 f"Failed to persist risk assessment {assessment.assessment_id}:"
