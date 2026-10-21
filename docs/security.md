@@ -42,17 +42,22 @@ or behaviour changed.
 
 ## Dependency advisories (report only)
 
-TODO (separate scoped upgrade PRs per package family, then enforce osv): 60 advisory groups in 17
-packages from the `uv.lock` scan on this tree. Grouped counts:
+TODO (separate scoped upgrade PRs per package family, then enforce osv): after the family-1 (HTTP
+stack) upgrade, 14 advisory groups remain in 8 packages from the `uv.lock` scan on this tree. Before
+that upgrade the scan on `main` showed 60 groups in 17 packages (aiohttp 32, urllib3 6, virtualenv 5,
+mako 3, anyio 2, and one each in certifi, filelock, h2, hpack, idna, multidict, pydantic-settings,
+pygments, pytest, python-dotenv, requests, web3); the nine family-1 packages account for 46 of them.
+Remaining groups:
 
 | Package | Locked | Groups |
 | --- | --- | --- |
-| aiohttp | 3.13.3 | 32 |
-| urllib3 | 2.6.2 | 6 |
 | virtualenv | 20.35.4 | 5 |
 | mako | 1.3.10 | 3 |
-| anyio | 4.12.0 | 2 |
-| certifi 2026.1.4, filelock 3.20.2, h2 4.3.0, hpack 4.1.0, idna 3.11, multidict 6.7.0, pydantic-settings 2.12.0, pygments 2.19.2, pytest 9.0.2, python-dotenv 1.2.1, requests 2.32.5, web3 7.14.0 | | 1 each |
+| filelock 3.20.2, pydantic-settings 2.12.0, pygments 2.19.2, pytest 9.0.2, python-dotenv 1.2.1, web3 7.14.0 | | 1 each |
+
+`docs/dependency-upgrades.md` lists the families, fixed versions and PR order. "Groups" here are osv
+alias groups (one per underlying advisory); that document's "Advisories" column counts every
+GHSA/PYSEC record separately, so its numbers are larger.
 
 The gate prints the live count on every run. An osv-scanner crash or a missing report still fails.
 

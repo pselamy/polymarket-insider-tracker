@@ -13,7 +13,9 @@ mise --yes --locked exec -- osv-scanner scan source --lockfile uv.lock \
 package (the highest of each advisory's lowest fixed version above the locked one).
 Scope is `runtime` when the package is reachable without the `dev` extra/group
 (`uv tree --locked --no-dev`, confirmed per package with `--invert`), else `dev-only`.
-Advisory counts include GHSA/PYSEC aliases as separate osv records.
+Advisory counts include GHSA/PYSEC aliases as separate osv records. `docs/security.md`
+counts osv alias groups instead (one per underlying advisory): 60 groups in 17 packages on
+`main` before family 1, 14 groups in 8 packages after it.
 
 ## Families
 
