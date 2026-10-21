@@ -1597,3 +1597,11 @@ cannot be reached:
   separates the timeout from the check, so it cannot have been set), and `get_market` no longer
   tests `if market:` on a `Market` dataclass, which is always truthy (`ClobClient.get_market`
   raises when the market is missing).
+- `GammaVolumeRefresh.stop` waits for its cancelled task with `asyncio.wait` instead of
+  `suppress(CancelledError)` around `await task`. The task's loop cannot fail (both of its steps
+  catch `Exception`), so behaviour is unchanged; the reason is a coverage-tracer defect found when
+  the first CI run failed on Python 3.11 only (`metadata_sync.py` showed 3 missed lines although
+  every test passed): on 3.11 the C tracer stops recording the *calling* frame after a callee swallows
+  a `CancelledError` from a cancelled task, so `MarketMetadataSync.stop` and the sync loop lost
+  lines. Reproduced with a 25-line script under `coverage run` on 3.11; `asyncio.wait` avoids it.
+  Verified at 100 % on 3.11 and 3.13 over the full suite.
