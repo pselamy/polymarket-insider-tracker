@@ -1,12 +1,13 @@
 """Data models for the ingestor module."""
 
 import contextlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
+from polymarket_insider_tracker.ingestor import _model_shapes as shapes
 from polymarket_insider_tracker.ingestor.volume_observation import VolumeObservation
 
 
@@ -48,7 +49,7 @@ class Token:
     price: Decimal | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Token":
+    def from_dict(cls, data: Mapping[str, object]) -> "Token":
         """Create a Token from a dictionary."""
         price = data.get("price")
         return cls(
@@ -71,14 +72,14 @@ class Market:
     closed: bool = False
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Market":
+    def from_dict(cls, data: Mapping[str, object]) -> "Market":
         """Create a Market from a dictionary response."""
-        tokens = tuple(Token.from_dict(t) for t in data.get("tokens", []))
+        tokens = tuple(Token.from_dict(t) for t in shapes.token_entries(data.get("tokens", [])))
 
         end_date = None
         end_date_iso = data.get("end_date_iso")
-        if end_date_iso:
-            with contextlib.suppress(ValueError, AttributeError):
+        if isinstance(end_date_iso, str) and end_date_iso:
+            with contextlib.suppress(ValueError):
                 end_date = datetime.fromisoformat(end_date_iso.replace("Z", "+00:00"))
 
         return cls(
@@ -100,7 +101,7 @@ class OrderbookLevel:
     size: Decimal
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "OrderbookLevel":
+    def from_dict(cls, data: Mapping[str, object]) -> "OrderbookLevel":
         """Create an OrderbookLevel from a dictionary."""
         return cls(
             price=Decimal(str(data["price"])),
@@ -198,7 +199,7 @@ class TradeEvent:
     trader_pseudonym: str = ""
 
     @classmethod
-    def from_websocket_message(cls, data: dict[str, Any]) -> "TradeEvent":
+    def from_websocket_message(cls, data: Mapping[str, object]) -> "TradeEvent":
         """Create a TradeEvent from a WebSocket activity/trade message.
 
         Args:
@@ -224,7 +225,7 @@ class TradeEvent:
             wallet_address=str(data.get("proxyWallet", "")),
             side=side,
             outcome=str(data.get("outcome", "")),
-            outcome_index=int(data.get("outcomeIndex", 0)),
+            outcome_index=shapes.int_field(data.get("outcomeIndex", 0)),
             price=Decimal(str(data.get("price", 0))),
             size=Decimal(str(data.get("size", 0))),
             timestamp=timestamp,
@@ -457,18 +458,18 @@ class MarketMetadata:
         )
 
     @staticmethod
-    def _str_or_none(val: Any | None) -> str | None:
+    def _str_or_none(val: Decimal | None) -> str | None:
         return str(val) if val is not None else None
 
     @classmethod
-    def _serialize_token(cls, token: Token) -> dict[str, Any]:
+    def _serialize_token(cls, token: Token) -> shapes.TokenRecord:
         return {
             "token_id": token.token_id,
             "outcome": token.outcome,
             "price": cls._str_or_none(token.price),
         }
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> shapes.MarketMetadataRecord:
         """Serialize to a dictionary for Redis storage.
 
         Returns:
@@ -488,16 +489,14 @@ class MarketMetadata:
         }
 
     @staticmethod
-    def _parse_iso_dt(val: Any | None, default: datetime | None = None) -> datetime | None:
-        if not val:
-            return default
+    def _parse_iso_dt(val: object, default: datetime | None = None) -> datetime | None:
         try:
-            return datetime.fromisoformat(val)
-        except (ValueError, AttributeError):
+            return datetime.fromisoformat(shapes.iso_text(val)) if val else default
+        except ValueError:
             return default
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "MarketMetadata":
+    def from_dict(cls, data: Mapping[str, object]) -> "MarketMetadata":
         """Deserialize from a dictionary (from Redis storage).
 
         Args:
@@ -506,7 +505,7 @@ class MarketMetadata:
         Returns:
             MarketMetadata instance.
         """
-        tokens = tuple(Token.from_dict(t) for t in data.get("tokens", []))
+        tokens = tuple(Token.from_dict(t) for t in shapes.token_entries(data.get("tokens", [])))
         now = datetime.now(UTC)
         return cls(
             condition_id=str(data["condition_id"]),
@@ -517,6 +516,6 @@ class MarketMetadata:
             active=bool(data.get("active", True)),
             closed=bool(data.get("closed", False)),
             category=str(data.get("category", "other")),
-            volume=VolumeObservation.from_cached(data),
+            volume=VolumeObservation.from_cached(shapes.cached_volume_fields(data)),
             last_updated=cls._parse_iso_dt(data.get("last_updated"), default=now) or now,
         )

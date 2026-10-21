@@ -243,3 +243,14 @@ delivered while the INSERT is in flight waits for the write (bounded by the 30 s
 cancellation; no scoring change (no scoring rule, literal, ordering or persisted value changes). The
 `pipeline.py` hash was re-pinned from the output of `check_source_hashes`; every other hash is
 unchanged.
+
+## Seventeenth refresh: escape sweep step 5 (2026-10-21)
+
+`base_commit` stays 3aafd0b. `ingestor/models.py` and `pipeline.py` change only in typing: every
+`Any` and `cast` is gone. `ingestor/models.py` takes `Mapping[str, object]` inputs, parses the
+`tokens` list and `outcomeIndex` with checked helpers (a malformed shape raises `TypeError` instead of
+an incidental error), and returns a `MarketMetadataRecord` TypedDict from `to_dict`. `pipeline.py`
+awaits the Redis health `PING` through `ping_redis` (`pipeline_components.py`, not hashed) and types
+`__aexit__` as `*args: object`. No scoring rule, threshold, literal, ordering or persisted value
+changes. The `ingestor/models.py` and `pipeline.py` hashes were re-pinned from the output of
+`check_source_hashes`; every other hash and every other evidence file is unchanged.

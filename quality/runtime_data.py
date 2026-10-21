@@ -3,28 +3,14 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Protocol, cast
 
 import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
-from yaml.tokens import AliasToken, AnchorToken, Token
 
 from quality.report_data import record, text
 
 YAML_STRING_TAG = "tag:yaml.org,2002:str"
-
-
-class YamlAPI(Protocol):
-    """Declare documented upstream return types absent from its incomplete stubs."""
-
-    scan: Callable[[str, type[yaml.SafeLoader]], Iterator[Token]]
-    compose: Callable[[str, type[yaml.SafeLoader]], Node | None]
-    safe_load: Callable[[str], object]
-
-
-api = cast(YamlAPI, yaml)
 
 
 def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -80,13 +66,39 @@ def verify_node(node: Node) -> None:
         verify_node(child)
 
 
+class AnchorFreeLoader(yaml.SafeLoader):
+    """Fail at the first anchor or alias token the scanner would produce."""
+
+    def fetch_alias(self) -> None:
+        raise ValueError("runtime YAML cannot contain anchors or aliases")
+
+    def fetch_anchor(self) -> None:
+        raise ValueError("runtime YAML cannot contain anchors or aliases")
+
+
+def reject_anchors(source: str) -> None:
+    loader = AnchorFreeLoader(source)
+    try:
+        while not loader.done:
+            loader.fetch_more_tokens()
+    finally:
+        loader.dispose()
+
+
+def compose_document(source: str) -> Node | None:
+    loader = yaml.SafeLoader(source)
+    try:
+        return loader.get_single_node()
+    finally:
+        loader.dispose()
+
+
 def read_yaml(path: Path) -> object:
     source = path.read_text(encoding="utf-8")
-    for token in api.scan(source, yaml.SafeLoader):
-        if isinstance(token, (AliasToken, AnchorToken)):
-            raise ValueError("runtime YAML cannot contain anchors or aliases")
-    node = api.compose(source, yaml.SafeLoader)
+    reject_anchors(source)
+    node = compose_document(source)
     if node is None:
         raise ValueError("runtime YAML document must not be empty")
     verify_node(node)
-    return api.safe_load(source)
+    value: object = yaml.safe_load(source)
+    return value

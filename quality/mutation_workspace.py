@@ -6,17 +6,21 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import mkdtemp
-from typing import cast
+from typing import TypeGuard
 
 from quality.owned_commands import SupervisionUnproven
+
+
+def is_group(error: BaseException) -> TypeGuard[BaseExceptionGroup[BaseException]]:
+    """Exception groups nest arbitrary exceptions; retain that element type."""
+    return isinstance(error, BaseExceptionGroup)
 
 
 def cleanup_unproven(error: BaseException) -> bool:
     if isinstance(error, SupervisionUnproven):
         return True
-    if isinstance(error, BaseExceptionGroup):
-        group = cast(BaseExceptionGroup[BaseException], error)
-        return any(cleanup_unproven(item) for item in group.exceptions)
+    if is_group(error):
+        return any(cleanup_unproven(item) for item in error.exceptions)
     return False
 
 

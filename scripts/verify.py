@@ -16,7 +16,7 @@ from collections.abc import Callable as Callable
 from collections.abc import Mapping as Mapping
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal, NoReturn, cast
+from typing import Literal, NoReturn
 from typing import NamedTuple as NamedTuple
 from urllib.parse import unquote as unquote
 
@@ -80,6 +80,14 @@ def gate_ids_for_profile(profile: str) -> tuple[str, ...]:
     if profile == "all":
         return _all_profile_gate_ids()
     raise ValueError(f"unknown profile {profile!r}")
+
+
+def _profile_name(profile: str) -> ProfileName:
+    match profile:
+        case "static" | "compatibility" | "services" | "all":
+            return profile
+        case _:
+            raise ValueError(f"unknown profile {profile!r}")
 
 
 def _scrubbed_test_environment() -> dict[str, str]:
@@ -222,8 +230,8 @@ def _step_gate(gate: Gate, execute: Runner) -> tuple[GateResult, float]:
 
 def run_verification(profile: str, *, runner: Runner | None = None) -> VerificationResult:
     """Execute ``profile`` until its first failure and mark later gates not-run."""
-    selected = gate_ids_for_profile(profile)
-    typed_profile = cast(ProfileName, profile)
+    typed_profile = _profile_name(profile)
+    selected = gate_ids_for_profile(typed_profile)
     execute = _get_runner(runner)
     results: list[GateResult] = []
     failure: GateResult | None = None

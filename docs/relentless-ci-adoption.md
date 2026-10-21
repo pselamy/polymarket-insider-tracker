@@ -1512,3 +1512,49 @@ Newly checked shapes, each with a test: a loss event that is not a JSON object, 
 non-integer count/time or non-string reason, raises `ValueError`; an entry namespace without a
 string `__file__` raises `TypeError`. Each new Redis reply validator has accept/reject tests in
 `tests/alerter/test_redis_port.py`.
+
+
+## Escape sweep step 5 (final): every remaining typing escape (2026-10-21)
+
+Scope: `src`, `scripts`, `quality` and `alembic`. Count of lines matching
+`git grep -nE "cast\(|\bAny\b|type: ignore|pyright: ignore|noqa"` over that scope: 52 on
+`origin/main` 101c247, 19 after. Of the 52, 27 were real code escapes plus the 6-entry
+`APPROVED_CASTS` table in `quality/incomplete.py` (policy data naming the casts); the rest were
+prose or tool flags. All 19 that remain are prose or policy: docstrings and comments using the word
+"Any" (`__main__.py` x3, `_redis_port.py`, `_stream_reply.py`, `evidence_document.py`,
+`redaction.py`, `security_gate.py`, `spec004_evidence/cli.py`), the `--ignore-noqa` Ruff flags in
+`scripts/_verify_policy.py`, and `quality/incomplete.py`, whose regex, `typing.Any` names and
+`reject_cast` function are the detector for these escapes and contain none.
+
+| File | Before | After | Reason it existed and the replacement |
+| --- | --- | --- | --- |
+| `quality/document_style.py` | 1 | 0 | `cast(Callable[..., str], formatter)`; the already-`callable`-checked formatter is called and its result checked to be `str`. |
+| `quality/mutation_config.py`, `mutation_coordinator.py`, `mutation_worker.py` | 3 | 0 | Casts of dynamically imported `cosmic_ray` attributes. New `quality/native_api.native_callable` imports the attribute and checks `callable`; the serializer result is checked to be `str`, the worker handler is wrapped so its awaited result is checked to be a `web.StreamResponse`. |
+| `quality/mutation_workspace.py` | 1 | 0 | `cast(BaseExceptionGroup[BaseException], ...)`; an `is_group` `TypeGuard` re-types the group. |
+| `quality/runtime_data.py` | 1 | 0 | `cast(YamlAPI, yaml)` for the untyped `scan`/`compose` stubs. Anchors and aliases are now rejected by an `AnchorFreeLoader` that fails in the scanner hooks `fetch_anchor`/`fetch_alias`, driven to the end of the stream before composing (same order as before); `compose` uses the typed `get_single_node`. |
+| `quality/incomplete.py` | 6 table entries | 0 | The `APPROVED_CASTS` table is gone: with the six casts removed, every `typing.cast` is rejected (`reject_cast`). |
+| `scripts/verify.py` | 1 | 0 | `cast(ProfileName, profile)`; `_profile_name` narrows with a `match` and rejects an unknown profile with the same `ValueError`. |
+| `alerter/channels/telegram.py` | 1 | 0 | `cast(dict[str, object], parameters)`; `shapes.object_mapping`. |
+| `config.py` | 1 | 0 | `cast(Callable[[], DatabaseSettings], DatabaseSettings)` for the default factory; a `TYPE_CHECKING`-only zero-argument `__init__` on `DatabaseSettings` says what `BaseSettings` does at runtime, so `default_factory=DatabaseSettings` type-checks. |
+| `detector/sniper.py` | 1 | 0 | `# noqa: S324` on a non-security MD5 bucket hash; `usedforsecurity=False` (identical digest). |
+| `ingestor/trades_source.py` | 1 | 0 | `cast(list[object], body)`; `shapes.object_list` (the non-list branch is unchanged). |
+| `pipeline_components.py` | 1 | 0 | `cast(type[RedisFactory], Redis)`; a `_redis_factory()` returns `Redis` as `type[RedisFactory]` (the idiom already used in `scripts/runtime_services.py`). |
+| `pipeline.py` | 3 | 0 | `cast(Pingable, self._redis)` and `Any` in `__aexit__` and its import. `Pingable` moved to `pipeline_components.py` with `ping_redis`, which awaits the `Awaitable[bool] | bool` reply and raises `TypeError` for a reply that cannot be awaited; `__aexit__(*args: object)`. |
+| `profiler/rpc_handle.py` | 2 | 0 | The documented web3 `contract()` boundary (`**kwargs: Any) -> Any`) was avoidable: it is now `**kwargs: object) -> object` (structurally compatible with web3), and `erc20_balance_of` checks the runtime shape (`ContractProxy` protocol, integer balance). |
+| `ingestor/models.py` | 10 | 0 | `dict[str, Any]` inputs are `Mapping[str, object]`; the new `ingestor/_model_shapes.py` holds the checked helpers (`token_entries`, `int_field`, `iso_text`, `cached_volume_fields`) and the `TokenRecord`/`MarketMetadataRecord` TypedDicts that `to_dict` returns; the two cached volume keys are re-typed by `ingestor/_json_value.json_value`. |
+
+No `Any` remains in scope, so no boundary `Any` is documented.
+
+Newly checked shapes, each with a test: a non-list `tokens` or non-object token entry raises
+`TypeError`; a non-text `end_date_iso` degrades to no end date (as before); a non-text cached
+timestamp or a cached volume that is not JSON raises `TypeError`; a non-integer-like
+`outcomeIndex` raises `TypeError`; an anchor/alias in runtime YAML raises `ValueError`; a Redis
+`PING` reply that is not awaitable raises `TypeError`; a contract proxy without `functions` or a
+non-integer `balanceOf` raises `TypeError`; `native_callable` rejects a missing or non-callable
+attribute.
+
+The two spec 004 hashed files (`ingestor/models.py`, `pipeline.py`) changed only in typing and in
+the narrowing above: no scoring rule, threshold, literal or persisted value changed. Their hashes
+were re-pinned from the output of `check_source_hashes` (seventeenth refresh in
+`specs/004-truthful-detection-contract/evidence/source-refresh-f2e2167.md`); every other evidence
+file is byte-identical.

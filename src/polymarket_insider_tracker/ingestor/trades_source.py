@@ -21,7 +21,6 @@ import random
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import cast
 
 import httpx
 
@@ -52,6 +51,7 @@ from polymarket_insider_tracker.ingestor._retry import (
 from polymarket_insider_tracker.ingestor._retry import (
     RETRY_AFTER_CAP_SECONDS as RETRY_AFTER_CAP_SECONDS,
 )
+from polymarket_insider_tracker.shapes import object_list
 
 __all__ = [
     "BACKOFF_CAP_SECONDS",
@@ -301,7 +301,8 @@ class TradesSourceClient:
         body = self._http.decode(
             self._url, result.response, started=result.started, index=result.index
         )
-        if not isinstance(body, list):
+        items = object_list(body)
+        if items is None:
             self._http.record(result.started, result.index, "terminal", 200)
             raise TradesTerminalError(
                 f"incompatible-schema: non-list body from {redacted_url(self._url)}",
@@ -309,4 +310,4 @@ class TradesSourceClient:
                 reason="incompatible-schema",
             )
         self._http.record(result.started, result.index, "success", 200)
-        return self._success_page(result, request, tuple(cast(list[object], body)))
+        return self._success_page(result, request, tuple(items))
