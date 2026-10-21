@@ -1,5 +1,6 @@
 """Tests for position size anomaly detection."""
 
+import math
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -245,9 +246,9 @@ class TestSizeAnomalyDetectorInit:
         """Test detector initializes with default values."""
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
-        assert detector._volume_threshold == DEFAULT_VOLUME_THRESHOLD
-        assert detector._book_threshold == DEFAULT_BOOK_THRESHOLD
-        assert detector._niche_volume_threshold == DEFAULT_NICHE_VOLUME_THRESHOLD
+        assert detector.volume_threshold == DEFAULT_VOLUME_THRESHOLD
+        assert detector.book_threshold == DEFAULT_BOOK_THRESHOLD
+        assert detector.niche_volume_threshold == DEFAULT_NICHE_VOLUME_THRESHOLD
 
     def test_custom_thresholds(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test detector with custom thresholds."""
@@ -258,9 +259,9 @@ class TestSizeAnomalyDetectorInit:
             niche_volume_threshold=Decimal("100000"),
         )
 
-        assert detector._volume_threshold == 0.05
-        assert detector._book_threshold == 0.10
-        assert detector._niche_volume_threshold == Decimal("100000")
+        assert detector.volume_threshold == 0.05
+        assert detector.book_threshold == 0.10
+        assert detector.niche_volume_threshold == Decimal("100000")
 
 
 # ============================================================================
@@ -284,9 +285,6 @@ class TestVolumeImpactCalculation:
         # Trade size $1000, daily volume $50000 = 2% impact
         measured = _evidence(sample_metadata, Decimal("50000")).volume_impact_measured
         assert measured == Decimal("0.0200")
-        assert SizeAnomalyDetector._volume_impact(_evidence(sample_metadata, Decimal("50000"))) == (
-            pytest.approx(0.02)
-        )
 
     @pytest.mark.parametrize("volume", [None, Decimal("0"), Decimal("-1000")])
     def test_no_usable_volume_has_no_measured_impact(
@@ -294,7 +292,25 @@ class TestVolumeImpactCalculation:
     ) -> None:
         evidence = _evidence(sample_metadata, volume)
         assert evidence.volume_impact_measured is None
-        assert SizeAnomalyDetector._volume_impact(evidence) == 0.0
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("volume", [Decimal("0"), Decimal("-1000")])
+    async def test_no_usable_volume_signals_zero_impact(
+        self,
+        fake_metadata_sync: FakeMetadataSync,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+        volume: Decimal,
+    ) -> None:
+        fake_metadata_sync.fallback = sample_metadata
+        detector = SizeAnomalyDetector(fake_metadata_sync)
+
+        signal = await detector.analyze(
+            sample_trade, daily_volume=volume, book_depth=Decimal("32500")
+        )
+
+        assert signal is not None
+        assert signal.volume_impact == 0.0
 
 
 # ============================================================================
@@ -305,27 +321,40 @@ class TestVolumeImpactCalculation:
 class TestBookImpactCalculation:
     """Tests for order book impact calculation."""
 
-    def test_book_impact_calculation(self, fake_metadata_sync: FakeMetadataSync) -> None:
+    @pytest.mark.asyncio
+    async def test_book_impact_calculation(
+        self,
+        fake_metadata_sync: FakeMetadataSync,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
         """Test correct book impact calculation."""
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
-        # Trade size $5000, book depth $50000 = 10% impact
-        impact = detector._calculate_book_impact(Decimal("5000"), Decimal("50000"))
-        assert impact == pytest.approx(0.10)
+        # Trade notional $6500, book depth $65000 = 10% impact
+        signal = await detector.analyze(sample_trade, book_depth=Decimal("65000"))
+        assert signal is not None
+        assert math.isclose(signal.book_impact, 0.10, rel_tol=1e-6, abs_tol=1e-12)
 
-    def test_book_impact_none_depth(self, fake_metadata_sync: FakeMetadataSync) -> None:
-        """Test book impact returns 0 when depth is None."""
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("depth", [None, Decimal("0")])
+    async def test_book_impact_without_usable_depth_is_zero(
+        self,
+        fake_metadata_sync: FakeMetadataSync,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+        depth: Decimal | None,
+    ) -> None:
+        """Test book impact is 0 when depth is None or zero."""
+        fake_metadata_sync.fallback = sample_metadata
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
-        impact = detector._calculate_book_impact(Decimal("5000"), None)
-        assert impact == 0.0
-
-    def test_book_impact_zero_depth(self, fake_metadata_sync: FakeMetadataSync) -> None:
-        """Test book impact returns 0 when depth is zero."""
-        detector = SizeAnomalyDetector(fake_metadata_sync)
-
-        impact = detector._calculate_book_impact(Decimal("5000"), Decimal("0"))
-        assert impact == 0.0
+        signal = await detector.analyze(
+            sample_trade, daily_volume=Decimal("65000"), book_depth=depth
+        )
+        assert signal is not None
+        assert signal.book_impact == 0.0
 
 
 # ============================================================================
@@ -348,14 +377,14 @@ class TestNicheMarketDetection:
         self, fake_metadata_sync: FakeMetadataSync, sample_metadata: MarketMetadata
     ) -> None:
         detector = SizeAnomalyDetector(fake_metadata_sync, niche_volume_threshold=Decimal("1000"))
-        assert detector._niche_volume_threshold == Decimal("1000")
+        assert detector.niche_volume_threshold == Decimal("1000")
         evidence = size_volume_evidence(
             sample_metadata,
             "metadata",
             Decimal("1000"),
             lambda: datetime(2026, 10, 19, tzinfo=UTC),
             Decimal("40000"),
-            detector._niche_volume_threshold,
+            detector.niche_volume_threshold,
         )
         assert evidence.niche_basis == "none"
 
@@ -404,9 +433,9 @@ class TestConfidenceScoring:
             is_niche=False,
         )
 
-        assert confidence == pytest.approx(0.5)
+        assert math.isclose(confidence, 0.5, rel_tol=1e-6, abs_tol=1e-12)
         assert "volume_impact" in factors
-        assert factors["volume_impact"] == pytest.approx(0.5)
+        assert math.isclose(factors["volume_impact"], 0.5, rel_tol=1e-6, abs_tol=1e-12)
 
     def test_confidence_book_impact_only(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence with only book impact."""
@@ -419,9 +448,9 @@ class TestConfidenceScoring:
             is_niche=False,
         )
 
-        assert confidence == pytest.approx(0.3)
+        assert math.isclose(confidence, 0.3, rel_tol=1e-6, abs_tol=1e-12)
         assert "book_impact" in factors
-        assert factors["book_impact"] == pytest.approx(0.3)
+        assert math.isclose(factors["book_impact"], 0.3, rel_tol=1e-6, abs_tol=1e-12)
 
     def test_confidence_combined_impacts(self, fake_metadata_sync: FakeMetadataSync) -> None:
         """Test confidence with both volume and book impact."""
@@ -434,7 +463,7 @@ class TestConfidenceScoring:
             is_niche=False,
         )
 
-        assert confidence == pytest.approx(0.8)
+        assert math.isclose(confidence, 0.8, rel_tol=1e-6, abs_tol=1e-12)
         assert "volume_impact" in factors
         assert "book_impact" in factors
 
@@ -449,7 +478,7 @@ class TestConfidenceScoring:
             is_niche=True,
         )
 
-        assert confidence == pytest.approx(0.5, rel=0.01)
+        assert math.isclose(confidence, 0.5, rel_tol=0.01, abs_tol=0)
         assert "niche_multiplier" in factors
         assert factors["niche_multiplier"] == 1.5
 
@@ -473,7 +502,7 @@ class TestConfidenceScoring:
         detector = SizeAnomalyDetector(fake_metadata_sync)
 
         # High impacts with niche multiplier would exceed 1.0
-        confidence, factors = detector.calculate_confidence(
+        confidence, _ = detector.calculate_confidence(
             volume_impact=0.10,  # 5x threshold (capped at 3x)
             book_impact=0.20,  # 4x threshold (capped at 3x)
             is_niche=True,  # 1.5x multiplier
@@ -521,7 +550,7 @@ class TestAnalyzeMethod:
         )
 
         assert signal is not None
-        assert signal.volume_impact == pytest.approx(0.10)
+        assert math.isclose(signal.volume_impact, 0.10, rel_tol=1e-6, abs_tol=1e-12)
         assert signal.confidence > 0.1
 
     @pytest.mark.asyncio
@@ -542,7 +571,7 @@ class TestAnalyzeMethod:
         )
 
         assert signal is not None
-        assert signal.book_impact == pytest.approx(0.20)
+        assert math.isclose(signal.book_impact, 0.20, rel_tol=1e-6, abs_tol=1e-12)
         assert signal.confidence > 0.1
 
     @pytest.mark.asyncio
@@ -840,7 +869,7 @@ class TestBatchAnalysis:
         )
 
         assert len(signals) == 1
-        assert signals[0].volume_impact == pytest.approx(0.10)
+        assert math.isclose(signals[0].volume_impact, 0.10, rel_tol=1e-6, abs_tol=1e-12)
 
     @pytest.mark.asyncio
     async def test_analyze_batch_handles_errors(

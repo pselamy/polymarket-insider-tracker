@@ -36,22 +36,24 @@ def create_test_trade(
     )
 
 
-def clustered_detector(markets: list[str]) -> SniperDetector:
-    """A detector fed five wallets that enter each market 30 seconds after creation."""
+def clustered_detector(
+    markets: list[str], wallet_count: int = 5, entry_delay_seconds: int = 30
+) -> SniperDetector:
+    """A detector fed wallets that enter each market a fixed delay after creation."""
     detector = SniperDetector(
         min_cluster_size=3,
         min_entries_per_wallet=2,
         eps=1.0,
         min_samples=2,
     )
-    wallets = [f"0x{i:040x}" for i in range(5)]
+    wallets = [f"0x{i:040x}" for i in range(wallet_count)]
     for market in markets:
         market_created = datetime.now(UTC)
         for wallet in wallets:
             trade = create_test_trade(
                 wallet_address=wallet,
                 market_id=market,
-                timestamp=market_created + timedelta(seconds=30),
+                timestamp=market_created + timedelta(seconds=entry_delay_seconds),
             )
             detector.record_entry(trade, market_created)
     return detector
@@ -442,59 +444,40 @@ class TestSniperClusterSignalModel:
         assert "timestamp" in result
 
 
+def cluster_confidence(
+    markets: list[str], wallet_count: int = 5, entry_delay_seconds: int = 30
+) -> float:
+    """The confidence the detector reports for the one cluster its entries form."""
+    detector = clustered_detector(markets, wallet_count, entry_delay_seconds)
+    signals = detector.run_clustering()
+    assert signals
+    return signals[0].confidence
+
+
 class TestConfidenceCalculation:
     """Tests for confidence calculation logic."""
 
     def test_higher_confidence_with_larger_cluster(self) -> None:
         """Test that larger clusters get higher confidence."""
-        detector = SniperDetector(
-            min_cluster_size=2,
-            min_entries_per_wallet=2,
-            eps=1.0,
-            min_samples=2,
+        markets = ["market_001", "market_002", "market_003"]
+
+        assert cluster_confidence(markets, wallet_count=8) > cluster_confidence(
+            markets, wallet_count=3
         )
-
-        # Create a cluster
-        stats = {
-            "avg_delta": 30.0,
-            "markets_in_common": 3,
-        }
-
-        small_cluster = {"0x1", "0x2", "0x3"}
-        large_cluster = {"0x1", "0x2", "0x3", "0x4", "0x5", "0x6", "0x7", "0x8"}
-
-        small_conf = detector._calculate_confidence(small_cluster, stats)
-        large_conf = detector._calculate_confidence(large_cluster, stats)
-
-        assert large_conf > small_conf
 
     def test_higher_confidence_with_faster_entries(self) -> None:
         """Test that faster entries get higher confidence."""
-        detector = SniperDetector()
+        markets = ["market_001", "market_002", "market_003"]
 
-        cluster = {"0x1", "0x2", "0x3"}
-
-        fast_stats = {"avg_delta": 10.0, "markets_in_common": 3}
-        slow_stats = {"avg_delta": 200.0, "markets_in_common": 3}
-
-        fast_conf = detector._calculate_confidence(cluster, fast_stats)
-        slow_conf = detector._calculate_confidence(cluster, slow_stats)
-
-        assert fast_conf > slow_conf
+        assert cluster_confidence(markets, entry_delay_seconds=10) > cluster_confidence(
+            markets, entry_delay_seconds=200
+        )
 
     def test_higher_confidence_with_more_overlap(self) -> None:
         """Test that more market overlap gets higher confidence."""
-        detector = SniperDetector()
+        many = [f"market_{i:03d}" for i in range(5)]
 
-        cluster = {"0x1", "0x2", "0x3"}
-
-        high_overlap = {"avg_delta": 30.0, "markets_in_common": 5}
-        low_overlap = {"avg_delta": 30.0, "markets_in_common": 1}
-
-        high_conf = detector._calculate_confidence(cluster, high_overlap)
-        low_conf = detector._calculate_confidence(cluster, low_overlap)
-
-        assert high_conf > low_conf
+        assert cluster_confidence(many) > cluster_confidence(many[:2])
 
 
 class TestIntegration:

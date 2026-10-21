@@ -238,9 +238,9 @@ class TestFreshWalletDetectorInit:
     def test_default_config(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
         """Test detector initializes with default config."""
         detector = FreshWalletDetector(fake_wallet_analyzer)
-        assert detector._min_trade_size == DEFAULT_MIN_TRADE_SIZE
-        assert detector._max_nonce == DEFAULT_MAX_NONCE
-        assert detector._max_age_hours == DEFAULT_MAX_AGE_HOURS
+        assert detector.min_trade_size == DEFAULT_MIN_TRADE_SIZE
+        assert detector.fresh_transaction_boundary == DEFAULT_MAX_NONCE + 1
+        assert detector.max_age_hours == DEFAULT_MAX_AGE_HOURS
 
     def test_custom_config(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
         """Test detector accepts custom config."""
@@ -250,9 +250,9 @@ class TestFreshWalletDetectorInit:
             max_nonce=10,
             max_age_hours=72.0,
         )
-        assert detector._min_trade_size == Decimal("5000")
-        assert detector._max_nonce == 10
-        assert detector._max_age_hours == 72.0
+        assert detector.min_trade_size == Decimal("5000")
+        assert detector.fresh_transaction_boundary == 11
+        assert detector.max_age_hours == 72.0
 
 
 # === Test FreshWalletDetector.analyze ===

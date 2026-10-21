@@ -14,6 +14,7 @@ Tests verify:
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -161,14 +162,14 @@ async def test_health_endpoint_quiet_market_period() -> None:
             session.get(f"http://127.0.0.1:{port}/health") as resp,
         ):
             assert resp.status == 200
-            assert monitor.last_acquisition_time == pytest.approx(now - 2.0, abs=1.0)
-            assert monitor.last_trade_time == pytest.approx(now - 120.0, abs=1.0)
+            assert math.isclose(monitor.last_acquisition_time, now - 2.0, rel_tol=0, abs_tol=1.0)
+            assert math.isclose(monitor.last_trade_time, now - 120.0, rel_tol=0, abs_tol=1.0)
             data = await resp.json()
             assert data["status"] == "healthy"
-            assert data["last_acquisition_time"] == pytest.approx(now - 2.0, abs=1.0)
-            assert data["last_trade_time"] == pytest.approx(now - 120.0, abs=1.0)
-            assert data["acquisition_freshness_seconds"] == pytest.approx(2.0, abs=1.0)
-            assert data["trade_freshness_seconds"] == pytest.approx(120.0, abs=1.0)
+            assert math.isclose(data["last_acquisition_time"], now - 2.0, rel_tol=0, abs_tol=1.0)
+            assert math.isclose(data["last_trade_time"], now - 120.0, rel_tol=0, abs_tol=1.0)
+            assert math.isclose(data["acquisition_freshness_seconds"], 2.0, rel_tol=0, abs_tol=1.0)
+            assert math.isclose(data["trade_freshness_seconds"], 120.0, rel_tol=0, abs_tol=1.0)
             assert data["components"]["database"]["status"] == "up"
             assert data["components"]["redis"]["status"] == "up"
             assert data["components"]["ingestion"]["status"] == "up"

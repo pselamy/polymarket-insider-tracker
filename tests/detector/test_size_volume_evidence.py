@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -101,7 +102,9 @@ async def test_an_available_volume_drives_the_score_and_no_volume_scores_the_cat
     without = await _signal(_metadata())
 
     assert (with_volume.volume_impact, with_volume.is_niche_market) == (0.325, True)
-    assert with_volume.confidence == pytest.approx(0.75)  # 0.5 volume term x 1.5 niche
+    assert math.isclose(
+        with_volume.confidence, 0.75, rel_tol=1e-6, abs_tol=1e-12
+    )  # 0.5 volume term x 1.5 niche
     assert with_volume.factors == {"volume_impact": 0.5, "niche_multiplier": 1.5}
     assert (without.volume_impact, without.is_niche_market) == (0.0, True)
     assert (without.confidence, without.factors) == (0.2, {"niche_base": 0.2})
