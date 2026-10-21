@@ -25,9 +25,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, cast
 
+from polymarket_insider_tracker.shapes import string_keyed
 from scripts.spec004_evidence.cli import print_or_check
+from scripts.spec004_evidence.json_shapes import Obj, as_array, as_int, as_object, at
 from scripts.spec004_evidence.reachability import verify_constants
 from scripts.spec004_evidence.real_scoring import (
     Market,
@@ -184,10 +185,10 @@ RAW_BUILDERS: dict[str, Callable[[str], object]] = {
 
 def decoded_raw(raw: dict[str, object]) -> object:
     """The decoded volume24hr value; ``raw_spec`` builds values plain JSON cannot hold."""
-    spec = raw.get("raw_spec")
-    if not isinstance(spec, dict):
+    spec = string_keyed(raw.get("raw_spec"))
+    if spec is None:
         return raw.get("raw")
-    kind, arg = next(iter(cast(dict[str, object], spec).items()))
+    kind, arg = next(iter(spec.items()))
     return RAW_BUILDERS[kind](str(arg))
 
 
@@ -202,10 +203,10 @@ def build_observation(raw: dict[str, object]) -> Observation:
     )
 
 
-def merged(defaults: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+def merged(defaults: Obj, case: Obj) -> Obj:
     out = {**defaults, **{k: v for k, v in case.items() if k != "observation"}}
-    observation = case.get("observation", {})
-    base = {} if observation.get("kind") == "unavailable" else dict(defaults["observation"])
+    observation = as_object(case.get("observation", {}))
+    base = {} if observation.get("kind") == "unavailable" else at(defaults, "observation").copy()
     out["observation"] = {**base, **observation}
     return out
 
@@ -226,7 +227,7 @@ def old_score(category: str, nonce: int, notional: Decimal) -> Decimal:
     return score(old_w, size_signal(old_market, notional, volume_passed=False))
 
 
-def explicit_volume(spec: dict[str, Any]) -> Decimal | None:
+def explicit_volume(spec: Obj) -> Decimal | None:
     return Decimal(str(spec["explicit_daily_volume"])) if spec["explicit_daily_volume"] else None
 
 
@@ -242,7 +243,7 @@ def posture_columns(
 
 
 def result_row(
-    spec: dict[str, Any],
+    spec: Obj,
     verdict: Verdict,
     wconf: float | None,
     size: tuple[float, bool] | None,
@@ -257,7 +258,7 @@ def result_row(
         "size_confidence": "" if size is None else f"{size[0]:.3f}",
         "niche_basis": niche_basis(size, volume),
         "old_score_as_wired": old_score(
-            str(spec["category"]), int(spec["nonce"]), Decimal(str(spec["notional"]))
+            str(spec["category"]), as_int(spec["nonce"]), Decimal(str(spec["notional"]))
         ),
         **posture_columns("pre_T027", None, size),
         **posture_columns("post_T027", wconf, size),
@@ -265,10 +266,11 @@ def result_row(
     }
 
 
-def evaluate(spec: dict[str, Any]) -> dict[str, object]:
+def evaluate(spec: Obj) -> dict[str, object]:
     notional = Decimal(str(spec["notional"]))
-    nonce = int(spec["nonce"])
-    state, reason, volume = classify(build_observation(spec["observation"]), explicit_volume(spec))
+    nonce = as_int(spec["nonce"])
+    observation = build_observation(at(spec, "observation"))
+    state, reason, volume = classify(observation, explicit_volume(spec))
     category = str(spec["category"])
     category_usable = spec["category_source"] == "metadata" and state in NO_OBSERVED_VALUE_STATES
     market = Market("m", volume, category in NICHE_PRONE and category_usable)
@@ -279,8 +281,9 @@ def evaluate(spec: dict[str, Any]) -> dict[str, object]:
 
 
 def results() -> list[dict[str, object]]:
-    corpus = json.loads((HERE / "replay-live" / "cases.json").read_text())
-    return [evaluate(merged(corpus["defaults"], case)) for case in corpus["cases"]]
+    corpus = as_object(json.loads((HERE / "replay-live" / "cases.json").read_text()))
+    defaults = as_object(corpus["defaults"])
+    return [evaluate(merged(defaults, as_object(case))) for case in as_array(corpus["cases"])]
 
 
 def render() -> str:

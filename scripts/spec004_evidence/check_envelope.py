@@ -24,8 +24,22 @@ from datetime import datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 from itertools import product
 from pathlib import Path
-from typing import Any, TypeGuard, cast
 
+from polymarket_insider_tracker.shapes import object_list, object_mapping
+from scripts.spec004_evidence.json_shapes import (
+    Obj,
+    as_array,
+    as_decimal,
+    as_int,
+    as_mapping,
+    as_number,
+    as_object,
+    as_text,
+    at,
+    is_array,
+    is_object,
+    matches_type,
+)
 from scripts.spec004_evidence.replay_envelopes import (
     GROUP_STATUSES,
     POST_T027,
@@ -38,6 +52,7 @@ from scripts.spec004_evidence.replay_envelopes import (
     exact_ratio,
     exact_seconds,
     has_nonfinite,
+    plain,
     replay_specs,
 )
 
@@ -59,55 +74,31 @@ DOCUMENTS = (
     "scoring-config-004.1.failure-row.json",
     *RAW_EXAMPLES,
 )
-TYPES: dict[str, tuple[type, ...]] = {
-    "object": (dict,),
-    "array": (list,),
-    "string": (str,),
-    "integer": (int,),
-    "boolean": (bool,),
-    "null": (type(None),),
-}
 
 
-def matches_type(value: Any, name: str) -> bool:
-    if name == "integer" and isinstance(value, bool):
-        return False
-    return isinstance(value, TYPES[name])
+def resolve(ref: str, root: Obj) -> Obj:
+    return at(root, *ref.removeprefix("#/").split("/"))
 
 
-def is_object(value: object) -> TypeGuard[dict[str, Any]]:
-    return isinstance(value, dict)
-
-
-def is_array(value: object) -> TypeGuard[list[Any]]:
-    return isinstance(value, list)
-
-
-def resolve(ref: str, root: dict[str, Any]) -> dict[str, Any]:
-    node: Any = root
-    for part in ref.removeprefix("#/").split("/"):
-        node = node[part]
-    return cast(dict[str, Any], node)
-
-
-def type_names(schema: dict[str, Any]) -> list[str]:
+def type_names(schema: Obj) -> list[str]:
     declared = schema["type"]
-    return cast(list[str], declared) if isinstance(declared, list) else [str(declared)]
+    names = object_list(declared)
+    return [str(name) for name in names] if names is not None else [str(declared)]
 
 
-def const_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
+def const_errors(value: object, schema: Obj, path: str) -> list[str]:
     if "const" not in schema or value == schema["const"]:
         return []
     return [f"{path}: expected {schema['const']!r}, got {value!r}"]
 
 
-def enum_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
-    if "enum" not in schema or value in schema["enum"]:
+def enum_errors(value: object, schema: Obj, path: str) -> list[str]:
+    if "enum" not in schema or value in as_array(schema["enum"]):
         return []
     return [f"{path}: {value!r} not in enum"]
 
 
-def type_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
+def type_errors(value: object, schema: Obj, path: str) -> list[str]:
     if "type" not in schema:
         return []
     names = type_names(schema)
@@ -116,59 +107,58 @@ def type_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
     return [f"{path}: type {type(value).__name__} not in {names}"]
 
 
-def one_of_errors(value: Any, schema: dict[str, Any], root: dict[str, Any], path: str) -> list[str]:
+def one_of_errors(value: object, schema: Obj, root: Obj, path: str) -> list[str]:
     if "oneOf" not in schema:
         return []
-    passing = [s for s in schema["oneOf"] if not validate(value, s, root, path)]
+    passing = [
+        s for s in as_array(schema["oneOf"]) if not validate(value, as_object(s), root, path)
+    ]
     if len(passing) == 1:
         return []
     return [f"{path}: matches {len(passing)} oneOf branches"]
 
 
-def item_errors(value: Any, schema: dict[str, Any], root: dict[str, Any], path: str) -> list[str]:
+def item_errors(value: object, schema: Obj, root: Obj, path: str) -> list[str]:
     if not is_array(value) or "items" not in schema:
         return []
     errors: list[str] = []
     for index, item in enumerate(value):
-        errors += validate(item, schema["items"], root, f"{path}[{index}]")
+        errors += validate(item, as_object(schema["items"]), root, f"{path}[{index}]")
     return errors
 
 
-def validate(
-    value: Any, schema: dict[str, Any], root: dict[str, Any], path: str = "$"
-) -> list[str]:
+def validate(value: object, schema: Obj, root: Obj, path: str = "$") -> list[str]:
     if "$ref" in schema:
-        return validate(value, resolve(schema["$ref"], root), root, path)
+        return validate(value, resolve(as_text(schema["$ref"]), root), root, path)
     errors = const_errors(value, schema, path) + enum_errors(value, schema, path)
     wrong_type = type_errors(value, schema, path)
     if wrong_type:
         return errors + wrong_type
     errors += one_of_errors(value, schema, root, path)
     errors += scalar_errors(value, schema, path)
-    if isinstance(value, dict):
-        errors += object_errors(cast(dict[str, Any], value), schema, root, path)
+    errors += object_errors(value, schema, root, path)
     return errors + item_errors(value, schema, root, path)
 
 
-def string_errors(value: str, schema: dict[str, Any], path: str) -> list[str]:
+def string_errors(value: str, schema: Obj, path: str) -> list[str]:
     errors: list[str] = []
-    if "pattern" in schema and not re.search(schema["pattern"], value):
+    if "pattern" in schema and not re.search(as_text(schema["pattern"]), value):
         errors.append(f"{path}: {value!r} fails pattern")
-    if "maxLength" in schema and len(value) > schema["maxLength"]:
+    if "maxLength" in schema and len(value) > as_number(schema["maxLength"]):
         errors.append(f"{path}: longer than {schema['maxLength']}")
     return errors
 
 
-def integer_errors(value: int, schema: dict[str, Any], path: str) -> list[str]:
+def integer_errors(value: int, schema: Obj, path: str) -> list[str]:
     errors: list[str] = []
-    if "minimum" in schema and value < schema["minimum"]:
+    if "minimum" in schema and value < as_number(schema["minimum"]):
         errors.append(f"{path}: below minimum")
-    if "maximum" in schema and value > schema["maximum"]:
+    if "maximum" in schema and value > as_number(schema["maximum"]):
         errors.append(f"{path}: above maximum")
     return errors
 
 
-def scalar_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
+def scalar_errors(value: object, schema: Obj, path: str) -> list[str]:
     if isinstance(value, str):
         return string_errors(value, schema, path)
     if isinstance(value, int) and not isinstance(value, bool):
@@ -176,75 +166,78 @@ def scalar_errors(value: Any, schema: dict[str, Any], path: str) -> list[str]:
     return []
 
 
-def property_errors(
-    key: str, item: Any, schema: dict[str, Any], root: dict[str, Any], path: str
-) -> list[str]:
-    props = schema.get("properties", {})
+def property_errors(key: object, item: object, schema: Obj, root: Obj, path: str) -> list[str]:
+    props = as_mapping(schema.get("properties", {}))
     extra = schema.get("additionalProperties", True)
     if key in props:
-        return validate(item, props[key], root, f"{path}.{key}")
+        return validate(item, as_object(props[key]), root, f"{path}.{key}")
     if extra is False:
         return [f"{path}: unexpected key {key!r}"]
-    if isinstance(extra, dict):
-        return validate(item, cast(dict[str, Any], extra), root, f"{path}.{key}")
+    if object_mapping(extra) is not None:
+        return validate(item, as_object(extra), root, f"{path}.{key}")
     return []
 
 
-def object_errors(
-    value: dict[str, Any], schema: dict[str, Any], root: dict[str, Any], path: str
-) -> list[str]:
-    errors = [f"{path}: missing {k!r}" for k in schema.get("required", []) if k not in value]
-    for key, item in value.items():
+def object_errors(value: object, schema: Obj, root: Obj, path: str) -> list[str]:
+    items = object_mapping(value)
+    if items is None:
+        return []
+    errors = [
+        f"{path}: missing {k!r}" for k in as_array(schema.get("required", [])) if k not in items
+    ]
+    for key, item in items.items():
         errors += property_errors(key, item, schema, root, path)
     return errors
 
 
-def score_errors(doc: dict[str, Any], evidence: dict[str, Any]) -> list[str]:
+def score_errors(doc: Obj, evidence: Obj) -> list[str]:
     errors: list[str] = []
-    contributions = evidence["contributions"]
-    total = sum(Decimal(contributions[k]) for k in ("fresh_wallet", "size_anomaly", "niche_market"))
-    capped = min(total * Decimal(contributions["bonus"]), Decimal(1))
-    if capped != Decimal(contributions["capped_score"]):
+    contributions = at(evidence, "contributions")
+    names = ("fresh_wallet", "size_anomaly", "niche_market")
+    total = sum(as_decimal(contributions[k]) for k in names)
+    capped = min(total * as_decimal(contributions["bonus"]), Decimal(1))
+    if capped != as_decimal(contributions["capped_score"]):
         errors.append(f"capped_score {contributions['capped_score']} != recomputed {capped}")
     quantized = capped.quantize(Decimal("0.001"), rounding=ROUND_HALF_EVEN)
-    result = evidence["result"]
-    if quantized != Decimal(result["weighted_score"]):
+    result = at(evidence, "result")
+    if quantized != as_decimal(result["weighted_score"]):
         errors.append(f"weighted_score {result['weighted_score']} != recomputed {quantized}")
-    if result["should_alert"] != (quantized >= Decimal(doc["alert_threshold"])):
+    if result["should_alert"] != (quantized >= as_decimal(doc["alert_threshold"])):
         errors.append("should_alert disagrees with weighted_score >= alert_threshold")
     return errors
 
 
-def wallet_contribution_errors(weights: dict[str, Decimal], evidence: dict[str, Any]) -> list[str]:
-    confidence = evidence["wallet"]["confidence"]
+def wallet_contribution_errors(weights: dict[str, Decimal], evidence: Obj) -> list[str]:
+    confidence = at(evidence, "wallet")["confidence"]
     if confidence is None:
         return []
-    want = Decimal(confidence) * weights["fresh_wallet"]
-    if want == Decimal(evidence["contributions"]["fresh_wallet"]):
+    want = as_decimal(confidence) * weights["fresh_wallet"]
+    if want == as_decimal(at(evidence, "contributions")["fresh_wallet"]):
         return []
     return ["fresh_wallet contribution != confidence x weight"]
 
 
-def size_contribution_errors(weights: dict[str, Decimal], evidence: dict[str, Any]) -> list[str]:
-    size, contributions = evidence["size"], evidence["contributions"]
+def size_contribution_errors(weights: dict[str, Decimal], evidence: Obj) -> list[str]:
+    size, contributions = at(evidence, "size"), at(evidence, "contributions")
     if size["confidence"] is None:
         return []
     errors: list[str] = []
-    conf = Decimal(size["confidence"])
-    if conf * weights["size_anomaly"] != Decimal(contributions["size_anomaly"]):
+    conf = as_decimal(size["confidence"])
+    if conf * weights["size_anomaly"] != as_decimal(contributions["size_anomaly"]):
         errors.append("size_anomaly contribution != confidence x weight")
     niche_want = conf * weights["niche_market"] if size["niche"] else Decimal(0)
-    if niche_want != Decimal(contributions["niche_market"]):
+    if niche_want != as_decimal(contributions["niche_market"]):
         errors.append("niche_market contribution != confidence x weight (niche only)")
     return errors
 
 
-def reconstruct(doc: dict[str, Any]) -> list[str]:
+def reconstruct(document: object) -> list[str]:
     """Cross-field rules stated in contracts/scoring-config.md."""
-    evidence = doc["evaluation_evidence"]
-    if evidence is None:
+    doc = as_object(document)
+    if doc["evaluation_evidence"] is None:
         return []
-    weights = {k: Decimal(v) for k, v in doc["weights"].items()}
+    evidence = at(doc, "evaluation_evidence")
+    weights = {k: as_decimal(v) for k, v in at(doc, "weights").items()}
     return (
         score_errors(doc, evidence)
         + wallet_contribution_errors(weights, evidence)
@@ -254,63 +247,64 @@ def reconstruct(doc: dict[str, Any]) -> list[str]:
     )
 
 
-def gated_wallet_errors(evidence: dict[str, Any]) -> list[str]:
+def gated_wallet_errors(evidence: Obj) -> list[str]:
     """FR-007c: before T027 the wallet group carries no confidence, factors or contribution."""
-    wallet = evidence["wallet"]
+    wallet = at(evidence, "wallet")
     if wallet["group_status"] != PRE_T027:
         return []
     errors: list[str] = []
     if wallet["confidence"] is not None or wallet["factors"]:
         errors.append("pre-T027 wallet must have null confidence and no factors")
-    if Decimal(evidence["contributions"]["fresh_wallet"]) != 0:
+    if as_decimal(at(evidence, "contributions")["fresh_wallet"]) != 0:
         errors.append("pre-T027 wallet contribution must be 0")
     return errors
 
 
-def group_errors(evidence: dict[str, Any]) -> list[str]:
+def group_errors(evidence: Obj) -> list[str]:
     """signals_triggered counts scoring groups only; the 1.2 bonus applies exactly at two."""
-    wallet_scores = evidence["wallet"]["confidence"] is not None
-    groups = int(wallet_scores) + int(evidence["size"]["signal_emitted"])
+    wallet_scores = at(evidence, "wallet")["confidence"] is not None
+    groups = int(wallet_scores) + as_int(at(evidence, "size")["signal_emitted"])
     errors = gated_wallet_errors(evidence)
-    if evidence["result"]["signals_triggered"] != groups:
+    if at(evidence, "result")["signals_triggered"] != groups:
         errors.append(f"signals_triggered != scoring groups ({groups})")
-    if (evidence["contributions"]["bonus"] == "1.2") != (groups == 2):
+    if (at(evidence, "contributions")["bonus"] == "1.2") != (groups == 2):
         errors.append("bonus must be 1.2 exactly when two groups score")
     return errors
 
 
-def available_volume_errors(evidence: dict[str, Any]) -> list[str]:
-    size = evidence["size"]
+def available_volume_errors(evidence: Obj) -> list[str]:
+    size = at(evidence, "size")
     errors: list[str] = []
-    ratio = exact_ratio(Decimal(evidence["notional"]), Decimal(size["daily_volume"]))
-    if Decimal(ratio) != Decimal(size["volume_impact"]):
+    ratio = exact_ratio(as_decimal(evidence["notional"]), as_decimal(size["daily_volume"]))
+    if Decimal(ratio) != as_decimal(size["volume_impact"]):
         errors.append(f"volume_impact {size['volume_impact']} != notional/daily_volume {ratio}")
     age = size["daily_volume_age_seconds"]
-    if age is None or not 0 <= Decimal(age) <= 600:
+    if age is None or not 0 <= as_decimal(age) <= 600:
         errors.append("available volume outside the 0-600 s window")
     return errors
 
 
-def age_magnitude_errors(evidence: dict[str, Any]) -> list[str]:
+def age_magnitude_errors(evidence: Obj) -> list[str]:
     """A stored age is exactly evaluated_at - acquired_at, so a future stamp is a negative age."""
-    size = evidence["size"]
+    size = at(evidence, "size")
     acquired, age = size["daily_volume_acquired_at"], size["daily_volume_age_seconds"]
     if (acquired is None) != (age is None):
         return ["daily_volume_acquired_at and daily_volume_age_seconds must be null together"]
     if age is None:
         return []
-    delta = datetime.fromisoformat(evidence["evaluated_at"]) - datetime.fromisoformat(acquired)
-    if exact_seconds(delta) != Decimal(age):
+    evaluated_at = datetime.fromisoformat(as_text(evidence["evaluated_at"]))
+    delta = evaluated_at - datetime.fromisoformat(as_text(acquired))
+    if exact_seconds(delta) != as_decimal(age):
         return ["daily_volume_age_seconds != evaluated_at - acquired_at"]
     return []
 
 
-def age_sign_errors(size: dict[str, Any]) -> list[str]:
+def age_sign_errors(size: Obj) -> list[str]:
     """invalid_time/future always carries its real stamp, so its age is present and negative."""
     if (size["volume_state"], size["volume_reason"]) != ("invalid_time", "future"):
         return []
     age = size["daily_volume_age_seconds"]
-    if age is not None and Decimal(age) < 0:
+    if age is not None and as_decimal(age) < 0:
         return []
     return ["invalid_time/future requires a negative age"]
 
@@ -318,7 +312,7 @@ def age_sign_errors(size: dict[str, Any]) -> list[str]:
 RAW_TAGS = {"$nonfinite": "raw_nonfinite", "$truncated": "raw_truncated"}
 
 
-def verbatim_raw_errors(raw: Any) -> list[str]:
+def verbatim_raw_errors(raw: object) -> list[str]:
     errors: list[str] = []
     if has_nonfinite(raw):
         errors.append("raw: non-finite number stored verbatim (must be a $nonfinite tag)")
@@ -329,16 +323,16 @@ def verbatim_raw_errors(raw: Any) -> list[str]:
     return errors
 
 
-def stored_raw_errors(raw: Any) -> list[str]:
+def stored_raw_errors(raw: object) -> list[str]:
     """The raw-value rule: markers match their defs; anything else is verbatim, bounded and finite."""
     schema = load(SCHEMA_FILE)
     tags = [tag for tag in RAW_TAGS if is_object(raw) and tag in raw]
     if not tags:
         return verbatim_raw_errors(raw)
-    return validate(raw, schema["$defs"][RAW_TAGS[tags[0]]], schema, "raw")
+    return validate(raw, at(schema, "$defs", RAW_TAGS[tags[0]]), schema, "raw")
 
 
-def tag_state_errors(size: dict[str, Any]) -> list[str]:
+def tag_state_errors(size: Obj) -> list[str]:
     """A non-finite tag is a malformed observation: the state is always `invalid`."""
     raw = size["volume24hr_raw"]
     if is_object(raw) and "$nonfinite" in raw and size["volume_state"] != "invalid":
@@ -346,8 +340,8 @@ def tag_state_errors(size: dict[str, Any]) -> list[str]:
     return []
 
 
-def volume_state_errors(evidence: dict[str, Any]) -> list[str]:
-    size = evidence["size"]
+def volume_state_errors(evidence: Obj) -> list[str]:
+    size = at(evidence, "size")
     available = size["volume_state"] == "available"
     errors: list[str] = []
     if available != (size["daily_volume"] is not None):
@@ -359,7 +353,7 @@ def volume_state_errors(evidence: dict[str, Any]) -> list[str]:
     return errors + (available_volume_errors(evidence) if available else [])
 
 
-def wallet_state_errors(wallet: dict[str, Any]) -> list[str]:
+def wallet_state_errors(wallet: Obj) -> list[str]:
     errors: list[str] = []
     if (wallet["age_state"] == "known") != (wallet["age_basis"] != "none"):
         errors.append("age_state known requires a basis other than none")
@@ -370,52 +364,59 @@ def wallet_state_errors(wallet: dict[str, Any]) -> list[str]:
     return errors
 
 
-def state_errors(evidence: dict[str, Any]) -> list[str]:
-    return volume_state_errors(evidence) + wallet_state_errors(evidence["wallet"])
+def state_errors(evidence: Obj) -> list[str]:
+    return volume_state_errors(evidence) + wallet_state_errors(at(evidence, "wallet"))
 
 
-def mutations(doc: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
-    cases: list[tuple[str, dict[str, Any]]] = []
+def evidence_part(doc: Obj, name: str) -> Obj:
+    return at(doc, "evaluation_evidence", name)
 
-    def variant(name: str, edit: Callable[[dict[str, Any]], object]) -> None:
+
+def mutations(doc: Obj) -> list[tuple[str, Obj]]:
+    cases: list[tuple[str, Obj]] = []
+
+    def variant(name: str, edit: Callable[[Obj], object]) -> None:
         clone = copy.deepcopy(doc)
         edit(clone)
         cases.append((name, clone))
 
-    variant("float score", lambda d: d["evaluation_evidence"]["result"].update(weighted_score=0.78))
+    variant("float score", lambda d: evidence_part(d, "result").update(weighted_score=0.78))
     variant("missing key", lambda d: d.pop("detector_failures"))
     variant("extra key", lambda d: d.update(surprise=1))
-    variant("bad enum", lambda d: d["evaluation_evidence"]["size"].update(volume_state="zero"))
+    variant("bad enum", lambda d: evidence_part(d, "size").update(volume_state="zero"))
     variant(
-        "naive stamp", lambda d: d["evaluation_evidence"].update(evaluated_at="2026-10-19T12:00:00")
+        "naive stamp",
+        lambda d: at(d, "evaluation_evidence").update(evaluated_at="2026-10-19T12:00:00"),
     )
     variant(
         "non-numeric age",
-        lambda d: d["evaluation_evidence"]["size"].update(daily_volume_age_seconds="x"),
+        lambda d: evidence_part(d, "size").update(daily_volume_age_seconds="x"),
     )
     variant("wrong version", lambda d: d.update(evidence_schema="003.1"))
-    variant("bool as int", lambda d: d["detector_config"].update(fresh_transaction_boundary=True))
-    variant("no group status", lambda d: d["evaluation_evidence"]["wallet"].pop("group_status"))
+    variant(
+        "bool as int", lambda d: at(d, "detector_config").update(fresh_transaction_boundary=True)
+    )
+    variant("no group status", lambda d: evidence_part(d, "wallet").pop("group_status"))
     variant(
         "bad group status",
-        lambda d: d["evaluation_evidence"]["wallet"].update(group_status="unqualified"),
+        lambda d: evidence_part(d, "wallet").update(group_status="unqualified"),
     )
     variant(
         "qualified posture under 004.1",
-        lambda d: d["evaluation_evidence"]["wallet"].update(group_status=POST_T027),
+        lambda d: evidence_part(d, "wallet").update(group_status=POST_T027),
     )
     variant("004.2 version on a 004.1 document", lambda d: d.update(evidence_schema="004.2"))
     return cases
 
 
-def schema_for(status: str) -> dict[str, Any]:
+def schema_for(status: str) -> Obj:
     """004.1 as committed; 004.2 = 004.1 with only the version and the wallet posture changed."""
     schema = load(SCHEMA_FILE)
     if status == PRE_T027:
         return schema
     derived = copy.deepcopy(schema)
-    derived["properties"]["evidence_schema"] = {"const": VERSION_BY_STATUS[status]}
-    wallet = derived["$defs"]["evidence"]["properties"]["wallet"]["properties"]
+    at(derived, "properties")["evidence_schema"] = {"const": VERSION_BY_STATUS[status]}
+    wallet = at(derived, "$defs", "evidence", "properties", "wallet", "properties")
     wallet["group_status"] = {"const": status}
     return derived
 
@@ -425,7 +426,7 @@ def posture_mutation_failures() -> list[str]:
     schema = schema_for(POST_T027)
     doc = load("scoring-config-004.2.post-t027.example.json")
     bad_status = copy.deepcopy(doc)
-    bad_status["evaluation_evidence"]["wallet"]["group_status"] = PRE_T027
+    evidence_part(bad_status, "wallet")["group_status"] = PRE_T027
     bad_version = copy.deepcopy(doc)
     bad_version["evidence_schema"] = VERSION_BY_STATUS[PRE_T027]
     return [
@@ -435,21 +436,22 @@ def posture_mutation_failures() -> list[str]:
     ]
 
 
-def gated_scoring(doc: dict[str, Any]) -> None:
+def gated_scoring(doc: Obj) -> None:
     """A pre-T027 envelope whose wallet scores as if qualified (consistent arithmetic)."""
-    evidence = doc["evaluation_evidence"]
-    evidence["wallet"].update(confidence="0.500", factors={"base": "0.5"})
-    evidence["contributions"].update(fresh_wallet="0.200", bonus="1.2", capped_score="0.78000")
-    evidence["result"].update(signals_triggered=2, weighted_score="0.780")
+    evidence_part(doc, "wallet").update(confidence="0.500", factors={"base": "0.5"})
+    evidence_part(doc, "contributions").update(
+        fresh_wallet="0.200", bonus="1.2", capped_score="0.78000"
+    )
+    evidence_part(doc, "result").update(signals_triggered=2, weighted_score="0.780")
 
 
-def gated_bonus(doc: dict[str, Any]) -> None:
-    doc["evaluation_evidence"]["contributions"].update(bonus="1.2", capped_score="0.54000")
-    doc["evaluation_evidence"]["result"].update(weighted_score="0.540")
+def gated_bonus(doc: Obj) -> None:
+    evidence_part(doc, "contributions").update(bonus="1.2", capped_score="0.54000")
+    evidence_part(doc, "result").update(weighted_score="0.540")
 
 
-def gated_count(doc: dict[str, Any]) -> None:
-    doc["evaluation_evidence"]["result"].update(signals_triggered=2)
+def gated_count(doc: Obj) -> None:
+    evidence_part(doc, "result").update(signals_triggered=2)
 
 
 def gated_mutation_failures() -> list[str]:
@@ -475,13 +477,13 @@ FUTURE_CASES = (
 )
 
 
-def future_age_variants(size: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+def future_age_variants(size: Obj) -> list[tuple[str, Obj]]:
     """Wrong-magnitude and wrong-sign ages for an observation stamped in the future; for
     invalid_time/future also a dropped stamp (other states may legitimately have no stamp)."""
-    age = Decimal(size["daily_volume_age_seconds"])
-    variants: list[tuple[str, dict[str, Any]]] = [
-        ("magnitude", {"daily_volume_age_seconds": plain_decimal(age + 1)}),
-        ("sign", {"daily_volume_age_seconds": plain_decimal(-age)}),
+    age = as_decimal(size["daily_volume_age_seconds"])
+    variants: list[tuple[str, Obj]] = [
+        ("magnitude", {"daily_volume_age_seconds": plain(age + 1)}),
+        ("sign", {"daily_volume_age_seconds": plain(-age)}),
     ]
     if size["volume_state"] != "invalid_time":
         return variants
@@ -489,10 +491,6 @@ def future_age_variants(size: dict[str, Any]) -> list[tuple[str, dict[str, Any]]
         *variants,
         ("dropped", {"daily_volume_age_seconds": None, "daily_volume_acquired_at": None}),
     ]
-
-
-def plain_decimal(value: Decimal) -> str:
-    return format(value, "f")
 
 
 def future_age_mutation_failures() -> list[str]:
@@ -505,11 +503,11 @@ def future_age_mutation_failures() -> list[str]:
     return failures
 
 
-def accepted_future_variants(case: str, doc: dict[str, Any]) -> list[str]:
+def accepted_future_variants(case: str, doc: Obj) -> list[str]:
     accepted: list[str] = []
-    for label, edit in future_age_variants(doc["evaluation_evidence"]["size"]):
+    for label, edit in future_age_variants(evidence_part(doc, "size")):
         bad = copy.deepcopy(doc)
-        bad["evaluation_evidence"]["size"].update(edit)
+        evidence_part(bad, "size").update(edit)
         if not reconstruct(bad):
             accepted.append(f"future-age mutation accepted: {case} {label}")
     return accepted
@@ -518,7 +516,7 @@ def accepted_future_variants(case: str, doc: dict[str, Any]) -> list[str]:
 def raw_mutation_failures() -> list[str]:
     """Stored raw values the rule must reject."""
     digest = "0" * 64
-    bad: dict[str, Any] = {
+    bad: Obj = {
         "bare NaN float": float("nan"),
         "nested NaN float": [float("nan")],
         "reserved key verbatim": {"$truncated": False},
@@ -542,8 +540,8 @@ def raw_mutation_failures() -> list[str]:
     return [f"raw mutation accepted: {n}" for n, v in bad.items() if not stored_raw_errors(v)]
 
 
-def load(name: str) -> dict[str, Any]:
-    return cast(dict[str, Any], json.loads((CONTRACTS / name).read_text()))
+def load(name: str) -> Obj:
+    return as_object(json.loads((CONTRACTS / name).read_text()))
 
 
 def document_failures(name: str) -> list[str]:
@@ -557,7 +555,7 @@ def document_failures(name: str) -> list[str]:
     return failures
 
 
-def mutation_failures(schema: dict[str, Any]) -> list[str]:
+def mutation_failures(schema: Obj) -> list[str]:
     example = load("scoring-config-004.1.example.json")
     return [
         f"mutation accepted by schema: {label}"
