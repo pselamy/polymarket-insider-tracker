@@ -542,10 +542,8 @@ class AlertDispatcher:
 
     @classmethod
     def _undelivered_disposition(cls, statuses: list[str]) -> str:
-        """Only unknown outcomes without a confirmed failure are ambiguous; anything else failed."""
-        if cls._has_status(statuses, UNKNOWN_OUTCOME_STATUSES) and not cls._has_status(
-            statuses, CONFIRMED_FAILURE_STATUSES
-        ):
+        no_confirmed_failure = not cls._has_status(statuses, CONFIRMED_FAILURE_STATUSES)
+        if no_confirmed_failure and cls._has_status(statuses, UNKNOWN_OUTCOME_STATUSES):
             return "ambiguous"
         return "failed"
 

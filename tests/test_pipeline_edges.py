@@ -185,8 +185,7 @@ async def test_crashing_poller_puts_the_pipeline_into_error(
         await pipeline.stop()
 
     assert pipeline.state is PipelineState.ERROR
-    assert pipeline.stats.last_error is not None
-    assert "poll loop crashed" in pipeline.stats.last_error
+    assert "poll loop crashed" in (pipeline.stats.last_error or "")
     assert pipeline.stop_event is not None and pipeline.stop_event.is_set()
 
 
@@ -240,8 +239,7 @@ async def test_failed_metadata_crawl_is_counted_and_ingestion_keeps_running(
     finally:
         await pipeline.stop()
 
-    assert pipeline.stats.last_error is not None
-    assert "initial sync failed" in pipeline.stats.last_error
+    assert "initial sync failed" in (pipeline.stats.last_error or "")
 
 
 async def test_stop_during_a_blocked_metadata_crawl_cancels_it_quietly(

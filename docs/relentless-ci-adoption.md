@@ -1694,7 +1694,7 @@ failed half-open attempt and an abandoned send that raises. Source changes, beha
   setting `last_failure_time` in the same synchronous block; `_record_success` and `reset_circuit`
   close it. Coverage's line arcs no longer see the operand separately; the guard still holds.
 - `_undelivered_disposition` keeps the fail-closed `"failed"` default and the same truth table with
-  one condition (`ambiguous` only when an unknown outcome is present and no confirmed failure).
+  one `if` (`ambiguous` only when no confirmed failure and an unknown outcome are present).
   The old third `return "failed"` needed a status outside both groups, no `delivered` and not all
   `duplicate`; every status the dispatcher produces is in one of those sets.
 
