@@ -1596,3 +1596,64 @@ task that failed before `stop()`):
 - `GammaVolumeRefresh.stop` waits with `asyncio.wait` and then re-raises a failure of the task
   (`task.result()` unless cancelled), as `await task` did; this keeps line tracing on Python 3.11
   complete for the sync loop that `MarketMetadataSync.stop` follows it with.
+
+## Coverage step 7: three more modules enrolled (2026-10-22)
+
+Measured from `eccae67` (`coverage run --branch -m pytest tests --ignore=tests/tooling`: 3906
+passed, 17 skipped). Line / partial-branch misses before and the outcome:
+
+| Module | Missed lines / partial branches | Enrolled |
+| --- | --- | --- |
+| `storage/repos.py` | 5 / 1 | yes |
+| `ingestor/trade_poller.py` | 8 / 9 | yes |
+| `__main__.py` | 10 / 9 | yes |
+| `alerter/dispatcher.py` | 22 / 12 | no, measured only |
+| `pipeline.py` (spec004-hashed, tests only) | about 40 / 15 | no, measured only |
+
+`dispatcher.py` and `pipeline.py` stay unenrolled so the change remains reviewable; their open lines
+are `dispatcher.py` 54, 167->179, 198, 272, 281-282, 288, 301, 385-388, 448, 458, 467-473, 475, 487,
+490-491, 503, 548 and `pipeline.py` 100, 274-275, 287, 377-378, 408-414, 424->exit, 439, 452, 455-459, 464,
+467-472, 493->exit, 509-513, 532->535, 669, 678, 702, 729->731, 770, 783, 793-798, 839-847.
+
+One source touch, no branch removed or rewritten: the `CachedMarketLookup` `Protocol` stub in
+`trade_poller.py` was a `...` one-liner, reported as a never-completed `->exit` arc. It now follows
+the idiom of step 5 (`@abstractmethod` with a docstring body); structural implementers such as
+`MetadataSync` are unaffected. Closed by behavioural tests:
+
+- `repos.py`: querying related wallets from the second wallet's side, and the SQLite upsert fallback
+  taken when the first upsert statement is rejected (a `do_orm_execute` listener rejects the
+  PostgreSQL statement; the fallback still updates the confidence).
+- `trade_poller.py`: a second `start()` while running (warns, loop untouched); an external
+  cancellation of `start()` re-raised while the poller still stops; a consumer stopping the running
+  loop; `stop()` closing a client the poller created; a failing state observer being logged without
+  stopping acquisition; a stop during provisional delivery leaving frozen retention untouched;
+  consecutive unconnected saturated pages being separate recorded gaps; an empty page during a gap
+  keeping possible-data-loss visible; an anchor whose boundary reports no checkpoint skipping the
+  gauge.
+- `__main__.py`: the database-driver, non-HTTP-endpoint and generic-URL diagnostics (secret never
+  printed); configured Discord and Telegram in `--config-check`; a pipeline without a stop event
+  stopping on SIGTERM; `KeyboardInterrupt` exiting 130; a non-string log message and a non-string
+  message keeping named arguments while masking their containers; `python -m` dispatching to `main()`.
+
+Planted-gap check: an `if dto.confidence < 0:` branch added to `RelationshipRepository.upsert`
+made `coverage report --fail-under=100` print `Coverage failure: total of 99 is less than
+fail-under=100`; the file was restored and the full gate passes at 100%.
+
+Review round 1 (after rebasing onto `2629008`, coverage step 6): three small helper modules added by
+the escape sweeps are enrolled as well. Measured on the rebased tree (`coverage run -m pytest tests
+--ignore=tests/tooling`: 3987 passed, 17 skipped):
+
+| Module | Missed lines / partial branches before | Change |
+| --- | --- | --- |
+| `ingestor/_json_value.py` | 0 / 0 | enrolled, already covered |
+| `ingestor/_model_shapes.py` | 0 / 0 | enrolled, already covered |
+| `alerter/_redis_port.py` | 14 / 0 | `Protocol` docstring bodies, then enrolled |
+
+The 14 `_redis_port.py` misses were the `...` statements that followed the docstrings of the
+`HistoryPipeline`, `HistoryRedis` and `ScanRedis` `Protocol` methods returning a value. They now use
+the idiom of step 5 and of `BoundaryPipeline`/`BoundaryRedis` in the same file: `@abstractmethod`
+with a docstring body (Pyright rejects a docstring-only body for a non-`None` return unless the
+method is abstract). No branch is involved. These protocols are matched structurally only: no class
+subclasses them and nothing calls their methods unbound (the one test that touches
+`HistoryRedis.pipeline`/`.set` reads their signature defaults, which `@abstractmethod` leaves
+unchanged), so no caller can observe the difference.
