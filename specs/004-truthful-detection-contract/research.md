@@ -247,6 +247,12 @@ non-scoring, `wallet.group_status = unqualified_pre_T027`).
 
 | **O6 – O2's per-user query for age and a Polymarket trade count** (added after the round-3 Claude review) | O2's age, plus "fewer than `B` public Polymarket trades seen for the proxy address" as the low-activity measure in place of the nonce | Removes the proxy-nonce question from the activity side as well; small counts are exactly the case the 10,000-row cap leaves exact. Costs: O2's qualification, plus whether `takerOnly`/maker visibility undercounts (an undercount manufactures "low activity"); changes the FR-007/FR-009 activity measure and needs its own reviewed spec text | Same query as O2; **UNVERIFIED**, no live call |
 
+> **Contract note (appended 2026-10-22; the rows above are kept as reviewed).** The "10,000-row offset
+> cap" and `takerOnly` wording in the O2/O6 rows describes the legacy `limit`/`offset` contract and is no
+> longer active. The per-user query now follows R09a v2 Part B (cursor-only paging, `taker_only=false`,
+> `start=1`, identical filters, terminal `next_cursor = null` and `has_more = false`); any incomplete walk
+> yields age and trade count `unknown`. Owner decision 2026-10-21 selects O6 + G3 for the follow-up slice.
+
 **O5 / G1 (added after codex round 2; renamed when the round-3 reviews split D1)** – wallet group non-scoring until T027 qualifies what the activity measure counts (FR-007c). Not an age source; it is decision-packet **D1b** (options G1 gate, G2 score the nonce now, G3 score only an O6 trade count) and composes with any of O1–O4/O6.
 
 **Default posture (one statement for the whole contract)**: O5 until T027. Before the T027 receipt the

@@ -114,6 +114,14 @@ choice has no effect on what slice 004 does**: it decides only what the first fo
 | **O4** Gamma public-profile style account-creation timestamp | "account created < 48 h ago" as Polymarket records it | **Unverified lead only** (research R09 O4): no endpoint or terms evidenced in the repo; not recommendable until qualified |
 | **O6** O2's per-user query used for **both** age and a **Polymarket trade count** as the low-activity measure (added after the round-3 Claude review) | "first Polymarket trade seen < 48 h ago" and "fewer than `B` public Polymarket trades seen", each from the same response; nonce recorded as an observation only | Replaces the unqualified nonce on the activity side too, so the wallet group no longer depends on proxy-nonce semantics; low counts are exactly the case the 10,000-row cap does not truncate. Costs: the same query qualification as O2, plus whether `takerOnly` or maker visibility undercounts trades (an undercount would *create* false "low activity"); changes what FR-007/FR-009's activity count means and needs its own reviewed spec text. **UNVERIFIED**: no live call was made |
 
+> **Contract note (appended 2026-10-22; the rows above are kept as reviewed).** The "newest-first with a
+> 10,000-row offset cap" and `takerOnly` wording in the O2/O6 rows describes the legacy `limit`/`offset`
+> contract. The current trades query is cursor-paginated (an `offset` parameter is rejected), `taker_only`
+> defaults to `true`, and `start` defaults to three years back. The active per-user rules are research
+> R09a v2 (Part B): `taker_only=false`, `start=1`, cursor-only paging with identical filters, and a
+> walk is complete history only if it ends on `next_cursor = null` and `has_more = false`; any other walk
+> yields age and trade count `unknown`. No offset-based rule is active. No Part B run has happened.
+
 **Recommended default: O1 for slice 004** (the only option whose every claim is supported by code on
 main today), with **O2 or O6 as the first follow-up** once a bounded, authorized qualification
 establishes the per-user query semantics (T027's optional per-user scope). If you pick O2, O3 or O6 the
@@ -144,7 +152,8 @@ only if the nonce moved for ≥ 95 % of addresses that traded and stayed below `
 FR-009 boundary) for ≤ 2 % of addresses with at least `B` trades that day, overall and in each
 contract/EOA stratum large enough to judge that metric (≥ 20 active for M1, ≥ 10 heavy for M2; a
 smaller or empty denominator is reported, not judged). Part B (only for O2/O6/G3)
-qualifies the per-user query (recall ≥ 0.99, ordering, truncation, stability). **FAIL or INCONCLUSIVE
+qualifies the per-user query (recall ≥ 0.99, ordering, truncation, stability). (Part B query rules
+now follow R09a v2, cursor pagination; see the 2026-10-21 owner decision above.) **FAIL or INCONCLUSIVE
 keeps the gate closed**, the nonce is never scored, and the recommended path becomes G3 with D1a O6; if
 Part B also fails, D1a/D1b come back to you. The thresholds (N = 200, 0.95, 0.02) are spec choices you
 may tighten or loosen; they are not presented as settled facts about provider behaviour. They are
@@ -389,6 +398,8 @@ deprecated inclusive alias; no new migration.
 - **UNVERIFIED**: proxy-address nonce semantics; the per-user trades query for age option O2; the
   204 s CLOB crawl duration on current data (reported value, not re-measured); Gamma crawl duration `g`.
   No live call was made; task T027 is the qualification receipt and needs authorization.
+  (2026-10-22) The per-user query for the follow-up O6 is likewise UNVERIFIED; its Part B rules are
+  research R09a v2 (cursor pagination) and no Part B run has happened.
 - No outcome-based calibration exists. The scorer's "cost-adjusted backtest" justification of 0.80
   (`detector/scorer.py:25-31`) cannot be reproduced in this repository (G-028).
 - Niche is double counted (effective weight 0.60 on size confidence in niche markets) and low-volume
