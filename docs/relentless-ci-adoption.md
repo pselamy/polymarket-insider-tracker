@@ -1721,14 +1721,14 @@ fail-under=100` and exit 2; the reverted tree exits 0.
 ## Coverage step 9 (final): `pipeline.py` enrolled (2026-10-22)
 
 Measured on this branch with the gate's own commands (`coverage run -m pytest tests
---ignore=tests/tooling`: 4021 passed, 17 skipped). Before is coverage step 8's measurement.
+--ignore=tests/tooling`: 4022 passed, 17 skipped). Before is coverage step 8's measurement.
 
 | Module | Stmts / branches | Missed lines / partial branches | Cover | Gate |
 | --- | --- | --- | --- | --- |
 | `pipeline.py` before | 452 / 96 | 3 / 6 | 98 % | not enrolled |
 | `pipeline.py` after | 440 / 84 | 0 / 0 | **100 %** | enrolled (appended to `--include`) |
 
-Every other `src` module was already enrolled at 100 %, so the enrolled total (8636 statements,
+Every other `src` module was already enrolled at 100 %, so the enrolled total (8637 statements,
 1590 branches, 100 %) is now the whole package.
 
 The six locations step 8 could not reach are closed by a source change the controller authorised
