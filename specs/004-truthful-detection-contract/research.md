@@ -354,11 +354,13 @@ Parameter names follow that reference; the ingestion poll's own spelling (`taker
 | Q2 — ordering | Order violations across every returned page of a walk against the order the reference documents for the walk (v1 assumed newest-first; the receipt records the documented order it checked). |
 | Q3 — incompleteness detectability | Every walk that is not a complete history (by the rule above) is classified incomplete from the walk's own recorded responses and request parameters, and the address yields age and trade count `unknown`, never a value. |
 | Q4 — stability | For addresses with a complete history, the earliest returned trade is identical in two complete-history reads at least 1 h apart. |
-| PASS | ≥ 50 active addresses queried; aggregate `Q1 ≥ 0.99` and no active address below `0.95`; `Q2 = 0`; every Q3 case detected; `Q4` identical for 100 % of complete-history addresses. |
+| Q5 — low-activity boundary (owner-adopted addition, 2026-10-21) | Missing data may only move an address to `unknown`, never across the low-activity boundary `B` (the captured FR-009 boundary `DETECTOR_FRESH_TRANSACTION_BOUNDARY`, default 5: low activity is strictly fewer than `B` trades; spec.md FR-009, R04). Two checks: (a) a recorded-response replay in which an address with exactly `B` known trades has one trade missing from one page (the page dropped, errored, short or interrupted) MUST classify that address `unknown`, never low activity, and an address with exactly `B` trades in a complete history MUST NOT be low activity; (b) in the live sample, an address whose ingestion ground truth already shows `≥ B` trades but whose complete-history count is `< B` is a boundary violation. A row missing inside a page that still ends `next_cursor = null`/`has_more = false` is not detectable from the walk alone, which is why (b) cross-checks against ground truth. |
+| PASS | ≥ 50 active addresses queried; aggregate `Q1 ≥ 0.99` and no active address below `0.95`; `Q2 = 0`; every Q3 case detected; `Q4` identical for 100 % of complete-history addresses; Q5 (a) holds and Q5 (b) finds zero boundary violations. |
 | FAIL / INCONCLUSIVE | As in Part A. FAIL or INCONCLUSIVE keeps the wallet group non-scoring. On FAIL, O2, O6 and G3 are unavailable and D1a stays O1. |
 
 The acceptance thresholds above are unchanged from v1; only the query, the completeness rule (Q3) and
-the population for Q4 were restated for cursor pagination.
+the population for Q4 were restated for cursor pagination. Q5 is an added check (owner-adopted
+addition, 2026-10-21); it tightens PASS and relaxes no v1 threshold.
 
 <details>
 <summary>Superseded: R09a v1 Part B query rules (legacy <code>limit</code>/<code>offset</code> contract; kept for history, not active)</summary>
@@ -392,7 +394,7 @@ the population for Q4 were restated for cursor pagination.
   wallet group stays non-scoring and D1a/D1b go back to Patrick.
 - **Receipt contents** (checked in under `evidence/`): the protocol parameters above, window bounds,
   proven-coverage intervals and excluded loss intervals, seed, frame size, the per-address table
-  (address, `n0`, `n1`, `code`, `k`, and for Part B per-address Q1/Q3/Q4 plus, under v2, each walk's per-page request parameters and the
+  (address, `n0`, `n1`, `code`, `k`, and for Part B per-address Q1/Q3/Q4/Q5 plus, under v2, each walk's per-page request parameters and the
   final page's `pagination.next_cursor`/`pagination.has_more`), the metrics per stratum, the
   request and RPC counts, and the verdict. Addresses are public trade-row identities already stored by
   the ingestion; no credential or credential-bearing URL is recorded.
