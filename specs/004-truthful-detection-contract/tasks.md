@@ -209,7 +209,10 @@ Named files, entry points, dependency order:
   the nonce is never scored and the recommended path becomes D1b G3 with D1a O6 (needs Part B PASS and
   O6's own spec text and source task); if Part B also fails, D1a/D1b go back to Patrick. Only a Part A
   PASS (or, under G3, a Part B PASS together with O6's reviewed spec text) lets a reviewed change set
-  `wallet_group_status = qualified`. The receipt (parameters, window,
+  `wallet_group_status = qualified`. Under G3 this is tightened by the owner decision of 2026-10-21:
+  the group stays non-scoring until a Part B PASS under R09a v2 **and** the reviewed O6
+  implementation, its versioned evidence contract and post-gate journey tests are merged; the PASS
+  receipt alone flips no configuration. The receipt (parameters, window,
   coverage intervals, seed, per-address table, per-stratum metrics, request counts, verdict) is checked
   in under `evidence/`. Until it exists the wallet group stays described as "low transaction count on
   the proxy address" (spec FR-007a/b). (F01, F02, R4-B2)
@@ -224,7 +227,10 @@ Named files, entry points, dependency order:
   strictly fewer than `B` is low activity; spec.md FR-009, `research.md` R04): a wallet with exactly
   `B` known trades MUST NOT be classified low-activity when one trade is missing from a page — missing
   data can only move a wallet to `unknown`, never across the low-activity boundary — and a wallet with
-  exactly `B` trades in a complete history is not low activity. The wallet group stays non-scoring
+  exactly `B` trades in a complete history is not low activity. This is exact for walk-detectable loss
+  (dropped, errored or interrupted pages; no terminal page); a row silently missing from a page of a
+  walk that still ends on the terminal condition is not detectable by the walk and is bounded only by
+  the R09a v2 Q5 (b) ground-truth cross-check and Q1 recall. The wallet group stays non-scoring
   until a T027 Part B PASS under R09a v2 **and** this implementation, its versioned evidence contract
   and post-gate journey tests are merged; the PASS receipt alone flips no configuration. Scoring
   ceilings for O6 are recomputed and verified by replay, not inherited from the nonce-based table.

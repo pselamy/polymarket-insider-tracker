@@ -152,14 +152,18 @@ only if the nonce moved for ≥ 95 % of addresses that traded and stayed below `
 FR-009 boundary) for ≤ 2 % of addresses with at least `B` trades that day, overall and in each
 contract/EOA stratum large enough to judge that metric (≥ 20 active for M1, ≥ 10 heavy for M2; a
 smaller or empty denominator is reported, not judged). Part B (only for O2/O6/G3)
-qualifies the per-user query (recall ≥ 0.99, ordering, truncation, stability). (Part B query rules
-now follow R09a v2, cursor pagination; see the 2026-10-21 owner decision above.) **FAIL or INCONCLUSIVE
+qualifies the per-user query (recall ≥ 0.99, ordering, truncation, stability). **FAIL or INCONCLUSIVE
 keeps the gate closed**, the nonce is never scored, and the recommended path becomes G3 with D1a O6; if
 Part B also fails, D1a/D1b come back to you. The thresholds (N = 200, 0.95, 0.02) are spec choices you
 may tighten or loosen; they are not presented as settled facts about provider behaviour. They are
 point-estimate rules: at the coverage minimum, zero misses among 30 heavy addresses still allows a true
 false-low-activity rate near 9.5 % (one-sided 95 % bound), and a bound-based PASS would need about 150
 heavy addresses (research R09a, "Statistical strength").
+
+> **Note (appended 2026-10-22).** The paragraph above predates the cursor contract: Part B's query
+> rules now follow research R09a v2, where v1's "truncation" check becomes incompleteness detectability
+> (any walk that does not end on `next_cursor = null` and `has_more = false` yields `unknown`), plus the
+> owner-adopted Q5 boundary check. Thresholds are unchanged. No Part B run has happened.
 
 **Likely T027 outcome (Claude round 5; UNVERIFIED expectation, no probe made)**: Part A will probably
 FAIL for contract-account proxies, because under EIP-161 a contract's account nonce counts only the
