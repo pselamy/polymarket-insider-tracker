@@ -321,18 +321,60 @@ submit the address's transactions, its nonce does not move and M1 fails. The rec
 why a nonce moved; it only measures whether it tracks trading well enough to be scored.
 
 **Part B — is the per-user trades query usable? (required only if D1a selects O2 or O6, or D1b selects
-G3)**
+G3) — protocol R09a v2 (revised 2026-10-22; supersedes v1)**
+
+Status: **no Part B run has happened**, under v1 or v2. This revision changes the query rules only; it
+collects no evidence, makes no request and claims no T027 result. Under the owner decision of
+2026-10-21 (decision-packet.md, "Owner decision, 2026-10-21 (Patrick)") Part B is the gate for D1a O6 /
+D1b G3; a PASS receipt alone flips no configuration.
+
+Why v2: v1 was written against the legacy `limit`/`offset` contract recorded in slice 001
+(`specs/001-supported-trade-ingestion/evidence/feasibility.md:13-15`, verified 2026-09-09). The current
+reference, [List trades](https://docs.polymarket.com/api-reference/feeds/list-trades) (retrieved
+2026-10-22, as supplied in the owner brief; not re-fetched by this revision and **UNVERIFIED** by any
+probe), documents a cursor-paginated query instead:
+
+- pagination is cursor-only: the next page is requested by passing the previous response's
+  `pagination.next_cursor`; an `offset` parameter is rejected with HTTP 400;
+- `taker_only` defaults to `true` (maker rows omitted);
+- `start` applies only together with the `user` filter and defaults to three years before the request;
+- `end` defaults to now + 1 day;
+- `limit` has a maximum of 1000 and is ignored once a cursor is supplied;
+- the last page carries `pagination.next_cursor = null` and `pagination.has_more = false`.
+
+Parameter names follow that reference; the ingestion poll's own spelling (`takerOnly`,
+`ingestor/trades_source.py`) is unchanged and out of scope.
 
 | Item | Rule |
 |---|---|
-| Sample | The Part A sample (same window), so ground truth is shared. |
-| Query | The documented per-user form of the trades query with `takerOnly=false`, paginated newest-first within the documented `limit`/`offset` maxima (offset ≤ 10,000; `specs/001-supported-trade-ingestion/evidence/feasibility.md:13-15`), at ≤ 2 requests/s and ≤ 1,000 requests in total. |
+| Sample | The Part A sample (same window: random `N = 200` frame, 24 h with ≥ 20 h proven ingestion coverage), so ground truth is shared. |
+| Query | The documented per-user form of the trades query with the `user` filter set to the proxy address, **`taker_only=false`** (the default `true` would drop maker rows and undercount activity, manufacturing "low activity") and **`start=1`** (the default three-year floor would hide older history and manufacture "new"); `end` left at its default or set explicitly, but recorded. Pages are walked only by passing `pagination.next_cursor`; no `offset` parameter is ever sent. The filters (`user`, `taker_only`, `start`, `end`, and any other filter) are **identical on every page of a walk**; a walk whose filters change between pages is incomplete. Budget: ≤ 2 requests/s and ≤ 1,000 requests in total; a walk stopped by the budget is incomplete. |
+| Complete history | A walk is a **complete history** iff all hold: `start=1`; `taker_only=false`; identical filters on every page; it ends on a page with `pagination.next_cursor = null` **and** `pagination.has_more = false`; and no request in the walk errored, was retried with changed parameters, timed out, or was interrupted. Any other walk is **incomplete**: it establishes neither age nor low activity; both are `unknown`, never "new" and never "low activity". |
 | Q1 — recall | For each active address, the fraction of its ground-truth window trades (matched by observation identity) that the per-user query also returns. |
-| Q2 — ordering | Order violations against newest-first across every returned page. |
-| Q3 — truncation detectability | Every address whose history reaches the offset cap is flagged truncated by the responses themselves (the page at the maximum allowed offset is full); such an address must yield age and trade count `unknown`, never a value. |
-| Q4 — stability | For addresses not truncated, the earliest returned trade is identical in two runs at least 1 h apart. |
-| PASS | ≥ 50 active addresses queried; aggregate `Q1 ≥ 0.99` and no active address below `0.95`; `Q2 = 0`; every Q3 case detectable; `Q4` identical for 100 % of non-truncated addresses. |
-| FAIL / INCONCLUSIVE | As in Part A. On FAIL, O2, O6 and G3 are unavailable and D1a stays O1. |
+| Q2 — ordering | Order violations across every returned page of a walk against the order the reference documents for the walk (v1 assumed newest-first; the receipt records the documented order it checked). |
+| Q3 — incompleteness detectability | Every walk that is not a complete history (by the rule above) is classified incomplete from the walk's own recorded responses and request parameters, and the address yields age and trade count `unknown`, never a value. |
+| Q4 — stability | For addresses with a complete history, the earliest returned trade is identical in two complete-history reads at least 1 h apart. |
+| PASS | ≥ 50 active addresses queried; aggregate `Q1 ≥ 0.99` and no active address below `0.95`; `Q2 = 0`; every Q3 case detected; `Q4` identical for 100 % of complete-history addresses. |
+| FAIL / INCONCLUSIVE | As in Part A. FAIL or INCONCLUSIVE keeps the wallet group non-scoring. On FAIL, O2, O6 and G3 are unavailable and D1a stays O1. |
+
+The acceptance thresholds above are unchanged from v1; only the query, the completeness rule (Q3) and
+the population for Q4 were restated for cursor pagination.
+
+<details>
+<summary>Superseded: R09a v1 Part B query rules (legacy <code>limit</code>/<code>offset</code> contract; kept for history, not active)</summary>
+
+> | Item | Rule |
+> |---|---|
+> | Sample | The Part A sample (same window), so ground truth is shared. |
+> | Query | The documented per-user form of the trades query with `takerOnly=false`, paginated newest-first within the documented `limit`/`offset` maxima (offset ≤ 10,000; `specs/001-supported-trade-ingestion/evidence/feasibility.md:13-15`), at ≤ 2 requests/s and ≤ 1,000 requests in total. |
+> | Q1 — recall | For each active address, the fraction of its ground-truth window trades (matched by observation identity) that the per-user query also returns. |
+> | Q2 — ordering | Order violations against newest-first across every returned page. |
+> | Q3 — truncation detectability | Every address whose history reaches the offset cap is flagged truncated by the responses themselves (the page at the maximum allowed offset is full); such an address must yield age and trade count `unknown`, never a value. |
+> | Q4 — stability | For addresses not truncated, the earliest returned trade is identical in two runs at least 1 h apart. |
+> | PASS | ≥ 50 active addresses queried; aggregate `Q1 ≥ 0.99` and no active address below `0.95`; `Q2 = 0`; every Q3 case detectable; `Q4` identical for 100 % of non-truncated addresses. |
+> | FAIL / INCONCLUSIVE | As in Part A. On FAIL, O2, O6 and G3 are unavailable and D1a stays O1. |
+
+</details>
 
 **Outcomes for the wallet gate**
 
@@ -340,14 +382,18 @@ G3)**
   (FR-007c); it is never an environment knob. Which age source and wording then apply is D1a.
 - **Part B PASS under D1b G3** (whatever Part A found): a reviewed change that lands O6's spec text and
   source task may set `wallet_group_status = qualified` with the Polymarket trade count as the activity
-  measure; the nonce stays an observation and is never scored.
+  measure; the nonce stays an observation and is never scored. Tightened by the owner decision of
+  2026-10-21 (decision-packet.md): the group stays non-scoring until a Part B **PASS** under protocol
+  v2 **and** the reviewed O6 implementation, its versioned evidence contract and post-gate journey
+  tests are merged; the PASS receipt alone is not permission to flip any configuration.
 - **Part A FAIL or INCONCLUSIVE**: the gate stays closed (`unqualified_pre_T027`) and the shipped
   posture is unchanged. The nonce is never scored; the recommended path becomes D1b **G3** with D1a
   **O6**, which needs Part B PASS plus O6's own spec text and source task. If Part B also fails, the
   wallet group stays non-scoring and D1a/D1b go back to Patrick.
 - **Receipt contents** (checked in under `evidence/`): the protocol parameters above, window bounds,
   proven-coverage intervals and excluded loss intervals, seed, frame size, the per-address table
-  (address, `n0`, `n1`, `code`, `k`, and for Part B per-address Q1/Q3/Q4), the metrics per stratum, the
+  (address, `n0`, `n1`, `code`, `k`, and for Part B per-address Q1/Q3/Q4 plus, under v2, each walk's per-page request parameters and the
+  final page's `pagination.next_cursor`/`pagination.has_more`), the metrics per stratum, the
   request and RPC counts, and the verdict. Addresses are public trade-row identities already stored by
   the ingestion; no credential or credential-bearing URL is recorded.
 
