@@ -68,16 +68,26 @@ class RivalClaimsFirstRedis(DelegatingRedis):
         return await self._backend.set(name, value, ex=ex, nx=nx)
 
 
-class RivalDeliversUnderClaimRedis(DelegatingRedis):
-    """Another dispatcher confirms delivery right after this dispatch acquires its claim."""
+class AfterClaimRedis(DelegatingRedis):
+    """Runs ``after_claim`` once this dispatch's ``SET NX`` claim command has completed."""
 
     async def set(
         self, name: str, value: str, *, ex: int | None = None, nx: bool = False
     ) -> object:
         acquired = await self._backend.set(name, value, ex=ex, nx=nx)
         if nx:
-            await self._backend.set(_dedup_key(), "rival-delivered", ex=3600)
+            await self.after_claim()
         return acquired
+
+    async def after_claim(self) -> None:
+        """Nothing happens after the claim unless a subclass says so."""
+
+
+class RivalDeliversUnderClaimRedis(AfterClaimRedis):
+    """Another dispatcher confirms delivery right after this dispatch acquires its claim."""
+
+    async def after_claim(self) -> None:
+        await self._backend.set(_dedup_key(), "rival-delivered", ex=3600)
 
 
 class RecheckFailsRedis(DelegatingRedis):
@@ -115,18 +125,14 @@ class TransactionsFailRedis(DelegatingRedis):
         raise ConnectionError(f"redis unavailable (transaction={transaction})")
 
 
-class DetachOnClaimRedis(DelegatingRedis):
+class DetachOnClaimRedis(AfterClaimRedis):
     """The operator detaches dedup state from the dispatcher while its claim is in flight."""
 
     dispatcher: AlertDispatcher | None = None
 
-    async def set(
-        self, name: str, value: str, *, ex: int | None = None, nx: bool = False
-    ) -> object:
-        acquired = await self._backend.set(name, value, ex=ex, nx=nx)
-        if nx and self.dispatcher is not None:
+    async def after_claim(self) -> None:
+        if self.dispatcher is not None:
             self.dispatcher.history = None
-        return acquired
 
 
 class TakeoverChannel:
