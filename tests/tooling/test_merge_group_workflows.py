@@ -1,4 +1,10 @@
-"""Every workflow must keep the merge_group trigger the GitHub merge queue depends on."""
+"""Workflow trigger and concurrency contracts shared by every workflow.
+
+Every workflow keeps the merge_group trigger the GitHub merge queue depends on, and only the
+latest commit of a pull request runs CI: pull-request runs are grouped per pull request and cancel
+in progress, while pushes to main, merge-queue entries and manual runs are grouped per commit and
+never cancelled (docs/relentless-ci-adoption.md, "CI run cancellation").
+"""
 
 from __future__ import annotations
 
@@ -33,8 +39,24 @@ def test_workflow_runs_on_merge_group(name: str) -> None:
     assert _load(name)["on"]["merge_group"] == {"types": ["checks_requested"]}
 
 
-def test_ci_never_cancels_merge_queue_runs() -> None:
-    loaded: dict[str, Any] = _load("ci.yml")
-    assert (
-        loaded["concurrency"]["cancel-in-progress"] == "${{ github.event_name != 'merge_group' }}"
-    )
+EXPECTED_CONCURRENCY = {
+    "group": (
+        "${{ github.workflow }}-${{ github.event_name == 'pull_request' "
+        "&& format('pr-{0}', github.event.pull_request.number) "
+        "|| format('{0}-{1}', github.event_name, github.sha) }}"
+    ),
+    # Only pull_request runs cancel in progress, so merge-queue runs are never cancelled.
+    "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+}
+
+
+@pytest.mark.parametrize("name", WORKFLOW_FILES)
+def test_only_the_latest_pull_request_commit_runs(name: str) -> None:
+    assert _load(name)["concurrency"] == EXPECTED_CONCURRENCY
+
+
+@pytest.mark.parametrize("name", WORKFLOW_FILES)
+def test_push_runs_only_on_main(name: str) -> None:
+    # A push to a pull-request branch would otherwise start a second, uncancellable run next to
+    # the pull_request run for the same commit.
+    assert _load(name)["on"]["push"] == {"branches": ["main"]}

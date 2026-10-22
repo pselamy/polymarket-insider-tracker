@@ -469,6 +469,33 @@ duplicated), `.get` plus assertions for `FilterParams`, and attribute assignment
 `tests/test_terminal_error_durable.py` (private `Pipeline` state and worker-failure hooks) need
 approved public `src` entry points and stay unenrolled.
 
+## CI run cancellation: only the latest commit of a pull request runs (2026-10-22)
+
+Owner rule: CI checks only the newest commit of a pull request; every older run for that pull
+request is cancelled, so superseded commits do not spend runner minutes.
+
+All three workflows (`ci.yml`, `relentless-ci.yml`, `mutation.yml`) carry the same block:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.event_name, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+```
+
+- **Pull requests**: one group per workflow and pull request number. A new push to the pull
+  request cancels the run still in progress or queued for the older commit; only the latest
+  commit's checks report on the pull request.
+- **Pushes to `main`, merge-queue entries and manual runs**: grouped per commit and never
+  cancelled, so every `main` commit keeps its own complete result (merges wait for it) and
+  queue entries never cancel each other.
+- **No duplicate branch runs**: `ci.yml` used to run on a push to *any* branch as well as on the
+  pull request, so each push to a pull-request branch ran the CI workflow twice and the
+  push-triggered copy could not be cancelled by the pull-request group. `push` is now limited to
+  `main` in every workflow, matching `relentless-ci.yml` and `mutation.yml`.
+
+`tests/tooling/test_merge_group_workflows.py` fails if any workflow loses the block, changes the
+group or cancellation expression, or widens `push` beyond `main`.
+
 ## Merge queue flow (2026-10-20)
 
 Every workflow (`ci.yml`, `relentless-ci.yml`, `mutation.yml`) also triggers on
@@ -479,9 +506,9 @@ Every workflow (`ci.yml`, `relentless-ci.yml`, `mutation.yml`) also triggers on
 Reviewed PRs are queued instead of merged directly. GitHub builds a temporary
 `gh-readonly-queue/...` branch containing current `main` plus the PR, runs the required checks
 on it, and only then lands the PR. This prevents semantic-conflict breaks, where two PRs pass
-individually but fail together, as happened with 7332dd0. `ci.yml` keeps
-`cancel-in-progress: false` for `merge_group` runs, and each queue entry has its own ref, so
-entries never cancel each other. `tests/tooling/test_merge_group_workflows.py` fails if a
+individually but fail together, as happened with 7332dd0. Merge-queue runs never cancel in
+progress and are grouped per commit, so entries never cancel each other (see "CI run
+cancellation" above). `tests/tooling/test_merge_group_workflows.py` fails if a
 workflow loses the trigger. Enabling the queue itself is a repository setting made by the
 owner, not by this change.
 
