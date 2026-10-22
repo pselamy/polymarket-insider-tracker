@@ -59,6 +59,7 @@ class FakeBaseClobClient:
         self.crawl_gate: threading.Event | None = None
         self.health_error: Exception | None = None
         self.market_error: Exception | None = None
+        self.markets_error: Exception | None = None
         self.midpoint_error: Exception | None = None
         self.orderbook_error: Exception | None = None
         self.price_error: Exception | None = None
@@ -81,6 +82,8 @@ class FakeBaseClobClient:
         """Serve one page; when ``crawl_gate`` is set, the API answers only once it is released."""
         if self.crawl_gate is not None:
             self.crawl_gate.wait()
+        if self.markets_error is not None:
+            raise self.markets_error
         self.page_requests.append(next_cursor)
         cursors: list[str | None] = [None, *(page["next_cursor"] for page in self.pages[:-1])]
         return self.pages[cursors.index(next_cursor)]
