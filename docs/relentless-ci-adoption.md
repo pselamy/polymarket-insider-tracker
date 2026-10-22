@@ -1657,3 +1657,17 @@ method is abstract). No branch is involved. These protocols are matched structur
 subclasses them and nothing calls their methods unbound (the one test that touches
 `HistoryRedis.pipeline`/`.set` reads their signature defaults, which `@abstractmethod` leaves
 unchanged), so no caller can observe the difference.
+
+## Coverage step 8: `alerter/dispatcher.py` and `pipeline.py` (2026-10-22)
+
+Measured from `2629008` (`coverage run -m pytest tests --ignore=tests/tooling`, branch on: 3967
+passed, 17 skipped). These are the last two authored modules outside the gate (coverage step 7,
+#227, enrolled the others). Before:
+
+| Module | Statements / branches | Missed lines / partial branches | Cover |
+| --- | --- | --- | --- |
+| `alerter/dispatcher.py` | 303 / 88 | 22 / 12 | 91 % |
+| `pipeline.py` | 452 / 96 | 41 / 15 | 89 % |
+
+`pipeline.py` is hashed by spec 004, so it is closed by tests only (through the public
+`PipelineComponents` / `install_components` seam), with no source change.
