@@ -195,17 +195,45 @@ Named files, entry points, dependency order:
   (stratum, metric) pair: M1 is judged in a stratum with ≥ 20 active addresses, M2 in one with ≥ 10
   heavy addresses; below that (including a zero denominator) the metric is reported, not judged.
   Part B needs no RPC read and may run first (Claude round 5 expects Part A to fail for contract-account
-  proxies; unverified). Part B (only if D1a selects O2 or O6, or D1b selects G3): per-user query
-  (`takerOnly=false`, ≤ 1,000 requests) recall ≥ 0.99 aggregate and ≥ 0.95 per active address, zero
-  ordering violations, truncation always detectable, earliest trade stable across two runs.
+  proxies; unverified). Part B (only if D1a selects O2 or O6, or D1b selects G3), under protocol
+  **R09a v2** (cursor pagination, revised 2026-10-22; v1's `limit`/`offset` rules are superseded):
+  per-user query with `taker_only=false`, `start=1`, cursor-only paging and identical filters on every
+  page (≤ 1,000 requests); recall ≥ 0.99 aggregate and ≥ 0.95 per active address, zero ordering
+  violations, every incomplete walk detected (complete history = ends on `next_cursor = null` and
+  `has_more = false` with no error or interruption), earliest trade stable across two complete-history
+  reads ≥ 1 h apart, and the R09a Q5 low-activity boundary check (owner-adopted addition, 2026-10-21):
+  missing data may only move an address to `unknown`, never across `B`. No Part B run has happened.
+  **Part A is diagnostic only for O6/G3** (owner decision 2026-10-21, decision-packet.md): it is kept
+  as a record and for the EOA stratum, and neither its PASS nor its FAIL is a dependency of O6 or G3.
   **FAIL or INCONCLUSIVE keeps the gate closed** (`unqualified_pre_T027`, shipped posture unchanged);
   the nonce is never scored and the recommended path becomes D1b G3 with D1a O6 (needs Part B PASS and
   O6's own spec text and source task); if Part B also fails, D1a/D1b go back to Patrick. Only a Part A
   PASS (or, under G3, a Part B PASS together with O6's reviewed spec text) lets a reviewed change set
-  `wallet_group_status = qualified`. The receipt (parameters, window,
+  `wallet_group_status = qualified`. Under G3 this is tightened by the owner decision of 2026-10-21:
+  the group stays non-scoring until a Part B PASS under R09a v2 **and** the reviewed O6
+  implementation, its versioned evidence contract and post-gate journey tests are merged; the PASS
+  receipt alone flips no configuration. The receipt (parameters, window,
   coverage intervals, seed, per-address table, per-stratum metrics, request counts, verdict) is checked
   in under `evidence/`. Until it exists the wallet group stays described as "low transaction count on
   the proxy address" (spec FR-007a/b). (F01, F02, R4-B2)
+- **Follow-up O6 (owner-adopted 2026-10-21; NOT a slice-004 task, no task ID assigned, existing IDs
+  unchanged)** — the follow-up slice that implements D1a = O6 under D1b = G3 (decision-packet.md,
+  "Owner decision, 2026-10-21 (Patrick)"). One per-user public Polymarket trade-history query, walked
+  per `research.md` R09a v2, supplies both activity (count of distinct public Polymarket trades for the
+  proxy wallet) and "Polymarket trading age" (never "wallet creation age"; only from a complete
+  history). Incomplete history yields age and activity `unknown`, never "new" or "low activity".
+  **Boundary requirement (owner-adopted addition, 2026-10-21)**: an explicit test around the
+  low-activity boundary `B` (captured FR-009 boundary `DETECTOR_FRESH_TRANSACTION_BOUNDARY`, default 5,
+  strictly fewer than `B` is low activity; spec.md FR-009, `research.md` R04): a wallet with exactly
+  `B` known trades MUST NOT be classified low-activity when one trade is missing from a page — missing
+  data can only move a wallet to `unknown`, never across the low-activity boundary — and a wallet with
+  exactly `B` trades in a complete history is not low activity. This is exact for walk-detectable loss
+  (dropped, errored or interrupted pages; no terminal page); a row silently missing from a page of a
+  walk that still ends on the terminal condition is not detectable by the walk and is bounded only by
+  the R09a v2 Q5 (b) ground-truth cross-check and Q1 recall. The wallet group stays non-scoring
+  until a T027 Part B PASS under R09a v2 **and** this implementation, its versioned evidence contract
+  and post-gate journey tests are merged; the PASS receipt alone flips no configuration. Scoring
+  ceilings for O6 are recomputed and verified by replay, not inherited from the nonce-based table.
 - [ ] T029 [US3] Default-alert-path disclosure (FR-022a). Add the typed live evidence capability value
   (`wallet_group_status` and `wallet_age_source` as code constants, `unqualified_pre_T027` and `none` on
   main; book depth `non_operational`) and one pure function that returns the alert-path report

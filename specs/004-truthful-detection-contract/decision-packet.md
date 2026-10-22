@@ -17,8 +17,8 @@ contract only, not a merge, deployment, real notification, trading or calibratio
 
 | ID | Selected | Not selected (out of scope for 004) |
 |---|---|---|
-| D1a | **O1** (no wallet-age source in 004) | O2, O3, O4 not selected; **O6** is a later follow-up, not part of this slice |
-| D1b | **G1** (wallet group non-scoring until a T027 PASS receipt) | G2, G3 not selected |
+| D1a | **O1** (no wallet-age source in 004) | O2, O3, O4 not selected; **O6** is a later follow-up, not part of this slice. Follow-up slice: **O6**, see [Owner decision, 2026-10-21](#owner-decision-2026-10-21-patrick) |
+| D1b | **G1** (wallet group non-scoring until a T027 PASS receipt) | G2, G3 not selected. Follow-up slice: **G3**, see [Owner decision, 2026-10-21](#owner-decision-2026-10-21-patrick) |
 | D2 | **R0** (keep 0.80; FR-022a/T029 report `default alert path unreachable`; operator overrides still alert) | R1–R4 not selected; **R5** not selected, so FR-022b, SC-010 and T030 are not in scope |
 | D3 | **(d)** (category fallback only when no volume value was observed, `unavailable` or `missing`, and the category is real metadata) | (a), (b), (c) not selected |
 | D4 | **M1** (`10^-6 <= v < 10^15`, ≤ 32 plain-notation characters, else `invalid`/`out_of_range`) | M0, M2 not selected |
@@ -29,6 +29,38 @@ This records a decision only. It is not a checklist tick: the reviewer-owned
 original analysis and the "recommended default" wording as history; where they differ from this table,
 this table governs. The contract text moved from D3 (c) to (d) in the same change (spec FR-005a,
 data-model §3, `scripts/spec004_evidence/replay_live.py`, regenerated `evidence/replay-live/results.csv`).
+
+## Owner decision, 2026-10-21 (Patrick)
+
+Decided by the owner, Patrick, on 2026-10-21. It adds a decision for the **follow-up slice** and
+leaves slice 004 unchanged. Like the 2026-10-20 table it is a decision, not a reviewer approval, a
+checklist tick, a waiver or a T027 result: **no T027 run (Part A or Part B) has happened**, and nothing
+here opens the wallet gate.
+
+1. **Slice 004 is unchanged.** D1a O1, D1b G1, D2 R0, D3 (d) and D4 M1 stay as recorded above and as
+   shipped.
+2. **Follow-up slice: D1a = O6.** One per-user public Polymarket trade-history query for the proxy
+   wallet supplies **both** measures:
+   - *activity*: the count of distinct public Polymarket trades for the proxy wallet;
+   - *age*: the elapsed time since the earliest public Polymarket trade for the proxy wallet, and only
+     when complete history is established (research R09a v2, "Complete history").
+
+   The age is named **"Polymarket trading age"**, never "wallet creation age". Incomplete history yields
+   age **and** activity `unknown`; it never yields "new" or "low activity".
+3. **Follow-up slice: D1b = G3.** The wallet group stays non-scoring until **all** of the following are
+   merged: a T027 Part B PASS receipt, the reviewed O6 implementation, its versioned evidence contract
+   and the post-gate journey tests. A PASS receipt alone is not permission to flip any configuration.
+   The proxy nonce stays an observation and is never scored.
+4. **D2 stays R0.** The 0.80 default threshold is kept.
+5. **Correction to earlier handoffs.** T027 alone does not make default alerts reachable: the recorded
+   post-T027 unknown-age ceiling is **0.780 < 0.80** (research R10). O6 changes which wallet evidence
+   can be known, so its scoring ceilings must be recomputed and verified by replay in the follow-up;
+   they are not inherited from the nonce-based post-T027 table, and no ceiling is claimed reachable here.
+6. **Part A is diagnostic.** T027 Part A (the nonce experiment) is retained as a diagnostic record and is
+   **not** a dependency of O6/G3; only Part B (research R09a v2) gates the follow-up.
+
+The 2026-10-20 table, the history tables and every reviewer round below are unchanged; the D1a/D1b rows
+above only gained a pointer to this section.
 
 ## Open decisions at a glance (history; all five decided above)
 
@@ -82,6 +114,14 @@ choice has no effect on what slice 004 does**: it decides only what the first fo
 | **O4** Gamma public-profile style account-creation timestamp | "account created < 48 h ago" as Polymarket records it | **Unverified lead only** (research R09 O4): no endpoint or terms evidenced in the repo; not recommendable until qualified |
 | **O6** O2's per-user query used for **both** age and a **Polymarket trade count** as the low-activity measure (added after the round-3 Claude review) | "first Polymarket trade seen < 48 h ago" and "fewer than `B` public Polymarket trades seen", each from the same response; nonce recorded as an observation only | Replaces the unqualified nonce on the activity side too, so the wallet group no longer depends on proxy-nonce semantics; low counts are exactly the case the 10,000-row cap does not truncate. Costs: the same query qualification as O2, plus whether `takerOnly` or maker visibility undercounts trades (an undercount would *create* false "low activity"); changes what FR-007/FR-009's activity count means and needs its own reviewed spec text. **UNVERIFIED**: no live call was made |
 
+> **Contract note (appended 2026-10-22; the rows above are kept as reviewed).** The "newest-first with a
+> 10,000-row offset cap" and `takerOnly` wording in the O2/O6 rows describes the legacy `limit`/`offset`
+> contract. The current trades query is cursor-paginated (an `offset` parameter is rejected), `taker_only`
+> defaults to `true`, and `start` defaults to three years back. The active per-user rules are research
+> R09a v2 (Part B): `taker_only=false`, `start=1`, cursor-only paging with identical filters, and a
+> walk is complete history only if it ends on `next_cursor = null` and `has_more = false`; any other walk
+> yields age and trade count `unknown`. No offset-based rule is active. No Part B run has happened.
+
 **Recommended default: O1 for slice 004** (the only option whose every claim is supported by code on
 main today), with **O2 or O6 as the first follow-up** once a bounded, authorized qualification
 establishes the per-user query semantics (T027's optional per-user scope). If you pick O2, O3 or O6 the
@@ -119,6 +159,11 @@ may tighten or loosen; they are not presented as settled facts about provider be
 point-estimate rules: at the coverage minimum, zero misses among 30 heavy addresses still allows a true
 false-low-activity rate near 9.5 % (one-sided 95 % bound), and a bound-based PASS would need about 150
 heavy addresses (research R09a, "Statistical strength").
+
+> **Note (appended 2026-10-22).** The paragraph above predates the cursor contract: Part B's query
+> rules now follow research R09a v2, where v1's "truncation" check becomes incompleteness detectability
+> (any walk that does not end on `next_cursor = null` and `has_more = false` yields `unknown`), plus the
+> owner-adopted Q5 boundary check. Thresholds are unchanged. No Part B run has happened.
 
 **Likely T027 outcome (Claude round 5; UNVERIFIED expectation, no probe made)**: Part A will probably
 FAIL for contract-account proxies, because under EIP-161 a contract's account nonce counts only the
@@ -357,6 +402,8 @@ deprecated inclusive alias; no new migration.
 - **UNVERIFIED**: proxy-address nonce semantics; the per-user trades query for age option O2; the
   204 s CLOB crawl duration on current data (reported value, not re-measured); Gamma crawl duration `g`.
   No live call was made; task T027 is the qualification receipt and needs authorization.
+  (2026-10-22) The per-user query for the follow-up O6 is likewise UNVERIFIED; its Part B rules are
+  research R09a v2 (cursor pagination) and no Part B run has happened.
 - No outcome-based calibration exists. The scorer's "cost-adjusted backtest" justification of 0.80
   (`detector/scorer.py:25-31`) cannot be reproduced in this repository (G-028).
 - Niche is double counted (effective weight 0.60 on size confidence in niche markets) and low-volume
