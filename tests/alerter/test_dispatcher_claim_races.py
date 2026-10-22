@@ -351,3 +351,27 @@ async def test_failed_claim_release_after_delivery_leaves_a_bounded_lease(
     assert await backend.exists(_dedup_key()) == 1
     assert 0 < await backend.ttl(_claim_key()) <= 60
     assert "Failed to release delivery claim for discord" in caplog.text
+
+
+class UnrecognisedReasonHistory(AlertHistory):
+    """Dedup state that suppresses the channel with a reason the dispatcher does not know."""
+
+    async def is_channel_suppressed(
+        self, channel: str, wallet: str, market: str
+    ) -> tuple[bool, str | None]:
+        _ = channel, wallet, market
+        return True, "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_unrecognised_suppression_reason_fails_closed() -> None:
+    channel = FakeAlertChannel(CHANNEL)
+    history = UnrecognisedReasonHistory(DelegatingRedis(FakeAsyncRedis()))
+    dispatcher = AlertDispatcher([channel], history=history)
+
+    result = await dispatcher.dispatch(_alert(), WALLET, MARKET)
+
+    assert result.channel_statuses == {CHANNEL: "rate_limited"}
+    assert result.disposition == "failed"
+    assert result.all_succeeded is False
+    assert channel.deliveries == []

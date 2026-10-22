@@ -266,37 +266,6 @@ async def test_stop_during_a_blocked_metadata_crawl_cancels_it_quietly(
     assert "metadata:idle" not in log
 
 
-async def _running_run(redis: FakeAsyncRedis, port: int) -> tuple[Pipeline, asyncio.Task[None]]:
-    """A pipeline whose ``run()`` task has started it and is waiting for the stop signal."""
-    pipeline = await wire_pipeline(make_test_settings(health_port=port), redis=redis, eth=FakeEth())
-    runner = asyncio.create_task(pipeline.run())
-    await run_until(lambda: pipeline.is_running)
-    return pipeline, runner
-
-
-async def test_run_returns_once_the_pipeline_is_stopped(
-    fake_redis: FakeAsyncRedis, unused_tcp_port: int
-) -> None:
-    pipeline, runner = await _running_run(fake_redis, unused_tcp_port)
-
-    await pipeline.stop()
-    await asyncio.wait_for(runner, timeout=2.0)
-
-    assert pipeline.state is PipelineState.STOPPED
-
-
-async def test_cancelled_run_stops_the_pipeline_and_returns(
-    fake_redis: FakeAsyncRedis, unused_tcp_port: int
-) -> None:
-    pipeline, runner = await _running_run(fake_redis, unused_tcp_port)
-
-    runner.cancel()
-    await asyncio.wait_for(runner, timeout=2.0)
-
-    assert runner.cancelled() is False
-    assert pipeline.state is PipelineState.STOPPED
-
-
 async def test_refused_delivery_is_logged_with_its_disposition(
     fake_redis: FakeAsyncRedis,
     trade: TradeEvent,

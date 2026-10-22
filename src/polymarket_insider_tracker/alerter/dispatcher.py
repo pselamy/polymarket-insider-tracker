@@ -165,9 +165,8 @@ class AlertDispatcher:
             return True
 
         # Check if we should try half-open (an open circuit always carries its failure time)
-        last_failure = state.last_failure_time
         if (
-            last_failure is not None
+            (last_failure := state.last_failure_time) is not None
             and (datetime.now(UTC) - last_failure).total_seconds() >= self.recovery_timeout_seconds
             and state.half_open_attempts < self.half_open_max_attempts
         ):
@@ -542,8 +541,9 @@ class AlertDispatcher:
 
     @classmethod
     def _undelivered_disposition(cls, statuses: list[str]) -> str:
-        no_confirmed_failure = not cls._has_status(statuses, CONFIRMED_FAILURE_STATUSES)
-        if no_confirmed_failure and cls._has_status(statuses, UNKNOWN_OUTCOME_STATUSES):
+        if cls._has_status(statuses, CONFIRMED_FAILURE_STATUSES):
+            return "failed"
+        if cls._has_status(statuses, UNKNOWN_OUTCOME_STATUSES):
             return "ambiguous"
         return "failed"
 
