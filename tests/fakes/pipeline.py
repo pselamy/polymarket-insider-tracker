@@ -148,6 +148,7 @@ class WiredPipeline(Pipeline):
         super().__init__(settings)
         self.poller: TradePoller | None = None
         self.metadata_sync: MarketMetadataSync | None = None
+        self.components: PipelineComponents | None = None
 
 
 def _polygon_client(settings: Settings, redis: Redis, eth: FakeEth) -> PolygonClient:
@@ -160,7 +161,7 @@ def _polygon_client(settings: Settings, redis: Redis, eth: FakeEth) -> PolygonCl
     )
 
 
-def _sdk_boundary(base_client: FakeBaseClobClient) -> ClobClient:
+def _sdk_boundary(base_client: FakeBaseClobClient, max_retries: int) -> ClobClient:
     """A real ``ClobClient`` whose SDK handle is ``base_client``."""
 
     def build(host: str) -> FakeBaseClobClient:
@@ -169,17 +170,20 @@ def _sdk_boundary(base_client: FakeBaseClobClient) -> ClobClient:
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(clob_module, "BaseClobClient", build)
-        return ClobClient()
+        return ClobClient(max_retries=max_retries)
 
 
 def _metadata_sync(
-    redis: Redis, crawl_gate: threading.Event | None, log: list[str]
+    redis: Redis,
+    crawl_gate: threading.Event | None,
+    log: list[str],
+    base_client: FakeBaseClobClient,
+    max_retries: int,
 ) -> MarketMetadataSync:
-    base_client = FakeBaseClobClient()
     base_client.crawl_gate = crawl_gate
     return MarketMetadataSync(
         redis=redis,
-        clob_client=_sdk_boundary(base_client),
+        clob_client=_sdk_boundary(base_client, max_retries),
         gamma_client=FakeGammaClient(),
         on_state_change=lambda state: log.append(f"metadata:{state.value}"),
     )
@@ -238,6 +242,10 @@ async def wire_pipeline(
     trace_funding: bool = True,
     substitutes: Substitutes | None = None,
     pipeline_type: type[WiredPipeline] = WiredPipeline,
+    clob: FakeBaseClobClient | None = None,
+    clob_max_retries: int = clob_module.DEFAULT_MAX_RETRIES,
+    owns_connections: bool = False,
+    poller_type: type[TradePoller] = TradePoller,
 ) -> WiredPipeline:
     """Assemble a real ``Pipeline`` with only its external boundaries replaced.
 
@@ -252,35 +260,42 @@ async def wire_pipeline(
     ``trace_funding=False`` leaves the pipeline without a funding tracer.
 
     ``substitutes`` replaces named collaborators (a failing detector, a stand-in trade source).
-    The caller owns ``redis`` and ``db_manager``: stopping the pipeline leaves them open.
-    ``pipeline_type`` selects a ``WiredPipeline`` subclass for lifecycle failure injection.
+    The caller owns ``redis`` and ``db_manager``: stopping the pipeline leaves them open, unless
+    ``owns_connections`` hands them to the pipeline to close. ``pipeline_type`` and ``poller_type``
+    select ``WiredPipeline``/``TradePoller`` subclasses for lifecycle failure injection, and
+    ``clob`` is the CLOB SDK double (with its ``*_error`` switches) behind the metadata sync,
+    retried ``clob_max_retries`` times.
+    The installed set stays readable as ``pipeline.components``.
     """
     substitutes = substitutes or Substitutes()
     log = state_log if state_log is not None else []
     pipeline = pipeline_type(settings)
     polygon_client = _polygon_client(settings, redis, eth)
-    metadata_sync = _metadata_sync(redis, crawl_gate, log)
+    metadata_sync = _metadata_sync(
+        redis, crawl_gate, log, clob or FakeBaseClobClient(), clob_max_retries
+    )
     await _cache_market(redis, market)
     fresh_detector, size_detector = _detectors(polygon_client, metadata_sync, redis, substitutes)
     if trades is not None:
-        pipeline.poller = _wire_poller(pipeline, redis, trades, poll_clock, metadata_sync, log)
-    pipeline.metadata_sync = metadata_sync
-    pipeline.install_components(
-        PipelineComponents(
-            redis=redis,
-            db_manager=db_manager,
-            metadata_sync=metadata_sync,
-            funding_tracer=FundingTracer(polygon_client) if trace_funding else None,
-            fresh_wallet_detector=fresh_detector,
-            size_anomaly_detector=size_detector,
-            detector_config=default_detector_config(),
-            risk_scorer=_scorer(settings, redis),
-            alert_formatter=substitutes.formatter or AlertFormatter(verbosity="detailed"),
-            alert_dispatcher=_dispatcher(settings, redis, channels, pipeline.dry_run),
-            trade_poller=substitutes.poller or pipeline.poller,
-            owns_connections=False,
+        pipeline.poller = _wire_poller(
+            pipeline, redis, trades, poll_clock, metadata_sync, log, poller_type
         )
+    pipeline.metadata_sync = metadata_sync
+    pipeline.components = PipelineComponents(
+        redis=redis,
+        db_manager=db_manager,
+        metadata_sync=metadata_sync,
+        funding_tracer=FundingTracer(polygon_client) if trace_funding else None,
+        fresh_wallet_detector=fresh_detector,
+        size_anomaly_detector=size_detector,
+        detector_config=default_detector_config(),
+        risk_scorer=_scorer(settings, redis),
+        alert_formatter=substitutes.formatter or AlertFormatter(verbosity="detailed"),
+        alert_dispatcher=_dispatcher(settings, redis, channels, pipeline.dry_run),
+        trade_poller=substitutes.poller or pipeline.poller,
+        owns_connections=owns_connections,
     )
+    pipeline.install_components(pipeline.components)
     return pipeline
 
 
@@ -291,6 +306,7 @@ def _wire_poller(
     poll_clock: FakeClock | None,
     metadata_sync: MarketMetadataSync,
     log: list[str],
+    poller_type: type[TradePoller],
 ) -> TradePoller:
     clock = poll_clock or FakeClock(0.0)
 
@@ -298,7 +314,7 @@ def _wire_poller(
         log.append(f"poller:{state.value}")
         pipeline.on_ingestion_state(state)
 
-    return TradePoller(
+    return poller_type(
         pipeline.process_trade,
         redis=redis,
         settings=pipeline.settings.polymarket,
