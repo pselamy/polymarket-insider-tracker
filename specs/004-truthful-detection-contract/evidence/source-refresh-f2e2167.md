@@ -254,3 +254,17 @@ awaits the Redis health `PING` through `ping_redis` (`pipeline_components.py`, n
 `__aexit__` as `*args: object`. No scoring rule, threshold, literal, ordering or persisted value
 changes. The `ingestor/models.py` and `pipeline.py` hashes were re-pinned from the output of
 `check_source_hashes`; every other hash and every other evidence file is unchanged.
+
+## Eighteenth refresh: pipeline component optionality narrowed to its installed invariant; no scoring change (2026-10-22)
+
+`base_commit` stays 3aafd0b. Only `pipeline.py` changes, and only in how it holds what
+`install_components` supplies. The metadata sync, both detectors, the scorer, the formatter and the
+dispatcher were six separately optional attributes; they are now one `_InstalledComponents` value,
+created by the first install and updated in place by every later one, so each reader still sees the
+set installed at the moment it reads. The trade path narrows once (a trade before the first install
+is counted and nothing else, as before), and the health monitor is used as the always-present value
+`__init__` makes it. The guards these types make unnecessary are gone: `_failures_only`'s `None`
+case, the two `_metadata_sync` checks, the two `_health_monitor` checks and `_can_alert`. No scoring
+rule, threshold, literal, ordering or persisted value changes. The `pipeline.py` hash was re-pinned
+from the output of `check_source_hashes`; every other hash and every other evidence file is
+unchanged.

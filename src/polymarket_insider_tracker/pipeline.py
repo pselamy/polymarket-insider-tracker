@@ -20,8 +20,7 @@ from typing import TYPE_CHECKING, TypeVar
 from redis.asyncio import Redis
 
 from polymarket_insider_tracker import terminal_errors as terminal
-from polymarket_insider_tracker.alerter.dispatcher import AlertDispatcher, DispatchResult
-from polymarket_insider_tracker.alerter.formatter import AlertFormatter
+from polymarket_insider_tracker.alerter.dispatcher import DispatchResult
 from polymarket_insider_tracker.assessment_row import assessment_dto, insert_despite_cancellation
 from polymarket_insider_tracker.config import Settings, get_settings
 from polymarket_insider_tracker.detector.detector_config import default_detector_config
@@ -37,14 +36,12 @@ from polymarket_insider_tracker.detector.evaluation_clock import (
     system_clock,
 )
 from polymarket_insider_tracker.detector.models import RiskAssessment
-from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
+from polymarket_insider_tracker.detector.scorer import SignalBundle
 from polymarket_insider_tracker.ingestor.alert_path_health import AlertPathHealthMonitor
 from polymarket_insider_tracker.ingestor.health import ComponentStatus, HealthMonitor
-from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync
 from polymarket_insider_tracker.ingestor.readiness import running_ingestion_status
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
 from polymarket_insider_tracker.pipeline_components import (
-    Evaluator,
     PipelineComponents,
     build_components,
     ping_redis,
@@ -94,10 +91,8 @@ def _signal_bundle(trade: TradeEvent, evidence: TradeEvidence) -> SignalBundle:
     return SignalBundle(trade, fresh_signal, size.signal if size is not None else None, evidence)
 
 
-def _failures_only(evidence: TradeEvidence | None) -> TradeEvidence | None:
+def _failures_only(evidence: TradeEvidence) -> TradeEvidence:
     """A skip row records its detector failures and no evaluation evidence."""
-    if evidence is None:
-        return None
     return TradeEvidence(
         evidence.evaluated_at, evidence.detector_config, failures=evidence.failures
     )
@@ -111,6 +106,15 @@ class PipelineState(StrEnum):
     RUNNING = "running"
     STOPPING = "stopping"
     ERROR = "error"
+
+
+@dataclass
+class _InstalledComponents:
+    """The installed set the trade path and metadata crawl read. A re-install replaces ``current``
+    in place, so a worker holding it reads whichever set is installed at the moment it reads.
+    """
+
+    current: PipelineComponents
 
 
 @dataclass
@@ -175,14 +179,9 @@ class Pipeline:
         self._db_manager: DatabaseManager | None = None
         self._owns_connections = True
         self._components_installed = False
-        self._metadata_sync: MarketMetadataSync | None = None
-        self._fresh_wallet_detector: Evaluator[WalletEvaluation] | None = None
-        self._size_anomaly_detector: Evaluator[SizeEvaluation] | None = None
+        self._installed: _InstalledComponents | None = None
         self._detector_config = default_detector_config()
         self._clock: Clock = system_clock
-        self._risk_scorer: RiskScorer | None = None
-        self._alert_formatter: AlertFormatter | None = None
-        self._alert_dispatcher: AlertDispatcher | None = None
         self._trade_poller: TradePoller | None = None
         self._funding_tracer: FundingTracer | None = None
         self._health_monitor = AlertPathHealthMonitor(self._settings.detector.alert_threshold)
@@ -275,7 +274,7 @@ class Pipeline:
             return ComponentStatus(status="down", last_error=redact_exception_message(exc))
 
     def _sync_poller_timestamps(self) -> None:
-        if not self._trade_poller or not self._health_monitor:
+        if not self._trade_poller:
             return
         status = self._trade_poller.status
         # Only a completed fetch proves the source was reached; the request-start
@@ -329,8 +328,6 @@ class Pipeline:
         logger.info("Starting pipeline...")
 
         try:
-            if not self._components_installed:
-                await self._initialize_components()
             await self._start_background_services()
             self._stats.started_at = datetime.now(UTC)
             # A worker may already have failed terminally during startup; never
@@ -366,7 +363,13 @@ class Pipeline:
         self._state = PipelineState.ERROR if was_error else PipelineState.STOPPED
         logger.info("Pipeline stopped")
 
-    async def _initialize_components(self) -> None:
+    async def _installed_or_built(self) -> _InstalledComponents:
+        """The installed set, building and installing the production one when none is."""
+        if self._installed is not None and self._components_installed:
+            return self._installed
+        return await self._initialize_components()
+
+    async def _initialize_components(self) -> _InstalledComponents:
         """Build the production components from the settings and install them."""
         components = await build_components(
             self._settings,
@@ -374,8 +377,9 @@ class Pipeline:
             on_trade=self.process_trade,
             on_ingestion_state=self.on_ingestion_state,
         )
-        self.install_components(components)
+        installed = self._install(components)
         logger.info("All components initialized")
+        return installed
 
     def install_components(self, components: PipelineComponents) -> None:
         """Run on ``components`` instead of building them from the settings.
@@ -384,24 +388,25 @@ class Pipeline:
         embedding caller can supply its own connections and collaborators. Connections the
         pipeline did not create (``owns_connections=False``) stay open when it stops.
         """
+        self._install(components)
+
+    def _install(self, components: PipelineComponents) -> _InstalledComponents:
         self._redis = components.redis
         self._db_manager = components.db_manager
         self._owns_connections = components.owns_connections
-        self._metadata_sync = components.metadata_sync
+        if self._installed is None:
+            self._installed = _InstalledComponents(components)
+        else:
+            self._installed.current = components
         self._funding_tracer = components.funding_tracer
-        self._fresh_wallet_detector = components.fresh_wallet_detector
-        self._size_anomaly_detector = components.size_anomaly_detector
         self._detector_config = components.detector_config
-        self._risk_scorer = components.risk_scorer
-        self._alert_formatter = components.alert_formatter
-        self._alert_dispatcher = components.alert_dispatcher
         self._trade_poller = components.trade_poller
         self._health_monitor.bind_scorer(components.risk_scorer, logger)
         self._components_installed = True
+        return self._installed
 
     async def _start_health_server(self) -> None:
         self._wire_health_monitor()
-        assert self._health_monitor is not None
         await self._health_monitor.start()
         try:
             await self._health_monitor.start_http_server(port=self._settings.health_port)
@@ -414,16 +419,16 @@ class Pipeline:
             raise
 
     async def _start_background_services(self) -> None:
-        """Start the poller first, then the metadata crawl as a tracked background task."""
+        """Install the set if none is, then start the poller and the metadata crawl task."""
+        installed = await self._installed_or_built()
         await self._start_health_server()
 
         if self._trade_poller:
             logger.debug("Starting trade poller...")
             self._poller_task = asyncio.create_task(self._run_trade_poller())
 
-        if self._metadata_sync:
-            logger.debug("Starting metadata sync service in the background...")
-            self._metadata_task = asyncio.create_task(self._run_metadata_sync())
+        logger.debug("Starting metadata sync service in the background...")
+        self._metadata_task = asyncio.create_task(self._run_metadata_sync(installed))
 
     def _record_processing_error(self, message: str) -> None:
         """Count a recoverable per-trade failure and surface it at /health (lifecycle §5)."""
@@ -458,12 +463,10 @@ class Pipeline:
             logger.error("Trade poller error: %s", redact_exception_message(e))
             self._handle_worker_failure(redact_exception_message(e))
 
-    async def _run_metadata_sync(self) -> None:
+    async def _run_metadata_sync(self, installed: _InstalledComponents) -> None:
         """Run the initial metadata crawl without delaying acquisition."""
-        if not self._metadata_sync:
-            return
         try:
-            await self._metadata_sync.start()
+            await installed.current.metadata_sync.start()
         except asyncio.CancelledError:
             logger.debug("Metadata sync task cancelled")
         except Exception as e:
@@ -487,11 +490,10 @@ class Pipeline:
         self._poller_task = None
         self._metadata_task = None
         await self._drain_terminal_writes()
-        if self._metadata_sync:
+        if self._installed is not None:
             logger.debug("Stopping metadata sync...")
-            await self._metadata_sync.stop()
-        if self._health_monitor:
-            await self._health_monitor.stop()
+            await self._installed.current.metadata_sync.stop()
+        await self._health_monitor.stop()
 
     async def _cleanup(self) -> None:
         """Clean up resources."""
@@ -529,8 +531,7 @@ class Pipeline:
         """
         self._stats.trades_processed += 1
         self._stats.last_trade_time = datetime.now(UTC)
-        if self._health_monitor:
-            self._health_monitor.record_event("trades")
+        self._health_monitor.record_event("trades")
 
         try:
             await self._detect_score_and_alert(trade)
@@ -541,7 +542,11 @@ class Pipeline:
 
     async def _detect_score_and_alert(self, trade: TradeEvent) -> None:
         """Run detectors, count their failures, then score/alert or persist a skip row."""
-        evidence = await self._evaluate(trade)
+        installed = self._installed
+        if installed is None:
+            # Before the first install there is no detector, so no signal and no failure.
+            return
+        evidence = await self._evaluate(trade, installed)
         bundle = _signal_bundle(trade, evidence)
         fresh_signal = bundle.fresh_wallet_signal
 
@@ -551,17 +556,17 @@ class Pipeline:
 
         if fresh_signal or bundle.size_anomaly_signal:
             self._stats.signals_generated += 1
-            await self._score_and_alert(bundle)
+            await self._score_and_alert(bundle, installed)
         elif evidence.failures:
-            await self._persist_detector_failure_skip(bundle)
+            await self._persist_detector_failure_skip(bundle, evidence, installed)
 
-    async def _evaluate(self, trade: TradeEvent) -> TradeEvidence:
+    async def _evaluate(self, trade: TradeEvent, installed: _InstalledComponents) -> TradeEvidence:
         """Run both detectors in parallel at one evaluation instant; count their failures."""
         # One evaluation instant per trade, shared by both detectors (detector-api.md section 2)
         evaluated_at = read_evaluation_instant(self._clock)
         (wallet, fresh_error), (size, size_error) = await asyncio.gather(
-            self._detect_fresh_wallet(trade, evaluated_at),
-            self._detect_size_anomaly(trade, evaluated_at),
+            self._detect_fresh_wallet(trade, evaluated_at, installed),
+            self._detect_size_anomaly(trade, evaluated_at, installed),
         )
         errors = self._record_detector_failures(fresh_error, size_error)
         failures = tuple(error.recorded() for error in errors)
@@ -575,7 +580,9 @@ class Pipeline:
             self._stats.last_error = redact_text(error.message)
         return failed
 
-    async def _persist_detector_failure_skip(self, bundle: SignalBundle) -> None:
+    async def _persist_detector_failure_skip(
+        self, bundle: SignalBundle, evidence: TradeEvidence, installed: _InstalledComponents
+    ) -> None:
         """Persist why no evidence exists when detector failure is the only outcome.
 
         Without this row, a trade whose detectors all failed (or whose only working
@@ -592,9 +599,9 @@ class Pipeline:
             dry_run=self._dry_run,
             # The skip row was produced under the active configuration even though
             # no score was computed; record it so the row stays self-describing.
-            scoring_config=(self._risk_scorer.scoring_config if self._risk_scorer else None),
+            scoring_config=installed.current.risk_scorer.scoring_config,
             # No evaluation evidence (contracts/scoring-config.md section 4): failures only.
-            evidence=_failures_only(bundle.evidence),
+            evidence=_failures_only(evidence),
         )
         await self._persist_assessment(assessment)
 
@@ -662,35 +669,29 @@ class Pipeline:
         return len(chain.chain)
 
     async def _detect_fresh_wallet(
-        self, trade: TradeEvent, evaluated_at: datetime
+        self, trade: TradeEvent, evaluated_at: datetime, installed: _InstalledComponents
     ) -> tuple[WalletEvaluation | None, DetectorError | None]:
         """Run fresh wallet detection; a failure is returned so it can be counted."""
-        if not self._fresh_wallet_detector:
-            return None, None
-        evaluation = self._fresh_wallet_detector.evaluate(trade, evaluated_at=evaluated_at)
+        detector = installed.current.fresh_wallet_detector
+        evaluation = detector.evaluate(trade, evaluated_at=evaluated_at)
         return await _run_detector("fresh_wallet", trade, evaluation)
 
     async def _detect_size_anomaly(
-        self, trade: TradeEvent, evaluated_at: datetime
+        self, trade: TradeEvent, evaluated_at: datetime, installed: _InstalledComponents
     ) -> tuple[SizeEvaluation | None, DetectorError | None]:
         """Run size anomaly detection; a failure is returned so it can be counted."""
-        if not self._size_anomaly_detector:
-            return None, None
-        evaluation = self._size_anomaly_detector.evaluate(trade, evaluated_at=evaluated_at)
+        detector = installed.current.size_anomaly_detector
+        evaluation = detector.evaluate(trade, evaluated_at=evaluated_at)
         return await _run_detector("size_anomaly", trade, evaluation)
 
-    def _can_alert(self) -> bool:
-        return (
-            self._risk_scorer is not None
-            and self._alert_formatter is not None
-            and self._alert_dispatcher is not None
-        )
-
     async def _dispatch_alert(
-        self, formatted_alert: FormattedAlert, assessment: RiskAssessment
+        self,
+        formatted_alert: FormattedAlert,
+        assessment: RiskAssessment,
+        installed: _InstalledComponents,
     ) -> DispatchResult:
-        assert self._alert_dispatcher is not None
-        result = await self._alert_dispatcher.dispatch(formatted_alert, assessment=assessment)
+        dispatcher = installed.current.alert_dispatcher
+        result = await dispatcher.dispatch(formatted_alert, assessment=assessment)
         if result.all_succeeded:
             self._stats.alerts_sent += 1
             logger.info(
@@ -707,16 +708,17 @@ class Pipeline:
             )
         return result
 
-    async def _send_or_dry_run_alert(self, assessment: RiskAssessment) -> DispatchResult:
-        assert self._alert_formatter is not None
-        formatted_alert = self._alert_formatter.format(assessment)
+    async def _send_or_dry_run_alert(
+        self, assessment: RiskAssessment, installed: _InstalledComponents
+    ) -> DispatchResult:
+        formatted_alert = installed.current.alert_formatter.format(assessment)
         if self._dry_run:
             logger.info(
                 "[DRY RUN] Would send alert: wallet=%s, score=%.2f",
                 assessment.wallet_address[:10] + "...",
                 assessment.weighted_score,
             )
-        return await self._dispatch_alert(formatted_alert, assessment)
+        return await self._dispatch_alert(formatted_alert, assessment, installed)
 
     async def _handle_below_threshold(
         self, bundle: SignalBundle, assessment: RiskAssessment
@@ -734,7 +736,9 @@ class Pipeline:
             assessment.weighted_score,
         )
 
-    async def _handle_above_threshold(self, assessment: RiskAssessment) -> None:
+    async def _handle_above_threshold(
+        self, assessment: RiskAssessment, installed: _InstalledComponents
+    ) -> None:
         """Persist the qualifying assessment before any delivery work, then record the outcome.
 
         A formatter or dispatch failure — or termination after an external delivery —
@@ -746,7 +750,7 @@ class Pipeline:
         persist = self._settings.detector.persist_assessments
         pending = dataclasses.replace(assessment, dry_run=self._dry_run)
         pending_written = persist and await self._persist_assessment(pending)
-        result = await self._send_or_dry_run_alert(assessment)
+        result = await self._send_or_dry_run_alert(assessment, installed)
         channels_str = json.dumps(result.channel_statuses) if result.channel_statuses else None
         final = dataclasses.replace(
             pending,
@@ -764,18 +768,14 @@ class Pipeline:
             return
         await self._persist_assessment(assessment)
 
-    async def _score_and_alert(self, bundle: SignalBundle) -> None:
+    async def _score_and_alert(self, bundle: SignalBundle, installed: _InstalledComponents) -> None:
         """Score signals, persist the assessment, and send alert if above threshold."""
-        if not self._can_alert():
-            return
-        assert self._risk_scorer is not None
-
-        assessment = await self._risk_scorer.assess(bundle)
+        assessment = await installed.current.risk_scorer.assess(bundle)
         if not assessment.should_alert:
             await self._handle_below_threshold(bundle, assessment)
             return
 
-        await self._handle_above_threshold(assessment)
+        await self._handle_above_threshold(assessment, installed)
 
     async def _update_assessment_delivery(self, assessment: RiskAssessment) -> bool:
         """Record the delivery outcome on the pending row. Best-effort; never raises."""
