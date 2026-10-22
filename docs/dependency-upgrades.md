@@ -38,6 +38,7 @@ counts osv alias groups instead (one per underlying advisory): 60 groups in 17 p
 | 5 | pytest/pygments | pygments | 2.19.2 | 2.20.0 | 2 | runtime (via pytest), done: locked 2.20.0 |
 | 6 | dev tooling | virtualenv | 20.35.4 | 21.14.12 | 17 | dev-only (via pre-commit), done: locked 21.14.12 (21.7.13 first, then 21.14.7 for four later advisories, then 21.14.12 for three more) |
 | 6 | dev tooling | filelock | 3.20.2 | 3.20.3 | 2 | dev-only (via virtualenv), done: locked 3.32.7 |
+| 7 | formatter | black | 26.5.1 | 26.10.1 | 1 | dev-only (direct dev pin), done: locked 26.10.1 (follow-up, 2026-10-22) |
 
 No advisory lacks a fixed release. h11, httpx and httpcore have no advisories; they are
 not upgraded. Packages not listed (redis, sqlalchemy, websockets, ...) carry no advisories.
@@ -91,3 +92,11 @@ lock alone is enough; no pin edits are expected for family 1.
    `AsyncWeb3(AsyncHTTPProvider(...))`, `to_checksum_address`, `eth.contract(...).functions`, and
    confirmed `eth.get_logs`/`get_block`/`block_number` exist. No live RPC call was made. Treat the
    changelog review as outstanding for the human reviewer.
+7. **Family 7, black** (formatter, follow-up 2026-10-22, done): osv published GHSA-cg8m-r9f2-5wm2
+   ("GitHub Action installs unvalidated required-version from pyproject.toml") against every black
+   release before 26.10.1. black 26.5.1 -> 26.10.1, the minimum fixed release: the `dev` pin in
+   `pyproject.toml` moves to `black==26.10.1` and `uv lock --upgrade-package black==26.10.1` changes
+   only the black entry (no new transitive dependency). Dev-only: this repository runs black from
+   `uv`, not through the affected GitHub Action. `black --check .` with 26.10.1 leaves all 423 files
+   unchanged, so no source is reformatted. Clears 1 alias group; `python -m quality.security_main`
+   is back to 0 advisory groups.
