@@ -17,8 +17,8 @@ contract only, not a merge, deployment, real notification, trading or calibratio
 
 | ID | Selected | Not selected (out of scope for 004) |
 |---|---|---|
-| D1a | **O1** (no wallet-age source in 004) | O2, O3, O4 not selected; **O6** is a later follow-up, not part of this slice |
-| D1b | **G1** (wallet group non-scoring until a T027 PASS receipt) | G2, G3 not selected |
+| D1a | **O1** (no wallet-age source in 004) | O2, O3, O4 not selected; **O6** is a later follow-up, not part of this slice. Follow-up slice: **O6**, see [Owner decision, 2026-10-21](#owner-decision-2026-10-21-patrick) |
+| D1b | **G1** (wallet group non-scoring until a T027 PASS receipt) | G2, G3 not selected. Follow-up slice: **G3**, see [Owner decision, 2026-10-21](#owner-decision-2026-10-21-patrick) |
 | D2 | **R0** (keep 0.80; FR-022a/T029 report `default alert path unreachable`; operator overrides still alert) | R1–R4 not selected; **R5** not selected, so FR-022b, SC-010 and T030 are not in scope |
 | D3 | **(d)** (category fallback only when no volume value was observed, `unavailable` or `missing`, and the category is real metadata) | (a), (b), (c) not selected |
 | D4 | **M1** (`10^-6 <= v < 10^15`, ≤ 32 plain-notation characters, else `invalid`/`out_of_range`) | M0, M2 not selected |
@@ -29,6 +29,38 @@ This records a decision only. It is not a checklist tick: the reviewer-owned
 original analysis and the "recommended default" wording as history; where they differ from this table,
 this table governs. The contract text moved from D3 (c) to (d) in the same change (spec FR-005a,
 data-model §3, `scripts/spec004_evidence/replay_live.py`, regenerated `evidence/replay-live/results.csv`).
+
+## Owner decision, 2026-10-21 (Patrick)
+
+Decided by the owner, Patrick, on 2026-10-21. It adds a decision for the **follow-up slice** and
+leaves slice 004 unchanged. Like the 2026-10-20 table it is a decision, not a reviewer approval, a
+checklist tick, a waiver or a T027 result: **no T027 run (Part A or Part B) has happened**, and nothing
+here opens the wallet gate.
+
+1. **Slice 004 is unchanged.** D1a O1, D1b G1, D2 R0, D3 (d) and D4 M1 stay as recorded above and as
+   shipped.
+2. **Follow-up slice: D1a = O6.** One per-user public Polymarket trade-history query for the proxy
+   wallet supplies **both** measures:
+   - *activity*: the count of distinct public Polymarket trades for the proxy wallet;
+   - *age*: the elapsed time since the earliest public Polymarket trade for the proxy wallet, and only
+     when complete history is established (research R09a v2, "Complete history").
+
+   The age is named **"Polymarket trading age"**, never "wallet creation age". Incomplete history yields
+   age **and** activity `unknown`; it never yields "new" or "low activity".
+3. **Follow-up slice: D1b = G3.** The wallet group stays non-scoring until **all** of the following are
+   merged: a T027 Part B PASS receipt, the reviewed O6 implementation, its versioned evidence contract
+   and the post-gate journey tests. A PASS receipt alone is not permission to flip any configuration.
+   The proxy nonce stays an observation and is never scored.
+4. **D2 stays R0.** The 0.80 default threshold is kept.
+5. **Correction to earlier handoffs.** T027 alone does not make default alerts reachable: the recorded
+   post-T027 unknown-age ceiling is **0.780 < 0.80** (research R10). O6 changes which wallet evidence
+   can be known, so its scoring ceilings must be recomputed and verified by replay in the follow-up;
+   they are not inherited from the nonce-based post-T027 table, and no ceiling is claimed reachable here.
+6. **Part A is diagnostic.** T027 Part A (the nonce experiment) is retained as a diagnostic record and is
+   **not** a dependency of O6/G3; only Part B (research R09a v2) gates the follow-up.
+
+The 2026-10-20 table, the history tables and every reviewer round below are unchanged; the D1a/D1b rows
+above only gained a pointer to this section.
 
 ## Open decisions at a glance (history; all five decided above)
 
