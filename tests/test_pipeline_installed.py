@@ -32,6 +32,28 @@ from tests.integration._journey_harness import (
 )
 
 
+class NoBackgroundServicesPipeline(Pipeline):
+    """Starts nothing in the background, as ``tests/test_pipeline.py`` startup-failure doubles do."""
+
+    async def _start_background_services(self) -> None:
+        return None
+
+
+async def test_start_builds_the_production_set_before_background_services(
+    unused_tcp_port: int,
+) -> None:
+    pipeline = NoBackgroundServicesPipeline(make_test_settings(health_port=unused_tcp_port))
+
+    await pipeline.start()
+    try:
+        assert pipeline.state is PipelineState.RUNNING
+        assert pipeline.db_manager is not None
+    finally:
+        await pipeline.stop()
+
+    assert pipeline.db_manager is None
+
+
 async def test_health_monitor_is_the_same_object_before_install_and_across_start_and_stop(
     fake_redis: FakeAsyncRedis, unused_tcp_port: int
 ) -> None:

@@ -328,6 +328,7 @@ class Pipeline:
         logger.info("Starting pipeline...")
 
         try:
+            await self._installed_or_built()
             await self._start_background_services()
             self._stats.started_at = datetime.now(UTC)
             # A worker may already have failed terminally during startup; never
@@ -396,8 +397,7 @@ class Pipeline:
         self._owns_connections = components.owns_connections
         if self._installed is None:
             self._installed = _InstalledComponents(components)
-        else:
-            self._installed.current = components
+        self._installed.current = components
         self._funding_tracer = components.funding_tracer
         self._detector_config = components.detector_config
         self._trade_poller = components.trade_poller
@@ -419,7 +419,7 @@ class Pipeline:
             raise
 
     async def _start_background_services(self) -> None:
-        """Install the set if none is, then start the poller and the metadata crawl task."""
+        """Start the poller first, then the metadata crawl on the set ``start`` installed."""
         installed = await self._installed_or_built()
         await self._start_health_server()
 

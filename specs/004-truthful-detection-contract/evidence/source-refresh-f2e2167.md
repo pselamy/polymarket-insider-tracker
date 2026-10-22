@@ -261,8 +261,9 @@ changes. The `ingestor/models.py` and `pipeline.py` hashes were re-pinned from t
 `install_components` supplies. The metadata sync, both detectors, the scorer, the formatter and the
 dispatcher were six separately optional attributes; they are now one `_InstalledComponents` value,
 created by the first install and updated in place by every later one, so each reader still sees the
-set installed at the moment it reads. The trade path narrows once (a trade before the first install
-is counted and nothing else, as before), and the health monitor is used as the always-present value
+set installed at the moment it reads. `start` still installs or builds the set before background
+services start. The trade path narrows once (a trade before the first install is counted and
+reaches no detector, scorer or store, as before), and the health monitor is used as the always-present value
 `__init__` makes it. The guards these types make unnecessary are gone: `_failures_only`'s `None`
 case, the two `_metadata_sync` checks, the two `_health_monitor` checks and `_can_alert`. No scoring
 rule, threshold, literal, ordering or persisted value changes. The `pipeline.py` hash was re-pinned

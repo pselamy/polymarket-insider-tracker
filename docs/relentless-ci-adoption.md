@@ -1726,7 +1726,7 @@ Measured on this branch with the gate's own commands (`coverage run -m pytest te
 | Module | Stmts / branches | Missed lines / partial branches | Cover | Gate |
 | --- | --- | --- | --- | --- |
 | `pipeline.py` before | 452 / 96 | 3 / 6 | 98 % | not enrolled |
-| `pipeline.py` after | 439 / 84 | 0 / 0 | **100 %** | enrolled (appended to `--include`) |
+| `pipeline.py` after | 440 / 84 | 0 / 0 | **100 %** | enrolled (appended to `--include`) |
 
 Every other `src` module was already enrolled at 100 %, so the enrolled total (8636 statements,
 1590 branches, 100 %) is now the whole package.
@@ -1738,10 +1738,12 @@ for this step: the types now state what was already guaranteed, and no behaviour
   optional attributes, `None` only before the first `install_components`. They are now one
   `_InstalledComponents` value. The first install creates it and every later install replaces
   its `current` set in place, so a worker holding it still reads whichever set is installed when it
-  reads (re-install while running is existing, tested behaviour). `start` narrows once
-  (`_installed_or_built`, inside `_start_background_services`, whose no-argument signature a test
-  subclass overrides), and the trade path narrows once: a trade before the first install is
-  counted and nothing else, which is what the old path did with no detectors.
+  reads (re-install while running is existing, tested behaviour). `start` still installs or
+  builds the set before calling `_start_background_services`, which test subclasses override with
+  no arguments; that method reads the set back through the same `_installed_or_built`, which at
+  that point always returns it. The trade path narrows once: a trade before the first install is
+  counted and nothing else. The old path reached no detector, scorer or store either; it only read
+  the evaluation clock (never reassigned) and awaited two detector calls that returned at once.
 - `_failures_only` takes the non-optional evidence `_evaluate` returned instead of
   `bundle.evidence`, the same object.
 - The health monitor is used as the always-present value `__init__` creates.
@@ -1759,12 +1761,14 @@ Guards removed (original lines) and why no caller reached them:
 The `if self._metadata_sync:` in `_stop_background_services` guarded a reachable path (stop after a
 failed build, before any install); it is kept as `if self._installed is not None:` and stays covered.
 
-`tests/test_pipeline_installed.py` pins each boundary through the public API: the health monitor is
+`tests/test_pipeline_installed.py` pins each boundary through the public API: `start` builds the
+production set even when a subclass overrides `_start_background_services` (an adversarial review
+caught an earlier revision that built inside that method; this test fails on it); the health monitor is
 the same object before install and across start/stop and records a pre-install trade; a trade
 before install is not scored and the next one after `install_components` is; a re-install
 replaces scorer and dispatcher together; a metadata sync installed after `start` but before the crawl
 runs is the one crawled and stopped (the replaced one never starts); and a skip row records only
-detector failures and no evaluation evidence. All five pass on both the old and the new
+detector failures and no evaluation evidence. All six pass on both the old and the new
 `pipeline.py`. `pipeline.py` stays at 856 lines; spec 004's hash is re-pinned (eighteenth refresh
 in `source-refresh-f2e2167.md`) and the four evidence tools exit 0.
 
