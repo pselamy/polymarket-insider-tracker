@@ -1671,3 +1671,47 @@ passed, 17 skipped). These are the last two authored modules outside the gate (c
 
 `pipeline.py` is hashed by spec 004, so it is closed by tests only (through the public
 `PipelineComponents` / `install_components` seam), with no source change.
+
+After (full suite, branch on: 3994 passed, 17 skipped):
+
+| Module | Missed lines / partial branches | Cover | Gate |
+| --- | --- | --- | --- |
+| `alerter/dispatcher.py` | 0 / 0 | 100 % | enrolled |
+| `pipeline.py` | 3 / 7 | 98 % | **not enrolled** (see below) |
+
+`alerter/dispatcher.py` is closed by `tests/alerter/test_dispatcher_claim_races.py`: AlertHistory
+on real `fakeredis` with a rival dispatcher interleaved at one point of the claim lifecycle (a
+rival claim between the suppression check and the claim, a rival delivery under the claim, the
+claim taken over during a send or while an abandoned send runs, history detached mid-claim) and
+with dedup-state outages (failed recheck, claim, release and renewal), plus a raising channel, a
+failed half-open attempt and an abandoned send that raises. Source changes, behaviour unchanged:
+
+- `AlertChannel.send` uses the `@abstractmethod` docstring-body protocol idiom (no class
+  subclasses `AlertChannel`; it is matched structurally).
+- `_should_attempt`: the `if state.last_failure_time:` guard is kept, folded into the half-open
+  condition as `last_failure is not None and ...`. The open-without-failure-time state cannot be
+  produced: `_circuit_state` is private, starts closed, and only `_record_failure` opens it, after
+  setting `last_failure_time` in the same synchronous block; `_record_success` and `reset_circuit`
+  close it. Coverage's line arcs no longer see the operand separately; the guard still holds.
+- `_undelivered_disposition` keeps the fail-closed `"failed"` default and the same truth table with
+  one condition (`ambiguous` only when an unknown outcome is present and no confirmed failure).
+  The old third `return "failed"` needed a status outside both groups, no `delivered` and not all
+  `duplicate`; every status the dispatcher produces is in one of those sets.
+
+`pipeline.py` is closed by tests only (`tests/test_pipeline_edges.py`, through `wire_pipeline` /
+`install_components`; `wire_pipeline` gained `clob`, `clob_max_retries`, `owns_connections` and
+`poller_type` knobs and keeps the installed set as `pipeline.components`). Seven locations cannot be
+reached without a source change, which this step was not authorised to make (the file is hashed by
+spec 004), so `pipeline.py` stays outside the gate:
+
+| Location | Why no caller reaches it |
+| --- | --- |
+| 100 `_failures_only` → `return None` | its one caller passes `bundle.evidence`, which `_signal_bundle` always sets from `_evaluate` |
+| 424->exit, 464 `if/if not self._metadata_sync` | `PipelineComponents.metadata_sync` is not optional, and these run only after a set is installed |
+| 493->exit, 532->535 `if self._health_monitor` | `__init__` always sets an `AlertPathHealthMonitor`, and nothing reassigns it |
+| 770 `if not self._can_alert()` → `return` | scorer, formatter and dispatcher are required fields; before installation no detector exists, so no signal reaches `_score_and_alert` |
+| 842->847 `if self._stop_event` | `start()` always sets it before `run()` reaches the check, and nothing resets it |
+
+The planted check: an extra uncovered `if` in `dispatcher.dispatch` made `coverage report
+--fail-under=100 --include=<enrolled>` print `Coverage failure: total of 99 is less than
+fail-under=100` and exit 2; the reverted tree exits 0.
