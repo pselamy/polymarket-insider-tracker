@@ -13,8 +13,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: relentless-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  # One live run per pull request: a newer push to the PR cancels its older runs, so only the
+  # latest commit is checked. Pushes to main, merge-queue entries and manual runs are keyed by
+  # commit and never cancelled. Contract: tests/tooling/test_merge_group_workflows.py.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.event_name, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
