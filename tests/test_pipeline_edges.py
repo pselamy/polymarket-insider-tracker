@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
-from polymarket_insider_tracker.ingestor.trade_poller import IngestionState, TradePoller
+from polymarket_insider_tracker.ingestor.trade_poller import TradePoller
 from polymarket_insider_tracker.pipeline import Pipeline, PipelineState
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.fakes import (

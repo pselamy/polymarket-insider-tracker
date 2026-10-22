@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
@@ -44,6 +45,7 @@ class AlertChannel(Protocol):
 
     name: str
 
+    @abstractmethod
     async def send(self, alert: FormattedAlert) -> bool:
         """Send alert to channel.
 
