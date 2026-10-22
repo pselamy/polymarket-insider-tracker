@@ -51,7 +51,6 @@ class AlertChannel(Protocol):
         TimeoutError when the outcome is ambiguous (the payload may have been accepted
         before the timeout); the dispatcher then applies the ambiguity window.
         """
-        ...
 
 
 @dataclass
@@ -163,18 +162,18 @@ class AlertDispatcher:
         if not state.is_open:
             return True
 
-        # Check if we should try half-open
-        if state.last_failure_time:
-            elapsed = (datetime.now(UTC) - state.last_failure_time).total_seconds()
-            if (
-                elapsed >= self.recovery_timeout_seconds
-                and state.half_open_attempts < self.half_open_max_attempts
-            ):
-                # Allow half-open attempt
-                logger.info(
-                    f"Circuit half-open for {channel_name}, attempt {state.half_open_attempts + 1}"
-                )
-                return True
+        # Check if we should try half-open (an open circuit always carries its failure time)
+        last_failure = state.last_failure_time
+        if (
+            last_failure is not None
+            and (datetime.now(UTC) - last_failure).total_seconds() >= self.recovery_timeout_seconds
+            and state.half_open_attempts < self.half_open_max_attempts
+        ):
+            # Allow half-open attempt
+            logger.info(
+                f"Circuit half-open for {channel_name}, attempt {state.half_open_attempts + 1}"
+            )
+            return True
 
         return False
 
@@ -541,9 +540,10 @@ class AlertDispatcher:
 
     @classmethod
     def _undelivered_disposition(cls, statuses: list[str]) -> str:
-        if cls._has_status(statuses, CONFIRMED_FAILURE_STATUSES):
-            return "failed"
-        if cls._has_status(statuses, UNKNOWN_OUTCOME_STATUSES):
+        """Only unknown outcomes without a confirmed failure are ambiguous; anything else failed."""
+        if cls._has_status(statuses, UNKNOWN_OUTCOME_STATUSES) and not cls._has_status(
+            statuses, CONFIRMED_FAILURE_STATUSES
+        ):
             return "ambiguous"
         return "failed"
 
