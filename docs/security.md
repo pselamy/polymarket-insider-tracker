@@ -53,8 +53,10 @@ in report-only mode (pinned by `mise --locked`, `quality/osv-scanner.toml`).
 At enforcement the tree has 0 advisory groups, after the six scoped family upgrades listed in
 `docs/dependency-upgrades.md` (60 groups in 17 packages on `main` before them). "Groups" are osv
 alias groups, one per underlying advisory (four later virtualenv advisories were cleared by a
-scoped follow-up to 21.14.7, three more by a second follow-up to 21.14.12, and one black advisory
-by a scoped upgrade to 26.10.1, keeping the count at 0); that document's "Advisories" column counts every
+scoped follow-up to 21.14.7, three more by a second follow-up to 21.14.12, one black advisory
+by a scoped upgrade to 26.10.1, and three filelock advisories and one more virtualenv advisory by a
+scoped follow-up to filelock 4.2.1 and virtualenv 21.14.13, keeping the count at 0); that document's
+"Advisories" column counts every
 GHSA/PYSEC record separately, so its numbers are larger.
 
 When a new advisory appears, handle it with a scoped upgrade PR for the affected package family

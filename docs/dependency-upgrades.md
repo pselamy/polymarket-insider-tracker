@@ -36,8 +36,8 @@ counts osv alias groups instead (one per underlying advisory): 60 groups in 17 p
 | 4 | alembic stack | mako | 1.3.10 | 1.4.2 | 6 | runtime (via alembic), done: locked 1.4.2 |
 | 5 | pytest/pygments | pytest | 9.0.2 | 9.0.3 | 2 | runtime (via poly-eip712-structs); also dev pin, done: locked 9.0.3 |
 | 5 | pytest/pygments | pygments | 2.19.2 | 2.20.0 | 2 | runtime (via pytest), done: locked 2.20.0 |
-| 6 | dev tooling | virtualenv | 20.35.4 | 21.14.12 | 17 | dev-only (via pre-commit), done: locked 21.14.12 (21.7.13 first, then 21.14.7 for four later advisories, then 21.14.12 for three more) |
-| 6 | dev tooling | filelock | 3.20.2 | 3.20.3 | 2 | dev-only (via virtualenv), done: locked 3.32.7 |
+| 6 | dev tooling | virtualenv | 20.35.4 | 21.14.13 | 18 | dev-only (via pre-commit), done: locked 21.14.13 (21.7.13 first, then 21.14.7 for four later advisories, then 21.14.12 for three more, then 21.14.13 for one more on 2026-10-26) |
+| 6 | dev tooling | filelock | 3.20.2 | 4.2.1 | 5 | dev-only (via virtualenv and python-discovery), done: locked 4.2.1 (3.32.7 first, then 4.2.1 for three later advisories on 2026-10-26) |
 | 7 | formatter | black | 26.5.1 | 26.10.1 | 1 | dev-only (direct dev pin), done: locked 26.10.1 (follow-up, 2026-10-22) |
 
 No advisory lacks a fixed release. h11, httpx and httpcore have no advisories; they are
@@ -100,3 +100,15 @@ lock alone is enough; no pin edits are expected for family 1.
    `uv`, not through the affected GitHub Action. `black --check .` with 26.10.1 leaves all 423 files
    unchanged, so no source is reformatted. Clears 1 alias group; `python -m quality.security_main`
    is back to 0 advisory groups.
+8. **Family 6, dev tooling** (follow-up 2026-10-26, done): osv published three filelock advisories
+   (GHSA-567q-5qvw-pf92, GHSA-9vhv-jxww-xfm5, GHSA-v4x8-3wr5-3wq8: Windows lock-file and SQLite
+   side-file handling, fixed in 4.2.1) and one virtualenv advisory (GHSA-cx6f-vjhg-g3cc: unescaped
+   `--prompt` in the Bash activator, fixed in 21.14.13) on 2026-10-23. filelock 3.32.7 -> 4.2.1 and
+   virtualenv 21.14.12 -> 21.14.13, the minimum fixed releases
+   (`uv lock --upgrade-package virtualenv==21.14.13 --upgrade-package filelock==4.2.1`); `uv.lock`
+   changes only those two entries (no new transitive dependency) and `pyproject.toml` is unchanged.
+   Dev-only: filelock is reached only through virtualenv and python-discovery, virtualenv only
+   through pre-commit, and no repository code imports either. The filelock major bump was checked
+   offline: `virtualenv.cli_run` creates a working environment with filelock 4.2.1 and
+   `pre-commit --version` runs. Clears 4 alias groups; `python -m quality.security_main` is back to
+   0 advisory groups.
