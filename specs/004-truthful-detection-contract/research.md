@@ -338,6 +338,9 @@ collects no evidence, makes no request and claims no T027 result. Under the owne
 2026-10-21 (decision-packet.md, "Owner decision, 2026-10-21 (Patrick)") Part B is the gate for D1a O6 /
 D1b G3; a PASS receipt alone flips no configuration.
 
+Update 2026-10-27 (status only; the rules in this section are unchanged): Part B run 1 ran under v2
+on 2026-10-26/27 and returned **FAIL** on Q1. Receipt: `evidence/t027-partb-run1.md`.
+
 Why v2: v1 was written against the legacy `limit`/`offset` contract recorded in slice 001
 (`specs/001-supported-trade-ingestion/evidence/feasibility.md:13-15`, verified 2026-09-09). The current
 reference, [List trades](https://docs.polymarket.com/api-reference/feeds/list-trades) (retrieved
