@@ -202,7 +202,11 @@ Named files, entry points, dependency order:
   violations, every incomplete walk detected (complete history = ends on `next_cursor = null` and
   `has_more = false` with no error or interruption), earliest trade stable across two complete-history
   reads ≥ 1 h apart, and the R09a Q5 low-activity boundary check (owner-adopted addition, 2026-10-21):
-  missing data may only move an address to `unknown`, never across `B`. No Part B run has happened.
+  missing data may only move an address to `unknown`, never across `B`. **Part B run 1 (window
+  2026-10-26/27): FAIL on Q1** (aggregate 0.845, minimum 0.315). Every miss is in one of 4 addresses whose
+  read-1 walk stopped at the run's own 10-page cap; recall is 1 for the other 170 active addresses, and
+  Q2, Q3, Q4 and Q5 pass. Receipt: `evidence/t027-partb-run1.md`. The gate stays closed; whether the FAIL
+  stands or a re-walk of the capped addresses is authorised is Patrick's decision.
   **Part A is diagnostic only for O6/G3** (owner decision 2026-10-21, decision-packet.md): it is kept
   as a record and for the EOA stratum, and neither its PASS nor its FAIL is a dependency of O6 or G3.
   **FAIL or INCONCLUSIVE keeps the gate closed** (`unqualified_pre_T027`, shipped posture unchanged);
