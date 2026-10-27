@@ -1,0 +1,26 @@
+{
+  "run1_meta": {
+    "commit": "7bf8e247849072d0fc966abaeab25a09379f901e",
+    "script_sha256": "f75a87b88765f1172584e41c0ac84e00c71997e91fa9eeaf635f09351296aa4a",
+    "redis_db": "13",
+    "hours": "25.5",
+    "started_utc": "2026-10-26T03:00:33Z",
+    "sample_seed": "20261026 (fixed before the frame exists)",
+    "sample_n": "200",
+    "B": "5",
+    "walk_budget_total": "1000",
+    "walk_rate_max_per_s": "2"
+  },
+  "run1_meta_sha256": "4154b35fa9cba8f56b5a02b242ce77dad92ebdbe735bc625f26cb27ae2dd6e53",
+  "capture_worktree_commit": "7bf8e247849072d0fc966abaeab25a09379f901e",
+  "capture_script_sha256": "f75a87b88765f1172584e41c0ac84e00c71997e91fa9eeaf635f09351296aa4a",
+  "capture_script_note": "The running capture used the pre-review t027_capture.py (sha256 above). The merged file (#235, main 3815a51) differs only in typing and startup: dbsize via a Protocol, from_url via the typed RedisFactory, and a DESCRIPTION constant instead of __doc__. Capture behaviour is unchanged.",
+  "judge_tooling_commit": "3815a51a56e0998099bac57529ca147ec7d7bcd5",
+  "out_of_run_activity": [
+    "Smoke runs of the capture into ~/t027/smoke1 (Redis DB 14) before the run.",
+    "Two exploratory requests to /v2/trades before the run (shape probe)."
+  ],
+  "operator_notes": [
+    "The operator link to the jumpbox was down ~09:00-13:45Z and ~15:45-19:10Z on 2026-10-26; the capture ran on the jumpbox in tmux and was not touched; status.jsonl shows no gaps over 180 s."
+  ]
+}

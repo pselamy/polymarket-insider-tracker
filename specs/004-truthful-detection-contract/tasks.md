@@ -179,7 +179,8 @@ Named files, entry points, dependency order:
   gate-opening change. Depends on a T027 PASS receipt, T015b and the post-T027 literals of T021–T026.
 - [ ] T020 Real PostgreSQL/Redis parity + migration downgrade exercise (disposable DB only)
 - [ ] T027 **ENTRY GATE for the wallet group** — wallet-subject qualification receipt (needs explicit
-  authorization for read-only anonymous probes; none were run in this revision). No implementation task
+  authorization for read-only anonymous probes; Patrick authorised Part B on 2026-10-25 and its run 1
+  ran on 2026-10-26/27; no Part A probe has run). No implementation task
   that lets the wallet group contribute to a score (the post-T027 halves of T009c and T009d, T015b, T019b
   and the post-T027 literals of T021–T026) may merge until this
   receipt exists and records what the proxy-address nonce measures; until then the wallet group is
@@ -202,7 +203,12 @@ Named files, entry points, dependency order:
   violations, every incomplete walk detected (complete history = ends on `next_cursor = null` and
   `has_more = false` with no error or interruption), earliest trade stable across two complete-history
   reads ≥ 1 h apart, and the R09a Q5 low-activity boundary check (owner-adopted addition, 2026-10-21):
-  missing data may only move an address to `unknown`, never across `B`. No Part B run has happened.
+  missing data may only move an address to `unknown`, never across `B`. **Part B run 1 (window
+  2026-10-26/27): FAIL on Q1** (aggregate 0.845, minimum 0.315). Every miss is in one of 4 addresses whose
+  read-1 walk stopped at 10 pages (10,000 rows): the run's own 10-page cap, which is also the deepest
+  the API was asked for (whether `/v2/trades` serves rows past depth 10,000 is unverified). Recall is 1
+  for the other 170 active addresses, and Q2, Q3, Q4 and Q5 pass. Receipt: `evidence/t027-partb-run1.md`. The gate stays closed; whether the FAIL
+  stands or a re-walk of the capped addresses is authorised is Patrick's decision.
   **Part A is diagnostic only for O6/G3** (owner decision 2026-10-21, decision-packet.md): it is kept
   as a record and for the EOA stratum, and neither its PASS nor its FAIL is a dependency of O6 or G3.
   **FAIL or INCONCLUSIVE keeps the gate closed** (`unqualified_pre_T027`, shipped posture unchanged);
