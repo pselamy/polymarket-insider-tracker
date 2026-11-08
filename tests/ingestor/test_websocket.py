@@ -520,6 +520,8 @@ class TestIssue93WebsocketValidationAndConnectionFailure:
 
         assert "Failed to connect" in str(exc_info.value)
         assert "getaddrinfo failed" in str(exc_info.value)
+        assert "Failed to connect:" in caplog.text
+        assert "getaddrinfo failed" in caplog.text
         assert handler.state == ConnectionState.DISCONNECTED
         assert handler.stats.last_error is not None
         assert "getaddrinfo failed" in handler.stats.last_error
@@ -549,3 +551,21 @@ class TestIssue93WebsocketValidationAndConnectionFailure:
 
         assert "SECRET_PASS_123" not in str(exc_info.value)
         assert "***" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_successful_connection_redacts_credentials_in_info_log(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A secret in the host URL must never leak into the connection INFO log record."""
+        secret_host = "wss://user:SECRET_PASS_123@ws.example.com?token=SECRET_TOKEN"
+        recorder = RecordingTradeCallback()
+        handler = TradeStreamHandler(on_trade=recorder, host=secret_host)
+        ws = StoppingWebSocket()
+
+        with caplog.at_level(logging.INFO):
+            await stream(handler, [ws], monkeypatch)
+
+        assert "Connected to" in caplog.text
+        assert "wss://user:***@ws.example.com?token=***" in caplog.text
+        assert "SECRET_PASS_123" not in caplog.text
+        assert "SECRET_TOKEN" not in caplog.text

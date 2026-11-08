@@ -206,7 +206,7 @@ class TradeStreamHandler:
             subscribe_msg = self._build_subscription_message()
             await ws.send(json.dumps(subscribe_msg))
 
-            logger.info("Connected to %s and subscribed to trades", self._host)
+            logger.info("Connected to %s and subscribed to trades", redact_url(self._host))
             await self._set_state(ConnectionState.CONNECTED)
             self._stats.connected_since = time.time()
 
