@@ -103,6 +103,9 @@ def _validate_websocket_url(value: str) -> str:
     return _check_url_components(value, ("ws", "wss"), "WebSocket URL")
 
 
+validate_websocket_url = _validate_websocket_url
+
+
 def _validate_webhook_url_secret(value: SecretStr) -> SecretStr:
     """An enabled webhook URL must satisfy the same scannability invariant.
 

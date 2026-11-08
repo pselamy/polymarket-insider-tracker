@@ -18,9 +18,10 @@ from typing import Protocol
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
+from polymarket_insider_tracker.config import validate_websocket_url
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
-from polymarket_insider_tracker.redaction import redact_exception_message
+from polymarket_insider_tracker.redaction import redact_exception_message, redact_url
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class TradeStreamHandler:
         )
         self._on_trade = on_trade
         self._on_state_change = on_state_change
-        self._host = host
+        self._host = validate_websocket_url(host)
         self._ping_interval = ping_interval
         self._max_reconnect_delay = max_reconnect_delay
         self._initial_reconnect_delay = initial_reconnect_delay
@@ -215,7 +216,7 @@ class TradeStreamHandler:
             logger.error("Failed to connect: %s", redact_exception_message(e))
             self._stats.last_error = redact_exception_message(e)
             raise ConnectionError(
-                f"Failed to connect to {self._host}: {redact_exception_message(e)}"
+                f"Failed to connect to {redact_url(self._host)}: {redact_exception_message(e)}"
             ) from e
 
     async def _emit_trade(self, trade: TradeEvent) -> None:

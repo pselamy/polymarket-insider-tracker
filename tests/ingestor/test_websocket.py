@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from decimal import Decimal
 from typing import Any
 
@@ -11,7 +12,11 @@ import pytest
 
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.websocket import (
+    ConnectionError as WsConnectionError,
+)
+from polymarket_insider_tracker.ingestor.websocket import (
     ConnectionState,
+    StreamConnection,
     StreamStats,
     TradeStreamHandler,
 )
@@ -471,3 +476,76 @@ class TestTradeStreamHandlerIntegration:
         assert received_trades[0].market_id == "0xtest"
         assert received_trades[0].side == "BUY"
         assert received_trades[0].price == Decimal("0.75")
+
+
+class TestIssue93WebsocketValidationAndConnectionFailure:
+    """Verify validation and failure behaviour for issue #93 URL patterns."""
+
+    def test_malformed_nested_scheme_host_rejected_at_initialization(self) -> None:
+        """Issue #93 reported failure connecting to wss://https://data-api.polymarket.com.
+
+        The handler must reject malformed nested schemes at initialization.
+        """
+        recorder = RecordingTradeCallback()
+        with pytest.raises(ValueError, match="nested scheme"):
+            TradeStreamHandler(on_trade=recorder, host="wss://https://data-api.polymarket.com")
+
+    def test_non_websocket_http_host_rejected_at_initialization(self) -> None:
+        """An HTTP(S) REST endpoint must not be accepted as a WebSocket host."""
+        recorder = RecordingTradeCallback()
+        with pytest.raises(ValueError, match="must start with ws:// or wss://"):
+            TradeStreamHandler(on_trade=recorder, host="https://data-api.polymarket.com")
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_connection_failure_with_fake_feed(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Reproduce issue #93 getaddrinfo failure with a fake feed."""
+
+        async def fake_failing_connect(
+            _host: str, ping_interval: int = 30, ping_timeout: int = 60
+        ) -> StreamConnection:
+            _ = (ping_interval, ping_timeout)
+            raise OSError(11001, "getaddrinfo failed")
+
+        monkeypatch.setattr(
+            "polymarket_insider_tracker.ingestor.websocket.ws_connect",
+            fake_failing_connect,
+        )
+        recorder = RecordingTradeCallback()
+        handler = TradeStreamHandler(on_trade=recorder, host="wss://ws-live-data.polymarket.com")
+
+        with caplog.at_level(logging.ERROR), pytest.raises(WsConnectionError) as exc_info:
+            await handler.start()
+
+        assert "Failed to connect" in str(exc_info.value)
+        assert "getaddrinfo failed" in str(exc_info.value)
+        assert handler.state == ConnectionState.DISCONNECTED
+        assert handler.stats.last_error is not None
+        assert "getaddrinfo failed" in handler.stats.last_error
+
+    @pytest.mark.asyncio
+    async def test_connection_error_redacts_credentials_in_host(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A secret in the host URL must never leak into ConnectionError."""
+
+        async def failing_connect(
+            _host: str, ping_interval: int = 30, ping_timeout: int = 60
+        ) -> StreamConnection:
+            _ = (ping_interval, ping_timeout)
+            raise OSError("refused")
+
+        monkeypatch.setattr(
+            "polymarket_insider_tracker.ingestor.websocket.ws_connect",
+            failing_connect,
+        )
+        recorder = RecordingTradeCallback()
+        secret_host = "wss://user:SECRET_PASS_123@ws.example.com"
+        handler = TradeStreamHandler(on_trade=recorder, host=secret_host)
+
+        with pytest.raises(WsConnectionError) as exc_info:
+            await handler.start()
+
+        assert "SECRET_PASS_123" not in str(exc_info.value)
+        assert "***" in str(exc_info.value)
