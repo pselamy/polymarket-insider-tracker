@@ -314,6 +314,12 @@ def _assert_replay_evaluation(
     assert f"{assessment.weighted_score:.3f}" == row["score_pre_T027"]
 
 
+def test_the_replay_live_corpus_has_all_65_cases() -> None:
+    """SC-001 guard: the parametrized suite is only the full 65-case proof while the corpus is 65."""
+    assert len(REPLAY_CASES) == 65
+    assert len(REPLAY_EXPECTED) == 65
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("spec", REPLAY_CASES, ids=[str(c["case_id"]) for c in REPLAY_CASES])
 async def test_every_replay_live_case_evaluates_and_scores_through_size_detector(

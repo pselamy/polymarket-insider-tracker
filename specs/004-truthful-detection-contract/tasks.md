@@ -176,11 +176,13 @@ Named files, entry points, dependency order:
 ## Phase 6: Cross-cutting evidence (future implementation)
 
 - [ ] T018 Bounded current Gamma field/schema qualification receipt (read-only; R01 limits preserved)
-- [x] T019a Full pipeline/storage/output/failure/restart/integration evidence per
+- [ ] T019a Full pipeline/storage/output/failure/restart/integration evidence per
   `quickstart.md` journey scenarios 1–10 (SC-001–008) **in the pre-T027 posture**: the completion evidence of
   the 004 release, not gated by T027. Depends on T010, T015a, T016, T017 and the pre-T027 literals of
-  T021–T026.
-  *P6 receipt*: Full pre-T027 journey validation across quickstart.md scenarios 1–12 and SC-001–SC-009 executed and verified green; evidence receipt recorded in specs/004-truthful-detection-contract/evidence/implementation-validation.md.
+  T021–T026. **Unticked: the SC-005 display requirement is INCOMPLETE** (no alert surface renders the
+  effective threshold; see implementation-validation.md SC-005 and gap-register G-024). Reconstruction is
+  proven; display is not.
+  *P6 receipt (qualified)*: Pre-T027 journey evidence for quickstart.md scenarios 1–12 and SC-001–SC-009 is recorded in specs/004-truthful-detection-contract/evidence/implementation-validation.md. SC-005 display is open, so T019a is not complete.
 - [ ] T019b The same journeys **in the post-T027 posture** (`004.2` rows, scoring wallet group), run in the
   gate-opening change. Depends on a T027 PASS receipt, T015b and the post-T027 literals of T021–T026.
 - [ ] T020 Real PostgreSQL/Redis parity + migration downgrade exercise (disposable DB only)

@@ -121,6 +121,20 @@ async def test_failed_crawl_keeps_prior_observation_available_until_600s_then_st
 
 
 @pytest.mark.asyncio
+async def test_a_failed_crawl_does_not_extend_the_record_ttl(fake_redis: FakeAsyncRedis) -> None:
+    store = VolumeStore(fake_redis)
+    await store.write_crawl(_crawl(volume_stats()), STAMP)
+    await store.write_crawl(None, STAMP + timedelta(seconds=300))
+
+    # Redis TTL expiry of the record (1,200 s from the successful write): EXPIRE 0 removes it now.
+    await fake_redis.expire(DEFAULT_VOLUME_KEY_PREFIX + CID, 0)
+
+    merged = await store.merge(MARKET_METADATA)
+    assert merged.volume is None
+    assert merged.volume_unavailable_reason == "gamma_fetch_failed"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("crawl", "reason"),
     [
