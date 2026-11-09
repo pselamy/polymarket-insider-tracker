@@ -170,6 +170,8 @@ class TestSignalSerializationShape:
             "market_category": "science",
             "volume_impact": 0.05,
             "book_impact": 0.1,
+            "volume_impact_measured": None,
+            "book_impact_measured": None,
             "is_niche_market": True,
             "confidence": 0.8,
             "factors": {"volume_impact": 0.5},

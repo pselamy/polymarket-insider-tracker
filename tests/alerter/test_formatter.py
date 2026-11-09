@@ -24,6 +24,11 @@ from polymarket_insider_tracker.detector.models import (
     RiskAssessment,
     SizeAnomalySignal,
 )
+from polymarket_insider_tracker.detector.volume_state import (
+    SizeVolumeEvidence,
+    VolumeState,
+    VolumeVerdict,
+)
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, Token, TradeEvent
 from polymarket_insider_tracker.profiler.models import WalletProfile
 
@@ -641,3 +646,210 @@ class TestLinkSection:
         )
         assert "[View Market]" not in result.telegram_markdown
         assert "*Market:* Title only" in result.telegram_markdown
+
+
+class TestSizeVs24hVolumeLine:
+    """Tests for the detailed 'Size vs 24h volume' alert line."""
+
+    def test_measured_volume_in_detailed_mode(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        verdict = VolumeVerdict(
+            state=VolumeState.AVAILABLE,
+            reason="ok",
+            daily_volume=Decimal("30000"),
+            present=True,
+            raw=None,
+            source=None,
+            acquired_at=None,
+            age_seconds=None,
+        )
+        evidence = SizeVolumeEvidence(
+            verdict=verdict,
+            volume_impact_measured=Decimal("0.1083"),
+            niche_basis="numeric",
+            category="science",
+            category_source="metadata",
+        )
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.1083,
+            book_impact=0.0,
+            is_niche_market=False,
+            confidence=0.8,
+            factors={},
+            volume_evidence=evidence,
+            volume_impact_measured=Decimal("0.1083"),
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.8,
+            should_alert=True,
+        )
+
+        formatter = AlertFormatter(verbosity="detailed")
+        result = formatter.format(assessment)
+
+        expected_line = "Size vs 24h volume: 10.83% of $30,000"
+        assert expected_line in result.body
+        assert expected_line in result.plain_text
+        assert "*Size vs 24h volume:* 10\\.83% of $30,000" in result.telegram_markdown
+        field = _embed_field(result, "Size vs 24h volume")
+        assert field is not None
+        assert field["value"] == "10.83% of $30,000"
+
+    def test_unmeasured_stale_volume_in_detailed_mode(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        verdict = VolumeVerdict(
+            state=VolumeState.STALE,
+            reason="stale",
+            daily_volume=None,
+            present=False,
+            raw=None,
+            source=None,
+            acquired_at=None,
+            age_seconds=None,
+        )
+        evidence = SizeVolumeEvidence(
+            verdict=verdict,
+            volume_impact_measured=None,
+            niche_basis="none",
+            category="science",
+            category_source="metadata",
+        )
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.0,
+            book_impact=0.0,
+            is_niche_market=True,
+            confidence=0.5,
+            factors={},
+            volume_evidence=evidence,
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.5,
+            should_alert=True,
+        )
+
+        formatter = AlertFormatter(verbosity="detailed")
+        result = formatter.format(assessment)
+
+        expected_line = "Size vs 24h volume: unavailable (stale)"
+        assert expected_line in result.body
+        assert expected_line in result.plain_text
+        assert "*Size vs 24h volume:* unavailable \\(stale\\)" in result.telegram_markdown
+        field = _embed_field(result, "Size vs 24h volume")
+        assert field is not None
+        assert field["value"] == "unavailable (stale)"
+
+    def test_unmeasured_without_evidence_in_detailed_mode(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.0,
+            book_impact=0.0,
+            is_niche_market=True,
+            confidence=0.5,
+            factors={},
+            volume_evidence=None,
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.5,
+            should_alert=True,
+        )
+
+        formatter = AlertFormatter(verbosity="detailed")
+        result = formatter.format(assessment)
+
+        expected_line = "Size vs 24h volume: unavailable (unavailable)"
+        assert expected_line in result.body
+        assert expected_line in result.plain_text
+        assert "*Size vs 24h volume:* unavailable \\(unavailable\\)" in result.telegram_markdown
+        field = _embed_field(result, "Size vs 24h volume")
+        assert field is not None
+        assert field["value"] == "unavailable (unavailable)"
+
+    def test_compact_mode_omits_volume_comparison_line(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.1083,
+            book_impact=0.0,
+            is_niche_market=False,
+            confidence=0.8,
+            factors={},
+            volume_impact_measured=Decimal("0.1083"),
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.8,
+            should_alert=True,
+        )
+
+        formatter = AlertFormatter(verbosity="compact")
+        result = formatter.format(assessment)
+
+        assert "Size vs 24h volume" not in result.body
+        assert "Size vs 24h volume" not in result.plain_text
+        assert "Size vs 24h volume" not in result.telegram_markdown
+        assert _embed_field(result, "Size vs 24h volume") is None
+
+    def test_no_size_signal_omits_volume_comparison_line(
+        self,
+        sample_trade: TradeEvent,
+    ) -> None:
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=None,
+            signals_triggered=0,
+            weighted_score=0.2,
+            should_alert=False,
+        )
+
+        formatter = AlertFormatter(verbosity="detailed")
+        result = formatter.format(assessment)
+
+        assert "Size vs 24h volume" not in result.body
+        assert "Size vs 24h volume" not in result.plain_text
+        assert "Size vs 24h volume" not in result.telegram_markdown
+        assert _embed_field(result, "Size vs 24h volume") is None

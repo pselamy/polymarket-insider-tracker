@@ -69,7 +69,7 @@ Named files, entry points, dependency order:
   unknown-age flag agree across the scored assessment, the 004.1 document, the row columns and the rendering;
   `test_end_to_end_volume_less_journey_scores_each_participant_below_threshold` publishes two participant rows of
   one transaction and asserts two separately evaluated rows sharing one `trade_id`.
-- [ ] T011 [US1] Additive evaluation entry point in `src/polymarket_insider_tracker/detector/`
+- [x] T011 [US1] Additive evaluation entry point in `src/polymarket_insider_tracker/detector/`
   (new `evaluation.py`; shared helper with `analyze` — no second acquisition) returning
   immutable wallet/market evidence including known-nonqualifying inputs; evidence flows
   `SignalBundle` → `RiskAssessment` → `_persist_assessment` → `alerter/formatter.py`
@@ -80,9 +80,8 @@ Named files, entry points, dependency order:
   `SizeAnomalyDetector.evaluate(trade, *, evaluated_at, daily_volume, book_depth)` share one acquisition with the
   `analyze` wrappers (which read the injectable `clock` once per trade); the pipeline reads one instant per trade
   for both detectors and carries the evidence `SignalBundle` → `RiskAssessment` → `_persist_assessment`
-  (`tests/detector/test_evaluation.py`). **Not done**: the formatter leg (`alerter/formatter.py`), the
-  `fresh_transaction_boundary` constructor argument (T016; the effective `B` is exposed read-only as
-  `max_nonce + 1`), and the §4 measured companions on the signal (T016).
+  (`tests/detector/test_evaluation.py`).
+  *P3 completion receipt*: `SizeAnomalySignal` gains `volume_impact_measured: Decimal | None` and `book_impact_measured: Decimal | None = None` (§4), resolved from `volume_evidence` when omitted and serialized in `to_dict()`; `SizeAnomalyDetector._signal` passes measured companions; `assessment_row.py` maps companions to SQL `NULL` when unmeasured; `alerter/formatter.py` formats single `Size vs 24h volume` line without measured zero.
 - [x] T012a [US1] `ingestor/gamma_client.py`: injectable clock; `_fetch_page_payload` returns items +
   `acquired_at` at response-body receipt; page tuples survive `_fetch_all_pages`/`_aggregate_pages`;
   `GammaMarketStats` gains `acquired_at`, `volume24hr_present`, `volume24hr_raw` (decoded JSON value, semantic
@@ -142,13 +141,14 @@ Named files, entry points, dependency order:
 - [ ] T015b [US3] **Post-T027 (gated by a T027 PASS receipt; lands in the gate-opening change)**: the
   reachable two-group 1.2 bonus with a scoring wallet group on the default configuration, rows written as
   `004.2` (contracts/scoring-config.md §2a), and the post-T027 reachability ceilings of T028 (FR-011)
-- [ ] T016 [US3] Exclusive-boundary + deprecated-alias migration (`detector/fresh_wallet.py`,
+- [x] T016 [US3] Exclusive-boundary + deprecated-alias migration (`detector/fresh_wallet.py`,
   `config.py`) with additive nullable-impact serialization (`detector/models.py`,
   `scorer.py::_extract_size_diagnostics`, `alerter/formatter.py`,
   `alerter/channels/*`): `volume_impact_measured`/`book_impact_measured`, never measured
   zero; formatter gains the single `Size vs 24h volume` line; persistence writes the measured companion
   (None ⇒ NULL) instead of `round(float,4)` (`pipeline.py:913-915`); alias table incl. negative `max_nonce`
   `ValueError` (FR-005/009, F18–F21)
+  *P2 + P3 completion receipt*: P2 completed exclusive-boundary migration and DetectorSettings wiring; P3 completed nullable measured companions on SizeAnomalySignal, assessment_dto mapping (None => NULL), and detailed AlertFormatter volume line.
 - [x] T017 [US3] Versioned `004.1` envelope persistence reusing 003 schema/harness
   (`storage/models.py`, `storage/repos.py`, `pipeline.py::_persist_assessment`); old `003.1`
   / legacy-unversioned rows read unchanged with version-specific semantics (FR-020, SC-006).

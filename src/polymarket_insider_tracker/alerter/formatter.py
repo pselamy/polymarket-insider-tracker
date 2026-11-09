@@ -9,6 +9,11 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
+from polymarket_insider_tracker.alerter._volume_comparison import (
+    format_discord_volume_field,
+    format_volume_comparison_line,
+    format_volume_comparison_value,
+)
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.detector.models import FreshWalletSignal, RiskAssessment
 from polymarket_insider_tracker.ingestor.models import TradeEvent
@@ -167,6 +172,9 @@ class AlertFormatter:
             f"Size: {format_usdc(trade.notional_value)}",
         ]
 
+        if assessment.size_anomaly_signal:
+            lines.append(format_volume_comparison_line(assessment))
+
         if signals:
             lines.append(f"Signals: {', '.join(signals)}")
 
@@ -237,6 +245,10 @@ class AlertFormatter:
             },
         ]
 
+        vol_field = format_discord_volume_field(self.verbosity, assessment)
+        if vol_field is not None:
+            fields.append(vol_field)
+
         if signals:
             fields.append({"name": "Signals", "value": ", ".join(signals), "inline": False})
 
@@ -265,8 +277,7 @@ class AlertFormatter:
 
     @staticmethod
     def _build_telegram_link_lines(links: dict[str, str]) -> list[str]:
-        lines: list[str] = []
-        lines.append(f"[View Wallet]({links['wallet']})")
+        lines = [f"[View Wallet]({links['wallet']})"]
         if "market" in links:
             lines.append(f"[View Market]({links['market']})")
         return lines
@@ -300,6 +311,10 @@ class AlertFormatter:
             f"*Trade:* {side_escaped} {outcome_escaped} @ \\${price_str} \\| {usdc_value}",
         ]
 
+        if self.verbosity == "detailed" and assessment.size_anomaly_signal:
+            val_escaped = self._escape_telegram_markdown(format_volume_comparison_value(assessment))
+            lines.append(f"*Size vs 24h volume:* {val_escaped}")
+
         if signals:
             signals_escaped = [self._escape_telegram_markdown(s) for s in signals]
             lines.append(f"*Signals:* {', '.join(signals_escaped)}")
@@ -311,7 +326,7 @@ class AlertFormatter:
 
     def _escape_telegram_markdown(self, text: str) -> str:
         """Escape special Telegram MarkdownV2 characters."""
-        special_chars = [
+        special_chars = (
             "_",
             "*",
             "[",
@@ -330,7 +345,7 @@ class AlertFormatter:
             "}",
             ".",
             "!",
-        ]
+        )
         for char in special_chars:
             text = text.replace(char, f"\\{char}")
         return text
@@ -365,6 +380,9 @@ class AlertFormatter:
             f"Market: {market_title}",
             f"Trade: {trade.side} {trade.outcome} @ ${trade.price:.3f} | {format_usdc(trade.notional_value)}",
         ]
+
+        if self.verbosity == "detailed" and assessment.size_anomaly_signal:
+            lines.append(format_volume_comparison_line(assessment))
 
         if signals:
             lines.append(f"Signals: {', '.join(signals)}")

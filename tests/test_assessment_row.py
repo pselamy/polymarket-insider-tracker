@@ -59,3 +59,50 @@ def test_unknown_wallet_age_is_stored_as_none(high_risk_assessment: RiskAssessme
     row = assessment_dto(assessment, alert_threshold=0.8, detector_config=_CONFIG)
 
     assert row.wallet_age_hours is None
+
+
+def test_assessment_dto_writes_measured_volume_impact_and_none_book_impact(
+    high_risk_assessment: RiskAssessment,
+) -> None:
+    assert high_risk_assessment.size_anomaly_signal is not None
+    size_sig = replace(
+        high_risk_assessment.size_anomaly_signal,
+        volume_impact_measured=Decimal("0.3250"),
+        book_impact_measured=None,
+    )
+    assessment = replace(high_risk_assessment, size_anomaly_signal=size_sig)
+
+    row = assessment_dto(assessment, alert_threshold=0.8, detector_config=_CONFIG)
+
+    assert row.volume_impact == Decimal("0.3250")
+    assert row.book_impact is None
+
+
+def test_assessment_dto_writes_none_impacts_for_unmeasured_signal(
+    high_risk_assessment: RiskAssessment,
+) -> None:
+    assert high_risk_assessment.size_anomaly_signal is not None
+    size_sig = replace(
+        high_risk_assessment.size_anomaly_signal,
+        volume_impact=0.0,
+        book_impact=0.0,
+        volume_impact_measured=None,
+        book_impact_measured=None,
+    )
+    assessment = replace(high_risk_assessment, size_anomaly_signal=size_sig)
+
+    row = assessment_dto(assessment, alert_threshold=0.8, detector_config=_CONFIG)
+
+    assert row.volume_impact is None
+    assert row.book_impact is None
+
+
+def test_assessment_dto_writes_none_impacts_when_no_size_signal(
+    high_risk_assessment: RiskAssessment,
+) -> None:
+    assessment = replace(high_risk_assessment, size_anomaly_signal=None)
+
+    row = assessment_dto(assessment, alert_threshold=0.8, detector_config=_CONFIG)
+
+    assert row.volume_impact is None
+    assert row.book_impact is None

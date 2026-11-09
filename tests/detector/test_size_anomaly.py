@@ -227,6 +227,8 @@ class TestSizeAnomalySignal:
         assert result["market_category"] == "science"
         assert result["volume_impact"] == 0.05
         assert result["book_impact"] == 0.10
+        assert result["volume_impact_measured"] is None
+        assert result["book_impact_measured"] is None
         assert result["is_niche_market"] is True
         assert result["confidence"] == 0.75
         assert result["factors"] == {"volume_impact": 0.5}
