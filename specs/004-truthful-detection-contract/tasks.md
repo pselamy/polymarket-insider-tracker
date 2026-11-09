@@ -60,6 +60,7 @@ Named files, entry points, dependency order:
   cases through the real size detector and scorer and compares them with the committed rows; their volume states
   are still classified by the replay script's precedence table, not by `detector/volume_state.py`, so the
   "all eight volume states through the detector" leg is not claimed by that test.
+  *P5 pre-T027 receipt (partial, stays unticked until T027)*: `tests/detector/test_size_volume_evidence.py` now runs all 65 `evidence/replay-live/cases.json` cases (all eight volume states and every reason) through `SizeAnomalyDetector.evaluate` (`detector/volume_state.py::size_volume_evidence`) and `RiskScorer.assess`, plus `size_volume_threshold` strict-`>` and `alert_threshold` inclusive-`>=` boundary overrides.
 - [x] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
   flags in analysis, scoring, persistence, and formatted dry-run output; per-participant
@@ -121,9 +122,10 @@ Named files, entry points, dependency order:
   scorer/formatter surfaces): operational core only (fresh/low-activity + size + niche
   modifier); sniper experimental; funding enrichment-only; no backtest claims (FR-001/006/012–014, FR-018, SC-004/007)
   *P4 receipt*: `tests/detector/test_capability_consistency.py` verifies operational core only, book-depth non-operational, sniper module experimental and omitted from live pipeline, funding tracing best-effort enrichment only, and research-only alert wording with no executable backtest CLI options (FR-001/006/012–014, FR-018, SC-004/007).
-- [ ] T014 [US2] Documentation/skill updates (README, CHANGELOG, sample alert, example env,
+- [x] T014 [US2] Documentation/skill updates (README, CHANGELOG, sample alert, example env,
   architecture text, docstrings, tracked skill) distinguishing
   operational/enrichment/experimental/deferred (FR-017/018, SC-007). Depends on T013.
+  *P5 receipt*: `README.md`, `CHANGELOG.md`, `.env.example`, and module docstrings (`detector/__init__.py`, `profiler/__init__.py`, `profiler/funding.py`) updated distinguishing operational scoring, pre-T027 non-scoring observation, best-effort enrichment, and experimental library, including truthful sample alert and reachability disclosure (and noting that the obsolete tracked skill draft was previously removed in PR #119 / `specs/audit/docs-pruning.md`).
 
 ## Phase 5: US3 Coherent scoring contract [US3] (future implementation)
 

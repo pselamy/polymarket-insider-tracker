@@ -6,6 +6,25 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 ## [Unreleased]
 
 ### Changed
+- **Truthful detection contract (slice 004)**: establishes calibrated, source-backed
+  detection boundaries, reproducible scoring contracts, and truthful capability claims.
+  - Versioned `004.1` assessment evidence envelope (`detector_config` + `evaluation_evidence`)
+    persisted in `risk_assessments.scoring_config` while preserving `003.1` and `legacy-unversioned`
+    reader compatibility.
+  - `DETECTOR_FRESH_TRANSACTION_BOUNDARY` (default `5`, exclusive `nonce < B`, deprecating inclusive
+    `max_nonce`) and `DETECTOR_SIZE_VOLUME_THRESHOLD` (default `0.02`, strict `>`).
+  - Decoupled Gamma 24-hour volume refresh (`0–600 s` recency window), eight-state volume
+    classification (`available`, `unavailable`, `unqualified`, `missing`, `invalid`, `nonpositive`,
+    `invalid_time`, `stale`), and nullable measured impact companions (`volume_impact_measured`,
+    `book_impact_measured` persisted as SQL `NULL` when unmeasured, never fabricated `0.0000`).
+  - Pre-T027 non-scoring proxy-wallet posture (`wallet.group_status = unqualified_pre_T027`, live
+    `age_state = unknown`, score ceiling `0.450`), removal of the unreachable `3+` signal bonus
+    branch (`multi_signal_bonus_3` retained as neutral compatibility key), and `FR-022a` alert-path
+    reachability disclosure on startup log, `--config-check`, and `/health`.
+  - Explicit capability boundaries: size anomaly + niche modifier operational for scoring;
+    proxy-wallet low-activity evaluation recorded as non-scoring observation until T027; funding-chain
+    tracing best-effort enrichment only; sniper clustering (`SniperDetector`) experimental and
+    non-operational; executable backtesting and calibration deferred.
 - `POLYMARKET_API_KEY` is deprecated and ignored. py-clob-client never accepted a bare key and
   every CLOB endpoint the tracker calls is public, so `ClobClient` no longer takes an `api_key`
   or reads the variable, and its startup log no longer reports `api_key_set`. Settings still
@@ -59,8 +78,9 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 ### Added
 - **Risk-assessment persistence**: every signal-bearing trade now writes a row
   to the new `risk_assessments` table, regardless of whether the assessment
-  meets the alert threshold. This is the ground-truth log future backtests will
-  read instead of grepping `alerts.log` / `journalctl`.
+  meets the alert threshold. This provides future-compatible research storage;
+  executable backtesting and statistical calibration workflows are deferred
+  until a separate approved specification (FR-014, US2-4).
   - Pipeline: `Pipeline._score_and_alert` calls `Pipeline._persist_assessment`
     for every assessment; failures are caught and never block alert dispatch.
   - Storage: new `RiskAssessmentModel`, `RiskAssessmentDTO`, and
@@ -92,5 +112,6 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
     plus the private `ClobClient._with_rate_limit` wrapper.
 
 ### Notes
-- Backtest scripts can now source data from `risk_assessments` directly. The
-  `alerts.log` parsing path remains for one release as a fallback.
+- Persisted `risk_assessments` rows provide future-compatible research storage.
+  Executable backtesting and calibration workflows are deferred until a separate
+  approved specification (FR-014, US2-4).

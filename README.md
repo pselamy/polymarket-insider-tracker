@@ -6,7 +6,7 @@
 [![Python 3.11–3.13](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Near-real-time detection of suspicious trading patterns on Polymarket: fresh wallets, unusual sizing, niche-market activity, and funding chain analysis. Polls the documented public trades query for wallet-bearing trades, profiles wallets on-chain (Polygon), scores risk with ML + heuristics, and dispatches alerts to Discord/Telegram.
+Near-real-time monitoring of suspicious Polymarket trading patterns (size anomalies relative to usable 24-hour market volume with niche-market context, low-activity proxy-wallet observations, and best-effort funding-chain enrichment), heuristic risk scoring with versioned `004.1` evidence envelopes, and deduplicated Discord/Telegram alert delivery.
 
 ---
 
@@ -132,6 +132,10 @@ When running, the tracker serves HTTP health and metrics endpoints on `--health-
 | `DISCORD_WEBHOOK_URL` | No | — | Discord alerts |
 | `TELEGRAM_BOT_TOKEN` | No | — | Telegram alerts (needs `TELEGRAM_CHAT_ID` too) |
 | `TELEGRAM_CHAT_ID` | No | — | Telegram chat for alerts |
+| `DETECTOR_ALERT_THRESHOLD` | No | `0.80` | Minimum weighted risk score [0.0, 1.0] required to trigger an alert (inclusive >=, 0.001 quantum). In the default pre-T027 posture the highest attainable score is 0.450, so the default alert path is disclosed as unreachable unless lowered (e.g. 0.40) |
+| `DETECTOR_FRESH_TRANSACTION_BOUNDARY` | No | `5` | Exclusive Polygon transaction-count boundary B (> 0) for proxy-wallet low-activity classification (nonce < B) |
+| `DETECTOR_SIZE_VOLUME_THRESHOLD` | No | `0.02` | Minimum trade-notional / 24h-volume ratio (0.0, 1.0] required for volume-impact scoring (strict >) |
+| `DETECTOR_PERSIST_ASSESSMENTS` | No | `true` | Persist signal-bearing and detector-failure risk assessment rows to PostgreSQL |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 | `DRY_RUN` | No | `false` | Skip sending alerts |
 | `HEALTH_PORT` | No | `8080` | Health check HTTP port |
@@ -178,36 +182,33 @@ uv run --env-file .env python scripts/trades_smoke.py --live --window-seconds 5 
 
 ## What It Detects
 
-| Signal | Detection Method | Threshold |
-|--------|-----------------|-----------|
-| **Fresh Wallets** | Wallet age < 48h, nonce <= 5, making trades > $1k | Confidence 0.5-0.9 |
-| **Size Anomalies** | Trade size > 2% of 24h volume or > 5% of order book | Weighted by niche factor |
-| **Niche Markets** | Low-volume markets (< $50k daily) with specific outcomes | 1.5x risk multiplier |
-| **Funding Chains** | Trace wallet funding to known entities (exchanges, etc.) | On-chain lineage |
-| **Sniper Clusters** | DBSCAN clustering of wallets entering within minutes | Coordinated behavior |
+| Capability | Status | Description |
+|------------|--------|-------------|
+| **Size Anomalies** | Operational (Scoring) | Trade notional `> 2%` (`DETECTOR_SIZE_VOLUME_THRESHOLD`) of usable 24-hour Gamma USD volume (`0–600 s` recency window). Order-book depth impact is **non-operational** (`FR-006`). |
+| **Niche Market Context** | Operational (Size Modifier) | `1.5x` multiplier on size confidence (or `0.20` base confidence) when usable 24-hour volume is `< $50,000`, or from a real niche-prone category (`science`, `tech`, `finance`, `other`) only when no volume value was observed (`unavailable` or `missing`). Modifies the size group; never counted as a separate detector group (`FR-001`, `FR-005a`). |
+| **Low-Activity Proxy Wallets** | Operational Observation (Non-Scoring Pre-T027) | Proxy-wallet (`proxyWallet`) Polygon transaction count `< 5` (`DETECTOR_FRESH_TRANSACTION_BOUNDARY`, exclusive `< B`) on trades `>= $1,000`. Live wallet age has no operational source (`age_state = unknown`); before T027 qualification (`wallet.group_status = unqualified_pre_T027`), observations are recorded in the `004.1` evidence envelope with `confidence = null`, contribution `0`, and `signals_triggered` excluding the wallet group (`FR-007a–c`, `FR-008`). |
+| **Funding Chains** | Enrichment Only | Best-effort Polygon USDC/MATIC transfer tracing (`profiler/funding.py`) persisted as research context for candidate wallets; never affects risk score, signal count, or alert wording (`FR-013`). |
+| **Sniper Clusters** | Experimental / Non-Operational | Standalone DBSCAN clustering library (`detector/sniper.py`); not wired into the live pipeline or scorer (`FR-012`). |
+| **Backtesting & Calibration** | Deferred | Persisted `risk_assessments` rows provide future-compatible research records; no executable backtest or statistical calibration workflow exists in this release (`FR-014`). |
 
-Risk scoring combines signals with the algorithm's immutable default weights (alert threshold 0.80, tunable via `DETECTOR_ALERT_THRESHOLD`). Multi-signal bonuses: 2 signals +20%, 3+ signals +30%. Every persisted assessment records its `scoring_algorithm_version` and the exact `scoring_config` (weights, bonuses, threshold, quantum) that produced it, so it can be replayed exactly from its own stored values; rows created before versioning existed are labeled `legacy-unversioned`. The library-level `weights=`/`set_weights()` configuration API is deprecated (one compatibility window, `DeprecationWarning`) and unused by the wired pipeline.
+Risk scoring combines signals with the algorithm's immutable default weights (`fresh_wallet: 0.40`, `size_anomaly: 0.35`, `niche_market: 0.25`). The two-group `1.2x` multi-signal bonus is applicable only post-T027 when both signal groups score; the unreachable `3+` signal bonus branch is removed while `multi_signal_bonus_3` stays in `scoring_config` as a neutral compatibility key (`FR-011`). In the default pre-T027 posture only the size group scores, so the maximum attainable score is **0.450** (`0.75 * (0.35 + 0.25)`), below the default `0.80` alert threshold (`DETECTOR_ALERT_THRESHOLD`). The runtime discloses `default alert path unreachable` on the startup log, `--config-check` (`Alert Path:`), and `/health` (`alert_path`). Every persisted assessment records `scoring_algorithm_version = "004.1"` and its complete `004.1` evidence envelope; rows created before versioning existed are labeled `legacy-unversioned`. Heuristic research signals are evidence for investigation, not proof of illegal activity or financial advice (`FR-017`).
 
 ### Sample Alert
 
-```
-SUSPICIOUS ACTIVITY DETECTED
+```text
+🚨 Suspicious Activity Detected
+========================================
+Market: Will X announce Y by March 2026?
+Wallet: 0x7a3...f91
+Side: BUY YES
+Position Size: $3,250.00
+Size vs 24h volume: 32.50% of $10,000
+Price: 65.0%
+Risk Score: 45.0% (threshold: 40.0%)
+Signals: Large Position, Niche Market
+Time: 2026-10-20 12:00:00 UTC
 
-Wallet: 0x7a3...f91 (Age: 2 hours, 3 transactions)
-Market: "Will X announce Y by March 2026?"
-Action: BUY YES @ $0.075
-Size: $15,000 USDC (8.2% of daily volume)
-
-Risk Signals:
-  [x] Fresh Wallet (fewer than 5 transactions lifetime)
-  [x] Niche Market (less than $50k daily volume)
-  [x] Large Position (more than 2% order book impact)
-
-Funding Trail:
-  --> 0xdef...789 (2-year-old wallet, 500+ txns)
-      --> Binance Hot Wallet
-
-Confidence: HIGH (3/4 signals triggered)
+Heuristic research signal only — not proof of insider trading or financial advice.
 ```
 
 ---
@@ -226,8 +227,8 @@ Public trades query ──> Ingestor ──> Profiler ──> Detector ──> A
 | Module | Purpose |
 |--------|---------|
 | `ingestor/` | Near-real-time trade poller (strict rows, durable Redis boundary, loss detection) + CLOB REST client with rate limiting; deprecated WebSocket handler retained |
-| `profiler/` | Polygon wallet analysis, entity identification, funding chain tracing |
-| `detector/` | Fresh wallet, size anomaly, sniper cluster detection, composite risk scorer |
+| `profiler/` | On-chain Polygon wallet analysis, entity data, and best-effort funding-chain enrichment (research context only; does not affect live risk scores) |
+| `detector/` | Size anomaly detection and risk scoring (operational), pre-T027 low-activity proxy-wallet observation (`FreshWalletDetector`), and standalone sniper cluster library (`SniperDetector`, experimental/non-operational) |
 | `alerter/` | Multi-channel dispatch (Discord webhooks, Telegram bot) with dedup |
 | `storage/` | SQLAlchemy ORM + Alembic migrations (PostgreSQL) |
 | `pipeline.py` | Orchestrator wiring all components together |

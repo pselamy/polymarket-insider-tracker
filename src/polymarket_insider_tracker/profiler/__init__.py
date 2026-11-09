@@ -1,4 +1,9 @@
-"""Wallet profiler - Blockchain analysis for trader intelligence."""
+"""Wallet profiler - Blockchain analysis for trader intelligence.
+
+Includes on-chain Polygon wallet analysis and best-effort funding-chain enrichment
+(FundingTracer), persisted for research context without affecting live risk scores,
+signal counts, or alert wording.
+"""
 
 from polymarket_insider_tracker.profiler.analyzer import (
     WalletAnalyzer,
