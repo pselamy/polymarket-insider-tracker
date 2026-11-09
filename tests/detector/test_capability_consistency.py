@@ -12,9 +12,13 @@ import dataclasses
 import inspect
 import json
 import logging
+import re
+import subprocess
+import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -34,11 +38,7 @@ from polymarket_insider_tracker.detector.models import (
     SizeAnomalySignal,
     SniperClusterSignal,
 )
-from polymarket_insider_tracker.detector.scorer import (
-    DEFAULT_WEIGHTS,
-    RiskScorer,
-    SignalBundle,
-)
+from polymarket_insider_tracker.detector.scorer import DEFAULT_WEIGHTS, RiskScorer, SignalBundle
 from polymarket_insider_tracker.detector.scoring_config import (
     DEFAULT_WALLET_GROUP_STATUS,
     WalletGroupStatus,
@@ -48,10 +48,7 @@ from polymarket_insider_tracker.detector.sniper import SniperDetector
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 from polymarket_insider_tracker.pipeline import Pipeline
-from polymarket_insider_tracker.pipeline_components import (
-    PipelineComponents,
-    build_components,
-)
+from polymarket_insider_tracker.pipeline_components import PipelineComponents, build_components
 from polymarket_insider_tracker.profiler.funding import FundingTracer
 from polymarket_insider_tracker.profiler.models import FundingChain, FundingTransfer
 from polymarket_insider_tracker.storage.database import DatabaseManager
@@ -71,6 +68,7 @@ PROHIBITED_TERMS: tuple[str, ...] = (
     "financial advice",
     "buy now",
 )
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class SuccessfulFundingTracer(FundingTracer):
@@ -359,14 +357,42 @@ def test_no_executable_backtest_runtime_claims_and_research_only_alert_wording()
     assert "Suspicious Activity Detected" in alert.title
     assert "Risk Score" in alert.plain_text
 
-    surfaces = (
+    for surface in (
         alert.title,
         alert.body,
         alert.plain_text,
         alert.telegram_markdown,
         str(alert.discord_embed),
-    )
-    for surface in surfaces:
-        surface_lower = surface.lower()
+    ):
         for prohibited in PROHIBITED_TERMS:
-            assert prohibited not in surface_lower
+            assert prohibited not in surface.lower()
+
+
+def _cited_test_nodes(markdown: str) -> list[str]:
+    section = markdown.split("### Quickstart Journey Scenarios 1–12 Mapping", 1)[1]
+    return re.findall(r"`(tests/[^`\s]+)`", section)
+
+
+def _collected_test_nodes() -> set[str]:
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "tests",
+        "--ignore=tests/tooling",
+        "--collect-only",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "no:cacheprovider",
+    ]
+    proc = subprocess.run(cmd, cwd=REPO_ROOT, check=True, capture_output=True, text=True)
+    return {line.strip() for line in proc.stdout.splitlines() if "::" in line}
+
+
+def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
+    path = REPO_ROOT / "specs/004-truthful-detection-contract/evidence/implementation-validation.md"
+    cited = _cited_test_nodes(path.read_text(encoding="utf-8"))
+    assert len(cited) >= 20
+    assert sorted(set(cited) - _collected_test_nodes()) == []

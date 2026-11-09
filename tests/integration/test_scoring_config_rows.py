@@ -1,9 +1,7 @@
-"""T017: every row the layer-3 pipeline writes is a 004.1 document the layer-1 reader accepts.
+"""T017: every row the pipeline writes is a 004.1 document the reader accepts.
 
-The persisted ``scoring_config`` of real pipeline rows (real scorer, real repository, in-memory
-SQLite) is validated against the committed JSON Schema and the contract's cross-field
-reconstruction rules (``scripts.spec004_evidence.check_envelope``), and read back through the
-version-dispatched reader. Old 003.1 rows still read back unchanged.
+Persisted scoring_config is validated against JSON Schema and reconstruction rules,
+and read back through version dispatch. Old 003.1 rows read back unchanged.
 """
 
 from __future__ import annotations
@@ -12,12 +10,14 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from fakeredis import FakeAsyncRedis
 from scripts.spec004_evidence.check_envelope import reconstruct, schema_for, validate
 from scripts.spec004_evidence.replay_envelopes import PRE_T027
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from tests.detector.test_scoring_config import GOLDEN_PURE
 from tests.fakes import (
     FailingDetector,
     FakeAlertChannel,
@@ -33,21 +33,12 @@ from tests.integration._journey_harness import (
     stamped_volume_market,
 )
 
-from polymarket_insider_tracker.detector.scoring_config import (
-    VERSION_003,
-    VERSION_004_1,
-    Document004,
-    JsonValue,
-    PureConfig,
-    WalletGroupStatus,
-    read_scoring_config,
-    serialize_pure_config,
-)
+from polymarket_insider_tracker.detector import scoring_config as sc
 from polymarket_insider_tracker.ingestor.models import MarketMetadata
 from polymarket_insider_tracker.ingestor.volume_observation import GAMMA_SOURCE, VolumeObservation
 from polymarket_insider_tracker.pipeline import Pipeline
 from polymarket_insider_tracker.storage.database import DatabaseManager
-from polymarket_insider_tracker.storage.models import RiskAssessmentModel
+from polymarket_insider_tracker.storage.models import Base, RiskAssessmentModel
 from polymarket_insider_tracker.storage.repos import RiskAssessmentDTO, RiskAssessmentRepository
 
 # A 003.1 row as slice 003 wrote it (3+ bonus 1.3); it must never be rewritten or reinterpreted.
@@ -66,20 +57,20 @@ def contract_errors(text: str | None) -> list[str]:
     return validate(document, schema, schema) + reconstruct(document)
 
 
-def read_row(row: RiskAssessmentModel) -> Document004:
-    assert row.scoring_algorithm_version == VERSION_004_1
+def read_row(row: RiskAssessmentModel) -> sc.Document004:
+    assert row.scoring_algorithm_version == sc.VERSION_004_1
     assert contract_errors(row.scoring_config) == []
-    document = read_scoring_config(row.scoring_algorithm_version, row.scoring_config)
-    assert isinstance(document, Document004)
+    document = sc.read_scoring_config(row.scoring_algorithm_version, row.scoring_config)
+    assert isinstance(document, sc.Document004)
     return document
 
 
-def evidence_of(document: Document004) -> dict[str, JsonValue]:
+def evidence_of(document: sc.Document004) -> dict[str, sc.JsonValue]:
     assert document.evaluation_evidence is not None
     return dict(document.evaluation_evidence)
 
 
-def member(evidence: dict[str, JsonValue], name: str) -> dict[str, JsonValue]:
+def member(evidence: dict[str, sc.JsonValue], name: str) -> dict[str, sc.JsonValue]:
     value = evidence[name]
     assert isinstance(value, dict)
     return value
@@ -151,7 +142,7 @@ async def test_the_row_records_the_wallet_as_non_scoring_evidence_and_the_volume
 
     document = read_row(await single_row(async_engine, pipeline))
 
-    assert document.wallet_group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027
+    assert document.wallet_group_status is sc.WalletGroupStatus.UNQUALIFIED_PRE_T027
     assert document.detector_failures == ()
     # The pipeline's default detectors: exclusive boundary 5.
     assert document.detector_config.fresh_transaction_boundary == 5
@@ -242,11 +233,19 @@ async def test_a_detector_failure_row_carries_its_failures_and_no_evaluation_evi
     ]
 
 
-def seeded_row(assessment_id: str, version: str, config: str | None) -> RiskAssessmentDTO:
+def seeded_row(
+    assessment_id: str,
+    version: str,
+    config: str | None,
+    fresh: Decimal | None = Decimal("0.700"),
+    volume: Decimal | None = None,
+    book: Decimal | None = None,
+    trade_id: str | None = None,
+) -> RiskAssessmentDTO:
     """A row as an earlier slice wrote it: ``version`` with its verbatim ``config``."""
     return RiskAssessmentDTO(
         assessment_id=assessment_id,
-        trade_id=f"trade-{assessment_id}",
+        trade_id=trade_id or f"trade-{assessment_id}",
         wallet_address="0x" + "b" * 40,
         market_id="0x" + "c" * 64,
         asset_id=None,
@@ -259,11 +258,11 @@ def seeded_row(assessment_id: str, version: str, config: str | None) -> RiskAsse
         trade_timestamp=datetime(2026, 9, 11, tzinfo=UTC),
         weighted_score=Decimal("0.600"),
         signals_triggered=2,
-        fresh_wallet_confidence=Decimal("0.700"),
+        fresh_wallet_confidence=fresh,
         size_anomaly_confidence=Decimal("0.500"),
         is_niche_market=False,
-        volume_impact=None,
-        book_impact=None,
+        volume_impact=volume,
+        book_impact=book,
         wallet_age_hours=None,
         should_alert=False,
         threshold_at_eval=Decimal("0.800"),
@@ -274,12 +273,11 @@ def seeded_row(assessment_id: str, version: str, config: str | None) -> RiskAsse
 
 def assert_003_1_row_unchanged(row: RiskAssessmentModel) -> None:
     """The 003.1 row reads back through the dispatch as the exact document it stored."""
-    config = read_scoring_config(row.scoring_algorithm_version, row.scoring_config)
-
-    assert isinstance(config, PureConfig)
+    config = sc.read_scoring_config(row.scoring_algorithm_version, row.scoring_config)
+    assert isinstance(config, sc.PureConfig)
     assert config.multi_signal_bonus_3 == Decimal("1.3")
     assert config.alert_threshold == row.threshold_at_eval
-    assert serialize_pure_config(config) == row.scoring_config == ROW_003_1
+    assert sc.serialize_pure_config(config) == row.scoring_config == ROW_003_1
 
 
 async def test_a_003_1_row_reads_back_unchanged(
@@ -287,8 +285,114 @@ async def test_a_003_1_row_reads_back_unchanged(
 ) -> None:
     async with db_manager.get_async_session() as session:
         await RiskAssessmentRepository(session).insert(
-            seeded_row("row-003-1", VERSION_003, ROW_003_1)
+            seeded_row("row-003-1", sc.VERSION_003, ROW_003_1)
         )
 
     (row,) = await persisted_assessments(async_engine)
     assert_003_1_row_unchanged(row)
+
+
+def _make_manager(engine: AsyncEngine) -> DatabaseManager:
+    manager = DatabaseManager(
+        "postgresql+psycopg://tracker:unused@127.0.0.1:1/unit-tests", async_mode=True
+    )
+    manager.attach_async_engine(engine)
+    return manager
+
+
+def _compat_row(
+    aid: str, ver: str, cfg: str | None, fresh: str, vol: str, book: str, tid: str
+) -> RiskAssessmentDTO:
+    return seeded_row(
+        aid, ver, cfg, fresh=Decimal(fresh), volume=Decimal(vol), book=Decimal(book), trade_id=tid
+    )
+
+
+async def _seed_compat_rows(db: str) -> None:
+    engine = create_async_engine(db, echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    manager = _make_manager(engine)
+    async with manager.get_async_session() as session:
+        repo = RiskAssessmentRepository(session)
+        await repo.insert(
+            _compat_row("legacy", sc.LEGACY_VERSION, None, "0.65", "0.0300", "0.0500", "0xlegacy")
+        )
+        await repo.insert(
+            _compat_row("003", sc.VERSION_003, GOLDEN_PURE, "0.70", "0.0400", "0.0800", "0x003")
+        )
+    await engine.dispose()
+
+
+async def _score_once(db: str, threshold: float = 0.8) -> None:
+    engine = create_async_engine(db, echo=False)
+    trade = replace(make_sample_trade_event(), trade_id="0x004")
+    pipeline = await wire(
+        make_test_settings(persist_assessments=True, alert_threshold=threshold),
+        redis=FakeAsyncRedis(),
+        eth=FakeEth(transaction_count=10),
+        market=stamped_volume_market(trade),
+        db_manager=_make_manager(engine),
+        channels=[FakeAlertChannel("discord")],
+    )
+    await pipeline.process_trade(trade)
+    await engine.dispose()
+
+
+async def _rows_by_trade(db: str) -> dict[str, RiskAssessmentModel]:
+    engine = create_async_engine(db, echo=False)
+    rows = await persisted_assessments(engine)
+    await engine.dispose()
+    return {str(row.trade_id): row for row in rows}
+
+
+async def test_restart_and_legacy_003_004_row_compatibility_preserve_version_semantics(
+    tmp_path: Path,
+) -> None:
+    """SOL-001: restart and legacy/003/004 row compatibility preserve version semantics."""
+    db = f"sqlite+aiosqlite:///{tmp_path / 'compat.db'}"
+    await _seed_compat_rows(db)
+    await _score_once(db, threshold=0.8)
+
+    by_id = await _rows_by_trade(db)
+    assert set(by_id) == {"0xlegacy", "0x003", "0x004"}
+
+    assert (
+        sc.read_scoring_config(
+            by_id["0xlegacy"].scoring_algorithm_version, by_id["0xlegacy"].scoring_config
+        )
+        is None
+    )
+    assert isinstance(
+        sc.read_scoring_config(
+            by_id["0x003"].scoring_algorithm_version, by_id["0x003"].scoring_config
+        ),
+        sc.PureConfig,
+    )
+    assert isinstance(
+        sc.read_scoring_config(
+            by_id["0x004"].scoring_algorithm_version, by_id["0x004"].scoring_config
+        ),
+        sc.Document004,
+    )
+
+    raw_003 = json.loads(GOLDEN_PURE)
+    raw_004 = json.loads(by_id["0x004"].scoring_config or "{}")
+    assert set(raw_003).issubset(raw_004)
+    assert raw_004["weights"] == raw_003["weights"]
+    assert raw_004["alert_threshold"] == raw_003["alert_threshold"]
+
+    leg = by_id["0xlegacy"]
+    assert (leg.fresh_wallet_confidence, leg.volume_impact, leg.book_impact) == (
+        Decimal("0.65"),
+        Decimal("0.0300"),
+        Decimal("0.0500"),
+    )
+    r003 = by_id["0x003"]
+    assert (r003.fresh_wallet_confidence, r003.volume_impact, r003.book_impact) == (
+        Decimal("0.70"),
+        Decimal("0.0400"),
+        Decimal("0.0800"),
+    )
+    r004 = by_id["0x004"]
+    assert (r004.fresh_wallet_confidence, r004.book_impact) == (None, None)
