@@ -203,8 +203,13 @@ class TestEndToEndPipelineHarness:
         assert f"{signal.confidence:.3f}" == size["confidence"] == "0.750"
         assert assessment_row.size_anomaly_confidence == Decimal(str(size["confidence"]))
         assert f"{assessment.weighted_score:.3f}" == str(assessment_row.weighted_score)
+        assert (assessment_row.volume_impact, assessment_row.book_impact) == (
+            Decimal("0.3250"),
+            None,
+        )
         assert member(evidence, "wallet")["age_state"] == "unknown"
         assert "Risk Score: 0.45" in alert.plain_text and "(Age:" not in alert.plain_text
+        assert "Size vs 24h volume: 32.50% of $10,000" in alert.plain_text
         assert "Size Anomaly: 75%" in str(alert.discord_embed)
 
     @pytest.mark.asyncio
@@ -248,6 +253,7 @@ class TestEndToEndPipelineHarness:
         assert len({r.trade_id for r in rows}) == 1
         for stored in rows:
             assert (stored.weighted_score, stored.signals_triggered) == (Decimal("0.120"), 1)
+            assert (stored.volume_impact, stored.book_impact) == (None, None)
             assert (stored.should_alert, stored.delivery_disposition) == (False, "below_threshold")
             document = read_row(stored)
             assert document.wallet_group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027

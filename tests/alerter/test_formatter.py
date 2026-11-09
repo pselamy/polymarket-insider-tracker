@@ -7,6 +7,10 @@ from typing import TypeGuard
 
 import pytest
 
+from polymarket_insider_tracker.alerter._volume_comparison import (
+    format_discord_volume_field,
+    format_volume_comparison_value,
+)
 from polymarket_insider_tracker.alerter.formatter import (
     COLOR_HIGH_RISK,
     COLOR_LOW_RISK,
@@ -853,3 +857,162 @@ class TestSizeVs24hVolumeLine:
         assert "Size vs 24h volume" not in result.plain_text
         assert "Size vs 24h volume" not in result.telegram_markdown
         assert _embed_field(result, "Size vs 24h volume") is None
+
+    def test_measured_volume_fractional_cents_in_detailed_mode(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        verdict = VolumeVerdict(
+            state=VolumeState.AVAILABLE,
+            reason="ok",
+            daily_volume=Decimal("30000.50"),
+            present=True,
+            raw=None,
+            source=None,
+            acquired_at=None,
+            age_seconds=None,
+        )
+        evidence = SizeVolumeEvidence(
+            verdict=verdict,
+            volume_impact_measured=Decimal("0.1083"),
+            niche_basis="numeric",
+            category="science",
+            category_source="metadata",
+        )
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.1083,
+            book_impact=0.0,
+            is_niche_market=False,
+            confidence=0.8,
+            factors={},
+            volume_evidence=evidence,
+            volume_impact_measured=Decimal("0.1083"),
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.8,
+            should_alert=True,
+        )
+
+        formatter = AlertFormatter(verbosity="detailed")
+        result = formatter.format(assessment)
+
+        expected_line = "Size vs 24h volume: 10.83% of $30,000.50"
+        assert expected_line in result.body
+        field = _embed_field(result, "Size vs 24h volume")
+        assert field is not None
+        assert field["value"] == "10.83% of $30,000.50"
+
+    def test_measured_volume_fallback_to_market_daily_volume(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.1083,
+            book_impact=0.0,
+            is_niche_market=False,
+            confidence=0.8,
+            factors={},
+            volume_evidence=None,
+            volume_impact_measured=Decimal("0.1083"),
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.8,
+            should_alert=True,
+            market_daily_volume=Decimal("50000"),
+        )
+
+        formatter = AlertFormatter(verbosity="detailed")
+        result = formatter.format(assessment)
+
+        assert "Size vs 24h volume: 10.83% of $50,000" in result.body
+
+    def test_measured_volume_without_any_daily_volume(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.1083,
+            book_impact=0.0,
+            is_niche_market=False,
+            confidence=0.8,
+            factors={},
+            volume_evidence=None,
+            volume_impact_measured=Decimal("0.1083"),
+        )
+        assessment = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.8,
+            should_alert=True,
+            market_daily_volume=None,
+        )
+
+        formatter = AlertFormatter(verbosity="detailed")
+        result = formatter.format(assessment)
+
+        assert "Size vs 24h volume: 10.83%" in result.body
+
+    def test_format_helpers_with_none_signal_or_compact_verbosity(
+        self,
+        sample_trade: TradeEvent,
+        sample_metadata: MarketMetadata,
+    ) -> None:
+        assessment_without_signal = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=None,
+            signals_triggered=0,
+            weighted_score=0.1,
+            should_alert=False,
+        )
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.1,
+            book_impact=0.0,
+            is_niche_market=False,
+            confidence=0.8,
+            factors={},
+            volume_impact_measured=Decimal("0.1000"),
+        )
+        assessment_with_signal = RiskAssessment(
+            trade_event=sample_trade,
+            wallet_address=sample_trade.wallet_address,
+            market_id=sample_trade.market_id,
+            fresh_wallet_signal=None,
+            size_anomaly_signal=signal,
+            signals_triggered=1,
+            weighted_score=0.8,
+            should_alert=True,
+        )
+
+        assert format_volume_comparison_value(assessment_without_signal) == ""
+        assert format_discord_volume_field("compact", assessment_with_signal) is None
+        assert format_discord_volume_field("detailed", assessment_without_signal) is None
