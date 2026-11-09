@@ -146,6 +146,8 @@ migration); this packet is not reduced to a CI or planning-only goal.
 
 **Execution Date**: 2026-11-09. **Post-implementation validation** of the truthful detection contract (Spec 004) in the pre-T027 posture.
 
+- **Gap Register Convergence**: `specs/audit/gap-register.md` rows `G-022`–`G-028` are updated with their Slice 004 pre-T027 dispositions per Constitution §Development Workflow 8.
+
 ### Automated Suite Results
 
 1. **Component Test Suites** (`tests/detector/`, `tests/ingestor/`, `tests/alerter/`, `tests/profiler/`):
