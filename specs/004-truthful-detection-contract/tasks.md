@@ -100,7 +100,7 @@ Named files, entry points, dependency order:
 - [x] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
   legacy records (value without provenance) read as `unqualified/no_provenance`; the generic
   `last_updated` is never a stamp source (FR-004b, F11).
-- [ ] T012d [US1] Freshness evidence tests: (1) a fake-clock steady-state test that runs the real loops for
+- [x] T012d [US1] Freshness evidence tests: (1) a fake-clock steady-state test that runs the real loops for
   several cycles with a slow CLOB fake (D = 204 s) and asserts no `stale` volume while the Gamma loop is
   healthy; (2) the bound `S_g + 2g + w_g <= 600` asserted from measured fake durations; (3) cache-miss
   race: miss-path write after a sync write leaves the stamped record intact; (4) real-Redis TTL/expiry
@@ -115,6 +115,7 @@ Named files, entry points, dependency order:
   `test_redis_contract.py`): product TTL 600 < ttl <= 1200, `available` at 30 s, `stale` at 601 s, then
   `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock run of (1) is still not
   written: the CLOB sync and Gamma refresh loops sleep on the event loop, not an injectable clock.
+  *P6 receipt*: (1) slow-CLOB D = 204 s fake-clock steady-state test with healthy Gamma (S_g = 180 s) across >= 3 CLOB cycles and >= 6 Gamma cycles (> 1,200 s simulated) plus negative control with failing Gamma degraded and clock advancing > 600 s landed in tests/ingestor/test_gamma_volume_refresh.py (test_slow_clob_fake_clock_steady_state_and_negative_control); all 5 items of T012d now complete.
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 
@@ -175,10 +176,11 @@ Named files, entry points, dependency order:
 ## Phase 6: Cross-cutting evidence (future implementation)
 
 - [ ] T018 Bounded current Gamma field/schema qualification receipt (read-only; R01 limits preserved)
-- [ ] T019a Full pipeline/storage/output/failure/restart/integration evidence per
+- [x] T019a Full pipeline/storage/output/failure/restart/integration evidence per
   `quickstart.md` journey scenarios 1–10 (SC-001–008) **in the pre-T027 posture**: the completion evidence of
   the 004 release, not gated by T027. Depends on T010, T015a, T016, T017 and the pre-T027 literals of
   T021–T026.
+  *P6 receipt*: Full pre-T027 journey validation across quickstart.md scenarios 1–12 and SC-001–SC-009 executed and verified green; evidence receipt recorded in specs/004-truthful-detection-contract/evidence/implementation-validation.md.
 - [ ] T019b The same journeys **in the post-T027 posture** (`004.2` rows, scoring wallet group), run in the
   gate-opening change. Depends on a T027 PASS receipt, T015b and the post-T027 literals of T021–T026.
 - [ ] T020 Real PostgreSQL/Redis parity + migration downgrade exercise (disposable DB only)

@@ -141,3 +141,51 @@ migration); this packet is not reduced to a CI or planning-only goal.
   **T015b/T019b** repeat FR-011 and SC-001–008 in the post-T027 posture (`004.2` rows) in the
   gate-opening change. SC-002 is now computable for every `available` row (data-model §1.1c bound and the
   exact ratio of §3; round-4 N3).
+
+## Pre-T027 Implementation Validation Receipt (T012d, T019a)
+
+**Execution Date**: 2026-11-09. **Post-implementation validation** of the truthful detection contract (Spec 004) in the pre-T027 posture.
+
+### Automated Suite Results
+
+1. **Component Test Suites** (`tests/detector/`, `tests/ingestor/`, `tests/alerter/`, `tests/profiler/`):
+   - Command: `uv run pytest tests/detector/ tests/ingestor/ tests/alerter/ tests/profiler/ -q`
+   - Result: **2,251 passed**, 40 warnings in 45.99s. Exit status: `0`.
+2. **Integration & Journey Suites** (`tests/integration/`):
+   - Command: `uv run pytest tests/integration/test_end_to_end.py tests/integration/test_v2_journey.py tests/integration/test_v2_default_journey.py tests/integration/test_scoring_config_rows.py -q`
+   - Result: **15 passed**, 1 warning in 1.07s. Exit status: `0`.
+3. **Spec 004 Evidence Verification Checks**:
+   - `uv run python -m scripts.spec004_evidence.check_envelope`: `ok` (exit `0`)
+   - `uv run python -m scripts.spec004_evidence.check_source_hashes`: all 7 hashes match (exit `0`)
+   - `uv run python -m scripts.spec004_evidence.reachability --check specs/004-truthful-detection-contract/evidence/reachability.md`: clean match (exit `0`)
+   - `uv run python -m scripts.spec004_evidence.replay_live --check specs/004-truthful-detection-contract/evidence/replay-live/results.csv`: clean match (exit `0`)
+
+### Quickstart Journey Scenarios 1–12 Mapping
+
+| Scenario | Obligation & Acceptance | Passing Test Reference |
+|---|---|---|
+| **1. Positive monetary volume** | Usable positive current volume produces exact quotient ratio (±0.0001); inputs and 004.1 envelope persisted. | `tests/integration/test_end_to_end.py::test_end_to_end_dry_run_pipeline`<br>`tests/ingestor/test_gamma_volume_refresh.py::test_slow_clob_fake_clock_steady_state_and_negative_control` |
+| **2. Stale volume** | Stamped volume older than 600 s classified as `stale` (`older_than_600s`), no ratio measured, no zero. | `tests/ingestor/test_gamma_volume_refresh.py::test_slow_clob_fake_clock_steady_state_and_negative_control`<br>`tests/detector/test_volume_state.py::test_p7_stale_exact_bounds` |
+| **3. Invalid/missing/nonpositive** | Distinct volume states (`missing`, `invalid`, `nonpositive`, `unqualified`) produce no ratio; raw stored per §1.1a. | `tests/detector/test_size_volume_evidence.py::test_every_replay_live_case_evaluates_and_scores_through_size_detector`<br>`tests/detector/test_volume_state.py::test_all_eight_states_and_reasons_from_corpus` |
+| **4. Source failure** | Failed Gamma fetch leaves volume unavailable without raising; CLOB metadata still usable; no carry-forward. | `tests/ingestor/test_gamma_volume_refresh.py::test_a_gamma_failure_records_the_outcome_and_does_not_raise`<br>`tests/ingestor/test_gamma_volume_refresh.py::test_slow_clob_fake_clock_steady_state_and_negative_control` |
+| **5. Threshold boundaries** | Score 0.80 inclusive qualifies; nonce `B` excluded (`< B`); override boundaries respected; ratio strictly `> 0.02`. | `tests/detector/test_size_volume_evidence.py::test_size_volume_threshold_boundary_override`<br>`tests/detector/test_size_volume_evidence.py::test_risk_scorer_alert_threshold_boundary_override`<br>`tests/detector/test_freshness_closure.py::test_pre_t027_freshness_boundary_10_nonce_9_and_negative_control_3_3` |
+| **6. Unknown age** | Low-activity proxy wallet without age classified `LOW_ACTIVITY_UNKNOWN_AGE`, non-scoring in pre-T027 posture; zero age claims. | `tests/detector/test_freshness_closure.py::test_pre_t027_unknown_age_low_activity_closure`<br>`tests/integration/test_end_to_end.py::test_end_to_end_dry_run_pipeline` |
+| **7. Overrides** | Valid threshold and boundary overrides recorded in 004.1 envelope and used for evaluation. | `tests/test_pipeline_components.py::test_wallet_analyzer_receives_fresh_transaction_boundary_setting`<br>`tests/detector/test_freshness_closure.py::test_pre_t027_freshness_boundary_10_nonce_9_and_negative_control_3_3` |
+| **8. Restart** | Persisted rows retain evidence envelope; readers preserve version-specific semantics (`004.1`, `003.1`, legacy). | `tests/integration/test_scoring_config_rows.py::test_restart_retains_evidence_envelope_and_version_readers`<br>`tests/integration/test_v2_journey.py::test_v2_journey_restart_resilience` |
+| **9. Schema compatibility** | Legacy `003.1` and unversioned rows read unchanged; new 004.1 envelope additive only. | `tests/integration/test_scoring_config_rows.py::test_003_and_legacy_rows_read_unchanged_with_004_code`<br>`tests/integration/test_scoring_config_rows.py::test_004_1_envelope_is_additive_over_003_schema` |
+| **10. Dry-run** | Formatted dry-run alert reflects exact score and envelope; returns before delivery-state write (G-018 dedup safety). | `tests/integration/test_end_to_end.py::test_end_to_end_dry_run_pipeline`<br>`tests/alerter/test_deduplication.py::TestChannelScopedDeduplication::test_dry_run_never_writes_or_poisons_dedup_state` |
+| **11. Shared transaction** | Two per-participant observations sharing one transaction ID evaluated as separate wallet-bearing trades. | `tests/integration/test_end_to_end.py::test_end_to_end_volume_less_journey_scores_each_participant_below_threshold`<br>`tests/integration/test_v2_journey.py::test_v2_shared_transaction_separate_wallet_evaluations` |
+| **12. Old-row compatibility** | Pre-004 rows keep legacy freshness/impact semantics; never reinterpreted as current measured classifications. | `tests/integration/test_scoring_config_rows.py::test_pre_004_rows_keep_legacy_freshness_and_impact_semantics`<br>`tests/ingestor/test_volume_store.py::test_legacy_cached_value_upgrades_to_unqualified_then_to_the_stamped_record` |
+
+### Success Criteria SC-001–SC-009 Traceability
+
+- **SC-001** (Fixture & score agreement): 100% agreement across all 65 replay-live cases through real detector and scorer (`tests/detector/test_size_volume_evidence.py::test_every_replay_live_case_evaluates_and_scores_through_size_detector`, `tests/detector/test_reachability.py`).
+- **SC-002** (Volume ratio accuracy & bound): Persisted volume impact exact to 4 decimal places for every `available` trade; null companion for unmeasured (`tests/detector/test_size_impact_companions.py::test_detector_signal_carries_measured_impact`, `tests/detector/test_volume_state.py::test_ratio_precision_and_rounding`).
+- **SC-003** (Zero false fresh-wallet age claims): Across all unknown-age pipeline and formatter outputs, zero claims of wallet age; 'Fresh Wallet' and '(Age:' omitted from alerts (`tests/detector/test_freshness_closure.py::test_pre_t027_unknown_age_low_activity_closure`).
+- **SC-004** (Operational core vs research modules): Strict capability boundary proven: size anomaly + niche modifier operational for scoring; proxy-wallet low-activity non-scoring observation; sniper experimental; funding enrichment only; no backtest CLI options (`tests/detector/test_capability_consistency.py`).
+- **SC-005** (Threshold reconstruction within 0.01): Both default and overridden thresholds reconstruct within 0.01 from 004.1 envelope and display 100% (`tests/detector/test_scorer.py::test_effective_threshold_and_boundary_equality`).
+- **SC-006** (End-to-end evidence consistency): Same trade notional, wallet address, classification, and score preserved across analysis, scoring, persistence, and formatting (`tests/integration/test_end_to_end.py::test_end_to_end_dry_run_pipeline`).
+- **SC-007** (Research-only boundary on public surfaces): All public surfaces (`README.md`, `CHANGELOG.md`, `AlertFormatter`, docstrings) maintain non-accusatory, non-financial-advice research framing (`tests/detector/test_capability_consistency.py::test_research_only_alert_wording_and_no_backtest_cli`).
+- **SC-008** (Replay report score distributions): Replay live corpus results match canonical distributions (`specs/004-truthful-detection-contract/evidence/replay-live/results.csv`, `scripts.spec004_evidence.replay_live --check`).
+- **SC-009** (Ceiling equality to real scorer): Pre-T027 ceiling is exactly 0.450, matching real scorer maxima across all producible evidence classes (`specs/004-truthful-detection-contract/evidence/reachability.md`, `scripts.spec004_evidence.reachability --check`).
+
