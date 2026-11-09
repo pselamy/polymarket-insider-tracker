@@ -71,7 +71,7 @@ async def test_the_wallet_evaluation_classifies_signal_or_not(
     evaluation = await detector.evaluate(trade, evaluated_at=EVALUATED_AT)
 
     assert evaluation.classification is expected
-    assert evaluation.boundary == detector.fresh_transaction_boundary == 6
+    assert evaluation.boundary == detector.fresh_transaction_boundary == 5
     assert (evaluation.profile is None) is (expected is WalletClassification.NOT_REQUESTED)
     qualifies = expected in (
         WalletClassification.FRESH,
@@ -130,7 +130,9 @@ def test_the_captured_detector_config_is_read_from_the_running_detectors() -> No
     assert defaults == default_detector_config()
 
     custom = capture_detector_config(
-        FreshWalletDetector(FakeWalletAnalyzer(), max_nonce=9, min_trade_size=Decimal("750")),
+        FreshWalletDetector(
+            FakeWalletAnalyzer(), fresh_transaction_boundary=10, min_trade_size=Decimal("750")
+        ),
         SizeAnomalyDetector(FakeMetadataSync(), volume_threshold=0.05),
     )
     assert (custom.fresh_transaction_boundary, custom.fresh_min_notional) == (10, Decimal("750"))
@@ -200,7 +202,7 @@ async def test_a_not_requested_wallet_keeps_the_captured_boundary() -> None:
     assert isinstance(evidence, dict)
     assert (evidence["wallet"]["classification"], evidence["wallet"]["boundary"]) == (
         "not_requested",
-        6,
+        5,
     )
 
 

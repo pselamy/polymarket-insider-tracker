@@ -153,8 +153,8 @@ async def test_the_row_records_the_wallet_as_non_scoring_evidence_and_the_volume
 
     assert document.wallet_group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027
     assert document.detector_failures == ()
-    # The pipeline's default detectors: max_nonce 5 inclusive is the exclusive boundary 6.
-    assert document.detector_config.fresh_transaction_boundary == 6
+    # The pipeline's default detectors: exclusive boundary 5.
+    assert document.detector_config.fresh_transaction_boundary == 5
     evidence = evidence_of(document)
     wallet = member(evidence, "wallet")
     assert wallet["classification"] == "low_activity_unknown_age"

@@ -269,3 +269,7 @@ case, the two `_metadata_sync` checks, the two `_health_monitor` checks and `_ca
 rule, threshold, literal, ordering or persisted value changes. The `pipeline.py` hash was re-pinned
 from the output of `check_source_hashes`; every other hash and every other evidence file is
 unchanged.
+
+## Nineteenth refresh: T009a/T009b exclusive fresh_transaction_boundary and DetectorSettings wiring (2026-11-09)
+
+`base_commit` stays 3aafd0b. `detector/fresh_wallet.py` adopts the exclusive `fresh_transaction_boundary` parameter (default 5, `DEFAULT_FRESH_TRANSACTION_BOUNDARY`) with the deprecated inclusive `max_nonce` alias per the contract table in `contracts/detector-api.md` §1. `DetectorSettings` in `config.py` adds `DETECTOR_FRESH_TRANSACTION_BOUNDARY` and `DETECTOR_SIZE_VOLUME_THRESHOLD`, wired into detector construction in `pipeline_components.py`. The `detector/fresh_wallet.py` hash was re-pinned from the output of `check_source_hashes`; every other hash and every other evidence file is unchanged.

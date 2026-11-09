@@ -6,8 +6,10 @@ import pytest
 
 from polymarket_insider_tracker import pipeline_components
 from polymarket_insider_tracker.config import Settings
+from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import SignalBundle
+from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 from polymarket_insider_tracker.pipeline_components import (
@@ -52,6 +54,37 @@ def test_alert_history_receives_the_configured_dedup_window(
     history = components.alert_dispatcher.history
     assert history is not None
     assert history.dedup_ttl == 1234
+
+
+async def test_build_components_wires_detector_settings() -> None:
+    settings = make_test_settings()
+    detector = settings.detector.model_copy(
+        update={
+            "fresh_transaction_boundary": 7,
+            "size_volume_threshold": 0.05,
+        }
+    )
+    custom_settings = settings.model_copy(update={"detector": detector})
+    built = await build_components(
+        custom_settings,
+        dry_run=True,
+        on_trade=_ignore_trade,
+        on_ingestion_state=_ignore_state,
+    )
+    try:
+        fresh_det = built.fresh_wallet_detector
+        assert isinstance(fresh_det, FreshWalletDetector)
+        assert fresh_det.fresh_transaction_boundary == 7
+
+        size_det = built.size_anomaly_detector
+        assert isinstance(size_det, SizeAnomalyDetector)
+        assert is_close(size_det.volume_threshold, 0.05)
+
+        assert built.detector_config.fresh_transaction_boundary == 7
+    finally:
+        if built.db_manager is not None:
+            await built.db_manager.dispose_async()
+        await built.redis.aclose()
 
 
 def _niche_size_signal(trade: TradeEvent) -> SizeAnomalySignal:

@@ -26,10 +26,10 @@ planning contract only, not a shippable increment.
 
 Named files, entry points, dependency order:
 
-- [ ] T009a [US1] `config.py::DetectorSettings` — add `DETECTOR_FRESH_TRANSACTION_BOUNDARY`
+- [x] T009a [US1] `config.py::DetectorSettings` — add `DETECTOR_FRESH_TRANSACTION_BOUNDARY`
   (default 5, positive int) and `DETECTOR_SIZE_VOLUME_THRESHOLD` (default 0.02); validate in
   `pipeline.py::_initialize_components`; no other new knobs (FR-002/009, R03)
-- [ ] T009b [US1] `detector/fresh_wallet.py` — `fresh_transaction_boundary` keyword +
+- [x] T009b [US1] `detector/fresh_wallet.py` — `fresh_transaction_boundary` keyword +
   deprecated inclusive `max_nonce` alias per contract table; effective `B` captured per
   evaluation; classification uses `nonce < B` with notional ≥ 1000 and age ≤ 48h gates
   (FR-007/009, D1a/D1b)

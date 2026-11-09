@@ -190,8 +190,14 @@ def _assemble(
     funding_tracer = FundingTracer(polygon_client)
 
     logger.debug("Initializing detectors...")
-    fresh_detector = FreshWalletDetector(wallet_analyzer)
-    size_detector = SizeAnomalyDetector(metadata_sync)
+    fresh_detector = FreshWalletDetector(
+        wallet_analyzer,
+        fresh_transaction_boundary=settings.detector.fresh_transaction_boundary,
+    )
+    size_detector = SizeAnomalyDetector(
+        metadata_sync,
+        volume_threshold=settings.detector.size_volume_threshold,
+    )
 
     logger.debug("Initializing risk scorer...")
     risk_scorer = RiskScorer(redis, alert_threshold=settings.detector.alert_threshold)

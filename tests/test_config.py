@@ -641,6 +641,46 @@ class TestTelegramSettings:
             assert settings.enabled
 
 
+class TestDetectorSettings:
+    """Tests for DetectorSettings."""
+
+    def test_detector_settings_defaults(self) -> None:
+        """Test default values for fresh_transaction_boundary and size_volume_threshold."""
+        settings = DetectorSettings()
+        assert settings.fresh_transaction_boundary == 5
+        assert settings.size_volume_threshold == 0.02
+
+    def test_detector_settings_env_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test environment variables override defaults."""
+        monkeypatch.setenv("DETECTOR_FRESH_TRANSACTION_BOUNDARY", "10")
+        monkeypatch.setenv("DETECTOR_SIZE_VOLUME_THRESHOLD", "0.05")
+        settings = DetectorSettings()
+        assert settings.fresh_transaction_boundary == 10
+        assert settings.size_volume_threshold == 0.05
+
+    def test_detector_settings_size_volume_threshold_ratio_above_one_allowed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Ratio > 1.0 like 1.5 is allowed per R03."""
+        monkeypatch.setenv("DETECTOR_SIZE_VOLUME_THRESHOLD", "1.5")
+        settings = DetectorSettings()
+        assert settings.size_volume_threshold == 1.5
+
+    @pytest.mark.parametrize("value", [0, -1, 2**53, True, False])
+    def test_detector_settings_invalid_fresh_transaction_boundary(self, value: object) -> None:
+        """Test rejection of non-positive, overflowing, or boolean values."""
+        with pytest.raises(ValidationError):
+            DetectorSettings.model_validate({"DETECTOR_FRESH_TRANSACTION_BOUNDARY": value})
+
+    @pytest.mark.parametrize(
+        "value", [0.0, -0.01, float("nan"), float("inf"), float("-inf"), True, False]
+    )
+    def test_detector_settings_invalid_size_volume_threshold(self, value: object) -> None:
+        """Test rejection of non-positive, non-finite, or boolean values."""
+        with pytest.raises(ValidationError):
+            DetectorSettings.model_validate({"DETECTOR_SIZE_VOLUME_THRESHOLD": value})
+
+
 class TestSettings:
     """Tests for main Settings class."""
 
