@@ -86,6 +86,11 @@ class WalletAnalyzer:
         self._usdc_address = usdc_address
         self._cache_prefix = "wallet_profile:"
 
+    @property
+    def fresh_threshold(self) -> int:
+        """The maximum nonce to be considered fresh."""
+        return self._fresh_threshold
+
     def _cache_key(self, address: str) -> str:
         """Generate cache key for wallet profile."""
         return f"{self._cache_prefix}{address.lower()}"

@@ -46,6 +46,7 @@ Named files, entry points, dependency order:
   nonce-9 override mismatch (FR-007c/008/010, SC-003/006, D2). Joint assertion, not separate
   label checks. **Gate split (round-4 N2)**: the pre-T027 half lands with the 004 implementation; the
   post-T027 half lands in the gate-opening change with T015b/T019b, after a T027 PASS receipt.
+  *P4 pre-T027 receipt (partial, stays unticked until T027)*: `pipeline_components.py` wires `fresh_threshold=settings.detector.fresh_transaction_boundary` into `WalletAnalyzer`; `FreshWalletDetector.evaluate` normalizes `profile.is_fresh` and `profile.fresh_threshold` to `fresh_transaction_boundary`; `tests/detector/test_freshness_closure.py` jointly asserts the pre-T027 unknown-age low-activity posture and the boundary-10 / nonce-9 override mismatch across classification, 004.1 envelope, `FreshWalletSignal.to_dict()`, persisted `WalletProfileDTO`, and `AlertFormatter`.
 - [ ] T009d [US1] Table-driven detector tests in `tests/detector/` (extend
   `test_fresh_wallet.py`, `test_size_anomaly.py`, `test_scorer.py`): default/override/equality
   boundary fixtures (nonce exactly `B`, age exactly 48h, score exactly 0.80, ratio exactly
@@ -116,9 +117,10 @@ Named files, entry points, dependency order:
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 
-- [ ] T013 [US2] Capability-consistency tests (`tests/detector/test_sniper.py` scope +
+- [x] T013 [US2] Capability-consistency tests (`tests/detector/test_sniper.py` scope +
   scorer/formatter surfaces): operational core only (fresh/low-activity + size + niche
   modifier); sniper experimental; funding enrichment-only; no backtest claims (FR-001/006/012–014, FR-018, SC-004/007)
+  *P4 receipt*: `tests/detector/test_capability_consistency.py` verifies operational core only, book-depth non-operational, sniper module experimental and omitted from live pipeline, funding tracing best-effort enrichment only, and research-only alert wording with no executable backtest CLI options (FR-001/006/012–014, FR-018, SC-004/007).
 - [ ] T014 [US2] Documentation/skill updates (README, CHANGELOG, sample alert, example env,
   architecture text, docstrings, tracked skill) distinguishing
   operational/enrichment/experimental/deferred (FR-017/018, SC-007). Depends on T013.
