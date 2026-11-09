@@ -283,3 +283,7 @@ unchanged.
 `base_commit` stays 3aafd0b. `detector/fresh_wallet.py` normalizes the returned `WalletProfile.is_fresh` and `fresh_threshold` to the detector's effective `fresh_transaction_boundary` (`T009c`, `data-model.md` §2a). This guarantees that when a custom boundary override (such as boundary 10) is in effect, the profile reflects the detector's evaluation instead of the analyzer's raw default threshold, keeping the 004.1 envelope, `FreshWalletSignal.to_dict()`, and persisted `WalletProfileDTO.is_fresh` in agreement. The `detector/fresh_wallet.py` hash was re-pinned from the output of `check_source_hashes`; every other hash and every other evidence file is unchanged.
 
 
+
+## Twenty-second refresh: stale 3+ multiplier removed from the scorer docstring (2026-11-09)
+
+`base_commit` stays 3aafd0b. Commit 8ae1834 (rev6) deletes one line from the `RiskScorer` docstring "Scoring Formula" that still documented `if signals >= 3: weighted_score *= 1.3`. That branch was removed under FR-011, and the docstring is the only place it was still described. The change is docstring-only: the AST of `detector/scorer.py` is equal to the previous revision with docstrings stripped, so no scoring rule or literal changes. Because the file bytes changed, the `detector/scorer.py` entry in `source-hashes.json` is re-pinned to `79733d5c…a41967` from the output of `check_source_hashes`; the other six entries are unchanged. This note was added in rev7 (PM-P4P7R6-01).
