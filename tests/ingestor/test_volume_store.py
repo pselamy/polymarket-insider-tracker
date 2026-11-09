@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from fakeredis import FakeAsyncRedis, FakeRedis, FakeServer
 from redis.typing import KeyT
 
+from polymarket_insider_tracker.detector.volume_state import VolumeState, classify_volume
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl, GammaMarketStats
 from polymarket_insider_tracker.ingestor.metadata_sync import (
     DEFAULT_REDIS_KEY_PREFIX,
@@ -98,6 +99,25 @@ async def test_failed_crawl_keeps_the_older_observation(fake_redis: FakeAsyncRed
     record = await store.read(CID)
     assert record is not None
     assert record.observation.acquired_at == "2026-10-19T12:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_failed_crawl_keeps_prior_observation_available_until_600s_then_stale(
+    fake_redis: FakeAsyncRedis,
+) -> None:
+    store = VolumeStore(fake_redis)
+    await store.write_crawl(_crawl(volume_stats()), STAMP)
+    await store.write_crawl(None, STAMP + timedelta(seconds=300))
+
+    merged = await store.merge(MARKET_METADATA)
+
+    assert merged.volume is not None
+    assert merged.volume_unavailable_reason is None
+    assert merged.volume.acquired_at == "2026-10-19T12:00:00+00:00"
+    before = classify_volume(merged.volume, evaluated_at=STAMP + timedelta(seconds=599))
+    after = classify_volume(merged.volume, evaluated_at=STAMP + timedelta(seconds=601))
+    assert before.state is VolumeState.AVAILABLE
+    assert (after.state, after.reason) == (VolumeState.STALE, "older_than_600s")
 
 
 @pytest.mark.asyncio

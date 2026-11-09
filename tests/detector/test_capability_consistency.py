@@ -144,7 +144,6 @@ async def test_operational_core_only_and_book_depth_non_operational() -> None:
     metadata.fallback = stamped_volume_market(trade, volume="10000")
     detector = SizeAnomalyDetector(metadata)
     now = datetime.now(UTC)
-
     eval_with_book = await detector.evaluate(trade, evaluated_at=now, book_depth=Decimal("50000"))
     eval_no_book = await detector.evaluate(trade, evaluated_at=now)
 
@@ -388,7 +387,8 @@ def _collected_test_nodes() -> set[str]:
         "no:cacheprovider",
     ]
     proc = subprocess.run(cmd, cwd=REPO_ROOT, check=True, capture_output=True, text=True)
-    return {line.strip() for line in proc.stdout.splitlines() if "::" in line}
+    nodes = {line.strip() for line in proc.stdout.splitlines() if "::" in line}
+    return nodes | {re.sub(r"\[.*\]$", "", node) for node in nodes}
 
 
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
