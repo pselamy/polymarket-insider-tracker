@@ -311,9 +311,9 @@ _REPLAY_FACT_EXPECTATIONS: dict[str, Callable[[dict[str, str]], object]] = {
     "signals_triggered": lambda row: int(row["groups_pre_T027"]) if row["size_confidence"] else 0,
     "weighted_score": lambda row: row["score_pre_T027"],
     # data-model section 1: an available, non-niche volume has basis "none" (numeric only below $50,000).
-    "niche_basis": lambda row: "none"
-    if row["niche_basis"] == _NON_NICHE_CSV_LABEL
-    else row["niche_basis"],
+    "niche_basis": lambda row: (
+        "none" if row["niche_basis"] == _NON_NICHE_CSV_LABEL else row["niche_basis"]
+    ),
 }
 
 
