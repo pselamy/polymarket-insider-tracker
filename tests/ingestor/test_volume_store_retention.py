@@ -13,8 +13,13 @@ import pytest
 from fakeredis import FakeAsyncRedis
 
 from polymarket_insider_tracker.detector.volume_state import VolumeState, classify_volume
+from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl, GammaMarketStats
 from polymarket_insider_tracker.ingestor.volume_store import DEFAULT_VOLUME_KEY_PREFIX, VolumeStore
-from tests.ingestor.test_volume_store import CID, MARKET_METADATA, STAMP, crawl_of, volume_stats
+from tests.ingestor.test_volume_store import CID, MARKET_METADATA, STAMP, volume_stats
+
+
+def crawl_of(*stats: GammaMarketStats, pages_ok: int = 3, truncated: bool = False) -> GammaCrawl:
+    return GammaCrawl({s.condition_id: s for s in stats}, pages_ok, 0, truncated, STAMP, STAMP)
 
 
 async def _observe_staleness(fake_redis: FakeAsyncRedis) -> dict[str, object]:
