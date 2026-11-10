@@ -158,6 +158,10 @@ class SizeAnomalySignal:
         timestamp: When this signal was generated.
         volume_evidence: Volume state and measured impact recorded beside the signal; evidence
             only, no score input (None when the signal was built without classification).
+        volume_impact_measured: Measured trade size / daily volume (Decimal, 4 places) only
+            in state available, None otherwise (authoritative companion to volume_impact).
+        book_impact_measured: Measured trade size / book depth (Decimal, 4 places) only
+            in state available, None otherwise (always None in this slice).
     """
 
     trade_event: TradeEvent
@@ -169,6 +173,14 @@ class SizeAnomalySignal:
     factors: dict[str, float]
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     volume_evidence: SizeVolumeEvidence | None = None
+    volume_impact_measured: Decimal | None = None
+    book_impact_measured: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        if self.volume_impact_measured is None and self.volume_evidence is not None:
+            object.__setattr__(
+                self, "volume_impact_measured", self.volume_evidence.volume_impact_measured
+            )
 
     # Identity and confidence properties have exactly one home in the module
     # helpers above; every signal class reuses the same property objects.
@@ -185,6 +197,14 @@ class SizeAnomalySignal:
             "market_category": self.market_metadata.category,
             "volume_impact": self.volume_impact,
             "book_impact": self.book_impact,
+            "volume_impact_measured": (
+                str(self.volume_impact_measured)
+                if self.volume_impact_measured is not None
+                else None
+            ),
+            "book_impact_measured": (
+                str(self.book_impact_measured) if self.book_impact_measured is not None else None
+            ),
             "is_niche_market": self.is_niche_market,
             "confidence": self.confidence,
             "factors": self.factors,

@@ -1,13 +1,16 @@
 """``build_components`` wiring: the scorer and alert history get their configured settings."""
 
 from collections.abc import AsyncIterator, Awaitable
+from typing import cast
 
 import pytest
 
 from polymarket_insider_tracker import pipeline_components
 from polymarket_insider_tracker.config import Settings
+from polymarket_insider_tracker.detector.fresh_wallet import FreshWalletDetector
 from polymarket_insider_tracker.detector.models import SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import SignalBundle
+from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEvent
 from polymarket_insider_tracker.ingestor.trade_poller import IngestionState
 from polymarket_insider_tracker.pipeline_components import (
@@ -52,6 +55,94 @@ def test_alert_history_receives_the_configured_dedup_window(
     history = components.alert_dispatcher.history
     assert history is not None
     assert history.dedup_ttl == 1234
+
+
+@pytest.fixture
+async def wired_components() -> AsyncIterator[PipelineComponents]:
+    """Components built from settings that override the two detector fields."""
+    settings = make_test_settings()
+    detector = settings.detector.model_copy(
+        update={
+            "fresh_transaction_boundary": 7,
+            "size_volume_threshold": 0.05,
+        }
+    )
+    custom_settings = settings.model_copy(update={"detector": detector})
+    built = await build_components(
+        custom_settings,
+        dry_run=True,
+        on_trade=_ignore_trade,
+        on_ingestion_state=_ignore_state,
+    )
+    yield built
+    if built.db_manager is not None:
+        await built.db_manager.dispose_async()
+    await built.redis.aclose()
+
+
+async def test_build_components_wires_a_fresh_wallet_detector(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    fresh_det = wired_components.fresh_wallet_detector
+
+    # Act
+    is_fresh_wallet_detector = isinstance(fresh_det, FreshWalletDetector)
+
+    # Assert
+    assert is_fresh_wallet_detector
+
+
+async def test_build_components_wires_the_fresh_transaction_boundary(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    fresh_det = cast(FreshWalletDetector, wired_components.fresh_wallet_detector)
+
+    # Act
+    boundary = fresh_det.fresh_transaction_boundary
+
+    # Assert
+    assert boundary == 7
+
+
+async def test_build_components_wires_a_size_anomaly_detector(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    size_det = wired_components.size_anomaly_detector
+
+    # Act
+    is_size_detector = isinstance(size_det, SizeAnomalyDetector)
+
+    # Assert
+    assert is_size_detector
+
+
+async def test_build_components_wires_the_size_volume_threshold(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    size_det = cast(SizeAnomalyDetector, wired_components.size_anomaly_detector)
+
+    # Act
+    threshold = size_det.volume_threshold
+
+    # Assert
+    assert is_close(threshold, 0.05)
+
+
+async def test_build_components_records_the_boundary_in_the_detector_config(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    detector_config = wired_components.detector_config
+
+    # Act
+    recorded = detector_config.fresh_transaction_boundary
+
+    # Assert
+    assert recorded == 7
 
 
 def _niche_size_signal(trade: TradeEvent) -> SizeAnomalySignal:

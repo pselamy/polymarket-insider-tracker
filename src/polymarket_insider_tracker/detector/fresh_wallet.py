@@ -5,6 +5,7 @@ from fresh wallets and generates alert signals with confidence scores.
 """
 
 import logging
+import warnings
 from abc import abstractmethod
 from datetime import datetime
 from decimal import Decimal
@@ -26,8 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Default configuration
 DEFAULT_MIN_TRADE_SIZE = Decimal("1000")  # $1,000 minimum trade size
-DEFAULT_MAX_NONCE = 5  # Max nonce to be considered fresh
+DEFAULT_FRESH_TRANSACTION_BOUNDARY = 5  # Exclusive transaction boundary B (nonce < B)
 DEFAULT_MAX_AGE_HOURS = 48.0  # Max age in hours to be considered fresh
+MAX_TRANSACTION_BOUNDARY = 2**53 - 1
 
 # Confidence scoring constants
 BASE_CONFIDENCE = 0.5
@@ -35,6 +37,60 @@ BRAND_NEW_BONUS = 0.2  # nonce == 0
 VERY_YOUNG_BONUS = 0.1  # age < 2 hours
 LARGE_TRADE_BONUS = 0.1  # trade size > $10,000
 LARGE_TRADE_THRESHOLD = Decimal("10000")
+
+
+def _validate_fresh_boundary(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("fresh_transaction_boundary must be an integer, not boolean")
+    if value < 1 or value > MAX_TRANSACTION_BOUNDARY:
+        raise ValueError(f"fresh_transaction_boundary must be in [1, {MAX_TRANSACTION_BOUNDARY}]")
+    return value
+
+
+def _validate_max_nonce(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError("max_nonce must be an integer, not boolean")
+    if value < 0:
+        raise ValueError("max_nonce must be a non-negative integer")
+    boundary = value + 1
+    if boundary > MAX_TRANSACTION_BOUNDARY:
+        raise ValueError(f"max_nonce + 1 exceeds {MAX_TRANSACTION_BOUNDARY}")
+    return boundary
+
+
+def _warn_deprecated_max_nonce(boundary: int) -> None:
+    warnings.warn(
+        f"max_nonce is deprecated; use fresh_transaction_boundary={boundary} instead",
+        DeprecationWarning,
+        stacklevel=4,
+    )
+
+
+def _check_conflicting_pair(fresh_boundary: int, legacy_boundary: int, max_nonce: int) -> None:
+    validated_boundary = _validate_fresh_boundary(fresh_boundary)
+    if validated_boundary != legacy_boundary:
+        raise ValueError(
+            f"Conflicting parameters: fresh_transaction_boundary={validated_boundary} "
+            f"does not match max_nonce={max_nonce} (expected {legacy_boundary})"
+        )
+
+
+def _resolve_boundary(
+    fresh_boundary: int | None,
+    max_nonce: int | None,
+) -> int:
+    if max_nonce is None:
+        return (
+            DEFAULT_FRESH_TRANSACTION_BOUNDARY
+            if fresh_boundary is None
+            else _validate_fresh_boundary(fresh_boundary)
+        )
+
+    legacy_boundary = _validate_max_nonce(max_nonce)
+    if fresh_boundary is not None:
+        _check_conflicting_pair(fresh_boundary, legacy_boundary, max_nonce)
+    _warn_deprecated_max_nonce(legacy_boundary)
+    return legacy_boundary
 
 
 def _qualifying_class(profile: WalletProfile) -> WalletClassification:
@@ -82,7 +138,8 @@ class FreshWalletDetector:
         wallet_analyzer: WalletProfiler,
         *,
         min_trade_size: Decimal = DEFAULT_MIN_TRADE_SIZE,
-        max_nonce: int = DEFAULT_MAX_NONCE,
+        fresh_transaction_boundary: int | None = None,
+        max_nonce: int | None = None,
         max_age_hours: float = DEFAULT_MAX_AGE_HOURS,
         clock: Clock = system_clock,
     ) -> None:
@@ -91,20 +148,21 @@ class FreshWalletDetector:
         Args:
             wallet_analyzer: Wallet profiler (normally a WalletAnalyzer).
             min_trade_size: Minimum trade size to analyze (default $1,000).
-            max_nonce: Maximum nonce to consider wallet fresh (default 5).
+            fresh_transaction_boundary: Exclusive transaction boundary B (default 5).
+            max_nonce: Deprecated inclusive transaction ceiling N (sets B = N + 1).
             max_age_hours: Maximum age in hours to consider fresh (default 48).
             clock: Source of the evaluation instant, read once per analyzed trade.
         """
         self._analyzer = wallet_analyzer
         self._min_trade_size = min_trade_size
-        self._max_nonce = max_nonce
+        self._fresh_transaction_boundary = _resolve_boundary(fresh_transaction_boundary, max_nonce)
         self._max_age_hours = max_age_hours
         self._clock = clock
 
     @property
     def fresh_transaction_boundary(self) -> int:
-        """The effective exclusive boundary ``B``: the inclusive ``max_nonce`` plus one."""
-        return self._max_nonce + 1
+        """The effective exclusive boundary ``B``: a wallet qualifies when nonce < B."""
+        return self._fresh_transaction_boundary
 
     @property
     def min_trade_size(self) -> Decimal:
@@ -206,7 +264,7 @@ class FreshWalletDetector:
         """Check if wallet meets freshness criteria.
 
         A wallet is considered fresh if:
-        1. Nonce is at or below max_nonce threshold
+        1. Nonce is strictly below the fresh_transaction_boundary
         2. Age is unknown OR within max_age_hours
 
         Args:
@@ -215,8 +273,8 @@ class FreshWalletDetector:
         Returns:
             True if wallet is fresh.
         """
-        # Must have few transactions
-        if profile.nonce > self._max_nonce:
+        # Must have fewer transactions than the exclusive boundary
+        if profile.nonce >= self._fresh_transaction_boundary:
             return False
 
         # If age is known, must be recent

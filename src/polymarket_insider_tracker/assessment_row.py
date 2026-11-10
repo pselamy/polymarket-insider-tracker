@@ -56,12 +56,8 @@ def assessment_dto(
             quantize_score_value(size_sig.confidence) if size_sig is not None else None
         ),
         is_niche_market=size_sig.is_niche_market if size_sig is not None else None,
-        volume_impact=(
-            Decimal(str(round(size_sig.volume_impact, 4))) if size_sig is not None else None
-        ),
-        book_impact=(
-            Decimal(str(round(size_sig.book_impact, 4))) if size_sig is not None else None
-        ),
+        volume_impact=(size_sig.volume_impact_measured if size_sig is not None else None),
+        book_impact=(size_sig.book_impact_measured if size_sig is not None else None),
         wallet_age_hours=wallet_age,
         should_alert=assessment.should_alert,
         threshold_at_eval=quantize_score_value(alert_threshold),

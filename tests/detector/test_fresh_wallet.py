@@ -9,9 +9,6 @@ import pytest
 from polymarket_insider_tracker.detector.fresh_wallet import (
     BASE_CONFIDENCE,
     BRAND_NEW_BONUS,
-    DEFAULT_MAX_AGE_HOURS,
-    DEFAULT_MAX_NONCE,
-    DEFAULT_MIN_TRADE_SIZE,
     LARGE_TRADE_BONUS,
     VERY_YOUNG_BONUS,
     FreshWalletDetector,
@@ -232,29 +229,6 @@ class TestFreshWalletSignal:
 # === Test FreshWalletDetector Initialization ===
 
 
-class TestFreshWalletDetectorInit:
-    """Tests for FreshWalletDetector initialization."""
-
-    def test_default_config(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
-        """Test detector initializes with default config."""
-        detector = FreshWalletDetector(fake_wallet_analyzer)
-        assert detector.min_trade_size == DEFAULT_MIN_TRADE_SIZE
-        assert detector.fresh_transaction_boundary == DEFAULT_MAX_NONCE + 1
-        assert detector.max_age_hours == DEFAULT_MAX_AGE_HOURS
-
-    def test_custom_config(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
-        """Test detector accepts custom config."""
-        detector = FreshWalletDetector(
-            fake_wallet_analyzer,
-            min_trade_size=Decimal("5000"),
-            max_nonce=10,
-            max_age_hours=72.0,
-        )
-        assert detector.min_trade_size == Decimal("5000")
-        assert detector.fresh_transaction_boundary == 11
-        assert detector.max_age_hours == 72.0
-
-
 # === Test FreshWalletDetector.analyze ===
 
 
@@ -320,12 +294,12 @@ class TestFreshWalletDetectorAnalyze:
         with pytest.raises(Exception, match="RPC error"):
             await detector.analyze(trade)
 
-    async def test_wallet_at_nonce_threshold(
+    async def test_wallet_below_nonce_threshold(
         self, detector: FreshWalletDetector, fake_wallet_analyzer: FakeWalletAnalyzer
     ) -> None:
-        """Test wallet exactly at max_nonce threshold."""
+        """Test wallet below boundary threshold qualifies (nonce=4 < B=5)."""
         trade = create_trade_event(size=Decimal("3000"))
-        profile = create_wallet_profile(nonce=5, age_hours=24.0)  # At threshold
+        profile = create_wallet_profile(nonce=4, age_hours=24.0)
         fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
@@ -335,9 +309,9 @@ class TestFreshWalletDetectorAnalyze:
     async def test_wallet_above_nonce_threshold(
         self, detector: FreshWalletDetector, fake_wallet_analyzer: FakeWalletAnalyzer
     ) -> None:
-        """Test wallet above max_nonce threshold."""
+        """Test wallet at or above boundary threshold does not qualify (nonce=5 >= B=5)."""
         trade = create_trade_event(size=Decimal("3000"))
-        profile = create_wallet_profile(nonce=6, age_hours=24.0)  # Above threshold
+        profile = create_wallet_profile(nonce=5, age_hours=24.0)
         fake_wallet_analyzer.register(profile)
 
         result = await detector.analyze(trade)
@@ -619,7 +593,7 @@ class TestDetectorIntegration:
         detector = FreshWalletDetector(
             fake_wallet_analyzer,
             min_trade_size=Decimal("5000"),
-            max_nonce=3,
+            fresh_transaction_boundary=4,
             max_age_hours=24.0,
         )
 

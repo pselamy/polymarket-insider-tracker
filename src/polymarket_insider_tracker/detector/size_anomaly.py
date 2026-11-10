@@ -227,6 +227,8 @@ class SizeAnomalyDetector:
             confidence=confidence,
             factors=factors,
             volume_evidence=evidence,
+            volume_impact_measured=evidence.volume_impact_measured,
+            book_impact_measured=None,
         )
 
     def _should_skip_trade(

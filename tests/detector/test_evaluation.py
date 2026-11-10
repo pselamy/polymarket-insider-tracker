@@ -6,6 +6,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from typing import Any, cast
 
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -52,31 +53,76 @@ def size_detector(trade: TradeEvent) -> SizeAnomalyDetector:
     return SizeAnomalyDetector(metadata)
 
 
-@pytest.mark.parametrize(
-    ("size", "nonce", "age_hours", "expected"),
-    [
-        (Decimal("100"), 0, None, WalletClassification.NOT_REQUESTED),
-        (Decimal("2000"), 9, 24.0, WalletClassification.KNOWN_NONQUALIFYING),
-        (Decimal("2000"), 2, 72.0, WalletClassification.KNOWN_NONQUALIFYING),
-        (Decimal("2000"), 0, None, WalletClassification.LOW_ACTIVITY_UNKNOWN_AGE),
-        (Decimal("2000"), 2, 24.0, WalletClassification.FRESH),
-    ],
-)
-async def test_the_wallet_evaluation_classifies_signal_or_not(
+WALLET_CASES = [
+    (Decimal("100"), 0, None, WalletClassification.NOT_REQUESTED),
+    (Decimal("2000"), 9, 24.0, WalletClassification.KNOWN_NONQUALIFYING),
+    (Decimal("2000"), 2, 72.0, WalletClassification.KNOWN_NONQUALIFYING),
+    (Decimal("2000"), 0, None, WalletClassification.LOW_ACTIVITY_UNKNOWN_AGE),
+    (Decimal("2000"), 2, 24.0, WalletClassification.FRESH),
+]
+
+
+@pytest.mark.parametrize(("size", "nonce", "age_hours", "expected"), WALLET_CASES)
+async def test_the_wallet_evaluation_classifies_the_wallet(
     size: Decimal, nonce: int, age_hours: float | None, expected: WalletClassification
 ) -> None:
+    # Arrange
     detector = wallet_detector(nonce, age_hours)
     trade = create_trade_event(size=size, price=Decimal("1"))
 
+    # Act
     evaluation = await detector.evaluate(trade, evaluated_at=EVALUATED_AT)
 
+    # Assert
     assert evaluation.classification is expected
-    assert evaluation.boundary == detector.fresh_transaction_boundary == 6
+
+
+@pytest.mark.parametrize(("size", "nonce", "age_hours"), [case[:3] for case in WALLET_CASES])
+async def test_the_wallet_evaluation_uses_the_default_boundary_of_five(
+    size: Decimal, nonce: int, age_hours: float | None
+) -> None:
+    # Arrange
+    detector = wallet_detector(nonce, age_hours)
+    trade = create_trade_event(size=size, price=Decimal("1"))
+
+    # Act
+    evaluation = await detector.evaluate(trade, evaluated_at=EVALUATED_AT)
+
+    # Assert
+    assert evaluation.boundary == detector.fresh_transaction_boundary == 5
+
+
+@pytest.mark.parametrize(("size", "nonce", "age_hours", "expected"), WALLET_CASES)
+async def test_the_wallet_profile_is_present_unless_not_requested(
+    size: Decimal, nonce: int, age_hours: float | None, expected: WalletClassification
+) -> None:
+    # Arrange
+    detector = wallet_detector(nonce, age_hours)
+    trade = create_trade_event(size=size, price=Decimal("1"))
+
+    # Act
+    evaluation = await detector.evaluate(trade, evaluated_at=EVALUATED_AT)
+
+    # Assert
     assert (evaluation.profile is None) is (expected is WalletClassification.NOT_REQUESTED)
+
+
+@pytest.mark.parametrize(("size", "nonce", "age_hours", "expected"), WALLET_CASES)
+async def test_the_wallet_signal_is_emitted_only_when_qualifying(
+    size: Decimal, nonce: int, age_hours: float | None, expected: WalletClassification
+) -> None:
+    # Arrange
+    detector = wallet_detector(nonce, age_hours)
+    trade = create_trade_event(size=size, price=Decimal("1"))
     qualifies = expected in (
         WalletClassification.FRESH,
         WalletClassification.LOW_ACTIVITY_UNKNOWN_AGE,
     )
+
+    # Act
+    evaluation = await detector.evaluate(trade, evaluated_at=EVALUATED_AT)
+
+    # Assert
     assert (evaluation.signal is not None) is qualifies
 
 
@@ -124,16 +170,47 @@ async def test_the_size_evaluation_keeps_the_volume_evidence_without_a_signal() 
     )
 
 
-def test_the_captured_detector_config_is_read_from_the_running_detectors() -> None:
-    trade = create_trade_event()
-    defaults = capture_detector_config(wallet_detector(), size_detector(trade))
-    assert defaults == default_detector_config()
-
-    custom = capture_detector_config(
-        FreshWalletDetector(FakeWalletAnalyzer(), max_nonce=9, min_trade_size=Decimal("750")),
+def _custom_capture() -> DetectorConfig:
+    return capture_detector_config(
+        FreshWalletDetector(
+            FakeWalletAnalyzer(), fresh_transaction_boundary=10, min_trade_size=Decimal("750")
+        ),
         SizeAnomalyDetector(FakeMetadataSync(), volume_threshold=0.05),
     )
-    assert (custom.fresh_transaction_boundary, custom.fresh_min_notional) == (10, Decimal("750"))
+
+
+def test_the_captured_defaults_equal_the_default_detector_config() -> None:
+    # Arrange
+    trade = create_trade_event()
+
+    # Act
+    defaults = capture_detector_config(wallet_detector(), size_detector(trade))
+
+    # Assert
+    assert defaults == default_detector_config()
+
+
+def test_the_captured_custom_boundary_is_read_from_the_fresh_detector() -> None:
+    # Arrange and Act
+    custom = _custom_capture()
+
+    # Assert
+    assert custom.fresh_transaction_boundary == 10
+
+
+def test_the_captured_custom_minimum_notional_is_read_from_the_fresh_detector() -> None:
+    # Arrange and Act
+    custom = _custom_capture()
+
+    # Assert
+    assert custom.fresh_min_notional == Decimal("750")
+
+
+def test_the_captured_custom_size_threshold_is_read_from_the_size_detector() -> None:
+    # Arrange and Act
+    custom = _custom_capture()
+
+    # Assert
     assert custom.size_volume_threshold == Decimal("0.05")
 
 
@@ -190,17 +267,21 @@ async def test_an_assessment_without_evidence_records_the_given_config_and_no_ob
 
 
 async def test_a_not_requested_wallet_keeps_the_captured_boundary() -> None:
+    # Arrange
     assessment = await scored(nonce=2, age_hours=None)
-    assert assessment.evidence is not None
-    assessment = replace(assessment, evidence=replace(assessment.evidence, wallet=None))
+    no_wallet = replace(
+        assessment,
+        evidence=replace(assessment.evidence, wallet=None) if assessment.evidence else None,
+    )
 
-    document = stored(assessment, default_detector_config())
+    # Act
+    document = stored(no_wallet, default_detector_config())
 
-    evidence = document["evaluation_evidence"]
-    assert isinstance(evidence, dict)
+    # Assert
+    evidence = cast(dict[str, Any], document["evaluation_evidence"])
     assert (evidence["wallet"]["classification"], evidence["wallet"]["boundary"]) == (
         "not_requested",
-        6,
+        5,
     )
 
 

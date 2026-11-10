@@ -269,3 +269,16 @@ case, the two `_metadata_sync` checks, the two `_health_monitor` checks and `_ca
 rule, threshold, literal, ordering or persisted value changes. The `pipeline.py` hash was re-pinned
 from the output of `check_source_hashes`; every other hash and every other evidence file is
 unchanged.
+
+## Nineteenth refresh: T009a/T009b exclusive fresh_transaction_boundary and DetectorSettings wiring (2026-11-09)
+
+`base_commit` stays 3aafd0b. `detector/fresh_wallet.py` adopts the exclusive `fresh_transaction_boundary` parameter (default 5, `DEFAULT_FRESH_TRANSACTION_BOUNDARY`) with the deprecated inclusive `max_nonce` alias per the contract table in `contracts/detector-api.md` §1. `DetectorSettings` in `config.py` adds `DETECTOR_FRESH_TRANSACTION_BOUNDARY` and `DETECTOR_SIZE_VOLUME_THRESHOLD`, wired into detector construction in `pipeline_components.py`. The `detector/fresh_wallet.py` hash was re-pinned from the output of `check_source_hashes`; every other hash and every other evidence file is unchanged.
+
+## Twentieth refresh: T011/T016 nullable measured impact companions and persistence mapping (2026-11-09)
+
+`base_commit` stays 3aafd0b. `detector/models.py` adds `volume_impact_measured: Decimal | None` and `book_impact_measured: Decimal | None = None` on `SizeAnomalySignal` (with `volume_impact_measured` resolving to `volume_evidence.volume_impact_measured` when omitted and serialized in `to_dict()`) per `contracts/detector-api.md` §4. `detector/size_anomaly.py` constructs `SizeAnomalySignal` passing `volume_impact_measured=evidence.volume_impact_measured` and `book_impact_measured=None`. `assessment_row.py` maps `volume_impact` and `book_impact` directly from these measured companions, persisting SQL `NULL` when unmeasured instead of legacy zero. `alerter/formatter.py` formats the single `Size vs 24h volume` line in detailed mode without printing zero for non-measurements. No scoring rule, threshold, literal, or ordering changes. The `detector/models.py` and `detector/size_anomaly.py` hashes were re-pinned from the output of `check_source_hashes`; every other hash and every other evidence file is unchanged.
+
+
+## Twenty-second refresh: unused DEFAULT_MAX_NONCE deleted (2026-11-10)
+
+`base_commit` stays 3aafd0b. Commit bc74170 deletes the one line `DEFAULT_MAX_NONCE = 5` from `detector/fresh_wallet.py`. The constant had no remaining reference in src, tests, scripts, docs or quality code once the test-only revision removed its last user. Vulture flagged it (60% confidence), which failed the static profile in CI run 42775477932. The change is a safe deletion with no behaviour change, not an allowlist entry. The `detector/fresh_wallet.py` entry in `source-hashes.json` is re-pinned to `5f57aaac…c0d8`; the other six entries are unchanged.

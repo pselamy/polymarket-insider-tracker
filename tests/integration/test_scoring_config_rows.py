@@ -143,39 +143,135 @@ async def test_a_scored_row_is_a_004_1_document_whose_threshold_reconstructs(
     }
 
 
+async def _wallet_row_document(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> Document004:
+    """The 004.1 document of the single assessment the pipeline writes for the sample trade."""
+    market = stamped_volume_market(make_sample_trade_event())
+    pipeline = await wired(fake_redis, db_manager, market)
+    return read_row(await single_row(async_engine, pipeline))
+
+
 async def test_the_row_records_the_wallet_as_non_scoring_evidence_and_the_volume_state(
     fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
 ) -> None:
-    market = stamped_volume_market(make_sample_trade_event())
-    pipeline = await wired(fake_redis, db_manager, market)
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
 
-    document = read_row(await single_row(async_engine, pipeline))
+    # Act
+    status = document.wallet_group_status
 
-    assert document.wallet_group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027
-    assert document.detector_failures == ()
-    # The pipeline's default detectors: max_nonce 5 inclusive is the exclusive boundary 6.
-    assert document.detector_config.fresh_transaction_boundary == 6
-    evidence = evidence_of(document)
-    wallet = member(evidence, "wallet")
-    assert wallet["classification"] == "low_activity_unknown_age"
-    assert (wallet["tx_count"], wallet["confidence"], wallet["factors"]) == (0, None, {})
-    assert (wallet["age_state"], wallet["age_basis"], wallet["age_hours"]) == (
-        "unknown",
-        "none",
-        None,
-    )
-    size = member(evidence, "size")
-    assert (size["volume_state"], size["daily_volume"], size["volume_impact"]) == (
-        "available",
-        "10000",
-        "0.3250",
-    )
-    assert (size["signal_emitted"], size["confidence"], size["niche_basis"]) == (
-        True,
-        "0.750",
-        "numeric",
-    )
-    assert evidence["notional"] == "3250.00"
+    # Assert
+    assert status is WalletGroupStatus.UNQUALIFIED_PRE_T027
+
+
+async def test_the_row_records_no_detector_failures(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+
+    # Act
+    failures = document.detector_failures
+
+    # Assert
+    assert failures == ()
+
+
+async def test_the_row_records_the_pipeline_default_boundary_of_five(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+
+    # Act
+    boundary = document.detector_config.fresh_transaction_boundary
+
+    # Assert
+    assert boundary == 5
+
+
+async def test_the_row_classifies_the_wallet_as_low_activity_unknown_age(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+    wallet = member(evidence_of(document), "wallet")
+
+    # Act
+    classification = wallet["classification"]
+
+    # Assert
+    assert classification == "low_activity_unknown_age"
+
+
+async def test_the_row_records_the_wallet_as_non_scoring_with_no_confidence_or_factors(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+    wallet = member(evidence_of(document), "wallet")
+
+    # Act
+    scoring = (wallet["tx_count"], wallet["confidence"], wallet["factors"])
+
+    # Assert
+    assert scoring == (0, None, {})
+
+
+async def test_the_row_records_the_wallet_age_as_unknown(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+    wallet = member(evidence_of(document), "wallet")
+
+    # Act
+    age = (wallet["age_state"], wallet["age_basis"], wallet["age_hours"])
+
+    # Assert
+    assert age == ("unknown", "none", None)
+
+
+async def test_the_row_records_the_volume_state_and_impact_of_the_size_group(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+    size = member(evidence_of(document), "size")
+
+    # Act
+    volume = (size["volume_state"], size["daily_volume"], size["volume_impact"])
+
+    # Assert
+    assert volume == ("available", "10000", "0.3250")
+
+
+async def test_the_row_records_the_size_signal_emission_and_niche_basis(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+    size = member(evidence_of(document), "size")
+
+    # Act
+    signal = (size["signal_emitted"], size["confidence"], size["niche_basis"])
+
+    # Assert
+    assert signal == (True, "0.750", "numeric")
+
+
+async def test_the_row_records_the_notional_as_a_two_decimal_string(
+    fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
+) -> None:
+    # Arrange
+    document = await _wallet_row_document(fake_redis, db_manager, async_engine)
+
+    # Act
+    notional = evidence_of(document)["notional"]
+
+    # Assert
+    assert notional == "3250.00"
 
 
 async def test_a_verbatim_numeric_raw_volume_is_stored_and_read_back(

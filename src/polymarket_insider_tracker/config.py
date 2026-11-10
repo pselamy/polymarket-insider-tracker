@@ -15,7 +15,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import AfterValidator, Field, SecretStr
+from pydantic import AfterValidator, BeforeValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from polymarket_insider_tracker.deprecated_api_key import DeprecatedApiKey
@@ -155,6 +155,22 @@ RedisUrl = Annotated[str, AfterValidator(_validate_redis_url)]
 HttpEndpointUrl = Annotated[str, AfterValidator(_validate_http_url)]
 WebSocketEndpointUrl = Annotated[str, AfterValidator(_validate_websocket_url)]
 DiscordWebhookUrl = Annotated[SecretStr, AfterValidator(_validate_webhook_url_secret)]
+
+
+def _reject_bool_int(value: object) -> object:
+    if isinstance(value, bool):
+        raise ValueError("value must be an integer, not boolean")
+    return value
+
+
+def _reject_bool_float(value: object) -> object:
+    if isinstance(value, bool):
+        raise ValueError("value must be a float, not boolean")
+    return value
+
+
+StrictNonBoolInt = Annotated[int, BeforeValidator(_reject_bool_int)]
+StrictNonBoolFloat = Annotated[float, BeforeValidator(_reject_bool_float)]
 
 
 class DatabaseSettings(BaseSettings):
@@ -394,6 +410,20 @@ class DetectorSettings(BaseSettings):
         default=True,
         alias="DETECTOR_PERSIST_ASSESSMENTS",
         description="Write every signal-bearing risk assessment to the database",
+    )
+    fresh_transaction_boundary: StrictNonBoolInt = Field(
+        default=5,
+        alias="DETECTOR_FRESH_TRANSACTION_BOUNDARY",
+        description="Exclusive prior-transaction boundary B: a wallet qualifies when nonce < B",
+        ge=1,
+        le=2**53 - 1,
+    )
+    size_volume_threshold: StrictNonBoolFloat = Field(
+        default=0.02,
+        alias="DETECTOR_SIZE_VOLUME_THRESHOLD",
+        description="Minimum ratio of trade size to 24h volume for size anomaly",
+        gt=0.0,
+        allow_inf_nan=False,
     )
 
 

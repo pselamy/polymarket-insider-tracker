@@ -129,9 +129,14 @@ def size_signal(market: Market, notional: Decimal, *, volume_passed: bool) -> Si
     return None if signal is None else (signal.confidence, signal.is_niche_market)
 
 
-def detector_wallet_confidence(wallet: Wallet, notional: Decimal) -> float | None:
-    """The real fresh-wallet confidence as wired on main (003.1 rules), None without a signal."""
-    detector = FreshWalletDetector(StaticProfiler(grid_profile(wallet)))
+def detector_wallet_confidence(
+    wallet: Wallet, notional: Decimal, *, fresh_transaction_boundary: int = 5
+) -> float | None:
+    """The real fresh-wallet confidence, None without a signal."""
+    detector = FreshWalletDetector(
+        StaticProfiler(grid_profile(wallet)),
+        fresh_transaction_boundary=fresh_transaction_boundary,
+    )
     evaluation = asyncio.run(detector.evaluate(grid_trade(notional), evaluated_at=EVALUATED_AT))
     signal = evaluation.signal
     return None if signal is None else signal.confidence
@@ -139,7 +144,8 @@ def detector_wallet_confidence(wallet: Wallet, notional: Decimal) -> float | Non
 
 def wallet_confidence(wallet: Wallet, notional: Decimal, *, proposed: bool) -> float | None:
     """None = no wallet signal. ``proposed`` applies the 004 unknown-age rule to a real signal."""
-    confidence = detector_wallet_confidence(wallet, notional)
+    boundary = 5 if proposed else 6
+    confidence = detector_wallet_confidence(wallet, notional, fresh_transaction_boundary=boundary)
     if confidence is None or not (proposed and wallet.age_hours is None):
         return confidence
     return UNKNOWN_AGE_CONFIDENCE

@@ -30,7 +30,7 @@ def capture_detector_config(
 def default_detector_config() -> DetectorConfig:
     """The configuration of default-constructed detectors (the pipeline builds them so)."""
     return DetectorConfig(
-        fresh_transaction_boundary=fresh_wallet.DEFAULT_MAX_NONCE + 1,
+        fresh_transaction_boundary=fresh_wallet.DEFAULT_FRESH_TRANSACTION_BOUNDARY,
         size_volume_threshold=Decimal(str(size_anomaly.DEFAULT_VOLUME_THRESHOLD)),
         fresh_min_notional=fresh_wallet.DEFAULT_MIN_TRADE_SIZE,
         known_age_ceiling_hours=Decimal(str(fresh_wallet.DEFAULT_MAX_AGE_HOURS)),
