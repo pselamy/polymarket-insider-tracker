@@ -189,40 +189,104 @@ async def test_operational_core_only_and_book_depth_non_operational() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sniper_module_experimental_and_non_operational_in_live_pipeline() -> None:
-    """T013: sniper detector is experimental and omitted from live pipeline (FR-012, SC-004)."""
-    comp_fields = [f.name for f in dataclasses.fields(PipelineComponents)]
-    assert not any("sniper" in name.lower() for name in comp_fields)
-
+async def _built_pipeline_components() -> PipelineComponents:
     settings = make_test_settings(alert_threshold=0.4)
-    built = await build_components(
+    return await build_components(
         settings, dry_run=True, on_trade=_ignore_trade, on_ingestion_state=_ignore_state
     )
-    assert not hasattr(built, "sniper_detector")
-    assert not hasattr(built, "sniper")
 
+
+def _sniper_clustering_signals() -> list[SniperClusterSignal]:
     detector = SniperDetector(min_cluster_size=2, min_entries_per_wallet=1, eps=60.0)
     now = datetime.now(UTC)
-    wallets = ["0x" + "1" * 40, "0x" + "2" * 40]
-    for wallet in wallets:
-        t = create_trade_event(wallet_address=wallet, market_id="mkt1")
-        detector.record_entry(t, now - timedelta(seconds=10))
-    signals = detector.run_clustering()
-    assert isinstance(signals, list)
-    if signals:
-        assert isinstance(signals[0], SniperClusterSignal)
+    for wallet in ["0x" + "1" * 40, "0x" + "2" * 40]:
+        trade = create_trade_event(wallet_address=wallet, market_id="mkt1")
+        detector.record_entry(trade, now - timedelta(seconds=10))
+    return detector.run_clustering()
 
-    scorer_params = inspect.signature(RiskScorer.calculate_weighted_score).parameters
-    assert not any("sniper" in p.lower() for p in scorer_params)
 
-    formatter_params = inspect.signature(AlertFormatter.format).parameters
-    assert not any("sniper" in p.lower() for p in formatter_params)
+def test_sniper_is_not_a_pipeline_component_field() -> None:
+    """T013: no sniper field on the pipeline components (FR-012, SC-004)."""
+    # Arrange
+    names = [f.name for f in dataclasses.fields(PipelineComponents)]
 
-    dto_params = inspect.signature(assessment_dto).parameters
-    assert not any("sniper" in p.lower() for p in dto_params)
+    # Act
+    sniper_fields = [name for name in names if "sniper" in name.lower()]
 
-    dto_fields = [f.name for f in dataclasses.fields(RiskAssessmentDTO)]
-    assert not any("sniper" in name.lower() for name in dto_fields)
+    # Assert
+    assert sniper_fields == []
+
+
+async def test_built_pipeline_has_no_sniper_attribute() -> None:
+    """T013: the built components carry no sniper attribute (FR-012)."""
+    # Arrange
+    built = await _built_pipeline_components()
+
+    # Act
+    attributes = set(vars(built))
+
+    # Assert
+    assert not {"sniper_detector", "sniper"} & attributes
+
+
+def test_sniper_clustering_signals_each_wallet_once() -> None:
+    """The experimental sniper library still clusters the two wallets it is given."""
+    # Arrange
+    wallets = sorted(["0x" + "1" * 40, "0x" + "2" * 40])
+
+    # Act
+    signals = _sniper_clustering_signals()
+
+    # Assert
+    assert sorted(signal.wallet_address for signal in signals) == wallets
+
+
+def test_risk_scorer_signature_has_no_sniper_parameter() -> None:
+    """The scorer's weighted-score method takes no sniper input (FR-018)."""
+    # Arrange
+    parameters = inspect.signature(RiskScorer.calculate_weighted_score).parameters
+
+    # Act
+    sniper_parameters = [name for name in parameters if "sniper" in name.lower()]
+
+    # Assert
+    assert sniper_parameters == []
+
+
+def test_alert_formatter_signature_has_no_sniper_parameter() -> None:
+    """The alert formatter takes no sniper input (FR-018)."""
+    # Arrange
+    parameters = inspect.signature(AlertFormatter.format).parameters
+
+    # Act
+    sniper_parameters = [name for name in parameters if "sniper" in name.lower()]
+
+    # Assert
+    assert sniper_parameters == []
+
+
+def test_assessment_dto_signature_has_no_sniper_parameter() -> None:
+    """The persistence mapping takes no sniper input (FR-018)."""
+    # Arrange
+    parameters = inspect.signature(assessment_dto).parameters
+
+    # Act
+    sniper_parameters = [name for name in parameters if "sniper" in name.lower()]
+
+    # Assert
+    assert sniper_parameters == []
+
+
+def test_risk_assessment_dto_has_no_sniper_field() -> None:
+    """The persisted record has no sniper column (FR-018)."""
+    # Arrange
+    names = [f.name for f in dataclasses.fields(RiskAssessmentDTO)]
+
+    # Act
+    sniper_fields = [name for name in names if "sniper" in name.lower()]
+
+    # Assert
+    assert sniper_fields == []
 
 
 class FixedClockPipeline(WiredPipeline):
@@ -294,7 +358,7 @@ async def test_funding_tracing_is_best_effort_enrichment_only(
     assert any("Failed to persist wallet/funding data" in r.message for r in caplog.records)
 
     rows = await persisted_assessments(async_engine)
-    assert len(rows) >= 2
+    assert len(rows) == 2
     row_a, row_b = rows[-2], rows[-1]
 
     assert row_a.weighted_score == row_b.weighted_score == Decimal("0.450")
@@ -394,5 +458,6 @@ def _collected_test_nodes() -> set[str]:
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
     path = REPO_ROOT / "specs/004-truthful-detection-contract/evidence/implementation-validation.md"
     cited = _cited_test_nodes(path.read_text(encoding="utf-8"))
-    assert len(cited) >= 20
+    # Pinned to the 59 citations in implementation-validation.md; update with that document.
+    assert len(cited) == 59
     assert sorted(set(cited) - _collected_test_nodes()) == []
