@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -122,23 +123,30 @@ def _assert_signals_never_contain_prohibited(signals: Sequence[str]) -> None:
         assert prohibited not in signals
 
 
-@pytest.mark.asyncio
-async def test_operational_core_only_and_book_depth_non_operational() -> None:
-    """T013: core signals only, book-depth non-operational (FR-001, FR-006, SC-004)."""
+@dataclass(frozen=True)
+class CoreObservation:
+    """What the operational-core scenarios produced; the helper asserts nothing."""
+
+    bundle_fields: tuple[str, ...]
+    assessment_sniper_or_funding_fields: list[str]
+    weight_keys: set[str]
+    group_status: WalletGroupStatus
+    book_measured_with_depth: object
+    book_measured_without_depth: object
+    doc_book_state_with_depth: object
+    doc_book_state_without_depth: object
+    doc_book_impact_with_depth: object
+    doc_book_impact_without_depth: object
+    dto_book_impacts: list[object]
+    empty_triggered: list[str]
+    large_triggered: list[str]
+    niche_triggered: list[str]
+    prohibited_triggered: list[str]
+
+
+async def _observe_core() -> CoreObservation:
     bundle_fields = tuple(f.name for f in dataclasses.fields(SignalBundle))
-    assert bundle_fields == (
-        "trade_event",
-        "fresh_wallet_signal",
-        "size_anomaly_signal",
-        "evidence",
-    )
-
-    assessment_fields = tuple(f.name for f in dataclasses.fields(RiskAssessment))
-    assert not any("sniper" in f.lower() or "funding" in f.lower() for f in assessment_fields)
-
-    assert set(DEFAULT_WEIGHTS.keys()) == {"fresh_wallet", "size_anomaly", "niche_market"}
-    assert DEFAULT_WALLET_GROUP_STATUS is WalletGroupStatus.UNQUALIFIED_PRE_T027
-
+    assessment_names = [f.name for f in dataclasses.fields(RiskAssessment)]
     trade = create_trade_event(size=Decimal("3250"), price=Decimal("1"))
     metadata = FakeMetadataSync()
     metadata.fallback = stamped_volume_market(trade, volume="10000")
@@ -147,45 +155,124 @@ async def test_operational_core_only_and_book_depth_non_operational() -> None:
     eval_with_book = await detector.evaluate(trade, evaluated_at=now, book_depth=Decimal("50000"))
     eval_no_book = await detector.evaluate(trade, evaluated_at=now)
 
+    documents: list[dict[str, object]] = []
+    dto_impacts: list[object] = []
+    book_measured: list[object] = []
     for evaluation in (eval_with_book, eval_no_book):
-        assert evaluation.signal is not None
-        assert evaluation.signal.book_impact_measured is None
+        book_measured.append(
+            evaluation.signal.book_impact_measured if evaluation.signal else "signal"
+        )
         evidence = TradeEvidence(now, default_detector_config(), size=evaluation)
         bundle = SignalBundle(trade, None, evaluation.signal, evidence)
         assessment = await RiskScorer(FakeAsyncRedis()).assess(bundle)
         doc = compose_document(assessment, assessment.scoring_config or "{}", evidence)
-        assert doc.evaluation_evidence is not None
-        size_doc = doc.evaluation_evidence.get("size")
-        assert isinstance(size_doc, dict)
-        assert size_doc["book_state"] == "unavailable"
-        assert size_doc["book_impact"] is None
-
+        size_doc = doc.evaluation_evidence.get("size") if doc.evaluation_evidence else None
+        documents.append(size_doc if isinstance(size_doc, dict) else {})
         dto = assessment_dto(
             assessment, alert_threshold=0.8, detector_config=default_detector_config()
         )
-        assert dto.book_impact is None
+        dto_impacts.append(dto.book_impact)
 
-    empty_assessment = await RiskScorer(FakeAsyncRedis()).assess(
-        SignalBundle(trade, None, None, None)
-    )
-    assert get_triggered_signals(empty_assessment) == []
-
+    empty = await RiskScorer(FakeAsyncRedis()).assess(SignalBundle(trade, None, None, None))
     non_niche_trade = create_trade_event(size=Decimal("5000"), price=Decimal("1"))
     meta_large = FakeMetadataSync()
     meta_large.fallback = stamped_volume_market(non_niche_trade, volume="100000")
     eval_large = await SizeAnomalyDetector(meta_large).evaluate(non_niche_trade, evaluated_at=now)
-    non_niche_assessment = await RiskScorer(FakeAsyncRedis()).assess(
+    large = await RiskScorer(FakeAsyncRedis()).assess(
         SignalBundle(non_niche_trade, None, eval_large.signal, None)
     )
-    assert get_triggered_signals(non_niche_assessment) == ["Large Position"]
-
-    niche_assessment = await RiskScorer(FakeAsyncRedis()).assess(
+    niche = await RiskScorer(FakeAsyncRedis()).assess(
         SignalBundle(trade, None, eval_no_book.signal, None)
     )
-    assert get_triggered_signals(niche_assessment) == ["Large Position", "Niche Market"]
+    prohibited = [
+        name
+        for assessed in (empty, large, niche)
+        for name in get_triggered_signals(assessed)
+        if name in ("Fresh Wallet", "Sniper", "Funding")
+    ]
+    return CoreObservation(
+        bundle_fields=bundle_fields,
+        assessment_sniper_or_funding_fields=[
+            name
+            for name in assessment_names
+            if "sniper" in name.lower() or "funding" in name.lower()
+        ],
+        weight_keys=set(DEFAULT_WEIGHTS.keys()),
+        group_status=DEFAULT_WALLET_GROUP_STATUS,
+        book_measured_with_depth=book_measured[0],
+        book_measured_without_depth=book_measured[1],
+        doc_book_state_with_depth=documents[0].get("book_state"),
+        doc_book_state_without_depth=documents[1].get("book_state"),
+        doc_book_impact_with_depth=documents[0].get("book_impact"),
+        doc_book_impact_without_depth=documents[1].get("book_impact"),
+        dto_book_impacts=dto_impacts,
+        empty_triggered=get_triggered_signals(empty),
+        large_triggered=get_triggered_signals(large),
+        niche_triggered=get_triggered_signals(niche),
+        prohibited_triggered=prohibited,
+    )
 
-    for assessed in (empty_assessment, non_niche_assessment, niche_assessment):
-        _assert_signals_never_contain_prohibited(get_triggered_signals(assessed))
+
+@pytest.fixture
+async def core() -> CoreObservation:
+    return await _observe_core()
+
+
+async def test_core_bundle_has_exactly_the_core_signal_fields(core: CoreObservation) -> None:
+    assert core.bundle_fields == (
+        "trade_event",
+        "fresh_wallet_signal",
+        "size_anomaly_signal",
+        "evidence",
+    )
+
+
+async def test_guard_assessment_has_no_sniper_or_funding_field(core: CoreObservation) -> None:
+    """Guard, not evidence: a field name that never existed cannot fail on pre-#241 code."""
+    assert core.assessment_sniper_or_funding_fields == []
+
+
+async def test_default_weights_cover_only_the_three_core_groups(core: CoreObservation) -> None:
+    assert core.weight_keys == {"fresh_wallet", "size_anomaly", "niche_market"}
+
+
+async def test_wallet_group_is_unqualified_pre_t027(core: CoreObservation) -> None:
+    assert core.group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027
+
+
+async def test_book_depth_measures_no_book_impact(core: CoreObservation) -> None:
+    assert (core.book_measured_with_depth, core.book_measured_without_depth) == (None, None)
+
+
+async def test_evidence_document_records_the_book_as_unavailable(core: CoreObservation) -> None:
+    assert (core.doc_book_state_with_depth, core.doc_book_state_without_depth) == (
+        "unavailable",
+        "unavailable",
+    )
+
+
+async def test_evidence_document_records_no_book_impact(core: CoreObservation) -> None:
+    assert (core.doc_book_impact_with_depth, core.doc_book_impact_without_depth) == (None, None)
+
+
+async def test_persisted_record_carries_no_book_impact(core: CoreObservation) -> None:
+    assert core.dto_book_impacts == [None, None]
+
+
+async def test_empty_bundle_triggers_no_signal(core: CoreObservation) -> None:
+    assert core.empty_triggered == []
+
+
+async def test_large_non_niche_trade_triggers_only_large_position(core: CoreObservation) -> None:
+    assert core.large_triggered == ["Large Position"]
+
+
+async def test_niche_trade_triggers_large_position_and_niche_market(core: CoreObservation) -> None:
+    assert core.niche_triggered == ["Large Position", "Niche Market"]
+
+
+async def test_no_triggered_signal_is_a_prohibited_group(core: CoreObservation) -> None:
+    assert core.prohibited_triggered == []
 
 
 @pytest.mark.asyncio
@@ -328,13 +415,27 @@ async def _run_funding_pipeline(
     return pipeline, channel.deliveries[0]
 
 
-@pytest.mark.asyncio
-async def test_funding_tracing_is_best_effort_enrichment_only(
+@dataclass(frozen=True)
+class FundingObservation:
+    """What the two funding pipelines produced; the helper asserts nothing."""
+
+    errors: tuple[int, int]
+    warning_logged: bool
+    row_count: int
+    weighted_scores: tuple[object, object]
+    signals: tuple[object, object]
+    should_alert: tuple[object, object]
+    section_equal: dict[str, bool]
+    alert_field_equal: dict[str, bool]
+    plain_mentions_funding: tuple[bool, bool]
+    persisted_transfers: int
+
+
+async def _observe_funding(
     db_manager: DatabaseManager,
     async_engine: AsyncEngine,
     caplog: pytest.LogCaptureFixture,
-) -> None:
-    """T013: funding tracing is best-effort enrichment only (FR-013, SC-004)."""
+) -> FundingObservation:
     fixed_instant = datetime.now(UTC)
     redis = FakeAsyncRedis()
     trade = create_trade_event(
@@ -347,8 +448,6 @@ async def test_funding_tracing_is_best_effort_enrichment_only(
     pipe_a, alert_a = await _run_funding_pipeline(
         SuccessfulFundingTracer(), trade, market, db_manager, redis, channel_a, fixed_instant
     )
-    assert pipe_a.stats.errors == 0
-
     for key in await scanned_keys(redis, "alert:*"):
         await redis.delete(key)
 
@@ -358,47 +457,129 @@ async def test_funding_tracing_is_best_effort_enrichment_only(
             FailingFundingTracer(), trade, market, db_manager, redis, channel_b, fixed_instant
         )
 
-    assert pipe_b.stats.errors == 0
-    assert any("Failed to persist wallet/funding data" in r.message for r in caplog.records)
-
     rows = await persisted_assessments(async_engine)
-    assert len(rows) == 2
     row_a, row_b = rows[-2], rows[-1]
-
-    assert row_a.weighted_score == row_b.weighted_score == Decimal("0.450")
-    assert row_a.signals_triggered == row_b.signals_triggered == 1
-    assert row_a.should_alert == row_b.should_alert is True
-
     doc_a = json.loads(row_a.scoring_config or "{}")["evaluation_evidence"]
     doc_b = json.loads(row_b.scoring_config or "{}")["evaluation_evidence"]
-    for section in ("contributions", "wallet", "size", "result"):
-        assert doc_a[section] == doc_b[section]
-
-    assert alert_a.title == alert_b.title
-    assert alert_a.body == alert_b.body
-    assert alert_a.plain_text == alert_b.plain_text
-    assert alert_a.telegram_markdown == alert_b.telegram_markdown
-    assert alert_a.discord_embed == alert_b.discord_embed
-    assert "funding" not in alert_a.plain_text.lower()
-    assert "funding" not in alert_b.plain_text.lower()
-
     async with async_sessionmaker(bind=async_engine, expire_on_commit=False)() as session:
         result = await session.execute(
             select(FundingTransferModel).where(
                 FundingTransferModel.to_address == trade.wallet_address.lower()
             )
         )
-        persisted_transfers = list(result.scalars().all())
-    assert len(persisted_transfers) == 1
+        transfers = list(result.scalars().all())
+    return FundingObservation(
+        errors=(pipe_a.stats.errors, pipe_b.stats.errors),
+        warning_logged=any(
+            "Failed to persist wallet/funding data" in r.message for r in caplog.records
+        ),
+        row_count=len(rows),
+        weighted_scores=(row_a.weighted_score, row_b.weighted_score),
+        signals=(row_a.signals_triggered, row_b.signals_triggered),
+        should_alert=(row_a.should_alert, row_b.should_alert),
+        section_equal={
+            k: doc_a[k] == doc_b[k] for k in ("contributions", "wallet", "size", "result")
+        },
+        alert_field_equal={
+            "title": alert_a.title == alert_b.title,
+            "body": alert_a.body == alert_b.body,
+            "plain_text": alert_a.plain_text == alert_b.plain_text,
+            "telegram_markdown": alert_a.telegram_markdown == alert_b.telegram_markdown,
+            "discord_embed": alert_a.discord_embed == alert_b.discord_embed,
+        },
+        plain_mentions_funding=(
+            "funding" in alert_a.plain_text.lower(),
+            "funding" in alert_b.plain_text.lower(),
+        ),
+        persisted_transfers=len(transfers),
+    )
 
 
-def test_no_executable_backtest_runtime_claims_and_research_only_alert_wording() -> None:
-    """T013: no backtest CLI options and research-only alert wording (FR-014, SC-004, SC-007)."""
-    parser = create_parser()
-    action_flags = {opt for action in parser._actions for opt in action.option_strings}
+@pytest.fixture
+async def funding(
+    db_manager: DatabaseManager,
+    async_engine: AsyncEngine,
+    caplog: pytest.LogCaptureFixture,
+) -> FundingObservation:
+    return await _observe_funding(db_manager, async_engine, caplog)
+
+
+async def test_both_funding_pipelines_run_without_errors(funding: FundingObservation) -> None:
+    assert funding.errors == (0, 0)
+
+
+async def test_a_failing_tracer_is_logged_as_a_persistence_warning(
+    funding: FundingObservation,
+) -> None:
+    assert funding.warning_logged is True
+
+
+async def test_both_funding_pipelines_persist_one_row_each(funding: FundingObservation) -> None:
+    assert funding.row_count == 2
+
+
+async def test_both_funding_pipelines_record_the_same_score(funding: FundingObservation) -> None:
+    assert funding.weighted_scores == (Decimal("0.450"), Decimal("0.450"))
+
+
+async def test_both_funding_pipelines_record_one_triggered_signal(
+    funding: FundingObservation,
+) -> None:
+    assert funding.signals == (1, 1)
+
+
+async def test_both_funding_pipelines_decide_to_alert(funding: FundingObservation) -> None:
+    assert funding.should_alert == (True, True)
+
+
+@pytest.mark.parametrize("section", ["contributions", "wallet", "size", "result"])
+async def test_evidence_section_is_identical_with_and_without_tracing(
+    funding: FundingObservation, section: str
+) -> None:
+    assert funding.section_equal[section] is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["title", "body", "plain_text", "telegram_markdown", "discord_embed"],
+)
+async def test_alert_field_is_identical_with_and_without_tracing(
+    funding: FundingObservation, field: str
+) -> None:
+    assert funding.alert_field_equal[field] is True
+
+
+async def test_plain_alert_with_tracing_does_not_mention_funding(
+    funding: FundingObservation,
+) -> None:
+    assert funding.plain_mentions_funding[0] is False
+
+
+async def test_plain_alert_without_tracing_does_not_mention_funding(
+    funding: FundingObservation,
+) -> None:
+    assert funding.plain_mentions_funding[1] is False
+
+
+async def test_only_the_successful_tracing_run_persists_a_transfer(
+    funding: FundingObservation,
+) -> None:
+    assert funding.persisted_transfers == 1
+
+
+def test_backtest_flag_is_not_a_cli_option() -> None:
+    """T013: no executable backtest CLI option (FR-014)."""
+    action_flags = {opt for action in create_parser()._actions for opt in action.option_strings}
     assert "--backtest" not in action_flags
+
+
+def test_calibrate_flag_is_not_a_cli_option() -> None:
+    """T013: no executable calibration CLI option (FR-014)."""
+    action_flags = {opt for action in create_parser()._actions for opt in action.option_strings}
     assert "--calibrate" not in action_flags
 
+
+def _research_wording_surfaces() -> list[str]:
     trade = create_trade_event(size=Decimal("3250"), price=Decimal("1"))
     sig = SizeAnomalySignal(
         trade_event=trade,
@@ -420,19 +601,50 @@ def test_no_executable_backtest_runtime_claims_and_research_only_alert_wording()
         delivery_disposition="delivered",
     )
     alert = AlertFormatter(verbosity="detailed").format(assessment)
-
-    assert "Suspicious Activity Detected" in alert.title
-    assert "Risk Score" in alert.plain_text
-
-    for surface in (
+    return [
         alert.title,
         alert.body,
         alert.plain_text,
         alert.telegram_markdown,
         str(alert.discord_embed),
-    ):
-        for prohibited in PROHIBITED_TERMS:
-            assert prohibited not in surface.lower()
+    ]
+
+
+def test_alert_title_is_the_suspicious_activity_title() -> None:
+    """Research-only wording on the public title (SC-007)."""
+    trade = create_trade_event(size=Decimal("3250"), price=Decimal("1"))
+    sig = SizeAnomalySignal(
+        trade_event=trade,
+        market_metadata=stamped_volume_market(trade),
+        volume_impact=0.325,
+        book_impact=0.0,
+        is_niche_market=True,
+        confidence=0.75,
+        factors={"volume_impact": 0.5, "niche": 0.25},
+    )
+    assessment = RiskAssessment(
+        trade_event=trade,
+        wallet_address=trade.wallet_address,
+        market_id=trade.market_id,
+        size_anomaly_signal=sig,
+        signals_triggered=1,
+        weighted_score=0.450,
+        should_alert=True,
+        delivery_disposition="delivered",
+    )
+    title = AlertFormatter(verbosity="detailed").format(assessment).title
+    assert "Suspicious Activity Detected" in title
+
+
+def test_no_public_surface_uses_a_prohibited_term() -> None:
+    """Research-only wording: no prohibited term on any rendered surface (SC-007)."""
+    matches = [
+        (term, index)
+        for index, surface in enumerate(_research_wording_surfaces())
+        for term in PROHIBITED_TERMS
+        if term in surface.lower()
+    ]
+    assert matches == []
 
 
 def _cited_test_nodes(markdown: str) -> list[str]:
@@ -462,6 +674,6 @@ def _collected_test_nodes() -> set[str]:
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
     path = REPO_ROOT / "specs/004-truthful-detection-contract/evidence/implementation-validation.md"
     cited = _cited_test_nodes(path.read_text(encoding="utf-8"))
-    # Pinned to the 61 citations in implementation-validation.md; update with that document.
-    assert len(cited) == 61
+    # Pinned to the 64 citations in implementation-validation.md; update with that document.
+    assert len(cited) == 64
     assert sorted(set(cited) - _collected_test_nodes()) == []
