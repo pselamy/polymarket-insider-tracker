@@ -88,7 +88,7 @@ class WalletAnalyzer:
 
     @property
     def fresh_threshold(self) -> int:
-        """The maximum nonce to be considered fresh."""
+        """The exclusive nonce boundary: a wallet is fresh only when its nonce is below this value."""
         return self._fresh_threshold
 
     def _cache_key(self, address: str) -> str:

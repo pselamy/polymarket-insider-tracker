@@ -324,7 +324,7 @@ posture** (the posture 004 ships in); the post-T027 values are given in parenthe
 asserted values only in the reviewed change that opens the gate after T027. The change must be made
 deliberately, not by loosening the assertion:
 
-- [x] T021 [US1] `tests/integration/_journey_harness.py` + `tests/integration/test_end_to_end.py::_market`:
+- [x] T021 [US1] `tests/integration/_journey_harness.py` + `tests/integration/test_end_to_end.py::TestEndToEndPipelineHarness::test_end_to_end_dry_run_pipeline` (uses the `niche_market` fixture):
   add a fixture builder for a market whose Gamma volume carries a fresh acquisition stamp
   (state `available`, e.g. $10,000 so a $3,250 trade has ratio 0.325, saturating the 3× cap:
   volume confidence 0.5 × niche 1.5 = 0.75, score pre-T027 `0.75·0.35 + 0.75·0.25 = 0.450`, one group,
