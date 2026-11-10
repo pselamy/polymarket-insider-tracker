@@ -1,6 +1,6 @@
 """Pre-T027 freshness closure and boundary override (T009c, data-model.md section 2a).
 
-Every fact is a separate case over one observed run: the observation helpers assert nothing.
+Every fact is a separate case over one observed run: the observation helpers assert nothing; each precondition is a named fact.
 The boundary rule is a Hypothesis property over (nonce, boundary, analyzer threshold); the
 expected values are written from the spec, never computed by the implementation under test.
 """
@@ -113,22 +113,28 @@ async def _evaluate_and_score(
     return wallet_detector, evidence, assessment, config
 
 
-def _validate_004_1_envelope(assessment: RiskAssessment, config: DetectorConfig) -> Document004:
+def _envelope_document(
+    assessment: RiskAssessment, config: DetectorConfig
+) -> tuple[bool, Document004 | None]:
+    """The 004.1 envelope: whether it validates against the pre-T027 schema, and the document read."""
     text = row_scoring_config(assessment, config)
-    assert text is not None
+    if text is None:
+        return False, None
     raw: object = json.loads(text)
     schema = schema_for(PRE_T027)
-    assert validate(raw, schema, schema) + reconstruct(raw) == []
+    valid = validate(raw, schema, schema) + reconstruct(raw) == []
     doc = read_scoring_config(VERSION_004_1, text)
-    assert isinstance(doc, Document004)
-    return doc
+    return valid, (doc if isinstance(doc, Document004) else None)
 
 
-def _evidence_member(document: Document004, name: str) -> dict[str, JsonValue]:
-    assert document.evaluation_evidence is not None
+def _evidence_member(document: Document004 | None, name: str) -> dict[str, JsonValue]:
+    """One evidence section; an absent section reads as an empty mapping (its presence is a fact)."""
+    if document is None or document.evaluation_evidence is None:
+        return {}
     val = document.evaluation_evidence.get(name)
-    assert isinstance(val, dict)
-    return val
+    if isinstance(val, dict):
+        return val
+    return {}
 
 
 async def _persist_and_read_wallet(
@@ -163,38 +169,46 @@ async def _unknown_age_facts(db_manager: DatabaseManager) -> dict[str, object]:
     detector = FreshWalletDetector(analyzer, fresh_transaction_boundary=5)
     _, evidence, assessment, config = await _evaluate_and_score(trade, detector, EVALUATED_AT)
     wallet_eval = evidence.wallet
-    assert wallet_eval is not None and wallet_eval.signal is not None
-    document = _validate_004_1_envelope(assessment, config)
+    signal = wallet_eval.signal if wallet_eval is not None else None
+    profile = wallet_eval.profile if wallet_eval is not None else None
+    envelope_valid, document = _envelope_document(assessment, config)
     wallet = _evidence_member(document, "wallet")
     contributions = _evidence_member(document, "contributions")
     result = _evidence_member(document, "result")
-    persisted = await _persist_and_read_wallet(wallet_eval.signal, db_manager, trade.wallet_address)
-    assert persisted is not None
-    signal_dict = wallet_eval.signal.to_dict()
+    persisted = (
+        await _persist_and_read_wallet(signal, db_manager, trade.wallet_address)
+        if signal is not None
+        else None
+    )
+    signal_dict = signal.to_dict() if signal is not None else {}
     alert = AlertFormatter(verbosity="detailed").format(assessment)
     surfaces = (alert.body, alert.plain_text, alert.telegram_markdown, str(alert.discord_embed))
     return {
-        "wallet_classification": wallet_eval.classification.value,
-        "wallet_profile_nonce": wallet_eval.profile.nonce if wallet_eval.profile else None,
-        "subject_kind": wallet["subject_kind"],
-        "group_status": wallet["group_status"],
-        "document_classification": wallet["classification"],
-        "boundary": wallet["boundary"],
-        "tx_count": wallet["tx_count"],
-        "age_state": wallet["age_state"],
-        "age_basis": wallet["age_basis"],
-        "age_hours": wallet["age_hours"],
-        "confidence": wallet["confidence"],
-        "factors": wallet["factors"],
-        "fresh_wallet_contribution": contributions["fresh_wallet"],
-        "bonus": contributions["bonus"],
-        "signals_triggered": result["signals_triggered"],
-        "weighted_score": result["weighted_score"],
-        "signal_wallet_is_fresh": signal_dict["wallet_is_fresh"],
-        "signal_wallet_age_hours": signal_dict["wallet_age_hours"],
-        "persisted_nonce": persisted.nonce,
-        "persisted_first_seen": persisted.first_seen_at,
-        "persisted_is_fresh": persisted.is_fresh,
+        "wallet_signal_present": signal is not None,
+        "envelope_valid": envelope_valid,
+        "document_read": document is not None,
+        "persisted_present": persisted is not None,
+        "wallet_classification": wallet_eval.classification.value if wallet_eval else None,
+        "wallet_profile_nonce": profile.nonce if profile is not None else None,
+        "subject_kind": wallet.get("subject_kind"),
+        "group_status": wallet.get("group_status"),
+        "document_classification": wallet.get("classification"),
+        "boundary": wallet.get("boundary"),
+        "tx_count": wallet.get("tx_count"),
+        "age_state": wallet.get("age_state"),
+        "age_basis": wallet.get("age_basis"),
+        "age_hours": wallet.get("age_hours"),
+        "confidence": wallet.get("confidence"),
+        "factors": wallet.get("factors"),
+        "fresh_wallet_contribution": contributions.get("fresh_wallet"),
+        "bonus": contributions.get("bonus"),
+        "signals_triggered": result.get("signals_triggered"),
+        "weighted_score": result.get("weighted_score"),
+        "signal_wallet_is_fresh": signal_dict.get("wallet_is_fresh"),
+        "signal_wallet_age_hours": signal_dict.get("wallet_age_hours"),
+        "persisted_nonce": persisted.nonce if persisted is not None else None,
+        "persisted_first_seen": persisted.first_seen_at if persisted is not None else None,
+        "persisted_is_fresh": persisted.is_fresh if persisted is not None else None,
         "surfaces_naming_fresh_wallet": _surfaces(surfaces, "Fresh Wallet"),
         "surfaces_with_age_label": _surfaces(surfaces, "(Age:"),
         "surfaces_with_48h": _surfaces(surfaces, "48"),
@@ -203,6 +217,10 @@ async def _unknown_age_facts(db_manager: DatabaseManager) -> dict[str, object]:
 
 
 UNKNOWN_AGE_EXPECTED: list[tuple[str, object]] = [
+    ("wallet_signal_present", True),
+    ("envelope_valid", True),
+    ("document_read", True),
+    ("persisted_present", True),
     ("wallet_classification", "low_activity_unknown_age"),
     ("wallet_profile_nonce", 2),
     ("subject_kind", "proxy_wallet"),
@@ -256,39 +274,51 @@ async def _boundary_10_facts(
     detector = FreshWalletDetector(analyzer, fresh_transaction_boundary=10)
     _, evidence, assessment, config = await _evaluate_and_score(trade, detector, EVALUATED_AT)
     wallet_eval = evidence.wallet
-    assert (
-        wallet_eval is not None
-        and wallet_eval.signal is not None
-        and wallet_eval.profile is not None
+    signal = wallet_eval.signal if wallet_eval is not None else None
+    profile = wallet_eval.profile if wallet_eval is not None else None
+    persisted = (
+        await _persist_and_read_wallet(signal, db_manager, trade.wallet_address)
+        if signal is not None
+        else None
     )
-    persisted = await _persist_and_read_wallet(wallet_eval.signal, db_manager, trade.wallet_address)
-    assert persisted is not None
-    document = _validate_004_1_envelope(assessment, config)
+    envelope_valid, document = _envelope_document(assessment, config)
     wallet = _evidence_member(document, "wallet")
     contributions = _evidence_member(document, "contributions")
     alert = AlertFormatter(verbosity="detailed").format(assessment)
     surfaces = (alert.plain_text, str(alert.discord_embed))
     return {
+        "profile_present": profile is not None,
+        "signal_present": signal is not None,
+        "envelope_valid": envelope_valid,
+        "document_read": document is not None,
+        "persisted_present": persisted is not None,
         "raw_profile_is_fresh": raw_profile.is_fresh,
         "raw_profile_threshold": raw_profile.fresh_threshold,
-        "classification": wallet_eval.classification.value,
-        "boundary": wallet_eval.boundary,
-        "normalized_is_fresh": wallet_eval.profile.is_fresh,
-        "normalized_threshold": wallet_eval.profile.fresh_threshold,
-        "signal_wallet_nonce": wallet_eval.signal.to_dict()["wallet_nonce"],
-        "persisted_nonce": persisted.nonce,
-        "persisted_is_fresh": persisted.is_fresh,
-        "document_boundary": document.detector_config.fresh_transaction_boundary,
-        "document_tx_count": wallet["tx_count"],
-        "document_age_basis": wallet["age_basis"],
-        "document_group_status": wallet["group_status"],
-        "document_confidence": wallet["confidence"],
-        "fresh_wallet_contribution": contributions["fresh_wallet"],
+        "classification": wallet_eval.classification.value if wallet_eval else None,
+        "boundary": wallet_eval.boundary if wallet_eval else None,
+        "normalized_is_fresh": profile.is_fresh if profile is not None else None,
+        "normalized_threshold": profile.fresh_threshold if profile is not None else None,
+        "signal_wallet_nonce": signal.to_dict()["wallet_nonce"] if signal is not None else None,
+        "persisted_nonce": persisted.nonce if persisted is not None else None,
+        "persisted_is_fresh": persisted.is_fresh if persisted is not None else None,
+        "document_boundary": (
+            document.detector_config.fresh_transaction_boundary if document is not None else None
+        ),
+        "document_tx_count": wallet.get("tx_count"),
+        "document_age_basis": wallet.get("age_basis"),
+        "document_group_status": wallet.get("group_status"),
+        "document_confidence": wallet.get("confidence"),
+        "fresh_wallet_contribution": contributions.get("fresh_wallet"),
         "surfaces_naming_fresh_wallet": _surfaces(surfaces, "Fresh Wallet"),
     }
 
 
 BOUNDARY_10_FRESH_EXPECTED: list[tuple[str, object]] = [
+    ("profile_present", True),
+    ("signal_present", True),
+    ("envelope_valid", True),
+    ("document_read", True),
+    ("persisted_present", True),
     ("raw_profile_is_fresh", False),
     ("raw_profile_threshold", 5),
     ("classification", "fresh"),
@@ -308,6 +338,11 @@ BOUNDARY_10_FRESH_EXPECTED: list[tuple[str, object]] = [
 ]
 
 BOUNDARY_10_UNKNOWN_AGE_EXPECTED: list[tuple[str, object]] = [
+    ("profile_present", True),
+    ("signal_present", True),
+    ("envelope_valid", True),
+    ("document_read", True),
+    ("persisted_present", True),
     ("raw_profile_is_fresh", False),
     ("raw_profile_threshold", 5),
     ("classification", "low_activity_unknown_age"),
@@ -359,7 +394,9 @@ async def test_boundary_10_override_unknown_age_wallet_fact(
     assert boundary_10_unknown_age[fact] == expected
 
 
-async def _rule_observation(nonce: int, boundary: int, analyzer_threshold: int) -> tuple[bool, int]:
+async def _rule_observation(
+    nonce: int, boundary: int, analyzer_threshold: int
+) -> tuple[bool, int | None]:
     """The rule under test: whether the wallet signals, and the threshold it was normalised to."""
     trade = create_trade_event(wallet_address=WALLET_ADDR, size=Decimal("3250"), price=Decimal("1"))
     client = WorkingPolygonClient(nonce=nonce, age_hours=24.0)
@@ -368,8 +405,8 @@ async def _rule_observation(nonce: int, boundary: int, analyzer_threshold: int) 
         fresh_transaction_boundary=boundary,
     )
     evaluation = await detector.evaluate(trade, evaluated_at=EVALUATED_AT)
-    assert evaluation.profile is not None
-    return evaluation.signal is not None, evaluation.profile.fresh_threshold
+    profile = evaluation.profile
+    return evaluation.signal is not None, (profile.fresh_threshold if profile is not None else None)
 
 
 _RULE_INPUTS = {
@@ -418,17 +455,19 @@ async def _negative_3_3_facts() -> dict[str, object]:
     raw_profile = await analyzer.analyze(trade.wallet_address)
     detector = FreshWalletDetector(analyzer, fresh_transaction_boundary=3)
     wallet_eval = await detector.evaluate(trade, evaluated_at=EVALUATED_AT)
-    assert wallet_eval.profile is not None
+    profile = wallet_eval.profile
     return {
+        "profile_present": profile is not None,
         "raw_profile_is_fresh": raw_profile.is_fresh,
-        "normalized_is_fresh": wallet_eval.profile.is_fresh,
-        "normalized_threshold": wallet_eval.profile.fresh_threshold,
+        "normalized_is_fresh": profile.is_fresh if profile is not None else None,
+        "normalized_threshold": profile.fresh_threshold if profile is not None else None,
         "classification": wallet_eval.classification.value,
         "signal": wallet_eval.signal,
     }
 
 
 NEGATIVE_3_3_EXPECTED: list[tuple[str, object]] = [
+    ("profile_present", True),
     ("raw_profile_is_fresh", True),
     ("normalized_is_fresh", False),
     ("normalized_threshold", 3),

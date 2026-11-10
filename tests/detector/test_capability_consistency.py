@@ -501,7 +501,7 @@ async def _run_funding_pipeline(
     redis: FakeAsyncRedis,
     channel: FakeAlertChannel,
     fixed_instant: datetime,
-) -> tuple[Pipeline, FormattedAlert]:
+) -> tuple[Pipeline, list[FormattedAlert]]:
     settings = make_test_settings(alert_threshold=0.4)
     pipeline = await wire_pipeline(
         settings,
@@ -517,18 +517,22 @@ async def _run_funding_pipeline(
     assert pipeline.components is not None
     pipeline.install_components(dataclasses.replace(pipeline.components, funding_tracer=tracer))
     await pipeline.process_trade(trade)
-    assert len(channel.deliveries) == 1
-    return pipeline, channel.deliveries[0]
+    return pipeline, list(channel.deliveries)
 
 
 FUNDING_PIPELINE_IDS = ["successful_tracer", "failing_tracer"]
+# Stands in for a pipeline that delivered no alert; its comparisons are false, so only the named fact fails.
+UNDELIVERED_ALERT = FormattedAlert(
+    title="", body="", discord_embed={}, telegram_markdown="", plain_text=""
+)
 
 
 @dataclass(frozen=True)
 class FundingObservation:
-    """What the two funding pipelines produced. The record adds no asserts; `_run_funding_pipeline` asserts one delivery per pipeline as a precondition."""
+    """What the two funding pipelines produced. The record asserts nothing; the one-delivery precondition is the named fact `delivery_counts`. The only asserts reached are setup type narrowing in the pipeline wiring."""
 
     errors: tuple[int, int]
+    delivery_counts: tuple[int, int]
     warning_logged: bool
     row_count: int
     weighted_scores: tuple[object, object]
@@ -554,7 +558,7 @@ async def _observe_funding(
     )
     market = stamped_volume_market(trade)
     channel_a = FakeAlertChannel("discord")
-    pipe_a, alert_a = await _run_funding_pipeline(
+    pipe_a, deliveries_a = await _run_funding_pipeline(
         SuccessfulFundingTracer(), trade, market, db_manager, redis, channel_a, fixed_instant
     )
     for key in await scanned_keys(redis, "alert:*"):
@@ -562,10 +566,12 @@ async def _observe_funding(
 
     channel_b = FakeAlertChannel("discord")
     with caplog.at_level(logging.WARNING):
-        pipe_b, alert_b = await _run_funding_pipeline(
+        pipe_b, deliveries_b = await _run_funding_pipeline(
             FailingFundingTracer(), trade, market, db_manager, redis, channel_b, fixed_instant
         )
 
+    alert_a = deliveries_a[0] if deliveries_a else UNDELIVERED_ALERT
+    alert_b = deliveries_b[0] if deliveries_b else UNDELIVERED_ALERT
     rows = await persisted_assessments(async_engine)
     row_a, row_b = rows[-2], rows[-1]
     doc_a = json.loads(row_a.scoring_config or "{}")["evaluation_evidence"]
@@ -579,6 +585,7 @@ async def _observe_funding(
         transfers = list(result.scalars().all())
     return FundingObservation(
         errors=(pipe_a.stats.errors, pipe_b.stats.errors),
+        delivery_counts=(len(deliveries_a), len(deliveries_b)),
         warning_logged=any(
             "Failed to persist wallet/funding data" in r.message for r in caplog.records
         ),
@@ -611,6 +618,13 @@ async def funding(
     caplog: pytest.LogCaptureFixture,
 ) -> FundingObservation:
     return await _observe_funding(db_manager, async_engine, caplog)
+
+
+@pytest.mark.parametrize("pipeline", [0, 1], ids=FUNDING_PIPELINE_IDS)
+async def test_each_funding_pipeline_delivers_one_alert(
+    funding: FundingObservation, pipeline: int
+) -> None:
+    assert funding.delivery_counts[pipeline] == 1
 
 
 @pytest.mark.parametrize("pipeline", [0, 1], ids=FUNDING_PIPELINE_IDS)
