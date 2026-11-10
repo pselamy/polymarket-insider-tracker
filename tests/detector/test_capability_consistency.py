@@ -206,7 +206,7 @@ def _sniper_clustering_signals() -> list[SniperClusterSignal]:
 
 
 def test_sniper_is_not_a_pipeline_component_field() -> None:
-    """T013: no sniper field on the pipeline components (FR-012, SC-004)."""
+    """Guard, not evidence: T013: no sniper field on the pipeline components (FR-012, SC-004)."""
     # Arrange
     names = [f.name for f in dataclasses.fields(PipelineComponents)]
 
@@ -218,12 +218,16 @@ def test_sniper_is_not_a_pipeline_component_field() -> None:
 
 
 async def test_built_pipeline_has_no_sniper_attribute() -> None:
-    """T013: the built components carry no sniper attribute (FR-012)."""
+    """Guard, not evidence: T013: the built components carry no sniper attribute (FR-012)."""
     # Arrange
     built = await _built_pipeline_components()
-
-    # Act
-    attributes = set(vars(built))
+    try:
+        # Act
+        attributes = set(vars(built))
+    finally:
+        if built.db_manager is not None:
+            await built.db_manager.dispose_async()
+        await built.redis.aclose()
 
     # Assert
     assert not {"sniper_detector", "sniper"} & attributes
@@ -242,7 +246,7 @@ def test_sniper_clustering_signals_each_wallet_once() -> None:
 
 
 def test_risk_scorer_signature_has_no_sniper_parameter() -> None:
-    """The scorer's weighted-score method takes no sniper input (FR-018)."""
+    """Guard, not evidence: The scorer's weighted-score method takes no sniper input (FR-018)."""
     # Arrange
     parameters = inspect.signature(RiskScorer.calculate_weighted_score).parameters
 
@@ -254,7 +258,7 @@ def test_risk_scorer_signature_has_no_sniper_parameter() -> None:
 
 
 def test_alert_formatter_signature_has_no_sniper_parameter() -> None:
-    """The alert formatter takes no sniper input (FR-018)."""
+    """Guard, not evidence: The alert formatter takes no sniper input (FR-018)."""
     # Arrange
     parameters = inspect.signature(AlertFormatter.format).parameters
 
@@ -266,7 +270,7 @@ def test_alert_formatter_signature_has_no_sniper_parameter() -> None:
 
 
 def test_assessment_dto_signature_has_no_sniper_parameter() -> None:
-    """The persistence mapping takes no sniper input (FR-018)."""
+    """Guard, not evidence: The persistence mapping takes no sniper input (FR-018)."""
     # Arrange
     parameters = inspect.signature(assessment_dto).parameters
 
@@ -278,7 +282,7 @@ def test_assessment_dto_signature_has_no_sniper_parameter() -> None:
 
 
 def test_risk_assessment_dto_has_no_sniper_field() -> None:
-    """The persisted record has no sniper column (FR-018)."""
+    """Guard, not evidence: The persisted record has no sniper column (FR-018)."""
     # Arrange
     names = [f.name for f in dataclasses.fields(RiskAssessmentDTO)]
 

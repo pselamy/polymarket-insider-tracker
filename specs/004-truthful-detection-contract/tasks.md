@@ -100,7 +100,7 @@ Named files, entry points, dependency order:
 - [x] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
   legacy records (value without provenance) read as `unqualified/no_provenance`; the generic
   `last_updated` is never a stamp source (FR-004b, F11).
-- [x] T012d [US1] Freshness evidence tests: (1) a fake-clock steady-state test that runs the real loops for
+- [ ] T012d [US1] Freshness evidence tests: *Unticked: the slow-CLOB test relies on real sleeps and flakes under load (addendum A2); re-tick only after a deterministic rewrite.* (1) a fake-clock steady-state test that runs the real loops for
   several cycles with a slow CLOB fake (D = 204 s) and asserts no `stale` volume while the Gamma loop is
   healthy; (2) the bound `S_g + 2g + w_g <= 600` asserted from measured fake durations; (3) cache-miss
   race: miss-path write after a sync write leaves the stamped record intact; (4) real-Redis TTL/expiry

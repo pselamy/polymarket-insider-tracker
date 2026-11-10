@@ -195,21 +195,22 @@ Risk scoring combines signals with the algorithm's immutable default weights (`f
 
 ### Sample Alert
 
-```text
-🚨 Suspicious Activity Detected
-========================================
-Market: Will X announce Y by March 2026?
-Wallet: 0x7a3...f91
-Side: BUY YES
-Position Size: $3,250.00
-Size vs 24h volume: 32.50% of $10,000
-Price: 65.0%
-Risk Score: 45.0% (threshold: 40.0%)
-Signals: Large Position, Niche Market
-Time: 2026-10-20 12:00:00 UTC
+The block below is the real plain-text output of `AlertFormatter` for a fixture assessment; `tests/test_readme_sample.py` pins it.
 
-Heuristic research signal only — not proof of insider trading or financial advice.
-```
+<!-- sample-alert:start -->
+```text
+SUSPICIOUS ACTIVITY DETECTED
+==============================
+
+Wallet: 0x7a3c...f91d
+Risk Score: 0.45 (LOW)
+Market: Will X announce Y by March 2026?
+Trade: BUY Yes @ $0.650 | $3,250.00
+Size vs 24h volume: 32.50% of $10,000
+Signals: Large Position, Niche Market
+
+Wallet: https://polygonscan.com/address/0x7a3c9e2f0d4b8a61c5e7f3b2d9a0c4e8f1a2f91d```
+<!-- sample-alert:end -->
 
 ---
 
