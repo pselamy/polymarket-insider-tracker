@@ -117,6 +117,25 @@ def build_sniper_cluster_signal(confidence: float = 0.85) -> SniperClusterSignal
     )
 
 
+SIZE_ANOMALY_PAYLOAD = {
+    "wallet_address": "0xabc123def4567890",
+    "market_id": "market_abc123",
+    "trade_id": "tx_001",
+    "trade_size": "6500.00",
+    "trade_side": "BUY",
+    "trade_price": "0.65",
+    "market_category": "science",
+    "volume_impact": 0.05,
+    "book_impact": 0.1,
+    "volume_impact_measured": None,
+    "book_impact_measured": None,
+    "is_niche_market": True,
+    "confidence": 0.8,
+    "factors": {"volume_impact": 0.5},
+    "timestamp": "2026-01-15T12:30:45+00:00",
+}
+
+
 class TestSignalSerializationShape:
     """Pin the exact published payload and key order of every signal model."""
 
@@ -157,28 +176,26 @@ class TestSignalSerializationShape:
         assert result["factors"] == {}
 
     def test_size_anomaly_signal_to_dict_exact_payload(self) -> None:
-        """The serialized size-anomaly signal has exactly these keys, values, and order."""
-        result = build_size_anomaly_signal().to_dict()
+        """The serialized size-anomaly signal has exactly the expected keys and values."""
+        # Arrange
+        signal = build_size_anomaly_signal()
 
-        expected = {
-            "wallet_address": "0xabc123def4567890",
-            "market_id": "market_abc123",
-            "trade_id": "tx_001",
-            "trade_size": "6500.00",
-            "trade_side": "BUY",
-            "trade_price": "0.65",
-            "market_category": "science",
-            "volume_impact": 0.05,
-            "book_impact": 0.1,
-            "volume_impact_measured": None,
-            "book_impact_measured": None,
-            "is_niche_market": True,
-            "confidence": 0.8,
-            "factors": {"volume_impact": 0.5},
-            "timestamp": "2026-01-15T12:30:45+00:00",
-        }
-        assert result == expected
-        assert list(result) == list(expected)
+        # Act
+        result = signal.to_dict()
+
+        # Assert
+        assert result == SIZE_ANOMALY_PAYLOAD
+
+    def test_size_anomaly_signal_to_dict_keeps_the_payload_key_order(self) -> None:
+        """The serialized size-anomaly signal lists its keys in the documented order."""
+        # Arrange
+        signal = build_size_anomaly_signal()
+
+        # Act
+        result = signal.to_dict()
+
+        # Assert
+        assert list(result) == list(SIZE_ANOMALY_PAYLOAD)
 
     def test_sniper_cluster_signal_to_dict_exact_payload(self) -> None:
         """The serialized sniper-cluster signal has exactly these keys, values, and order."""

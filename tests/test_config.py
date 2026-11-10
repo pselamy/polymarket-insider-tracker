@@ -644,19 +644,48 @@ class TestTelegramSettings:
 class TestDetectorSettings:
     """Tests for DetectorSettings."""
 
-    def test_detector_settings_defaults(self) -> None:
-        """Test default values for fresh_transaction_boundary and size_volume_threshold."""
+    @pytest.mark.parametrize(
+        ("attribute", "expected"),
+        [("fresh_transaction_boundary", 5), ("size_volume_threshold", 0.02)],
+        ids=["fresh_transaction_boundary", "size_volume_threshold"],
+    )
+    def test_detector_settings_defaults(self, attribute: str, expected: object) -> None:
+        """Each detector setting defaults to its documented value."""
+        # Arrange
         settings = DetectorSettings()
-        assert settings.fresh_transaction_boundary == 5
-        assert settings.size_volume_threshold == 0.02
 
-    def test_detector_settings_env_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test environment variables override defaults."""
-        monkeypatch.setenv("DETECTOR_FRESH_TRANSACTION_BOUNDARY", "10")
-        monkeypatch.setenv("DETECTOR_SIZE_VOLUME_THRESHOLD", "0.05")
+        # Act
+        actual = getattr(settings, attribute)
+
+        # Assert
+        assert actual == expected
+
+    @pytest.mark.parametrize(
+        ("env_name", "raw", "attribute", "expected"),
+        [
+            ("DETECTOR_FRESH_TRANSACTION_BOUNDARY", "10", "fresh_transaction_boundary", 10),
+            ("DETECTOR_SIZE_VOLUME_THRESHOLD", "0.05", "size_volume_threshold", 0.05),
+        ],
+        ids=["fresh_transaction_boundary", "size_volume_threshold"],
+    )
+    def test_detector_settings_env_overrides(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        env_name: str,
+        raw: str,
+        attribute: str,
+        expected: object,
+    ) -> None:
+        """Each environment variable overrides its detector setting."""
+        # Arrange
+        monkeypatch.setenv(env_name, raw)
         settings = DetectorSettings()
-        assert settings.fresh_transaction_boundary == 10
-        assert settings.size_volume_threshold == 0.05
+
+        # Act
+        actual = getattr(settings, attribute)
+
+        # Assert
+        assert actual == expected
 
     def test_detector_settings_size_volume_threshold_ratio_above_one_allowed(
         self, monkeypatch: pytest.MonkeyPatch

@@ -203,10 +203,11 @@ class TestSizeAnomalySignal:
         assert very_high.is_very_high_confidence is True
         assert high.is_very_high_confidence is False
 
-    def test_to_dict_serialization(
+    def test_to_dict_has_exactly_the_documented_keys(
         self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
     ) -> None:
-        """Test to_dict produces valid serialization."""
+        """to_dict emits the documented key set and nothing else."""
+        # Arrange
         signal = SizeAnomalySignal(
             trade_event=sample_trade,
             market_metadata=sample_metadata,
@@ -217,22 +218,64 @@ class TestSizeAnomalySignal:
             factors={"volume_impact": 0.5},
         )
 
+        # Act
         result = signal.to_dict()
 
-        assert result["wallet_address"] == sample_trade.wallet_address
-        assert result["market_id"] == sample_trade.market_id
-        assert result["trade_id"] == sample_trade.trade_id
-        assert result["trade_size"] == "6500.00"
-        assert result["trade_side"] == "BUY"
-        assert result["market_category"] == "science"
-        assert result["volume_impact"] == 0.05
-        assert result["book_impact"] == 0.10
-        assert result["volume_impact_measured"] is None
-        assert result["book_impact_measured"] is None
-        assert result["is_niche_market"] is True
-        assert result["confidence"] == 0.75
-        assert result["factors"] == {"volume_impact": 0.5}
-        assert "timestamp" in result
+        # Assert
+        assert set(result) == {
+            "wallet_address",
+            "market_id",
+            "trade_id",
+            "trade_size",
+            "trade_side",
+            "trade_price",
+            "market_category",
+            "volume_impact",
+            "book_impact",
+            "volume_impact_measured",
+            "book_impact_measured",
+            "is_niche_market",
+            "confidence",
+            "factors",
+            "timestamp",
+        }
+
+    def test_to_dict_serializes_the_signal_values(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        """to_dict carries the trade, market and signal values, with sizes as strings."""
+        # Arrange
+        signal = SizeAnomalySignal(
+            trade_event=sample_trade,
+            market_metadata=sample_metadata,
+            volume_impact=0.05,
+            book_impact=0.10,
+            is_niche_market=True,
+            confidence=0.75,
+            factors={"volume_impact": 0.5},
+        )
+
+        # Act
+        result = signal.to_dict()
+        values = {key: value for key, value in result.items() if key != "timestamp"}
+
+        # Assert
+        assert values == {
+            "wallet_address": sample_trade.wallet_address,
+            "market_id": sample_trade.market_id,
+            "trade_id": sample_trade.trade_id,
+            "trade_size": "6500.00",
+            "trade_side": "BUY",
+            "trade_price": "0.65",
+            "market_category": "science",
+            "volume_impact": 0.05,
+            "book_impact": 0.10,
+            "volume_impact_measured": None,
+            "book_impact_measured": None,
+            "is_niche_market": True,
+            "confidence": 0.75,
+            "factors": {"volume_impact": 0.5},
+        }
 
 
 # ============================================================================

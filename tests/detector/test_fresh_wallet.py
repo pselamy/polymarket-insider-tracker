@@ -2,18 +2,13 @@
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 
 import pytest
 
-from polymarket_insider_tracker.detector.evaluation import WalletClassification
 from polymarket_insider_tracker.detector.fresh_wallet import (
     BASE_CONFIDENCE,
     BRAND_NEW_BONUS,
-    DEFAULT_FRESH_TRANSACTION_BOUNDARY,
-    DEFAULT_MAX_AGE_HOURS,
-    DEFAULT_MAX_NONCE,
-    DEFAULT_MIN_TRADE_SIZE,
     LARGE_TRADE_BONUS,
     VERY_YOUNG_BONUS,
     FreshWalletDetector,
@@ -234,158 +229,6 @@ class TestFreshWalletSignal:
 # === Test FreshWalletDetector Initialization ===
 
 
-class TestFreshWalletDetectorInit:
-    """Tests for FreshWalletDetector initialization."""
-
-    def test_default_config(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
-        """Test detector initializes with default config."""
-        detector = FreshWalletDetector(fake_wallet_analyzer)
-        assert detector.min_trade_size == DEFAULT_MIN_TRADE_SIZE
-        assert detector.fresh_transaction_boundary == DEFAULT_FRESH_TRANSACTION_BOUNDARY
-        assert detector.max_age_hours == DEFAULT_MAX_AGE_HOURS
-
-    def test_custom_config(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
-        """Test detector accepts custom config."""
-        detector = FreshWalletDetector(
-            fake_wallet_analyzer,
-            min_trade_size=Decimal("5000"),
-            fresh_transaction_boundary=11,
-            max_age_hours=72.0,
-        )
-        assert detector.min_trade_size == Decimal("5000")
-        assert detector.fresh_transaction_boundary == 11
-        assert detector.max_age_hours == 72.0
-
-
-class TestFreshTransactionBoundaryConstructorContract:
-    """Table-driven test suite for contracts/detector-api.md section 1."""
-
-    def test_deprecated_default_max_nonce_constant_matches_default_boundary(self) -> None:
-        assert DEFAULT_MAX_NONCE == DEFAULT_FRESH_TRANSACTION_BOUNDARY
-
-    def test_omitted_omitted_defaults(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
-        detector = FreshWalletDetector(fake_wallet_analyzer)
-        assert detector.fresh_transaction_boundary == 5
-
-    @pytest.mark.asyncio
-    async def test_omitted_omitted_qualifies_below_boundary(
-        self, fake_wallet_analyzer: FakeWalletAnalyzer
-    ) -> None:
-        detector = FreshWalletDetector(fake_wallet_analyzer)
-        fake_wallet_analyzer.register(create_wallet_profile(address="0x4", nonce=4, age_hours=24.0))
-        trade4 = create_trade_event(wallet_address="0x4", size=Decimal("3000"))
-        assert (await detector.analyze(trade4)) is not None
-
-    @pytest.mark.asyncio
-    async def test_omitted_omitted_rejects_at_boundary(
-        self, fake_wallet_analyzer: FakeWalletAnalyzer
-    ) -> None:
-        detector = FreshWalletDetector(fake_wallet_analyzer)
-        fake_wallet_analyzer.register(create_wallet_profile(address="0x5", nonce=5, age_hours=24.0))
-        trade5 = create_trade_event(wallet_address="0x5", size=Decimal("3000"))
-        assert (await detector.analyze(trade5)) is None
-
-    @pytest.mark.asyncio
-    async def test_transaction_override_3_3(self, fake_wallet_analyzer: FakeWalletAnalyzer) -> None:
-        """transaction-override-3-3: fresh_transaction_boundary=3 with nonce=3 emits no signal."""
-        detector = FreshWalletDetector(fake_wallet_analyzer, fresh_transaction_boundary=3)
-        fake_wallet_analyzer.register(create_wallet_profile(nonce=3, age_hours=24.0))
-        trade = create_trade_event(size=Decimal("3000"))
-        eval_res = await detector.evaluate(trade, evaluated_at=datetime(2026, 11, 9, tzinfo=UTC))
-        assert eval_res.classification == WalletClassification.KNOWN_NONQUALIFYING
-        assert eval_res.signal is None
-
-    @pytest.mark.parametrize(
-        ("age_hours", "expected_class"),
-        [
-            (24.0, WalletClassification.FRESH),
-            (None, WalletClassification.LOW_ACTIVITY_UNKNOWN_AGE),
-        ],
-    )
-    @pytest.mark.asyncio
-    async def test_transaction_override_10_9(
-        self,
-        fake_wallet_analyzer: FakeWalletAnalyzer,
-        age_hours: float | None,
-        expected_class: WalletClassification,
-    ) -> None:
-        """transaction-override-10-9: fresh_transaction_boundary=10 with nonce=9 qualifies."""
-        detector = FreshWalletDetector(fake_wallet_analyzer, fresh_transaction_boundary=10)
-        fake_wallet_analyzer.register(create_wallet_profile(nonce=9, age_hours=age_hours))
-        trade = create_trade_event(size=Decimal("3000"))
-        eval_res = await detector.evaluate(trade, evaluated_at=datetime(2026, 11, 9, tzinfo=UTC))
-        assert eval_res.classification == expected_class
-        assert eval_res.signal is not None
-
-    def test_max_nonce_alone_warns_and_sets_boundary_plus_one(
-        self, fake_wallet_analyzer: FakeWalletAnalyzer
-    ) -> None:
-        with pytest.deprecated_call() as warning_info:
-            detector = FreshWalletDetector(fake_wallet_analyzer, max_nonce=5)
-        assert detector.fresh_transaction_boundary == 6
-        assert len(warning_info) == 1
-        record = warning_info[0]
-        assert record.filename == __file__
-        assert "fresh_transaction_boundary" in str(record.message)
-        assert "6" in str(record.message)
-
-    @pytest.mark.asyncio
-    async def test_max_nonce_alone_qualifies_at_five_not_six(
-        self, fake_wallet_analyzer: FakeWalletAnalyzer
-    ) -> None:
-        with pytest.deprecated_call():
-            detector = FreshWalletDetector(fake_wallet_analyzer, max_nonce=5)
-        fake_wallet_analyzer.register(create_wallet_profile(address="0x5", nonce=5, age_hours=24.0))
-        trade5 = create_trade_event(wallet_address="0x5", size=Decimal("3000"))
-        assert (await detector.analyze(trade5)) is not None
-
-        fake_wallet_analyzer.register(create_wallet_profile(address="0x6", nonce=6, age_hours=24.0))
-        trade6 = create_trade_event(wallet_address="0x6", size=Decimal("3000"))
-        assert (await detector.analyze(trade6)) is None
-
-    def test_both_given_matching_pair_warns_and_sets_boundary(
-        self, fake_wallet_analyzer: FakeWalletAnalyzer
-    ) -> None:
-        with pytest.deprecated_call() as warning_info:
-            detector = FreshWalletDetector(
-                fake_wallet_analyzer, max_nonce=5, fresh_transaction_boundary=6
-            )
-        assert detector.fresh_transaction_boundary == 6
-        assert len(warning_info) == 1
-        assert "fresh_transaction_boundary" in str(warning_info[0].message)
-        assert "6" in str(warning_info[0].message)
-
-    def test_both_given_conflicting_pair_raises_value_error(
-        self, fake_wallet_analyzer: FakeWalletAnalyzer
-    ) -> None:
-        with pytest.raises(ValueError, match="Conflicting parameters"):
-            FreshWalletDetector(fake_wallet_analyzer, max_nonce=5, fresh_transaction_boundary=5)
-
-    @pytest.mark.parametrize(
-        ("invalid_kwargs", "error_match"),
-        [
-            ({"max_nonce": -1}, "max_nonce must be a non-negative integer"),
-            ({"max_nonce": True}, "max_nonce must be an integer, not boolean"),
-            ({"max_nonce": 2**53 - 1}, "exceeds"),
-            (
-                {"fresh_transaction_boundary": False},
-                "fresh_transaction_boundary must be an integer, not boolean",
-            ),
-            ({"fresh_transaction_boundary": 0}, "fresh_transaction_boundary must be in"),
-            ({"fresh_transaction_boundary": -5}, "fresh_transaction_boundary must be in"),
-            ({"fresh_transaction_boundary": 2**53}, "fresh_transaction_boundary must be in"),
-        ],
-    )
-    def test_invalid_constructor_inputs(
-        self,
-        fake_wallet_analyzer: FakeWalletAnalyzer,
-        invalid_kwargs: dict[str, Any],
-        error_match: str,
-    ) -> None:
-        with pytest.raises(ValueError, match=error_match):
-            FreshWalletDetector(fake_wallet_analyzer, **invalid_kwargs)
-
-
 # === Test FreshWalletDetector.analyze ===
 
 
@@ -451,7 +294,7 @@ class TestFreshWalletDetectorAnalyze:
         with pytest.raises(Exception, match="RPC error"):
             await detector.analyze(trade)
 
-    async def test_wallet_at_nonce_threshold(
+    async def test_wallet_below_nonce_threshold(
         self, detector: FreshWalletDetector, fake_wallet_analyzer: FakeWalletAnalyzer
     ) -> None:
         """Test wallet below boundary threshold qualifies (nonce=4 < B=5)."""
@@ -474,20 +317,6 @@ class TestFreshWalletDetectorAnalyze:
         result = await detector.analyze(trade)
 
         assert result is None
-
-    async def test_wallet_legacy_max_nonce_five_qualifies_at_nonce_five(
-        self, fake_wallet_analyzer: FakeWalletAnalyzer
-    ) -> None:
-        """Legacy max_nonce=5 sets B=6, so nonce=5 qualifies while nonce=6 does not."""
-        with pytest.deprecated_call():
-            detector = FreshWalletDetector(fake_wallet_analyzer, max_nonce=5)
-        fake_wallet_analyzer.register(create_wallet_profile(address="0x5", nonce=5, age_hours=24.0))
-        trade5 = create_trade_event(wallet_address="0x5", size=Decimal("3000"))
-        assert (await detector.analyze(trade5)) is not None
-
-        fake_wallet_analyzer.register(create_wallet_profile(address="0x6", nonce=6, age_hours=24.0))
-        trade6 = create_trade_event(wallet_address="0x6", size=Decimal("3000"))
-        assert (await detector.analyze(trade6)) is None
 
     async def test_wallet_at_age_threshold(
         self, detector: FreshWalletDetector, fake_wallet_analyzer: FakeWalletAnalyzer

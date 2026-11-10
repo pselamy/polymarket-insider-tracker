@@ -180,7 +180,7 @@ uv run --env-file .env python scripts/trades_smoke.py --live --window-seconds 5 
 
 | Signal | Detection Method | Threshold |
 |--------|-----------------|-----------|
-| **Fresh Wallets** | Wallet age < 48h, nonce <= 5, making trades > $1k | Confidence 0.5-0.9 |
+| **Fresh Wallets** | Wallet age < 48h, nonce < 5 (exclusive boundary), making trades > $1k | Confidence 0.5-0.9 |
 | **Size Anomalies** | Trade size > 2% of 24h volume or > 5% of order book | Weighted by niche factor |
 | **Niche Markets** | Low-volume markets (< $50k daily) with specific outcomes | 1.5x risk multiplier |
 | **Funding Chains** | Trace wallet funding to known entities (exchanges, etc.) | On-chain lineage |
