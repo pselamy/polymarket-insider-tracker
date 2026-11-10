@@ -1,7 +1,8 @@
 """Funding chain tracer for wallet analysis.
 
-This module provides the FundingTracer class for tracing the funding chain
-of wallets to identify where their USDC/MATIC originated from.
+Provides FundingTracer for best-effort Polygon USDC/MATIC transfer tracing,
+persisted for research context without affecting live risk scores, signal counts,
+or alert wording.
 """
 
 from __future__ import annotations

@@ -44,7 +44,7 @@ def volume_stats(
     )
 
 
-def _crawl(*stats: GammaMarketStats, pages_ok: int = 3, truncated: bool = False) -> GammaCrawl:
+def crawl_of(*stats: GammaMarketStats, pages_ok: int = 3, truncated: bool = False) -> GammaCrawl:
     return GammaCrawl({s.condition_id: s for s in stats}, pages_ok, 0, truncated, STAMP, STAMP)
 
 
@@ -57,7 +57,7 @@ def _sync(redis: FakeAsyncRedis, gamma: FakeGammaClient | None = None) -> Market
 @pytest.mark.asyncio
 async def test_written_record_keeps_stamp_source_and_raw(fake_redis: FakeAsyncRedis) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(volume_stats(raw=30000)), STAMP)
+    await store.write_crawl(crawl_of(volume_stats(raw=30000)), STAMP)
 
     record = await store.read(CID)
 
@@ -71,7 +71,7 @@ async def test_written_record_keeps_stamp_source_and_raw(fake_redis: FakeAsyncRe
 async def test_record_outlives_the_recency_rule_with_a_1200_second_ttl(
     fake_redis: FakeAsyncRedis,
 ) -> None:
-    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(crawl_of(volume_stats()), STAMP)
 
     remaining = await fake_redis.ttl(DEFAULT_VOLUME_KEY_PREFIX + CID)
 
@@ -81,7 +81,7 @@ async def test_record_outlives_the_recency_rule_with_a_1200_second_ttl(
 @pytest.mark.asyncio
 async def test_a_cache_read_never_restamps(fake_redis: FakeAsyncRedis) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(volume_stats()), STAMP)
+    await store.write_crawl(crawl_of(volume_stats()), STAMP)
     first = await store.read(CID)
 
     assert await store.read(CID) == first
@@ -90,7 +90,7 @@ async def test_a_cache_read_never_restamps(fake_redis: FakeAsyncRedis) -> None:
 @pytest.mark.asyncio
 async def test_failed_crawl_keeps_the_older_observation(fake_redis: FakeAsyncRedis) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(volume_stats()), STAMP)
+    await store.write_crawl(crawl_of(volume_stats()), STAMP)
 
     written = await store.write_crawl(None, datetime(2026, 10, 19, 12, 3, tzinfo=UTC))
 
@@ -105,9 +105,9 @@ async def test_failed_crawl_keeps_the_older_observation(fake_redis: FakeAsyncRed
     ("crawl", "reason"),
     [
         (None, "gamma_fetch_failed"),
-        (_crawl(pages_ok=0), "gamma_fetch_failed"),
-        (_crawl(volume_stats(cid="0xother"), truncated=True), "crawl_truncated"),
-        (_crawl(volume_stats(cid="0xother")), "absent_from_complete_crawl"),
+        (crawl_of(pages_ok=0), "gamma_fetch_failed"),
+        (crawl_of(volume_stats(cid="0xother"), truncated=True), "crawl_truncated"),
+        (crawl_of(volume_stats(cid="0xother")), "absent_from_complete_crawl"),
     ],
     ids=["raised", "no-page-read", "truncated", "complete"],
 )
@@ -146,7 +146,7 @@ async def test_expiry_leaves_stale_data_readable_then_unavailable(
     fake_redis: FakeAsyncRedis,
 ) -> None:
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(volume_stats()), STAMP)
+    await store.write_crawl(crawl_of(volume_stats()), STAMP)
     assert (await store.merge(MarketMetadata.from_market(MARKET))).volume is not None
 
     await fake_redis.delete(DEFAULT_VOLUME_KEY_PREFIX + CID, DEFAULT_VOLUME_KEY_PREFIX + "_crawl")
@@ -230,7 +230,7 @@ async def test_miss_path_makes_no_volume_claim_and_names_its_reason(
 
 @pytest.mark.asyncio
 async def test_miss_path_uses_a_stamped_record_when_one_exists(fake_redis: FakeAsyncRedis) -> None:
-    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(crawl_of(volume_stats()), STAMP)
 
     market = await _sync(fake_redis).get_market(CID)
 
@@ -280,7 +280,7 @@ async def test_legacy_cached_value_upgrades_to_unqualified_then_to_the_stamped_r
     sync = _sync(fake_redis)
 
     before = await sync.get_cached_market(CID)
-    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(crawl_of(volume_stats()), STAMP)
     after = await sync.get_cached_market(CID)
 
     assert before is not None and before.volume is not None
@@ -340,10 +340,10 @@ async def test_a_later_gamma_page_without_the_key_replaces_the_value_as_missing(
 ) -> None:
     """A Gamma object without `volume24hr` is a fresh observation of absence, not a CLOB write."""
     store = VolumeStore(fake_redis)
-    await store.write_crawl(_crawl(volume_stats()), STAMP)
+    await store.write_crawl(crawl_of(volume_stats()), STAMP)
     absent = GammaMarketStats(CID, STAMP, False, None, "gamma-markets-v1")
 
-    await store.write_crawl(_crawl(absent), STAMP)
+    await store.write_crawl(crawl_of(absent), STAMP)
 
     record = await store.read(CID)
     assert record is not None
@@ -353,7 +353,7 @@ async def test_a_later_gamma_page_without_the_key_replaces_the_value_as_missing(
 @pytest.mark.asyncio
 async def test_the_merge_keeps_the_stored_stamp_untouched(fake_redis: FakeAsyncRedis) -> None:
     """Freshness is judged once, by the volume-state classifier, not by the merge."""
-    await VolumeStore(fake_redis).write_crawl(_crawl(volume_stats()), STAMP)
+    await VolumeStore(fake_redis).write_crawl(crawl_of(volume_stats()), STAMP)
 
     merged = await VolumeStore(fake_redis).merge(MARKET_METADATA)
 

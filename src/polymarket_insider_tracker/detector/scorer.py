@@ -145,7 +145,6 @@ class RiskScorer:
 
         # Multi-signal bonus
         if signals >= 2: weighted_score *= 1.2
-        if signals >= 3: weighted_score *= 1.3
 
         # Cap at 1.0, then quantize to the persisted NUMERIC(4,3) precision
         final_score = quantize(min(weighted_score, 1.0))

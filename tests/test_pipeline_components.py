@@ -17,6 +17,7 @@ from polymarket_insider_tracker.pipeline_components import (
     build_components,
     ping_redis,
 )
+from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.closeness import is_close
 from tests.fakes.pipeline import make_test_settings
@@ -75,6 +76,8 @@ async def test_build_components_wires_detector_settings() -> None:
         fresh_det = built.fresh_wallet_detector
         assert isinstance(fresh_det, FreshWalletDetector)
         assert fresh_det.fresh_transaction_boundary == 7
+        assert isinstance(fresh_det.wallet_analyzer, WalletAnalyzer)
+        assert fresh_det.wallet_analyzer.fresh_threshold == 7
 
         size_det = built.size_anomaly_detector
         assert isinstance(size_det, SizeAnomalyDetector)

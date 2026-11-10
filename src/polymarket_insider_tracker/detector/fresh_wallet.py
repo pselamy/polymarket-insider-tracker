@@ -7,6 +7,7 @@ from fresh wallets and generates alert signals with confidence scores.
 import logging
 import warnings
 from abc import abstractmethod
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Protocol
@@ -161,6 +162,11 @@ class FreshWalletDetector:
         self._clock = clock
 
     @property
+    def wallet_analyzer(self) -> WalletProfiler:
+        """The underlying wallet profiler."""
+        return self._analyzer
+
+    @property
     def fresh_transaction_boundary(self) -> int:
         """The effective exclusive boundary ``B``: a wallet qualifies when nonce < B."""
         return self._fresh_transaction_boundary
@@ -218,10 +224,16 @@ class FreshWalletDetector:
             return self._evaluation(instant, WalletClassification.NOT_REQUESTED, None, None)
 
         # Get wallet profile
-        profile = await self._analyzer.analyze(trade.wallet_address)
+        raw_profile = await self._analyzer.analyze(trade.wallet_address)
+        is_fresh = self._is_wallet_fresh(raw_profile)
+        profile = replace(
+            raw_profile,
+            is_fresh=is_fresh,
+            fresh_threshold=self._fresh_transaction_boundary,
+        )
 
         # Check if wallet is fresh
-        if not self._is_wallet_fresh(profile):
+        if not is_fresh:
             logger.debug(
                 "Wallet %s is not fresh (nonce=%d, age=%s)",
                 trade.wallet_address,
