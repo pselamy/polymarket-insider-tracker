@@ -742,7 +742,7 @@ async def test_only_the_successful_tracing_run_persists_a_transfer(
 
 
 def test_backtest_flag_is_not_a_cli_option() -> None:
-    """T013: no executable backtest CLI option (FR-014)."""
+    """Guard, not evidence (T013, FR-014): no executable backtest CLI option."""
     # Arrange
     parser = create_parser()
 
@@ -754,7 +754,7 @@ def test_backtest_flag_is_not_a_cli_option() -> None:
 
 
 def test_calibrate_flag_is_not_a_cli_option() -> None:
-    """T013: no executable calibration CLI option (FR-014)."""
+    """Guard, not evidence (T013, FR-014): no executable calibration CLI option."""
     # Arrange
     parser = create_parser()
 
@@ -852,14 +852,14 @@ def _implementation_validation_citations() -> list[str]:
     return _cited_test_nodes(path.read_text(encoding="utf-8"))
 
 
-def test_implementation_validation_pins_64_test_citations() -> None:
-    # Pinned to the 64 citations in implementation-validation.md; update with that document.
+def test_implementation_validation_pins_its_test_citation_count() -> None:
+    # Pinned to the 63 citations in implementation-validation.md; update with that document.
     # Arrange
     # Act
     actual = len(_implementation_validation_citations())
 
     # Assert
-    assert actual == 64
+    assert actual == 63
 
 
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:

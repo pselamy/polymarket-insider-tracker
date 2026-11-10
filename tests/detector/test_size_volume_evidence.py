@@ -308,7 +308,7 @@ _NON_NICHE_CSV_LABEL = "numeric-not-niche"
 
 _REPLAY_FACT_EXPECTATIONS: dict[str, Callable[[dict[str, str]], object]] = {
     "size_confidence": lambda row: row["size_confidence"] or None,
-    "signals_triggered": lambda row: int(row["groups_pre_T027"]) if row["size_confidence"] else 0,
+    "signals_triggered": lambda row: int(row["groups_pre_T027"]),
     "weighted_score": lambda row: row["score_pre_T027"],
     # data-model section 1: an available, non-niche volume has basis "none" (numeric only below $50,000).
     "niche_basis": lambda row: (
