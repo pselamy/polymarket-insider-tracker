@@ -687,9 +687,16 @@ def _collected_test_nodes() -> set[str]:
     return nodes | {re.sub(r"\[.*\]$", "", node) for node in nodes}
 
 
-def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
+def _implementation_validation_citations() -> list[str]:
     path = REPO_ROOT / "specs/004-truthful-detection-contract/evidence/implementation-validation.md"
-    cited = _cited_test_nodes(path.read_text(encoding="utf-8"))
+    return _cited_test_nodes(path.read_text(encoding="utf-8"))
+
+
+def test_implementation_validation_pins_64_test_citations() -> None:
     # Pinned to the 64 citations in implementation-validation.md; update with that document.
-    assert len(cited) == 64
-    assert sorted(set(cited) - _collected_test_nodes()) == []
+    assert len(_implementation_validation_citations()) == 64
+
+
+def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
+    missing = set(_implementation_validation_citations()) - _collected_test_nodes()
+    assert sorted(missing) == []

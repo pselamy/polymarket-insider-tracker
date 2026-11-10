@@ -347,9 +347,13 @@ async def _replay_observed(spec: dict[str, JsonValue]) -> dict[str, object]:
     }
 
 
-def test_the_replay_live_corpus_has_all_65_cases() -> None:
+def test_the_replay_live_corpus_has_65_cases() -> None:
     """SC-001 guard: the parametrized suite is only the full 65-case proof while the corpus is 65."""
     assert len(REPLAY_CASES) == 65
+
+
+def test_the_replay_live_expectations_have_65_rows() -> None:
+    """SC-001 guard: every corpus case has exactly one recorded expectation row."""
     assert len(REPLAY_EXPECTED) == 65
 
 
