@@ -238,6 +238,7 @@ class SteadyStateRun:
 
     positive_states: list[str]
     positive_measured: list[bool]
+    positive_ages: list[object]
     clob_calls: int
     gamma_crawls: int
     negative_state: str
@@ -248,7 +249,7 @@ class SteadyStateRun:
 
 async def _evaluate_sample(
     detector: SizeAnomalyDetector, now: datetime
-) -> tuple[str, str, object, bool]:
+) -> tuple[str, str, object, bool, object]:
     size_eval = await detector.evaluate(_sample_trade(now), evaluated_at=now)
     verdict = size_eval.volume.verdict
     return (
@@ -256,6 +257,7 @@ async def _evaluate_sample(
         verdict.reason,
         size_eval.volume.volume_impact_measured,
         size_eval.signal is None,
+        verdict.age_seconds,
     )
 
 
@@ -269,23 +271,28 @@ async def _run_steady_state(fake_redis: FakeAsyncRedis) -> SteadyStateRun:
 
     positive_states: list[str] = []
     positive_measured: list[bool] = []
+    positive_ages: list[object] = []
     for _ in range(CYCLES):
-        await sync.force_sync()
+        # Gamma stamps the volume at the crawl instant; the slow CLOB then advances the clock,
+        # so the evaluation sees the volume aged by the CLOB crawl duration.
         await refresh.refresh_once()
-        state, _, impact, _ = await _evaluate_sample(detector, clock.now())
+        await sync.force_sync()
+        state, _, impact, _, age = await _evaluate_sample(detector, clock.now())
         positive_states.append(state)
         positive_measured.append(impact is not None)
+        positive_ages.append(age)
 
     gamma.set_failing(RuntimeError("gamma degraded"))
     clock.advance(601.0)
-    await sync.force_sync()
     await refresh.refresh_once()
-    negative_state, negative_reason, negative_impact, signal_absent = await _evaluate_sample(
+    await sync.force_sync()
+    negative_state, negative_reason, negative_impact, signal_absent, _ = await _evaluate_sample(
         detector, clock.now()
     )
     return SteadyStateRun(
         positive_states=positive_states,
         positive_measured=positive_measured,
+        positive_ages=positive_ages,
         clob_calls=clob.calls,
         gamma_crawls=gamma.crawls,
         negative_state=negative_state,
@@ -304,6 +311,12 @@ async def test_slow_clob_steady_state_sample_is_available_every_cycle(
     steady_state: SteadyStateRun,
 ) -> None:
     assert steady_state.positive_states == ["available"] * CYCLES
+
+
+async def test_slow_clob_ages_each_sample_by_the_clob_crawl_duration(
+    steady_state: SteadyStateRun,
+) -> None:
+    assert steady_state.positive_ages == [str(CLOB_CRAWL_SECONDS)] * CYCLES
 
 
 async def test_slow_clob_steady_state_measures_the_impact_every_cycle(

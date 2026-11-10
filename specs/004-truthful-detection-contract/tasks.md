@@ -100,7 +100,7 @@ Named files, entry points, dependency order:
 - [x] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
   legacy records (value without provenance) read as `unqualified/no_provenance`; the generic
   `last_updated` is never a stamp source (FR-004b, F11).
-- [ ] T012d [US1] Freshness evidence tests: *Unticked: the deterministic test does not exercise the loop's decoupling from a slow CLOB; item (1) stays open.* (1) a fake-clock steady-state test that runs the real loops for
+- [ ] T012d [US1] Freshness evidence tests: *Unticked: the deterministic test (0 flakes under load) does not exercise the loop's decoupling from a slow CLOB; item (1) stays open.* (1) a fake-clock steady-state test that runs the real loops for
   several cycles with a slow CLOB fake (D = 204 s) and asserts no `stale` volume while the Gamma loop is
   healthy; (2) the bound `S_g + 2g + w_g <= 600` asserted from measured fake durations; (3) cache-miss
   race: miss-path write after a sync write leaves the stamped record intact; (4) real-Redis TTL/expiry
@@ -114,8 +114,8 @@ Named files, entry points, dependency order:
   (`test_a_real_redis_volume_record_reads_available_then_stale_then_expires`, re-exported by
   `test_redis_contract.py`): product TTL 600 < ttl <= 1200, `available` at 30 s, `stale` at 601 s, then
   `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock run of (1) is still not
-  written: the CLOB sync and Gamma refresh loops sleep on the event loop, not an injectable clock.
-  *P6 receipt (corrected)*: the tests `test_slow_clob_steady_state_*` and `test_degraded_gamma_*` in `tests/ingestor/test_gamma_volume_refresh.py` drive `refresh_once()` and `force_sync()` by hand with a `ManualClock`; they do NOT run the real CLOB and Gamma loops, so item (1) (loop decoupling from a slow CLOB) remains open. An earlier revision of this receipt cited a steady-state test node that was never collected; that citation is withdrawn.
+  written: the CLOB sync and Gamma refresh loops sleep on the event loop, not  *P6 receipt (corrected)*: `test_slow_clob_steady_state_*` and `test_degraded_gamma_*` in `tests/ingestor/test_gamma_volume_refresh.py` drive `refresh_once()` and `force_sync()` by hand on a `ManualClock`. Each sample is evaluated 204 s after its Gamma stamp (the CLOB crawl), so the 600 s rule is exercised. They do NOT run the real CLOB and Gamma loops, so the decoupling in item (1) remains open.
+itation is withdrawn.
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 
