@@ -462,6 +462,6 @@ def _collected_test_nodes() -> set[str]:
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
     path = REPO_ROOT / "specs/004-truthful-detection-contract/evidence/implementation-validation.md"
     cited = _cited_test_nodes(path.read_text(encoding="utf-8"))
-    # Pinned to the 59 citations in implementation-validation.md; update with that document.
-    assert len(cited) == 59
+    # Pinned to the 61 citations in implementation-validation.md; update with that document.
+    assert len(cited) == 61
     assert sorted(set(cited) - _collected_test_nodes()) == []
