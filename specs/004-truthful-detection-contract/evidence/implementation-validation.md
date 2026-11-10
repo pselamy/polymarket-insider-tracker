@@ -150,10 +150,10 @@ migration); this packet is not reduced to a CI or planning-only goal.
 
 ### Automated Suite Results
 
-Recorded at head `82dca48eadd3cb2f79e67165b7bada340d153f4d` (tree `7ddf93c2`), after the restack and the test-standard batch. Full-suite evidence is in step 3; the per-directory counts below are superseded by it.
+Recorded at code head `9470eb0` (tree `93508bca`), after the M1 batch (README fence, niche boundary, tuple splits, F1 steady-state ordering, F5 named preconditions). This receipt commit is docs-only and follows that code head. The per-directory counts below are superseded by step 1.
 
 1. **Full suite with coverage** (`uv run --locked --all-extras coverage run -m pytest tests --ignore=tests/tooling -q -p no:cacheprovider`):
-   - Result: **4,373 passed, 21 skipped**, exit `0`; coverage report at 100% (8,764 statements, 1,642 branches).
+   - Result: **4,857 passed, 21 skipped**, exit `0`; coverage report at 100% (8,764 statements, 1,642 branches).
 2. **Integration & Journey Suites** (`tests/integration/`), included in step 1; the end-to-end journeys were split into one-claim cases in this batch (33 tests in `tests/integration/test_end_to_end.py`).
    - Command: `uv run pytest tests/integration/test_end_to_end.py tests/integration/test_scoring_config_rows.py -q`
 3. **Spec 004 Evidence Verification Checks**:
