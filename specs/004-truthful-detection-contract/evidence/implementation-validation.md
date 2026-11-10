@@ -150,12 +150,12 @@ migration); this packet is not reduced to a CI or planning-only goal.
 
 ### Automated Suite Results
 
-1. **Component Test Suites** (`tests/detector/`, `tests/ingestor/`, `tests/alerter/`, `tests/profiler/`):
-   - Command: `uv run pytest tests/detector/ tests/ingestor/ tests/alerter/ tests/profiler/ -q`
-   - Result: **2,251 passed**, 40 warnings in 45.99s. Exit status: `0`.
-2. **Integration & Journey Suites** (`tests/integration/`):
-   - Command: `uv run pytest tests/integration/test_end_to_end.py tests/integration/test_v2_journey.py tests/integration/test_v2_default_journey.py tests/integration/test_scoring_config_rows.py -q`
-   - Result: **15 passed**, 1 warning in 1.07s. Exit status: `0`.
+Recorded at head `82dca48eadd3cb2f79e67165b7bada340d153f4d` (tree `7ddf93c2`), after the restack and the test-standard batch. Full-suite evidence is in step 3; the per-directory counts below are superseded by it.
+
+1. **Full suite with coverage** (`uv run --locked --all-extras coverage run -m pytest tests --ignore=tests/tooling -q -p no:cacheprovider`):
+   - Result: **4,373 passed, 21 skipped**, exit `0`; coverage report at 100% (8,764 statements, 1,642 branches).
+2. **Integration & Journey Suites** (`tests/integration/`), included in step 1; the end-to-end journeys were split into one-claim cases in this batch (33 tests in `tests/integration/test_end_to_end.py`).
+   - Command: `uv run pytest tests/integration/test_end_to_end.py tests/integration/test_scoring_config_rows.py -q`
 3. **Spec 004 Evidence Verification Checks**:
    - `uv run python -m scripts.spec004_evidence.check_envelope`: `ok` (exit `0`)
    - `uv run python -m scripts.spec004_evidence.check_source_hashes`: all 7 hashes match (exit `0`)
