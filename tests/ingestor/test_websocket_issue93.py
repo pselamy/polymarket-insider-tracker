@@ -127,11 +127,10 @@ class TestIssue93WebsocketValidationAndConnectionFailure:
 
         assert error.__cause__ is None
 
-    @pytest.mark.asyncio
-    async def test_connection_error_redacts_credentials_in_host(
+    async def _connection_error_for_secret_host(
         self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A secret in the host URL must never leak into ConnectionError."""
+    ) -> WsConnectionError:
+        """Connect to a credential-bearing host through a connector that always fails."""
 
         async def failing_connect(
             _host: str, ping_interval: int = 30, ping_timeout: int = 60
@@ -150,14 +149,12 @@ class TestIssue93WebsocketValidationAndConnectionFailure:
         with pytest.raises(WsConnectionError) as exc_info:
             await handler.start()
 
-        assert "SECRET_PASS_123" not in str(exc_info.value)
-        assert "***" in str(exc_info.value)
+        return exc_info.value
 
-    @pytest.mark.asyncio
-    async def test_successful_connection_redacts_credentials_in_info_log(
+    async def _connected_log_text(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A secret in the host URL must never leak into the connection INFO log record."""
+    ) -> str:
+        """Connect successfully to a secret-bearing host; return the captured INFO log text."""
         secret_host = "wss://user:SECRET_PASS_123@ws.example.com?token=SECRET_TOKEN"
         recorder = RecordingTradeCallback()
         handler = TradeStreamHandler(on_trade=recorder, host=secret_host)
@@ -166,7 +163,58 @@ class TestIssue93WebsocketValidationAndConnectionFailure:
         with caplog.at_level(logging.INFO):
             await stream(handler, [ws], monkeypatch)
 
-        assert "Connected to" in caplog.text
-        assert "wss://user:***@ws.example.com?token=***" in caplog.text
-        assert "SECRET_PASS_123" not in caplog.text
-        assert "SECRET_TOKEN" not in caplog.text
+        return caplog.text
+
+    @pytest.mark.asyncio
+    async def test_connection_error_omits_the_host_password(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The host password never appears in the ConnectionError text."""
+        error = await self._connection_error_for_secret_host(monkeypatch)
+
+        assert "SECRET_PASS_123" not in str(error)
+
+    @pytest.mark.asyncio
+    async def test_connection_error_masks_the_host_credential(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The host credential is replaced by the *** mask in the ConnectionError text."""
+        error = await self._connection_error_for_secret_host(monkeypatch)
+
+        assert "***" in str(error)
+
+    @pytest.mark.asyncio
+    async def test_info_log_announces_the_connection(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The successful connection is announced in the INFO log."""
+        text = await self._connected_log_text(monkeypatch, caplog)
+
+        assert "Connected to" in text
+
+    @pytest.mark.asyncio
+    async def test_info_log_masks_the_userinfo_and_the_query(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The INFO log shows the URL with its password and query value masked."""
+        text = await self._connected_log_text(monkeypatch, caplog)
+
+        assert "wss://user:***@ws.example.com?token=***" in text
+
+    @pytest.mark.asyncio
+    async def test_info_log_omits_the_password(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The host password never appears in the INFO log."""
+        text = await self._connected_log_text(monkeypatch, caplog)
+
+        assert "SECRET_PASS_123" not in text
+
+    @pytest.mark.asyncio
+    async def test_info_log_omits_the_query_token(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The query token never appears in the INFO log."""
+        text = await self._connected_log_text(monkeypatch, caplog)
+
+        assert "SECRET_TOKEN" not in text
