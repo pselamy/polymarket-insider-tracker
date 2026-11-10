@@ -31,7 +31,7 @@ from polymarket_insider_tracker.alerter.formatter import AlertFormatter, get_tri
 from polymarket_insider_tracker.alerter.models import FormattedAlert
 from polymarket_insider_tracker.assessment_row import assessment_dto
 from polymarket_insider_tracker.detector.detector_config import default_detector_config
-from polymarket_insider_tracker.detector.evaluation import TradeEvidence
+from polymarket_insider_tracker.detector.evaluation import SizeEvaluation, TradeEvidence
 from polymarket_insider_tracker.detector.evaluation_clock import Clock
 from polymarket_insider_tracker.detector.evidence_document import compose_document
 from polymarket_insider_tracker.detector.models import (
@@ -139,6 +139,21 @@ class CoreObservation:
     prohibited_triggered: list[str]
 
 
+async def _one_book_view(
+    trade: TradeEvent, now: datetime, evaluation: SizeEvaluation
+) -> tuple[object, Mapping[str, object], object]:
+    """Book impact, evidence document and persisted book impact for one size evaluation."""
+    measured = evaluation.signal.book_impact_measured if evaluation.signal else "signal"
+    evidence = TradeEvidence(now, default_detector_config(), size=evaluation)
+    assessment = await RiskScorer(FakeAsyncRedis()).assess(
+        SignalBundle(trade, None, evaluation.signal, evidence)
+    )
+    doc = compose_document(assessment, assessment.scoring_config or "{}", evidence)
+    size_doc = doc.evaluation_evidence.get("size") if doc.evaluation_evidence else None
+    dto = assessment_dto(assessment, alert_threshold=0.8, detector_config=default_detector_config())
+    return measured, size_doc if isinstance(size_doc, dict) else {}, dto.book_impact
+
+
 async def _book_depth_views(
     trade: TradeEvent, now: datetime
 ) -> tuple[list[object], list[Mapping[str, object]], list[object]]:
@@ -148,23 +163,8 @@ async def _book_depth_views(
     detector = SizeAnomalyDetector(metadata)
     eval_with = await detector.evaluate(trade, evaluated_at=now, book_depth=Decimal("50000"))
     eval_without = await detector.evaluate(trade, evaluated_at=now)
-    measured: list[object] = []
-    documents: list[Mapping[str, object]] = []
-    dto_impacts: list[object] = []
-    for evaluation in (eval_with, eval_without):
-        measured.append(evaluation.signal.book_impact_measured if evaluation.signal else "signal")
-        evidence = TradeEvidence(now, default_detector_config(), size=evaluation)
-        assessment = await RiskScorer(FakeAsyncRedis()).assess(
-            SignalBundle(trade, None, evaluation.signal, evidence)
-        )
-        doc = compose_document(assessment, assessment.scoring_config or "{}", evidence)
-        size_doc = doc.evaluation_evidence.get("size") if doc.evaluation_evidence else None
-        documents.append(size_doc if isinstance(size_doc, dict) else {})
-        dto = assessment_dto(
-            assessment, alert_threshold=0.8, detector_config=default_detector_config()
-        )
-        dto_impacts.append(dto.book_impact)
-    return measured, documents, dto_impacts
+    views = [await _one_book_view(trade, now, ev) for ev in (eval_with, eval_without)]
+    return [v[0] for v in views], [v[1] for v in views], [v[2] for v in views]
 
 
 async def _trigger_views(
