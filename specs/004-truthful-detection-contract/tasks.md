@@ -100,7 +100,7 @@ Named files, entry points, dependency order:
 - [x] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
   legacy records (value without provenance) read as `unqualified/no_provenance`; the generic
   `last_updated` is never a stamp source (FR-004b, F11).
-- [ ] T012d [US1] Freshness evidence tests: *Unticked: the slow-CLOB test relies on real sleeps and flakes under load (addendum A2); re-tick only after a deterministic rewrite.* (1) a fake-clock steady-state test that runs the real loops for
+- [ ] T012d [US1] Freshness evidence tests: *Unticked: the deterministic test does not exercise the loop's decoupling from a slow CLOB; item (1) stays open.* (1) a fake-clock steady-state test that runs the real loops for
   several cycles with a slow CLOB fake (D = 204 s) and asserts no `stale` volume while the Gamma loop is
   healthy; (2) the bound `S_g + 2g + w_g <= 600` asserted from measured fake durations; (3) cache-miss
   race: miss-path write after a sync write leaves the stamped record intact; (4) real-Redis TTL/expiry
@@ -115,7 +115,7 @@ Named files, entry points, dependency order:
   `test_redis_contract.py`): product TTL 600 < ttl <= 1200, `available` at 30 s, `stale` at 601 s, then
   `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock run of (1) is still not
   written: the CLOB sync and Gamma refresh loops sleep on the event loop, not an injectable clock.
-  *P6 receipt*: (1) slow-CLOB D = 204 s fake-clock steady-state test with healthy Gamma (S_g = 180 s) across >= 3 CLOB cycles and >= 6 Gamma cycles (> 1,200 s simulated) plus negative control with failing Gamma degraded and clock advancing > 600 s landed in tests/ingestor/test_gamma_volume_refresh.py (test_slow_clob_fake_clock_steady_state_and_negative_control); all 5 items of T012d now complete.
+  *P6 receipt (corrected)*: the tests `test_slow_clob_steady_state_*` and `test_degraded_gamma_*` in `tests/ingestor/test_gamma_volume_refresh.py` drive `refresh_once()` and `force_sync()` by hand with a `ManualClock`; they do NOT run the real CLOB and Gamma loops, so item (1) (loop decoupling from a slow CLOB) remains open. An earlier revision of this receipt cited a steady-state test node that was never collected; that citation is withdrawn.
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 
