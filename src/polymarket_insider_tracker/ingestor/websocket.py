@@ -213,11 +213,20 @@ class TradeStreamHandler:
             return ws
 
         except Exception as e:
-            logger.error("Failed to connect: %s", redact_exception_message(e))
-            self._stats.last_error = redact_exception_message(e)
-            raise ConnectionError(
-                f"Failed to connect to {redact_url(self._host)}: {redact_exception_message(e)}"
-            ) from e
+            failure = self._connection_failure(e)
+        raise failure
+
+    def _connection_failure(self, exc: Exception) -> ConnectionError:
+        """Log and record a failed connect, and build the error the caller raises.
+
+        The raw exception is deliberately not chained (no ``from``): its message can carry the
+        host credential, so the error keeps only the redacted rendering. Raising it outside the
+        ``except`` block leaves ``__context__`` empty as well.
+        """
+        reason = redact_exception_message(exc)
+        logger.error("Failed to connect: %s", reason)
+        self._stats.last_error = reason
+        return ConnectionError(f"Failed to connect to {redact_url(self._host)}: {reason}")
 
     async def _emit_trade(self, trade: TradeEvent) -> None:
         self._stats.trades_received += 1

@@ -382,19 +382,33 @@ class TestTelegramMarkdown:
         assert "0\\.82" in result.telegram_markdown
         assert "HIGH" in result.telegram_markdown
 
-    def test_telegram_escapes_all_decimals(self, high_risk_assessment: RiskAssessment) -> None:
-        """Telegram MarkdownV2 rejects unescaped `.` in dynamic numeric
-        fields (risk score, price, USDC amount). All must be present in
-        their escaped form."""
+    @pytest.mark.parametrize("unescaped", ["0.82", "0.075", "15,000.00"])
+    def test_telegram_leaves_no_unescaped_decimal(
+        self, unescaped: str, high_risk_assessment: RiskAssessment
+    ) -> None:
+        """Telegram MarkdownV2 rejects an unescaped `.` in a dynamic numeric field."""
+        # Arrange
         formatter = AlertFormatter()
-        result = formatter.format(high_risk_assessment)
-        md = result.telegram_markdown
-        for unescaped in ("0.82", "0.075", "15,000.00"):
-            assert (
-                unescaped not in md
-            ), f"unescaped {unescaped!r} would be rejected by Telegram MarkdownV2: {md!r}"
-        for escaped in ("0\\.82", "0\\.075", "15,000\\.00"):
-            assert escaped in md, f"missing escaped {escaped!r} in {md!r}"
+
+        # Act
+        md = formatter.format(high_risk_assessment).telegram_markdown
+
+        # Assert
+        assert unescaped not in md
+
+    @pytest.mark.parametrize("escaped", ["0\\.82", "0\\.075", "15,000\\.00"])
+    def test_telegram_escapes_each_decimal_point(
+        self, escaped: str, high_risk_assessment: RiskAssessment
+    ) -> None:
+        """Each dynamic numeric field appears in its MarkdownV2-escaped form."""
+        # Arrange
+        formatter = AlertFormatter()
+
+        # Act
+        md = formatter.format(high_risk_assessment).telegram_markdown
+
+        # Assert
+        assert escaped in md
 
     def test_telegram_includes_links(self, high_risk_assessment: RiskAssessment) -> None:
         """Test that Telegram message includes links."""
@@ -652,70 +666,139 @@ class TestLinkSection:
         assert "*Market:* Title only" in result.telegram_markdown
 
 
-class TestSizeVs24hVolumeLine:
-    """Tests for the detailed 'Size vs 24h volume' alert line."""
-
-    def test_measured_volume_in_detailed_mode(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
-    ) -> None:
-        verdict = VolumeVerdict(
-            state=VolumeState.AVAILABLE,
-            reason="ok",
-            daily_volume=Decimal("30000"),
-            present=True,
-            raw=None,
-            source=None,
-            acquired_at=None,
-            age_seconds=None,
-        )
-        evidence = SizeVolumeEvidence(
+def _measured_signal(
+    trade: TradeEvent,
+    metadata: MarketMetadata,
+    *,
+    verdict: VolumeVerdict | None,
+    impact: Decimal | None,
+    market_daily: Decimal | None = None,
+    weighted: float = 0.8,
+) -> RiskAssessment:
+    evidence = (
+        None
+        if verdict is None
+        else SizeVolumeEvidence(
             verdict=verdict,
-            volume_impact_measured=Decimal("0.1083"),
-            niche_basis="numeric",
+            volume_impact_measured=impact,
+            niche_basis="numeric" if verdict.state is VolumeState.AVAILABLE else "none",
             category="science",
             category_source="metadata",
         )
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.1083,
-            book_impact=0.0,
-            is_niche_market=False,
-            confidence=0.8,
-            factors={},
-            volume_evidence=evidence,
-            volume_impact_measured=Decimal("0.1083"),
-        )
-        assessment = RiskAssessment(
-            trade_event=sample_trade,
-            wallet_address=sample_trade.wallet_address,
-            market_id=sample_trade.market_id,
-            fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.8,
-            should_alert=True,
-        )
+    )
+    signal = SizeAnomalySignal(
+        trade_event=trade,
+        market_metadata=metadata,
+        volume_impact=0.1083 if impact is not None else 0.0,
+        book_impact=0.0,
+        is_niche_market=verdict is None or verdict.state is not VolumeState.AVAILABLE,
+        confidence=0.8,
+        factors={},
+        volume_evidence=evidence,
+        volume_impact_measured=impact,
+    )
+    return RiskAssessment(
+        trade_event=trade,
+        wallet_address=trade.wallet_address,
+        market_id=trade.market_id,
+        fresh_wallet_signal=None,
+        size_anomaly_signal=signal,
+        signals_triggered=1,
+        weighted_score=weighted,
+        should_alert=True,
+        market_daily_volume=market_daily,
+    )
 
-        formatter = AlertFormatter(verbosity="detailed")
-        result = formatter.format(assessment)
 
-        expected_line = "Size vs 24h volume: 10.83% of $30,000"
-        assert expected_line in result.body
-        assert expected_line in result.plain_text
-        assert "*Size vs 24h volume:* 10\\.83% of $30,000" in result.telegram_markdown
-        field = _embed_field(result, "Size vs 24h volume")
-        assert field is not None
-        assert field["value"] == "10.83% of $30,000"
+def _available_verdict(daily: Decimal) -> VolumeVerdict:
+    return VolumeVerdict(
+        state=VolumeState.AVAILABLE,
+        reason="ok",
+        daily_volume=daily,
+        present=True,
+        raw=None,
+        source=None,
+        acquired_at=None,
+        age_seconds=None,
+    )
 
-    def test_unmeasured_stale_volume_in_detailed_mode(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
+
+def _text_of(result: FormattedAlert, channel: str) -> str:
+    return {
+        "body": result.body,
+        "plain_text": result.plain_text,
+        "telegram_markdown": result.telegram_markdown,
+    }[channel]
+
+
+def _field_value(result: FormattedAlert) -> object:
+    field = _embed_field(result, "Size vs 24h volume")
+    return None if field is None else field["value"]
+
+
+TEXT_CHANNELS = ("body", "plain_text", "telegram_markdown")
+
+
+class TestSizeVs24hVolumeLine:
+    """Tests for the detailed 'Size vs 24h volume' alert line."""
+
+    @pytest.mark.parametrize(
+        ("channel", "expected"),
+        [
+            ("body", "Size vs 24h volume: 10.83% of $30,000"),
+            ("plain_text", "Size vs 24h volume: 10.83% of $30,000"),
+            ("telegram_markdown", "*Size vs 24h volume:* 10\\.83% of $30,000"),
+        ],
+        ids=TEXT_CHANNELS,
+    )
+    def test_measured_volume_line_is_shown_in_detailed_mode(
+        self, channel: str, expected: str, sample_trade: TradeEvent, sample_metadata: MarketMetadata
     ) -> None:
-        verdict = VolumeVerdict(
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=_available_verdict(Decimal("30000")),
+            impact=Decimal("0.1083"),
+        )
+
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
+
+        # Assert
+        assert expected in _text_of(result, channel)
+
+    def test_measured_volume_field_is_shown_in_the_discord_embed(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=_available_verdict(Decimal("30000")),
+            impact=Decimal("0.1083"),
+        )
+
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
+
+        # Assert
+        assert _field_value(result) == "10.83% of $30,000"
+
+    @pytest.mark.parametrize(
+        ("channel", "expected"),
+        [
+            ("body", "Size vs 24h volume: unavailable (stale)"),
+            ("plain_text", "Size vs 24h volume: unavailable (stale)"),
+            ("telegram_markdown", "*Size vs 24h volume:* unavailable \\(stale\\)"),
+        ],
+        ids=TEXT_CHANNELS,
+    )
+    def test_stale_volume_line_is_shown_in_detailed_mode(
+        self, channel: str, expected: str, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        # Arrange
+        stale = VolumeVerdict(
             state=VolumeState.STALE,
             reason="stale",
             daily_volume=None,
@@ -725,120 +808,117 @@ class TestSizeVs24hVolumeLine:
             acquired_at=None,
             age_seconds=None,
         )
-        evidence = SizeVolumeEvidence(
-            verdict=verdict,
-            volume_impact_measured=None,
-            niche_basis="none",
-            category="science",
-            category_source="metadata",
-        )
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.0,
-            book_impact=0.0,
-            is_niche_market=True,
-            confidence=0.5,
-            factors={},
-            volume_evidence=evidence,
-        )
-        assessment = RiskAssessment(
-            trade_event=sample_trade,
-            wallet_address=sample_trade.wallet_address,
-            market_id=sample_trade.market_id,
-            fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.5,
-            should_alert=True,
+        assessment = _measured_signal(
+            sample_trade, sample_metadata, verdict=stale, impact=None, weighted=0.5
         )
 
-        formatter = AlertFormatter(verbosity="detailed")
-        result = formatter.format(assessment)
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
 
-        expected_line = "Size vs 24h volume: unavailable (stale)"
-        assert expected_line in result.body
-        assert expected_line in result.plain_text
-        assert "*Size vs 24h volume:* unavailable \\(stale\\)" in result.telegram_markdown
-        field = _embed_field(result, "Size vs 24h volume")
-        assert field is not None
-        assert field["value"] == "unavailable (stale)"
+        # Assert
+        assert expected in _text_of(result, channel)
 
-    def test_unmeasured_without_evidence_in_detailed_mode(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
+    def test_stale_volume_field_is_shown_in_the_discord_embed(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
     ) -> None:
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.0,
-            book_impact=0.0,
-            is_niche_market=True,
-            confidence=0.5,
-            factors={},
-            volume_evidence=None,
+        # Arrange
+        stale = VolumeVerdict(
+            state=VolumeState.STALE,
+            reason="stale",
+            daily_volume=None,
+            present=False,
+            raw=None,
+            source=None,
+            acquired_at=None,
+            age_seconds=None,
         )
-        assessment = RiskAssessment(
-            trade_event=sample_trade,
-            wallet_address=sample_trade.wallet_address,
-            market_id=sample_trade.market_id,
-            fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.5,
-            should_alert=True,
+        assessment = _measured_signal(
+            sample_trade, sample_metadata, verdict=stale, impact=None, weighted=0.5
         )
 
-        formatter = AlertFormatter(verbosity="detailed")
-        result = formatter.format(assessment)
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
 
-        expected_line = "Size vs 24h volume: unavailable (unavailable)"
-        assert expected_line in result.body
-        assert expected_line in result.plain_text
-        assert "*Size vs 24h volume:* unavailable \\(unavailable\\)" in result.telegram_markdown
-        field = _embed_field(result, "Size vs 24h volume")
-        assert field is not None
-        assert field["value"] == "unavailable (unavailable)"
+        # Assert
+        assert _field_value(result) == "unavailable (stale)"
 
-    def test_compact_mode_omits_volume_comparison_line(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
+    @pytest.mark.parametrize(
+        ("channel", "expected"),
+        [
+            ("body", "Size vs 24h volume: unavailable (unavailable)"),
+            ("plain_text", "Size vs 24h volume: unavailable (unavailable)"),
+            (
+                "telegram_markdown",
+                "*Size vs 24h volume:* unavailable \\(unavailable\\)",
+            ),
+        ],
+        ids=TEXT_CHANNELS,
+    )
+    def test_unmeasured_volume_without_evidence_is_shown_in_detailed_mode(
+        self, channel: str, expected: str, sample_trade: TradeEvent, sample_metadata: MarketMetadata
     ) -> None:
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.1083,
-            book_impact=0.0,
-            is_niche_market=False,
-            confidence=0.8,
-            factors={},
-            volume_impact_measured=Decimal("0.1083"),
-        )
-        assessment = RiskAssessment(
-            trade_event=sample_trade,
-            wallet_address=sample_trade.wallet_address,
-            market_id=sample_trade.market_id,
-            fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.8,
-            should_alert=True,
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade, sample_metadata, verdict=None, impact=None, weighted=0.5
         )
 
-        formatter = AlertFormatter(verbosity="compact")
-        result = formatter.format(assessment)
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
 
-        assert "Size vs 24h volume" not in result.body
-        assert "Size vs 24h volume" not in result.plain_text
-        assert "Size vs 24h volume" not in result.telegram_markdown
-        assert _embed_field(result, "Size vs 24h volume") is None
+        # Assert
+        assert expected in _text_of(result, channel)
 
-    def test_no_size_signal_omits_volume_comparison_line(
-        self,
-        sample_trade: TradeEvent,
+    def test_unmeasured_volume_without_evidence_is_shown_in_the_discord_embed(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
     ) -> None:
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade, sample_metadata, verdict=None, impact=None, weighted=0.5
+        )
+
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
+
+        # Assert
+        assert _field_value(result) == "unavailable (unavailable)"
+
+    @pytest.mark.parametrize("channel", TEXT_CHANNELS)
+    def test_compact_mode_omits_the_volume_comparison_line(
+        self, channel: str, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=None,
+            impact=Decimal("0.1083"),
+        )
+
+        # Act
+        result = AlertFormatter(verbosity="compact").format(assessment)
+
+        # Assert
+        assert "Size vs 24h volume" not in _text_of(result, channel)
+
+    def test_compact_mode_omits_the_discord_volume_field(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade, sample_metadata, verdict=None, impact=Decimal("0.1083")
+        )
+
+        # Act
+        result = AlertFormatter(verbosity="compact").format(assessment)
+
+        # Assert
+        assert _field_value(result) is None
+
+    @pytest.mark.parametrize("channel", TEXT_CHANNELS)
+    def test_no_size_signal_omits_the_volume_comparison_line(
+        self, channel: str, sample_trade: TradeEvent
+    ) -> None:
+        # Arrange
         assessment = RiskAssessment(
             trade_event=sample_trade,
             wallet_address=sample_trade.wallet_address,
@@ -850,139 +930,106 @@ class TestSizeVs24hVolumeLine:
             should_alert=False,
         )
 
-        formatter = AlertFormatter(verbosity="detailed")
-        result = formatter.format(assessment)
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
 
-        assert "Size vs 24h volume" not in result.body
-        assert "Size vs 24h volume" not in result.plain_text
-        assert "Size vs 24h volume" not in result.telegram_markdown
-        assert _embed_field(result, "Size vs 24h volume") is None
+        # Assert
+        assert "Size vs 24h volume" not in _text_of(result, channel)
 
-    def test_measured_volume_fractional_cents_in_detailed_mode(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
-    ) -> None:
-        verdict = VolumeVerdict(
-            state=VolumeState.AVAILABLE,
-            reason="ok",
-            daily_volume=Decimal("30000.50"),
-            present=True,
-            raw=None,
-            source=None,
-            acquired_at=None,
-            age_seconds=None,
-        )
-        evidence = SizeVolumeEvidence(
-            verdict=verdict,
-            volume_impact_measured=Decimal("0.1083"),
-            niche_basis="numeric",
-            category="science",
-            category_source="metadata",
-        )
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.1083,
-            book_impact=0.0,
-            is_niche_market=False,
-            confidence=0.8,
-            factors={},
-            volume_evidence=evidence,
-            volume_impact_measured=Decimal("0.1083"),
-        )
+    def test_no_size_signal_omits_the_discord_volume_field(self, sample_trade: TradeEvent) -> None:
+        # Arrange
         assessment = RiskAssessment(
             trade_event=sample_trade,
             wallet_address=sample_trade.wallet_address,
             market_id=sample_trade.market_id,
             fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.8,
-            should_alert=True,
+            size_anomaly_signal=None,
+            signals_triggered=0,
+            weighted_score=0.2,
+            should_alert=False,
         )
 
-        formatter = AlertFormatter(verbosity="detailed")
-        result = formatter.format(assessment)
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
 
-        expected_line = "Size vs 24h volume: 10.83% of $30,000.50"
-        assert expected_line in result.body
-        field = _embed_field(result, "Size vs 24h volume")
-        assert field is not None
-        assert field["value"] == "10.83% of $30,000.50"
+        # Assert
+        assert _field_value(result) is None
 
-    def test_measured_volume_fallback_to_market_daily_volume(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
+    def test_fractional_cents_volume_line_is_shown_in_detailed_mode(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
     ) -> None:
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.1083,
-            book_impact=0.0,
-            is_niche_market=False,
-            confidence=0.8,
-            factors={},
-            volume_evidence=None,
-            volume_impact_measured=Decimal("0.1083"),
-        )
-        assessment = RiskAssessment(
-            trade_event=sample_trade,
-            wallet_address=sample_trade.wallet_address,
-            market_id=sample_trade.market_id,
-            fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.8,
-            should_alert=True,
-            market_daily_volume=Decimal("50000"),
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=_available_verdict(Decimal("30000.50")),
+            impact=Decimal("0.1083"),
         )
 
-        formatter = AlertFormatter(verbosity="detailed")
-        result = formatter.format(assessment)
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
 
+        # Assert
+        assert "Size vs 24h volume: 10.83% of $30,000.50" in result.body
+
+    def test_fractional_cents_volume_field_is_shown_in_the_discord_embed(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=_available_verdict(Decimal("30000.50")),
+            impact=Decimal("0.1083"),
+        )
+
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
+
+        # Assert
+        assert _field_value(result) == "10.83% of $30,000.50"
+
+    def test_measured_volume_falls_back_to_the_market_daily_volume(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=None,
+            impact=Decimal("0.1083"),
+            market_daily=Decimal("50000"),
+        )
+
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
+
+        # Assert
         assert "Size vs 24h volume: 10.83% of $50,000" in result.body
 
-    def test_measured_volume_without_any_daily_volume(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
+    def test_measured_volume_without_any_daily_volume_shows_the_percentage_only(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
     ) -> None:
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.1083,
-            book_impact=0.0,
-            is_niche_market=False,
-            confidence=0.8,
-            factors={},
-            volume_evidence=None,
-            volume_impact_measured=Decimal("0.1083"),
-        )
-        assessment = RiskAssessment(
-            trade_event=sample_trade,
-            wallet_address=sample_trade.wallet_address,
-            market_id=sample_trade.market_id,
-            fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.8,
-            should_alert=True,
-            market_daily_volume=None,
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=None,
+            impact=Decimal("0.1083"),
+            market_daily=None,
         )
 
-        formatter = AlertFormatter(verbosity="detailed")
-        result = formatter.format(assessment)
+        # Act
+        result = AlertFormatter(verbosity="detailed").format(assessment)
 
+        # Assert
         assert "Size vs 24h volume: 10.83%" in result.body
 
-    def test_format_helpers_with_none_signal_or_compact_verbosity(
-        self,
-        sample_trade: TradeEvent,
-        sample_metadata: MarketMetadata,
+    def test_the_volume_value_is_empty_without_a_size_signal(
+        self, sample_trade: TradeEvent
     ) -> None:
-        assessment_without_signal = RiskAssessment(
+        # Arrange
+        assessment = RiskAssessment(
             trade_event=sample_trade,
             wallet_address=sample_trade.wallet_address,
             market_id=sample_trade.market_id,
@@ -992,27 +1039,47 @@ class TestSizeVs24hVolumeLine:
             weighted_score=0.1,
             should_alert=False,
         )
-        signal = SizeAnomalySignal(
-            trade_event=sample_trade,
-            market_metadata=sample_metadata,
-            volume_impact=0.1,
-            book_impact=0.0,
-            is_niche_market=False,
-            confidence=0.8,
-            factors={},
-            volume_impact_measured=Decimal("0.1000"),
+
+        # Act
+        value = format_volume_comparison_value(assessment)
+
+        # Assert
+        assert value == ""
+
+    def test_the_discord_field_is_absent_in_compact_mode_with_a_signal(
+        self, sample_trade: TradeEvent, sample_metadata: MarketMetadata
+    ) -> None:
+        # Arrange
+        assessment = _measured_signal(
+            sample_trade,
+            sample_metadata,
+            verdict=None,
+            impact=Decimal("0.1000"),
         )
-        assessment_with_signal = RiskAssessment(
+
+        # Act
+        field = format_discord_volume_field("compact", assessment)
+
+        # Assert
+        assert field is None
+
+    def test_the_discord_field_is_absent_in_detailed_mode_without_a_signal(
+        self, sample_trade: TradeEvent
+    ) -> None:
+        # Arrange
+        assessment = RiskAssessment(
             trade_event=sample_trade,
             wallet_address=sample_trade.wallet_address,
             market_id=sample_trade.market_id,
             fresh_wallet_signal=None,
-            size_anomaly_signal=signal,
-            signals_triggered=1,
-            weighted_score=0.8,
-            should_alert=True,
+            size_anomaly_signal=None,
+            signals_triggered=0,
+            weighted_score=0.1,
+            should_alert=False,
         )
 
-        assert format_volume_comparison_value(assessment_without_signal) == ""
-        assert format_discord_volume_field("compact", assessment_with_signal) is None
-        assert format_discord_volume_field("detailed", assessment_without_signal) is None
+        # Act
+        field = format_discord_volume_field("detailed", assessment)
+
+        # Assert
+        assert field is None

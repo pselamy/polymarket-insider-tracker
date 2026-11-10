@@ -278,12 +278,17 @@ unchanged.
 
 `base_commit` stays 3aafd0b. `detector/models.py` adds `volume_impact_measured: Decimal | None` and `book_impact_measured: Decimal | None = None` on `SizeAnomalySignal` (with `volume_impact_measured` resolving to `volume_evidence.volume_impact_measured` when omitted and serialized in `to_dict()`) per `contracts/detector-api.md` §4. `detector/size_anomaly.py` constructs `SizeAnomalySignal` passing `volume_impact_measured=evidence.volume_impact_measured` and `book_impact_measured=None`. `assessment_row.py` maps `volume_impact` and `book_impact` directly from these measured companions, persisting SQL `NULL` when unmeasured instead of legacy zero. `alerter/formatter.py` formats the single `Size vs 24h volume` line in detailed mode without printing zero for non-measurements. No scoring rule, threshold, literal, or ordering changes. The `detector/models.py` and `detector/size_anomaly.py` hashes were re-pinned from the output of `check_source_hashes`; every other hash and every other evidence file is unchanged.
 
-## Twenty-first refresh: T009c freshness-closure profile normalization (2026-11-09)
+
+## Twenty-first refresh: unused DEFAULT_MAX_NONCE deleted (2026-11-10)
+
+`base_commit` stays 3aafd0b. Commit bc74170 deletes the one line `DEFAULT_MAX_NONCE = 5` from `detector/fresh_wallet.py`. The constant had no remaining reference in src, tests, scripts, docs or quality code once the test-only revision removed its last user. Vulture flagged it (60% confidence), which failed the static profile in CI run 42775477932. The change is a safe deletion with no behaviour change, not an allowlist entry. The `detector/fresh_wallet.py` entry in `source-hashes.json` is re-pinned to `5f57aaac…c0d8`; the other six entries are unchanged.
+
+## Twenty-second refresh: T009c freshness-closure profile normalization (2026-11-09)
 
 `base_commit` stays 3aafd0b. `detector/fresh_wallet.py` normalizes the returned `WalletProfile.is_fresh` and `fresh_threshold` to the detector's effective `fresh_transaction_boundary` (`T009c`, `data-model.md` §2a). This guarantees that when a custom boundary override (such as boundary 10) is in effect, the profile reflects the detector's evaluation instead of the analyzer's raw default threshold, keeping the 004.1 envelope, `FreshWalletSignal.to_dict()`, and persisted `WalletProfileDTO.is_fresh` in agreement. The `detector/fresh_wallet.py` hash was re-pinned from the output of `check_source_hashes`; every other hash and every other evidence file is unchanged.
 
 
 
-## Twenty-second refresh: stale 3+ multiplier removed from the scorer docstring (2026-11-09)
+## Twenty-third refresh: stale 3+ multiplier removed from the scorer docstring (2026-11-09)
 
 `base_commit` stays 3aafd0b. Commit 8ae1834 (rev6) deletes one line from the `RiskScorer` docstring "Scoring Formula" that still documented `if signals >= 3: weighted_score *= 1.3`. That branch was removed under FR-011, and the docstring is the only place it was still described. The change is docstring-only: the AST of `detector/scorer.py` is equal to the previous revision with docstrings stripped, so no scoring rule or literal changes. Because the file bytes changed, the `detector/scorer.py` entry in `source-hashes.json` is re-pinned to `79733d5c…a41967` from the output of `check_source_hashes`; the other six entries are unchanged. This note was added in rev7 (PM-P4P7R6-01).

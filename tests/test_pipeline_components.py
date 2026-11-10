@@ -1,6 +1,7 @@
 """``build_components`` wiring: the scorer and alert history get their configured settings."""
 
 from collections.abc import AsyncIterator, Awaitable
+from typing import cast
 
 import pytest
 
@@ -57,7 +58,9 @@ def test_alert_history_receives_the_configured_dedup_window(
     assert history.dedup_ttl == 1234
 
 
-async def test_build_components_wires_detector_settings() -> None:
+@pytest.fixture
+async def wired_components() -> AsyncIterator[PipelineComponents]:
+    """Components built from settings that override the two detector fields."""
     settings = make_test_settings()
     detector = settings.detector.model_copy(
         update={
@@ -72,22 +75,75 @@ async def test_build_components_wires_detector_settings() -> None:
         on_trade=_ignore_trade,
         on_ingestion_state=_ignore_state,
     )
-    try:
-        fresh_det = built.fresh_wallet_detector
-        assert isinstance(fresh_det, FreshWalletDetector)
-        assert fresh_det.fresh_transaction_boundary == 7
-        assert isinstance(fresh_det.wallet_analyzer, WalletAnalyzer)
-        assert fresh_det.wallet_analyzer.fresh_threshold == 7
+    yield built
+    if built.db_manager is not None:
+        await built.db_manager.dispose_async()
+    await built.redis.aclose()
 
-        size_det = built.size_anomaly_detector
-        assert isinstance(size_det, SizeAnomalyDetector)
-        assert is_close(size_det.volume_threshold, 0.05)
 
-        assert built.detector_config.fresh_transaction_boundary == 7
-    finally:
-        if built.db_manager is not None:
-            await built.db_manager.dispose_async()
-        await built.redis.aclose()
+async def test_build_components_wires_a_fresh_wallet_detector(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    fresh_det = wired_components.fresh_wallet_detector
+
+    # Act
+    is_fresh_wallet_detector = isinstance(fresh_det, FreshWalletDetector)
+
+    # Assert
+    assert is_fresh_wallet_detector
+
+
+async def test_build_components_wires_the_fresh_transaction_boundary(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    fresh_det = cast(FreshWalletDetector, wired_components.fresh_wallet_detector)
+
+    # Act
+    boundary = fresh_det.fresh_transaction_boundary
+
+    # Assert
+    assert boundary == 7
+
+
+async def test_build_components_wires_a_size_anomaly_detector(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    size_det = wired_components.size_anomaly_detector
+
+    # Act
+    is_size_detector = isinstance(size_det, SizeAnomalyDetector)
+
+    # Assert
+    assert is_size_detector
+
+
+async def test_build_components_wires_the_size_volume_threshold(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    size_det = cast(SizeAnomalyDetector, wired_components.size_anomaly_detector)
+
+    # Act
+    threshold = size_det.volume_threshold
+
+    # Assert
+    assert is_close(threshold, 0.05)
+
+
+async def test_build_components_records_the_boundary_in_the_detector_config(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    detector_config = wired_components.detector_config
+
+    # Act
+    recorded = detector_config.fresh_transaction_boundary
+
+    # Assert
+    assert recorded == 7
 
 
 def _niche_size_signal(trade: TradeEvent) -> SizeAnomalySignal:
@@ -214,3 +270,16 @@ async def test_ping_redis_awaits_an_awaitable_reply() -> None:
 async def test_ping_redis_rejects_a_reply_that_cannot_be_awaited() -> None:
     with pytest.raises(TypeError, match="not awaitable"):
         await ping_redis(_SyncPing())
+
+
+async def test_build_components_wires_the_wallet_analyzer_fresh_threshold(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    fresh_det = cast(FreshWalletDetector, wired_components.fresh_wallet_detector)
+
+    # Act
+    threshold = fresh_det.wallet_analyzer.fresh_threshold
+
+    # Assert
+    assert threshold == 7
