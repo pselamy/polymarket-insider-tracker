@@ -120,14 +120,14 @@ class DryRunObservation:
     ready_reason: object
     live_status: int
     live_body: object
-    ready_body: object
+    ready_body: dict[str, Any]
     health_status: int
-    health_body: object
+    health_body: dict[str, Any]
     metrics_status: int
     discord_deliveries: int
     telegram_deliveries: int
-    dedup_keys: list[str]
-    ambiguous_keys: list[str]
+    dedup_keys: list[bytes]
+    ambiguous_keys: list[bytes]
     row: RiskAssessmentModel
     evidence: dict[str, JsonValue]
     size_evidence: dict[str, JsonValue]
@@ -536,7 +536,7 @@ class TestEndToEndPipelineHarness:
     ) -> None:
         # Assert
         assert {
-            member(evidence_of(read_row(row)), "size")["volume_state"]
+            str(member(evidence_of(read_row(row)), "size")["volume_state"])
             for row in volume_less_observed.rows
         } == {"unavailable"}
 
@@ -546,7 +546,7 @@ class TestEndToEndPipelineHarness:
     ) -> None:
         # Assert
         assert {
-            member(evidence_of(read_row(row)), "wallet")["age_state"]
+            str(member(evidence_of(read_row(row)), "wallet")["age_state"])
             for row in volume_less_observed.rows
         } == {"unknown"}
 
