@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.detector.models import RiskAssessment, SizeAnomalySignal
 from polymarket_insider_tracker.detector.volume_state import (
@@ -22,9 +24,11 @@ from polymarket_insider_tracker.ingestor.models import MarketMetadata, TradeEven
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_BLOCK = re.compile(
-    r"<!-- sample-alert:start -->\n```text\n(.*?)```\n<!-- sample-alert:end -->",
+    r"<!-- sample-alert:start -->\n```text\n(.*?)\n```\n<!-- sample-alert:end -->",
     re.DOTALL,
 )
+SAMPLE_END_MARKER = "<!-- sample-alert:end -->"
+ARCHITECTURE_HEADING = "Architecture"
 
 
 def _fixture_assessment() -> RiskAssessment:
@@ -98,6 +102,23 @@ def _readme_sample() -> str:
     return "" if match is None else match.group(1)
 
 
+def _readme_text() -> str:
+    return (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+
+def _fence_lines(text: str) -> list[str]:
+    return [line for line in text.splitlines() if line.lstrip().startswith("```")]
+
+
+def _heading_texts(text: str) -> list[str]:
+    tokens = MarkdownIt("commonmark").parse(text)
+    return [
+        tokens[index + 1].content
+        for index, token in enumerate(tokens)
+        if token.type == "heading_open"
+    ]
+
+
 def test_readme_sample_alert_is_the_formatter_output() -> None:
     # Arrange
     expected = _rendered_fixture()
@@ -107,3 +128,36 @@ def test_readme_sample_alert_is_the_formatter_output() -> None:
 
     # Assert
     assert sample == expected
+
+
+def test_the_sample_closing_fence_is_on_its_own_line() -> None:
+    # Arrange
+    lines = _readme_text().splitlines()
+
+    # Act
+    end_index = lines.index(SAMPLE_END_MARKER)
+
+    # Assert
+    assert lines[end_index - 1] == "```"
+
+
+def test_the_readme_has_an_even_number_of_fence_lines() -> None:
+    # Arrange
+    fences = _fence_lines(_readme_text())
+
+    # Act
+    count = len(fences)
+
+    # Assert
+    assert count % 2 == 0
+
+
+def test_the_architecture_heading_is_parsed_as_a_heading_outside_any_code_block() -> None:
+    # Arrange
+    text = _readme_text()
+
+    # Act
+    headings = _heading_texts(text)
+
+    # Assert
+    assert ARCHITECTURE_HEADING in headings
