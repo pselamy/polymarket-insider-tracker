@@ -442,53 +442,66 @@ async def _rows_by_trade(db: str) -> dict[str, RiskAssessmentModel]:
     return {str(row.trade_id): row for row in rows}
 
 
-async def test_restart_and_legacy_003_004_row_compatibility_preserve_version_semantics(
-    tmp_path: Path,
-) -> None:
-    """SOL-001: restart and legacy/003/004 row compatibility preserve version semantics."""
+async def _compat_observation(tmp_path: Path) -> dict[str, object]:
+    """Restart and read back legacy, 003 and 004 rows; the observation asserts nothing."""
     db = f"sqlite+aiosqlite:///{tmp_path / 'compat.db'}"
     await _seed_compat_rows(db)
     await _score_once(db, threshold=0.8)
-
     by_id = await _rows_by_trade(db)
-    assert set(by_id) == {"0xlegacy", "0x003", "0x004"}
-
-    assert (
-        sc.read_scoring_config(
-            by_id["0xlegacy"].scoring_algorithm_version, by_id["0xlegacy"].scoring_config
-        )
-        is None
-    )
-    assert isinstance(
-        sc.read_scoring_config(
-            by_id["0x003"].scoring_algorithm_version, by_id["0x003"].scoring_config
-        ),
-        sc.PureConfig,
-    )
-    assert isinstance(
-        sc.read_scoring_config(
-            by_id["0x004"].scoring_algorithm_version, by_id["0x004"].scoring_config
-        ),
-        sc.Document004,
-    )
-
     raw_003 = json.loads(GOLDEN_PURE)
     raw_004 = json.loads(by_id["0x004"].scoring_config or "{}")
-    assert set(raw_003).issubset(raw_004)
-    assert raw_004["weights"] == raw_003["weights"]
-    assert raw_004["alert_threshold"] == raw_003["alert_threshold"]
+    leg, r003, r004 = by_id["0xlegacy"], by_id["0x003"], by_id["0x004"]
+    return {
+        "trade_ids": sorted(by_id),
+        "legacy_reader_result": sc.read_scoring_config(
+            leg.scoring_algorithm_version, leg.scoring_config
+        ),
+        "reader_003": type(
+            sc.read_scoring_config(r003.scoring_algorithm_version, r003.scoring_config)
+        ).__name__,
+        "reader_004": type(
+            sc.read_scoring_config(r004.scoring_algorithm_version, r004.scoring_config)
+        ).__name__,
+        "keys_003_kept_in_004": set(raw_003).issubset(raw_004),
+        "weights_003_equal_004": raw_004["weights"] == raw_003["weights"],
+        "threshold_003_equal_004": raw_004["alert_threshold"] == raw_003["alert_threshold"],
+        "legacy_confidence_volume_book": (
+            leg.fresh_wallet_confidence,
+            leg.volume_impact,
+            leg.book_impact,
+        ),
+        "row_003_confidence_volume_book": (
+            r003.fresh_wallet_confidence,
+            r003.volume_impact,
+            r003.book_impact,
+        ),
+        "row_004_confidence_book": (r004.fresh_wallet_confidence, r004.book_impact),
+    }
 
-    leg = by_id["0xlegacy"]
-    assert (leg.fresh_wallet_confidence, leg.volume_impact, leg.book_impact) == (
-        Decimal("0.65"),
-        Decimal("0.0300"),
-        Decimal("0.0500"),
-    )
-    r003 = by_id["0x003"]
-    assert (r003.fresh_wallet_confidence, r003.volume_impact, r003.book_impact) == (
-        Decimal("0.70"),
-        Decimal("0.0400"),
-        Decimal("0.0800"),
-    )
-    r004 = by_id["0x004"]
-    assert (r004.fresh_wallet_confidence, r004.book_impact) == (None, None)
+
+COMPAT_EXPECTED: list[tuple[str, object]] = [
+    ("trade_ids", ["0x003", "0x004", "0xlegacy"]),
+    ("legacy_reader_result", None),
+    ("reader_003", "PureConfig"),
+    ("reader_004", "Document004"),
+    ("keys_003_kept_in_004", True),
+    ("weights_003_equal_004", True),
+    ("threshold_003_equal_004", True),
+    ("legacy_confidence_volume_book", (Decimal("0.65"), Decimal("0.0300"), Decimal("0.0500"))),
+    ("row_003_confidence_volume_book", (Decimal("0.70"), Decimal("0.0400"), Decimal("0.0800"))),
+    ("row_004_confidence_book", (None, None)),
+]
+
+
+@pytest.fixture
+async def compat(tmp_path: Path) -> dict[str, object]:
+    return await _compat_observation(tmp_path)
+
+
+@pytest.mark.parametrize("fact", [name for name, _ in COMPAT_EXPECTED])
+async def test_restart_and_legacy_003_004_row_compatibility_preserve_version_semantics(
+    compat: dict[str, object], fact: str
+) -> None:
+    """SOL-001: restart and legacy/003/004 row compatibility preserve version semantics."""
+    expected = dict(COMPAT_EXPECTED)[fact]
+    assert compat[fact] == expected
