@@ -136,7 +136,7 @@ async def test_a_scored_row_is_a_004_1_document_whose_threshold_reconstructs(
 
 async def _wallet_row_document(
     fake_redis: FakeAsyncRedis, db_manager: DatabaseManager, async_engine: AsyncEngine
-) -> Document004:
+) -> sc.Document004:
     """The 004.1 document of the single assessment the pipeline writes for the sample trade."""
     market = stamped_volume_market(make_sample_trade_event())
     pipeline = await wired(fake_redis, db_manager, market)
@@ -153,7 +153,7 @@ async def test_the_row_records_the_wallet_as_non_scoring_evidence_and_the_volume
     status = document.wallet_group_status
 
     # Assert
-    assert status is WalletGroupStatus.UNQUALIFIED_PRE_T027
+    assert status is sc.WalletGroupStatus.UNQUALIFIED_PRE_T027
 
 
 async def test_the_row_records_no_detector_failures(

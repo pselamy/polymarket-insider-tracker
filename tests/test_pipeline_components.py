@@ -279,7 +279,8 @@ async def test_build_components_wires_the_wallet_analyzer_fresh_threshold(
     fresh_det = cast(FreshWalletDetector, wired_components.fresh_wallet_detector)
 
     # Act
-    threshold = fresh_det.wallet_analyzer.fresh_threshold
+    analyzer = cast(WalletAnalyzer, fresh_det.wallet_analyzer)
+    threshold = analyzer.fresh_threshold
 
     # Assert
     assert threshold == 7
