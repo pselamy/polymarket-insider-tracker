@@ -120,7 +120,7 @@ def _ignore_state(_state: IngestionState) -> None:
 
 @dataclass(frozen=True)
 class CoreObservation:
-    """What the operational-core scenarios produced; the helper asserts nothing."""
+    """What the operational-core scenarios produced. The record adds no asserts; its observe helpers assert only input preconditions."""
 
     bundle_fields: tuple[str, ...]
     assessment_sniper_or_funding_fields: list[str]
@@ -235,7 +235,12 @@ async def core() -> CoreObservation:
 
 
 async def test_core_bundle_has_exactly_the_core_signal_fields(core: CoreObservation) -> None:
-    assert core.bundle_fields == (
+    # Arrange
+    # Act
+    actual = core.bundle_fields
+
+    # Assert
+    assert actual == (
         "trade_event",
         "fresh_wallet_signal",
         "size_anomaly_signal",
@@ -245,53 +250,138 @@ async def test_core_bundle_has_exactly_the_core_signal_fields(core: CoreObservat
 
 async def test_guard_assessment_has_no_sniper_or_funding_field(core: CoreObservation) -> None:
     """Guard, not evidence: a field name that never existed cannot fail on pre-#241 code."""
-    assert core.assessment_sniper_or_funding_fields == []
+    # Arrange
+    # Act
+    actual = core.assessment_sniper_or_funding_fields
+
+    # Assert
+    assert actual == []
 
 
 async def test_default_weights_cover_only_the_three_core_groups(core: CoreObservation) -> None:
-    assert core.weight_keys == {"fresh_wallet", "size_anomaly", "niche_market"}
+    # Arrange
+    # Act
+    actual = core.weight_keys
+
+    # Assert
+    assert actual == {"fresh_wallet", "size_anomaly", "niche_market"}
 
 
 async def test_wallet_group_is_unqualified_pre_t027(core: CoreObservation) -> None:
-    assert core.group_status is WalletGroupStatus.UNQUALIFIED_PRE_T027
+    # Arrange
+    # Act
+    actual = core.group_status
+
+    # Assert
+    assert actual is WalletGroupStatus.UNQUALIFIED_PRE_T027
 
 
-async def test_book_depth_measures_no_book_impact(core: CoreObservation) -> None:
-    assert (core.book_measured_with_depth, core.book_measured_without_depth) == (None, None)
+async def test_book_depth_with_depth_measures_no_book_impact(core: CoreObservation) -> None:
+    # Arrange
+    # Act
+    actual = core.book_measured_with_depth
+
+    # Assert
+    assert actual is None
 
 
-async def test_evidence_document_records_the_book_as_unavailable(core: CoreObservation) -> None:
-    assert (core.doc_book_state_with_depth, core.doc_book_state_without_depth) == (
-        "unavailable",
-        "unavailable",
-    )
+async def test_book_depth_without_depth_measures_no_book_impact(core: CoreObservation) -> None:
+    # Arrange
+    # Act
+    actual = core.book_measured_without_depth
+
+    # Assert
+    assert actual is None
 
 
-async def test_evidence_document_records_no_book_impact(core: CoreObservation) -> None:
-    assert (core.doc_book_impact_with_depth, core.doc_book_impact_without_depth) == (None, None)
+async def test_evidence_document_with_depth_records_the_book_as_unavailable(
+    core: CoreObservation,
+) -> None:
+    # Arrange
+    # Act
+    actual = core.doc_book_state_with_depth
+
+    # Assert
+    assert actual == "unavailable"
+
+
+async def test_evidence_document_without_depth_records_the_book_as_unavailable(
+    core: CoreObservation,
+) -> None:
+    # Arrange
+    # Act
+    actual = core.doc_book_state_without_depth
+
+    # Assert
+    assert actual == "unavailable"
+
+
+async def test_evidence_document_with_depth_records_no_book_impact(core: CoreObservation) -> None:
+    # Arrange
+    # Act
+    actual = core.doc_book_impact_with_depth
+
+    # Assert
+    assert actual is None
+
+
+async def test_evidence_document_without_depth_records_no_book_impact(
+    core: CoreObservation,
+) -> None:
+    # Arrange
+    # Act
+    actual = core.doc_book_impact_without_depth
+
+    # Assert
+    assert actual is None
 
 
 async def test_persisted_record_carries_no_book_impact(core: CoreObservation) -> None:
-    assert core.dto_book_impacts == [None, None]
+    # Arrange
+    # Act
+    actual = core.dto_book_impacts
+
+    # Assert
+    assert actual == [None, None]
 
 
 async def test_empty_bundle_triggers_no_signal(core: CoreObservation) -> None:
-    assert core.empty_triggered == []
+    # Arrange
+    # Act
+    actual = core.empty_triggered
+
+    # Assert
+    assert actual == []
 
 
 async def test_large_non_niche_trade_triggers_only_large_position(core: CoreObservation) -> None:
-    assert core.large_triggered == ["Large Position"]
+    # Arrange
+    # Act
+    actual = core.large_triggered
+
+    # Assert
+    assert actual == ["Large Position"]
 
 
 async def test_niche_trade_triggers_large_position_and_niche_market(core: CoreObservation) -> None:
-    assert core.niche_triggered == ["Large Position", "Niche Market"]
+    # Arrange
+    # Act
+    actual = core.niche_triggered
+
+    # Assert
+    assert actual == ["Large Position", "Niche Market"]
 
 
 async def test_no_triggered_signal_is_a_prohibited_group(core: CoreObservation) -> None:
-    assert core.prohibited_triggered == []
+    """Guard, not evidence: a triggered signal is never a prohibited group."""
+    # Arrange
+    # Act
+    actual = core.prohibited_triggered
+
+    # Assert
+    assert actual == []
 
 
-@pytest.mark.asyncio
 async def _built_pipeline_components() -> PipelineComponents:
     settings = make_test_settings(alert_threshold=0.4)
     return await build_components(
@@ -431,9 +521,12 @@ async def _run_funding_pipeline(
     return pipeline, channel.deliveries[0]
 
 
+FUNDING_PIPELINE_IDS = ["successful_tracer", "failing_tracer"]
+
+
 @dataclass(frozen=True)
 class FundingObservation:
-    """What the two funding pipelines produced; the helper asserts nothing."""
+    """What the two funding pipelines produced. The record adds no asserts; `_run_funding_pipeline` asserts one delivery per pipeline as a precondition."""
 
     errors: tuple[int, int]
     warning_logged: bool
@@ -520,39 +613,84 @@ async def funding(
     return await _observe_funding(db_manager, async_engine, caplog)
 
 
-async def test_both_funding_pipelines_run_without_errors(funding: FundingObservation) -> None:
-    assert funding.errors == (0, 0)
+@pytest.mark.parametrize("pipeline", [0, 1], ids=FUNDING_PIPELINE_IDS)
+async def test_each_funding_pipeline_runs_without_errors(
+    funding: FundingObservation, pipeline: int
+) -> None:
+    # Arrange
+    # Act
+    actual = funding.errors[pipeline]
+
+    # Assert
+    assert actual == 0
 
 
 async def test_a_failing_tracer_is_logged_as_a_persistence_warning(
     funding: FundingObservation,
 ) -> None:
-    assert funding.warning_logged is True
+    # Arrange
+    # Act
+    actual = funding.warning_logged
+
+    # Assert
+    assert actual is True
 
 
 async def test_both_funding_pipelines_persist_one_row_each(funding: FundingObservation) -> None:
-    assert funding.row_count == 2
+    # Arrange
+    # Act
+    actual = funding.row_count
+
+    # Assert
+    assert actual == 2
 
 
-async def test_both_funding_pipelines_record_the_same_score(funding: FundingObservation) -> None:
-    assert funding.weighted_scores == (Decimal("0.450"), Decimal("0.450"))
-
-
-async def test_both_funding_pipelines_record_one_triggered_signal(
-    funding: FundingObservation,
+@pytest.mark.parametrize("pipeline", [0, 1], ids=FUNDING_PIPELINE_IDS)
+async def test_each_funding_pipeline_records_the_score_0_450(
+    funding: FundingObservation, pipeline: int
 ) -> None:
-    assert funding.signals == (1, 1)
+    # Arrange
+    # Act
+    actual = funding.weighted_scores[pipeline]
+
+    # Assert
+    assert actual == Decimal("0.450")
 
 
-async def test_both_funding_pipelines_decide_to_alert(funding: FundingObservation) -> None:
-    assert funding.should_alert == (True, True)
+@pytest.mark.parametrize("pipeline", [0, 1], ids=FUNDING_PIPELINE_IDS)
+async def test_each_funding_pipeline_records_one_triggered_signal(
+    funding: FundingObservation, pipeline: int
+) -> None:
+    # Arrange
+    # Act
+    actual = funding.signals[pipeline]
+
+    # Assert
+    assert actual == 1
+
+
+@pytest.mark.parametrize("pipeline", [0, 1], ids=FUNDING_PIPELINE_IDS)
+async def test_each_funding_pipeline_decides_to_alert(
+    funding: FundingObservation, pipeline: int
+) -> None:
+    # Arrange
+    # Act
+    actual = funding.should_alert[pipeline]
+
+    # Assert
+    assert actual is True
 
 
 @pytest.mark.parametrize("section", ["contributions", "wallet", "size", "result"])
 async def test_evidence_section_is_identical_with_and_without_tracing(
     funding: FundingObservation, section: str
 ) -> None:
-    assert funding.section_equal[section] is True
+    # Arrange
+    # Act
+    actual = funding.section_equal[section]
+
+    # Assert
+    assert actual is True
 
 
 @pytest.mark.parametrize(
@@ -562,40 +700,72 @@ async def test_evidence_section_is_identical_with_and_without_tracing(
 async def test_alert_field_is_identical_with_and_without_tracing(
     funding: FundingObservation, field: str
 ) -> None:
-    assert funding.alert_field_equal[field] is True
+    # Arrange
+    # Act
+    actual = funding.alert_field_equal[field]
+
+    # Assert
+    assert actual is True
 
 
 async def test_plain_alert_with_tracing_does_not_mention_funding(
     funding: FundingObservation,
 ) -> None:
-    assert funding.plain_mentions_funding[0] is False
+    # Arrange
+    # Act
+    actual = funding.plain_mentions_funding[0]
+
+    # Assert
+    assert actual is False
 
 
 async def test_plain_alert_without_tracing_does_not_mention_funding(
     funding: FundingObservation,
 ) -> None:
-    assert funding.plain_mentions_funding[1] is False
+    # Arrange
+    # Act
+    actual = funding.plain_mentions_funding[1]
+
+    # Assert
+    assert actual is False
 
 
 async def test_only_the_successful_tracing_run_persists_a_transfer(
     funding: FundingObservation,
 ) -> None:
-    assert funding.persisted_transfers == 1
+    # Arrange
+    # Act
+    actual = funding.persisted_transfers
+
+    # Assert
+    assert actual == 1
 
 
 def test_backtest_flag_is_not_a_cli_option() -> None:
     """T013: no executable backtest CLI option (FR-014)."""
-    action_flags = {opt for action in create_parser()._actions for opt in action.option_strings}
+    # Arrange
+    parser = create_parser()
+
+    # Act
+    action_flags = {opt for action in parser._actions for opt in action.option_strings}
+
+    # Assert
     assert "--backtest" not in action_flags
 
 
 def test_calibrate_flag_is_not_a_cli_option() -> None:
     """T013: no executable calibration CLI option (FR-014)."""
-    action_flags = {opt for action in create_parser()._actions for opt in action.option_strings}
+    # Arrange
+    parser = create_parser()
+
+    # Act
+    action_flags = {opt for action in parser._actions for opt in action.option_strings}
+
+    # Assert
     assert "--calibrate" not in action_flags
 
 
-def _research_wording_surfaces() -> list[str]:
+def _research_alert() -> FormattedAlert:
     trade = create_trade_event(size=Decimal("3250"), price=Decimal("1"))
     sig = SizeAnomalySignal(
         trade_event=trade,
@@ -616,7 +786,11 @@ def _research_wording_surfaces() -> list[str]:
         should_alert=True,
         delivery_disposition="delivered",
     )
-    alert = AlertFormatter(verbosity="detailed").format(assessment)
+    return AlertFormatter(verbosity="detailed").format(assessment)
+
+
+def _research_wording_surfaces() -> list[str]:
+    alert = _research_alert()
     return [
         alert.title,
         alert.body,
@@ -628,27 +802,13 @@ def _research_wording_surfaces() -> list[str]:
 
 def test_alert_title_is_the_suspicious_activity_title() -> None:
     """Research-only wording on the public title (SC-007)."""
-    trade = create_trade_event(size=Decimal("3250"), price=Decimal("1"))
-    sig = SizeAnomalySignal(
-        trade_event=trade,
-        market_metadata=stamped_volume_market(trade),
-        volume_impact=0.325,
-        book_impact=0.0,
-        is_niche_market=True,
-        confidence=0.75,
-        factors={"volume_impact": 0.5, "niche": 0.25},
-    )
-    assessment = RiskAssessment(
-        trade_event=trade,
-        wallet_address=trade.wallet_address,
-        market_id=trade.market_id,
-        size_anomaly_signal=sig,
-        signals_triggered=1,
-        weighted_score=0.450,
-        should_alert=True,
-        delivery_disposition="delivered",
-    )
-    title = AlertFormatter(verbosity="detailed").format(assessment).title
+    # Arrange
+    alert = _research_alert()
+
+    # Act
+    title = alert.title
+
+    # Assert
     assert "Suspicious Activity Detected" in title
 
 
@@ -694,7 +854,12 @@ def _implementation_validation_citations() -> list[str]:
 
 def test_implementation_validation_pins_64_test_citations() -> None:
     # Pinned to the 64 citations in implementation-validation.md; update with that document.
-    assert len(_implementation_validation_citations()) == 64
+    # Arrange
+    # Act
+    actual = len(_implementation_validation_citations())
+
+    # Assert
+    assert actual == 64
 
 
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:

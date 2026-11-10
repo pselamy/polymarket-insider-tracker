@@ -324,7 +324,7 @@ def _expected_replay_fact(row: dict[str, str], fact: str) -> object:
 
 
 async def _replay_observed(spec: dict[str, JsonValue]) -> dict[str, object]:
-    """One evaluation of a replay case; the observation asserts nothing."""
+    """One evaluation of a replay case. The observation adds no asserts; its input guards (corpus shape in `_build_replay_source`, `_case_stamp`, `_case_stored`) are the only assertions reachable from it."""
     case_id = str(spec["case_id"])
     trade = _build_replay_trade(case_id, Decimal(str(spec["notional"])))
     source = _build_replay_source(spec, trade.market_id)

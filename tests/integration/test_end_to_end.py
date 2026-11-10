@@ -112,7 +112,7 @@ UNREACHABLE_DATABASE_URL = "postgresql+psycopg://tracker@127.0.0.1:1/unreachable
 
 @dataclass(frozen=True)
 class DryRunObservation:
-    """What one dry-run journey exposes to its checks; the journey itself asserts nothing."""
+    """What one dry-run journey exposes to its checks. The journey adds no check of its own; `_get_ready_until_200` asserts a readiness precondition (200) before it observes."""
 
     trades_processed: int
     alerts_sent: int

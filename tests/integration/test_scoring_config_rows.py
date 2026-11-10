@@ -465,17 +465,14 @@ async def _compat_observation(tmp_path: Path) -> dict[str, object]:
         "keys_003_kept_in_004": set(raw_003).issubset(raw_004),
         "weights_003_equal_004": raw_004["weights"] == raw_003["weights"],
         "threshold_003_equal_004": raw_004["alert_threshold"] == raw_003["alert_threshold"],
-        "legacy_confidence_volume_book": (
-            leg.fresh_wallet_confidence,
-            leg.volume_impact,
-            leg.book_impact,
-        ),
-        "row_003_confidence_volume_book": (
-            r003.fresh_wallet_confidence,
-            r003.volume_impact,
-            r003.book_impact,
-        ),
-        "row_004_confidence_book": (r004.fresh_wallet_confidence, r004.book_impact),
+        "legacy_confidence": leg.fresh_wallet_confidence,
+        "legacy_volume_impact": leg.volume_impact,
+        "legacy_book_impact": leg.book_impact,
+        "row_003_confidence": r003.fresh_wallet_confidence,
+        "row_003_volume_impact": r003.volume_impact,
+        "row_003_book_impact": r003.book_impact,
+        "row_004_confidence": r004.fresh_wallet_confidence,
+        "row_004_book_impact": r004.book_impact,
     }
 
 
@@ -487,9 +484,14 @@ COMPAT_EXPECTED: list[tuple[str, object]] = [
     ("keys_003_kept_in_004", True),
     ("weights_003_equal_004", True),
     ("threshold_003_equal_004", True),
-    ("legacy_confidence_volume_book", (Decimal("0.65"), Decimal("0.0300"), Decimal("0.0500"))),
-    ("row_003_confidence_volume_book", (Decimal("0.70"), Decimal("0.0400"), Decimal("0.0800"))),
-    ("row_004_confidence_book", (None, None)),
+    ("legacy_confidence", Decimal("0.65")),
+    ("legacy_volume_impact", Decimal("0.0300")),
+    ("legacy_book_impact", Decimal("0.0500")),
+    ("row_003_confidence", Decimal("0.70")),
+    ("row_003_volume_impact", Decimal("0.0400")),
+    ("row_003_book_impact", Decimal("0.0800")),
+    ("row_004_confidence", None),
+    ("row_004_book_impact", None),
 ]
 
 
