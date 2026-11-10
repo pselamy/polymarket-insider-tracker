@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import json
 from collections.abc import Callable
@@ -11,8 +12,9 @@ from pathlib import Path
 
 import pytest
 from fakeredis import FakeAsyncRedis
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from polymarket_insider_tracker.detector.evaluation import SizeEvaluation
 from polymarket_insider_tracker.detector.models import RiskAssessment, SizeAnomalySignal
 from polymarket_insider_tracker.detector.scorer import RiskScorer, SignalBundle
 from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
@@ -292,39 +294,33 @@ def _build_replay_source(spec: dict[str, JsonValue], market_id: str) -> FakeMeta
     return source
 
 
-def _assert_replay_evaluation(
-    size_eval: SizeEvaluation,
-    assessment: RiskAssessment,
-    row: dict[str, str],
-) -> None:
-    evidence = size_eval.volume
-    assert (
-        evidence.verdict.state.value,
-        evidence.verdict.reason,
-    ) == (row["volume_state"], row["volume_reason"])
-    if not row["size_confidence"]:
-        assert size_eval.signal is None
-        assert evidence.niche_basis == "none"
-        assert assessment.signals_triggered == 0
-        assert f"{assessment.weighted_score:.3f}" == row["score_pre_T027"]
-        return
-    assert size_eval.signal is not None
-    assert f"{size_eval.signal.confidence:.3f}" == row["size_confidence"]
-    assert assessment.signals_triggered == int(row["groups_pre_T027"])
-    assert f"{assessment.weighted_score:.3f}" == row["score_pre_T027"]
+REPLAY_FACTS = (
+    "volume_state",
+    "volume_reason",
+    "size_confidence",
+    "niche_basis",
+    "signals_triggered",
+    "weighted_score",
+)
 
 
-def test_the_replay_live_corpus_has_all_65_cases() -> None:
-    """SC-001 guard: the parametrized suite is only the full 65-case proof while the corpus is 65."""
-    assert len(REPLAY_CASES) == 65
-    assert len(REPLAY_EXPECTED) == 65
+def _expected_replay_fact(row: dict[str, str], fact: str) -> object:
+    """The expected value of one fact, read from the replay CSV row (the source of truth)."""
+    if fact == "size_confidence":
+        return row["size_confidence"] or None
+    if fact == "signals_triggered":
+        return int(row["groups_pre_T027"]) if row["size_confidence"] else 0
+    if fact == "weighted_score":
+        return row["score_pre_T027"]
+    if fact == "niche_basis" and row[fact] == "numeric-not-niche":
+        # The CSV labels an available, non-niche volume "numeric-not-niche"; data-model section 1
+        # defines the basis as "none" for such a volume (only a volume below $50,000 is numeric).
+        return "none"
+    return row[fact]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("spec", REPLAY_CASES, ids=[str(c["case_id"]) for c in REPLAY_CASES])
-async def test_every_replay_live_case_evaluates_and_scores_through_size_detector(
-    spec: dict[str, JsonValue],
-) -> None:
+async def _replay_observed(spec: dict[str, JsonValue]) -> dict[str, object]:
+    """One evaluation of a replay case; the observation asserts nothing."""
     case_id = str(spec["case_id"])
     trade = _build_replay_trade(case_id, Decimal(str(spec["notional"])))
     source = _build_replay_source(spec, trade.market_id)
@@ -336,7 +332,37 @@ async def test_every_replay_live_case_evaluates_and_scores_through_size_detector
     assessment = await RiskScorer(FakeAsyncRedis()).assess(
         SignalBundle(trade, None, size_eval.signal, None)
     )
-    _assert_replay_evaluation(size_eval, assessment, REPLAY_EXPECTED[case_id])
+    signal = size_eval.signal
+    return {
+        "volume_state": size_eval.volume.verdict.state.value,
+        "volume_reason": size_eval.volume.verdict.reason,
+        "size_confidence": None if signal is None else f"{signal.confidence:.3f}",
+        "niche_basis": size_eval.volume.niche_basis,
+        "signals_triggered": assessment.signals_triggered,
+        "weighted_score": f"{assessment.weighted_score:.3f}",
+    }
+
+
+def test_the_replay_live_corpus_has_all_65_cases() -> None:
+    """SC-001 guard: the parametrized suite is only the full 65-case proof while the corpus is 65."""
+    assert len(REPLAY_CASES) == 65
+    assert len(REPLAY_EXPECTED) == 65
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fact", REPLAY_FACTS)
+@pytest.mark.parametrize("spec", REPLAY_CASES, ids=[str(c["case_id"]) for c in REPLAY_CASES])
+async def test_every_replay_live_case_evaluates_and_scores_through_size_detector(
+    spec: dict[str, JsonValue], fact: str
+) -> None:
+    # Arrange
+    expected = _expected_replay_fact(REPLAY_EXPECTED[str(spec["case_id"])], fact)
+
+    # Act
+    observed = await _replay_observed(spec)
+
+    # Assert
+    assert observed[fact] == expected
 
 
 @pytest.mark.asyncio
@@ -348,28 +374,94 @@ async def test_every_replay_live_case_evaluates_and_scores_through_size_detector
 async def test_size_volume_threshold_boundary_override(
     size: Decimal, expected_signal: bool
 ) -> None:
-    trade = _build_replay_trade(f"bound_{size}", size)
+    # Arrange
+    detector = _boundary_detector(size)
+
+    # Act
+    size_eval = await detector.evaluate(_boundary_trade(size), evaluated_at=NOW)
+
+    # Assert
+    assert (size_eval.signal is not None) is expected_signal
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("size", "expected_signal"),
+    [(Decimal("500"), False), (Decimal("501"), True)],
+    ids=["boundary_500_strict_false", "boundary_501_strict_true"],
+)
+async def test_size_volume_threshold_boundary_impact(size: Decimal, expected_signal: bool) -> None:
+    # Arrange
+    detector = _boundary_detector(size)
+
+    # Act
+    size_eval = await detector.evaluate(_boundary_trade(size), evaluated_at=NOW)
+    measured = size_eval.signal.volume_impact_measured if size_eval.signal else None
+
+    # Assert
+    assert measured == (Decimal(f"{size / 10000:.4f}") if expected_signal else None)
+
+
+def _boundary_trade(size: Decimal) -> TradeEvent:
+    return _build_replay_trade(f"bound_{size}", size)
+
+
+def _boundary_detector(size: Decimal) -> SizeAnomalyDetector:
     source = FakeMetadataSync()
-    source.markets[trade.market_id] = MarketMetadata(
-        condition_id=trade.market_id,
+    source.markets[_boundary_trade(size).market_id] = MarketMetadata(
+        condition_id=_boundary_trade(size).market_id,
         question="Politics boundary question?",
         description="",
         tokens=(),
         category="politics",
         volume=VolumeObservation(True, "10000", NOW.isoformat(), GAMMA_SOURCE),
     )
-    detector = SizeAnomalyDetector(
+    return SizeAnomalyDetector(
         source,
         volume_threshold=0.05,
         niche_volume_threshold=Decimal("1000"),
         clock=lambda: NOW,
     )
-    size_eval = await detector.evaluate(trade, evaluated_at=NOW)
-    if expected_signal:
-        assert size_eval.signal is not None
-        assert size_eval.signal.volume_impact_measured == Decimal(f"{size / 10000:.4f}")
-    else:
-        assert size_eval.signal is None
+
+
+@settings(derandomize=True, max_examples=200, deadline=None)
+@given(size=st.integers(min_value=1, max_value=2000))
+def test_the_volume_impact_signal_is_emitted_only_strictly_above_the_threshold(size: int) -> None:
+    """Property: with volume 10,000 and a 5% threshold, a signal is emitted iff size > 500 (strict)."""
+    # Arrange
+    notional = Decimal(size)
+
+    # Act
+    size_eval = asyncio.run(
+        _boundary_detector(notional).evaluate(_boundary_trade(notional), evaluated_at=NOW)
+    )
+
+    # Assert
+    assert (size_eval.signal is not None) == (size > 500)
+
+
+async def _size_only_assessment(threshold: float) -> RiskAssessment:
+    source = FakeMetadataSync()
+    source.markets[TRADE.market_id] = _metadata(_observation())
+    size_eval = await SizeAnomalyDetector(source, clock=lambda: NOW).evaluate(
+        TRADE, evaluated_at=NOW
+    )
+    assert size_eval.signal is not None
+    return await RiskScorer(FakeAsyncRedis(), alert_threshold=threshold).assess(
+        SignalBundle(TRADE, None, size_eval.signal, None)
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_size_only_assessment_scores_0_45() -> None:
+    # Arrange
+    assessment = await _size_only_assessment(0.450)
+
+    # Act
+    score = assessment.weighted_score
+
+    # Assert
+    assert score == 0.45
 
 
 @pytest.mark.asyncio
@@ -381,14 +473,24 @@ async def test_size_volume_threshold_boundary_override(
 async def test_risk_scorer_alert_threshold_boundary_override(
     threshold: float, expected_alert: bool
 ) -> None:
-    source = FakeMetadataSync()
-    source.markets[TRADE.market_id] = _metadata(_observation())
-    size_eval = await SizeAnomalyDetector(source, clock=lambda: NOW).evaluate(
-        TRADE, evaluated_at=NOW
-    )
-    assert size_eval.signal is not None
+    # Arrange and Act
+    assessment = await _size_only_assessment(threshold)
 
-    bundle = SignalBundle(TRADE, None, size_eval.signal, None)
-    assessment = await RiskScorer(FakeAsyncRedis(), alert_threshold=threshold).assess(bundle)
-    assert assessment.weighted_score == 0.45
+    # Assert
     assert assessment.should_alert is expected_alert
+
+
+@settings(derandomize=True, max_examples=200, deadline=None)
+@given(thousandths=st.integers(min_value=400, max_value=500))
+def test_the_alert_threshold_is_inclusive_at_every_thousandth_near_the_score(
+    thousandths: int,
+) -> None:
+    """Property: a 0.450 score alerts iff the threshold is at most 0.450 (inclusive)."""
+    # Arrange
+    threshold = thousandths / 1000
+
+    # Act
+    assessment = asyncio.run(_size_only_assessment(threshold))
+
+    # Assert
+    assert assessment.should_alert is (thousandths <= 450)
