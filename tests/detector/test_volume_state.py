@@ -181,20 +181,33 @@ class TestFacts:
 
         assert _classify(observation).age_seconds == text
 
-    def test_a_future_stamp_keeps_its_timestamp_and_negative_age_in_every_state(self) -> None:
-        for raw in ("30000", None, "abc", 0):
-            verdict = _classify(_stored_at(raw, age=-5))
-            assert verdict.age_seconds == "-5"
-            assert verdict.acquired_at == "2026-10-19T12:00:05+00:00"
+    @pytest.mark.parametrize("raw", ["30000", None, "abc", 0])
+    def test_a_future_stamp_keeps_its_negative_age_in_every_state(self, raw: JsonValue) -> None:
+        assert _classify(_stored_at(raw, age=-5)).age_seconds == "-5"
 
-    def test_future_decides_the_state_only_for_a_usable_value(self) -> None:
+    @pytest.mark.parametrize("raw", ["30000", None, "abc", 0])
+    def test_a_future_stamp_keeps_its_timestamp_in_every_state(self, raw: JsonValue) -> None:
+        assert _classify(_stored_at(raw, age=-5)).acquired_at == "2026-10-19T12:00:05+00:00"
+
+    def test_a_future_stamp_with_no_usable_value_is_invalid_time(self) -> None:
         assert _classify(_stored_at(age=-5)).state is VolumeState.INVALID_TIME
+
+    def test_a_future_stamp_with_a_nonpositive_value_is_nonpositive(self) -> None:
         assert _classify(_stored_at(0, age=-5)).state is VolumeState.NONPOSITIVE
 
-    def test_unusable_stamps_store_neither_time_nor_age(self) -> None:
-        for stamp in NAMED_STAMPS.values():
-            verdict = _classify(VolumeObservation(True, "30000", stamp, GAMMA_SOURCE))
-            assert (verdict.acquired_at, verdict.age_seconds) == (None, None)
+    @pytest.mark.parametrize("stamp_name", list(NAMED_STAMPS))
+    def test_an_unusable_stamp_stores_no_acquisition_time(self, stamp_name: str) -> None:
+        verdict = _classify(
+            VolumeObservation(True, "30000", NAMED_STAMPS[stamp_name], GAMMA_SOURCE)
+        )
+        assert verdict.acquired_at is None
+
+    @pytest.mark.parametrize("stamp_name", list(NAMED_STAMPS))
+    def test_an_unusable_stamp_stores_no_age(self, stamp_name: str) -> None:
+        verdict = _classify(
+            VolumeObservation(True, "30000", NAMED_STAMPS[stamp_name], GAMMA_SOURCE)
+        )
+        assert verdict.age_seconds is None
 
     def test_the_evaluation_instant_is_normalised_to_utc(self) -> None:
         zone = timezone(timedelta(hours=-5))
@@ -345,12 +358,18 @@ class TestImpact:
     def test_a_ratio_above_28_digits_does_not_raise(self) -> None:
         assert volume_ratio(Decimal(10) ** 30, Decimal("0.000001")) == Decimal(10) ** 36
 
-    def test_impact_is_measured_only_when_available(self) -> None:
-        notional = Decimal("3250")
+    def test_impact_is_measured_when_available(self) -> None:
+        assert measured_impact(Decimal("3250"), _classify(_stored_at())) == Decimal("0.1083")
 
-        assert measured_impact(notional, _classify(_stored_at())) == Decimal("0.1083")
-        for observation in (None, _stored_at(age=9999), _stored_at(0), _stored_at("abc")):
-            assert measured_impact(notional, _classify(observation)) is None
+    @pytest.mark.parametrize(
+        "observation",
+        [None, _stored_at(age=9999), _stored_at(0), _stored_at("abc")],
+        ids=["absent", "stale", "nonpositive", "unparseable"],
+    )
+    def test_impact_is_not_measured_when_unavailable(
+        self, observation: VolumeObservation | None
+    ) -> None:
+        assert measured_impact(Decimal("3250"), _classify(observation)) is None
 
 
 class TestNicheBasis:
