@@ -304,19 +304,23 @@ REPLAY_FACTS = (
 )
 
 
+_NON_NICHE_CSV_LABEL = "numeric-not-niche"
+
+_REPLAY_FACT_EXPECTATIONS: dict[str, Callable[[dict[str, str]], object]] = {
+    "size_confidence": lambda row: row["size_confidence"] or None,
+    "signals_triggered": lambda row: int(row["groups_pre_T027"]) if row["size_confidence"] else 0,
+    "weighted_score": lambda row: row["score_pre_T027"],
+    # data-model section 1: an available, non-niche volume has basis "none" (numeric only below $50,000).
+    "niche_basis": lambda row: "none"
+    if row["niche_basis"] == _NON_NICHE_CSV_LABEL
+    else row["niche_basis"],
+}
+
+
 def _expected_replay_fact(row: dict[str, str], fact: str) -> object:
     """The expected value of one fact, read from the replay CSV row (the source of truth)."""
-    if fact == "size_confidence":
-        return row["size_confidence"] or None
-    if fact == "signals_triggered":
-        return int(row["groups_pre_T027"]) if row["size_confidence"] else 0
-    if fact == "weighted_score":
-        return row["score_pre_T027"]
-    if fact == "niche_basis" and row[fact] == "numeric-not-niche":
-        # The CSV labels an available, non-niche volume "numeric-not-niche"; data-model section 1
-        # defines the basis as "none" for such a volume (only a volume below $50,000 is numeric).
-        return "none"
-    return row[fact]
+    expectation = _REPLAY_FACT_EXPECTATIONS.get(fact)
+    return row[fact] if expectation is None else expectation(row)
 
 
 async def _replay_observed(spec: dict[str, JsonValue]) -> dict[str, object]:

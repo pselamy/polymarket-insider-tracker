@@ -15,7 +15,7 @@ import logging
 import re
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -118,11 +118,6 @@ def _ignore_state(_state: IngestionState) -> None:
     return None
 
 
-def _assert_signals_never_contain_prohibited(signals: Sequence[str]) -> None:
-    for prohibited in ("Fresh Wallet", "Sniper", "Funding"):
-        assert prohibited not in signals
-
-
 @dataclass(frozen=True)
 class CoreObservation:
     """What the operational-core scenarios produced; the helper asserts nothing."""
@@ -144,27 +139,24 @@ class CoreObservation:
     prohibited_triggered: list[str]
 
 
-async def _observe_core() -> CoreObservation:
-    bundle_fields = tuple(f.name for f in dataclasses.fields(SignalBundle))
-    assessment_names = [f.name for f in dataclasses.fields(RiskAssessment)]
-    trade = create_trade_event(size=Decimal("3250"), price=Decimal("1"))
+async def _book_depth_views(
+    trade: TradeEvent, now: datetime
+) -> tuple[list[object], list[Mapping[str, object]], list[object]]:
+    """Book impact, evidence document and persisted record with and without book depth."""
     metadata = FakeMetadataSync()
     metadata.fallback = stamped_volume_market(trade, volume="10000")
     detector = SizeAnomalyDetector(metadata)
-    now = datetime.now(UTC)
-    eval_with_book = await detector.evaluate(trade, evaluated_at=now, book_depth=Decimal("50000"))
-    eval_no_book = await detector.evaluate(trade, evaluated_at=now)
-
-    documents: list[dict[str, object]] = []
+    eval_with = await detector.evaluate(trade, evaluated_at=now, book_depth=Decimal("50000"))
+    eval_without = await detector.evaluate(trade, evaluated_at=now)
+    measured: list[object] = []
+    documents: list[Mapping[str, object]] = []
     dto_impacts: list[object] = []
-    book_measured: list[object] = []
-    for evaluation in (eval_with_book, eval_no_book):
-        book_measured.append(
-            evaluation.signal.book_impact_measured if evaluation.signal else "signal"
-        )
+    for evaluation in (eval_with, eval_without):
+        measured.append(evaluation.signal.book_impact_measured if evaluation.signal else "signal")
         evidence = TradeEvidence(now, default_detector_config(), size=evaluation)
-        bundle = SignalBundle(trade, None, evaluation.signal, evidence)
-        assessment = await RiskScorer(FakeAsyncRedis()).assess(bundle)
+        assessment = await RiskScorer(FakeAsyncRedis()).assess(
+            SignalBundle(trade, None, evaluation.signal, evidence)
+        )
         doc = compose_document(assessment, assessment.scoring_config or "{}", evidence)
         size_doc = doc.evaluation_evidence.get("size") if doc.evaluation_evidence else None
         documents.append(size_doc if isinstance(size_doc, dict) else {})
@@ -172,7 +164,13 @@ async def _observe_core() -> CoreObservation:
             assessment, alert_threshold=0.8, detector_config=default_detector_config()
         )
         dto_impacts.append(dto.book_impact)
+    return measured, documents, dto_impacts
 
+
+async def _trigger_views(
+    trade: TradeEvent, now: datetime
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Triggered signal names for an empty bundle, a large non-niche trade and a niche trade."""
     empty = await RiskScorer(FakeAsyncRedis()).assess(SignalBundle(trade, None, None, None))
     non_niche_trade = create_trade_event(size=Decimal("5000"), price=Decimal("1"))
     meta_large = FakeMetadataSync()
@@ -181,8 +179,11 @@ async def _observe_core() -> CoreObservation:
     large = await RiskScorer(FakeAsyncRedis()).assess(
         SignalBundle(non_niche_trade, None, eval_large.signal, None)
     )
+    meta_niche = FakeMetadataSync()
+    meta_niche.fallback = stamped_volume_market(trade, volume="10000")
+    eval_niche = await SizeAnomalyDetector(meta_niche).evaluate(trade, evaluated_at=now)
     niche = await RiskScorer(FakeAsyncRedis()).assess(
-        SignalBundle(trade, None, eval_no_book.signal, None)
+        SignalBundle(trade, None, eval_niche.signal, None)
     )
     prohibited = [
         name
@@ -190,6 +191,21 @@ async def _observe_core() -> CoreObservation:
         for name in get_triggered_signals(assessed)
         if name in ("Fresh Wallet", "Sniper", "Funding")
     ]
+    return (
+        get_triggered_signals(empty),
+        get_triggered_signals(large),
+        get_triggered_signals(niche),
+        prohibited,
+    )
+
+
+async def _observe_core() -> CoreObservation:
+    bundle_fields = tuple(f.name for f in dataclasses.fields(SignalBundle))
+    assessment_names = [f.name for f in dataclasses.fields(RiskAssessment)]
+    trade = create_trade_event(size=Decimal("3250"), price=Decimal("1"))
+    now = datetime.now(UTC)
+    measured, documents, dto_impacts = await _book_depth_views(trade, now)
+    empty_t, large_t, niche_t, prohibited = await _trigger_views(trade, now)
     return CoreObservation(
         bundle_fields=bundle_fields,
         assessment_sniper_or_funding_fields=[
@@ -199,16 +215,16 @@ async def _observe_core() -> CoreObservation:
         ],
         weight_keys=set(DEFAULT_WEIGHTS.keys()),
         group_status=DEFAULT_WALLET_GROUP_STATUS,
-        book_measured_with_depth=book_measured[0],
-        book_measured_without_depth=book_measured[1],
+        book_measured_with_depth=measured[0],
+        book_measured_without_depth=measured[1],
         doc_book_state_with_depth=documents[0].get("book_state"),
         doc_book_state_without_depth=documents[1].get("book_state"),
         doc_book_impact_with_depth=documents[0].get("book_impact"),
         doc_book_impact_without_depth=documents[1].get("book_impact"),
         dto_book_impacts=dto_impacts,
-        empty_triggered=get_triggered_signals(empty),
-        large_triggered=get_triggered_signals(large),
-        niche_triggered=get_triggered_signals(niche),
+        empty_triggered=empty_t,
+        large_triggered=large_t,
+        niche_triggered=niche_t,
         prohibited_triggered=prohibited,
     )
 

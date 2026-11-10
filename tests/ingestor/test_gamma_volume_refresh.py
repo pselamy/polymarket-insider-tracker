@@ -177,12 +177,12 @@ class ClockedSlowClob(FakeClobClient):
     def __init__(self, markets: list[Market], clock: ManualClock, seconds: float) -> None:
         super().__init__(markets)
         self.calls = 0
-        self._clock = clock
+        self._sim_clock = clock
         self._seconds = seconds
 
     def get_markets(self, active_only: bool = True) -> list[Market]:
         self.calls += 1
-        self._clock.advance(self._seconds)
+        self._sim_clock.advance(self._seconds)
         return super().get_markets(active_only)
 
 
@@ -191,7 +191,7 @@ class ClockedGamma(FakeGammaClient):
 
     def __init__(self, clock: ManualClock) -> None:
         super().__init__({CID: volume_stats(acquired_at=clock.now())})
-        self._clock = clock
+        self._sim_clock = clock
         self.crawls = 0
         self._failing: Exception | None = None
 
@@ -202,7 +202,7 @@ class ClockedGamma(FakeGammaClient):
         self.crawls += 1
         if self._failing is not None:
             raise self._failing
-        now = self._clock.now()
+        now = self._sim_clock.now()
         return GammaCrawl(
             stats={CID: volume_stats(acquired_at=now)},
             pages_ok=1,
