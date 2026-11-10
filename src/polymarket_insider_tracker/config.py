@@ -8,6 +8,7 @@ environment variables at startup.
 from __future__ import annotations
 
 import logging
+import re
 import warnings
 from enum import StrEnum
 from functools import lru_cache
@@ -47,11 +48,37 @@ def _check_url_scheme(value: str, allowed_schemes: tuple[str, ...], name: str) -
     raise ValueError(f"{name} must be an HTTP(S) endpoint")
 
 
+_NESTED_SCHEME = re.compile(r"(?<![A-Za-z0-9.+-])(?:https?|wss?):", re.IGNORECASE)
+# The message keeps its host-component wording: the config check classifies it by this text.
+_NESTED_SCHEME_MESSAGE = "contains a malformed nested scheme in its host component"
+
+
 def _check_nested_schemes(netloc: str, name: str) -> None:
+    """Reject an http(s)/ws(s) scheme in the host component, in any letter case.
+
+    Never echo the supplied URL: it may carry credentials (userinfo or query).
+    """
+    lowered = netloc.lower()
     for s in ("http:", "https:", "ws:", "wss:"):
-        if s in netloc:
-            # Never echo the supplied URL: it may carry credentials (userinfo or query).
-            raise ValueError(f"{name} contains a malformed nested scheme in its host component")
+        if s in lowered:
+            raise ValueError(f"{name} {_NESTED_SCHEME_MESSAGE}")
+
+
+def _check_websocket_path_schemes(value: str, name: str) -> None:
+    """Reject a nested scheme anywhere after the leading ``scheme://`` of a WebSocket URL.
+
+    Stricter than the shared check on purpose: an HTTP(S) proxy URL may legitimately nest a
+    scheme in its path, but a WebSocket endpoint never does (issue #93).
+    """
+    _, _, remainder = value.partition("://")
+    if _NESTED_SCHEME.search(remainder):
+        raise ValueError(f"{name} {_NESTED_SCHEME_MESSAGE}")
+
+
+def _check_no_fragment(value: str, name: str) -> None:
+    """Reject a fragment marker: websockets refuses such a URL only at connect time."""
+    if "#" in value:
+        raise ValueError(f"{name} must not contain a fragment")
 
 
 def _check_port(value: str, name: str) -> None:
@@ -99,8 +126,14 @@ def _validate_http_url(value: str) -> str:
 
 
 def _validate_websocket_url(value: str) -> str:
-    """Validate WebSocket URL format."""
-    return _check_url_components(value, ("ws", "wss"), "WebSocket URL")
+    """Validate WebSocket URL format, failing closed on fragments and nested schemes (issue #93)."""
+    _check_url_components(value, ("ws", "wss"), "WebSocket URL")
+    _check_no_fragment(value, "WebSocket URL")
+    _check_websocket_path_schemes(value, "WebSocket URL")
+    return value
+
+
+validate_websocket_url = _validate_websocket_url
 
 
 def _validate_webhook_url_secret(value: SecretStr) -> SecretStr:

@@ -18,9 +18,10 @@ from typing import Protocol
 from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
+from polymarket_insider_tracker.config import validate_websocket_url
 from polymarket_insider_tracker.ingestor.models import TradeEvent
 from polymarket_insider_tracker.ingestor.volume_observation import JsonValue
-from polymarket_insider_tracker.redaction import redact_exception_message
+from polymarket_insider_tracker.redaction import redact_exception_message, redact_url
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class TradeStreamHandler:
         )
         self._on_trade = on_trade
         self._on_state_change = on_state_change
-        self._host = host
+        self._host = validate_websocket_url(host)
         self._ping_interval = ping_interval
         self._max_reconnect_delay = max_reconnect_delay
         self._initial_reconnect_delay = initial_reconnect_delay
@@ -205,18 +206,27 @@ class TradeStreamHandler:
             subscribe_msg = self._build_subscription_message()
             await ws.send(json.dumps(subscribe_msg))
 
-            logger.info("Connected to %s and subscribed to trades", self._host)
+            logger.info("Connected to %s and subscribed to trades", redact_url(self._host))
             await self._set_state(ConnectionState.CONNECTED)
             self._stats.connected_since = time.time()
 
             return ws
 
         except Exception as e:
-            logger.error("Failed to connect: %s", redact_exception_message(e))
-            self._stats.last_error = redact_exception_message(e)
-            raise ConnectionError(
-                f"Failed to connect to {self._host}: {redact_exception_message(e)}"
-            ) from e
+            failure = self._connection_failure(e)
+        raise failure
+
+    def _connection_failure(self, exc: Exception) -> ConnectionError:
+        """Log and record a failed connect, and build the error the caller raises.
+
+        The raw exception is deliberately not chained (no ``from``): its message can carry the
+        host credential, so the error keeps only the redacted rendering. Raising it outside the
+        ``except`` block leaves ``__context__`` empty as well.
+        """
+        reason = redact_exception_message(exc)
+        logger.error("Failed to connect: %s", reason)
+        self._stats.last_error = reason
+        return ConnectionError(f"Failed to connect to {redact_url(self._host)}: {reason}")
 
     async def _emit_trade(self, trade: TradeEvent) -> None:
         self._stats.trades_received += 1
