@@ -94,7 +94,8 @@ def _rendered_fixture() -> str:
 
 def _readme_sample() -> str:
     text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    return SAMPLE_BLOCK.search(text).group(1)
+    match = SAMPLE_BLOCK.search(text)
+    return "" if match is None else match.group(1)
 
 
 def test_readme_sample_alert_is_the_formatter_output() -> None:
