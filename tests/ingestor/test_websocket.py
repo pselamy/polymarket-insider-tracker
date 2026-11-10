@@ -496,11 +496,10 @@ class TestIssue93WebsocketValidationAndConnectionFailure:
         with pytest.raises(ValueError, match="must start with ws:// or wss://"):
             TradeStreamHandler(on_trade=recorder, host="https://data-api.polymarket.com")
 
-    @pytest.mark.asyncio
-    async def test_reproduce_issue_93_connection_failure_with_fake_feed(
+    async def _dns_failure(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Reproduce issue #93 getaddrinfo failure with a fake feed."""
+    ) -> tuple[WsConnectionError, TradeStreamHandler]:
+        """Run a getaddrinfo failure through a fake feed; return the raised error and handler."""
 
         async def fake_failing_connect(
             _host: str, ping_interval: int = 30, ping_timeout: int = 60
@@ -518,13 +517,73 @@ class TestIssue93WebsocketValidationAndConnectionFailure:
         with caplog.at_level(logging.ERROR), pytest.raises(WsConnectionError) as exc_info:
             await handler.start()
 
-        assert "Failed to connect" in str(exc_info.value)
-        assert "getaddrinfo failed" in str(exc_info.value)
+        return exc_info.value, handler
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_error_names_the_connection_failure(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Reproduce issue #93 getaddrinfo failure: the error names the connection failure."""
+        error, _ = await self._dns_failure(monkeypatch, caplog)
+
+        assert "Failed to connect" in str(error)
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_error_carries_the_os_reason(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The raised error carries the operating-system reason."""
+        error, _ = await self._dns_failure(monkeypatch, caplog)
+
+        assert "getaddrinfo failed" in str(error)
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_error_log_names_the_connection_failure(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The error log line names the connection failure."""
+        await self._dns_failure(monkeypatch, caplog)
+
         assert "Failed to connect:" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_error_log_carries_the_os_reason(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The error log line carries the operating-system reason."""
+        await self._dns_failure(monkeypatch, caplog)
+
         assert "getaddrinfo failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_handler_is_disconnected_after_the_failure(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """After the failure the handler is disconnected."""
+        _, handler = await self._dns_failure(monkeypatch, caplog)
+
         assert handler.state == ConnectionState.DISCONNECTED
-        assert handler.stats.last_error is not None
-        assert "getaddrinfo failed" in handler.stats.last_error
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_last_error_carries_the_os_reason(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The handler's last_error records the operating-system reason."""
+        _, handler = await self._dns_failure(monkeypatch, caplog)
+
+        assert "getaddrinfo failed" in (handler.stats.last_error or "")
+
+    @pytest.mark.asyncio
+    async def test_reproduce_issue_93_error_does_not_chain_the_raw_failure(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Negative control: the raised error must not chain the raw OSError as its cause.
+
+        Fails on 940432d8, where the error is raised ``from e``.
+        """
+        error, _ = await self._dns_failure(monkeypatch, caplog)
+
+        assert error.__cause__ is None
 
     @pytest.mark.asyncio
     async def test_connection_error_redacts_credentials_in_host(

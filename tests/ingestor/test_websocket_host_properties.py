@@ -18,7 +18,6 @@ from websockets.exceptions import InvalidURI
 
 from polymarket_insider_tracker.config import validate_websocket_url
 from polymarket_insider_tracker.ingestor import websocket as ws_module
-from polymarket_insider_tracker.ingestor.websocket import ConnectionError as WsConnectionError
 from polymarket_insider_tracker.ingestor.websocket import StreamConnection, TradeStreamHandler
 
 settings.register_profile(
@@ -34,13 +33,13 @@ NESTED_SCHEME_NAMES = ("http:", "https:", "ws:", "wss:")
 FRAGMENT_ALPHABET = string.ascii_letters + string.digits + "-._~!$&'()*+,;=:@/?"
 
 
-def _rejection(url: str) -> str | None:
-    """The validator's rejection message for ``url``, or ``None`` when it is accepted."""
+def _rejection(url: str) -> str:
+    """The validator's rejection message for ``url``, or ``""`` when it is accepted."""
     try:
         validate_websocket_url(url)
     except ValueError as exc:
         return str(exc)
-    return None
+    return ""
 
 
 def _case_variant(token: str) -> st.SearchStrategy[str]:
@@ -73,10 +72,10 @@ def test_a_nested_scheme_is_rejected_in_any_case_at_any_depth_and_position(
     )
 
     # Act
-    error = _rejection(url)
+    message = _rejection(url)
 
     # Assert
-    assert error is not None and "nested scheme" in error
+    assert "nested scheme" in message
 
 
 @pytest.mark.parametrize(
@@ -89,14 +88,11 @@ def test_a_nested_scheme_is_rejected_in_any_case_at_any_depth_and_position(
     ids=["lower", "upper", "mixed"],
 )
 def test_the_issue_93_shape_is_rejected_in_every_case_variant(url: str) -> None:
-    # Arrange
-    # (the URL is the parameter)
-
     # Act
-    error = _rejection(url)
+    message = _rejection(url)
 
     # Assert
-    assert error is not None and "nested scheme" in error
+    assert "nested scheme" in message
 
 
 @given(fragment=st.text(alphabet=FRAGMENT_ALPHABET, min_size=0, max_size=20))
@@ -105,10 +101,10 @@ def test_a_fragment_is_rejected_at_initialization(fragment: str) -> None:
     url = f"wss://data-api.polymarket.com/ws#{fragment}"
 
     # Act
-    error = _rejection(url)
+    message = _rejection(url)
 
     # Assert
-    assert error is not None and "fragment" in error
+    assert "fragment" in message
 
 
 HOST_LABEL = st.from_regex(r"[a-z][a-z0-9]{0,11}", fullmatch=True)
@@ -127,10 +123,10 @@ def test_a_websocket_host_without_a_nested_scheme_is_accepted(
     url = f"wss://{authority}/ws"
 
     # Act
-    error = _rejection(url)
+    message = _rejection(url)
 
     # Assert
-    assert error is None
+    assert message == ""
 
 
 SECRET = st.from_regex(r"PW[A-Za-z0-9]{8,20}", fullmatch=True)
@@ -173,28 +169,3 @@ def _start_and_capture(handler: TradeStreamHandler) -> BaseException:
         raise AssertionError("start() unexpectedly succeeded")
 
     return asyncio.run(_run())
-
-
-@pytest.mark.asyncio
-async def test_a_connection_failure_does_not_chain_the_raw_exception(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # Arrange
-    async def unresolvable(
-        _uri: str, ping_interval: int = 30, ping_timeout: int = 60
-    ) -> StreamConnection:
-        _ = (ping_interval, ping_timeout)
-        raise OSError(11001, "getaddrinfo failed")
-
-    async def _on_trade(_trade: object) -> None:
-        return None
-
-    monkeypatch.setattr(ws_module, "ws_connect", unresolvable)
-    handler = TradeStreamHandler(on_trade=_on_trade, host="wss://ws-live-data.polymarket.com")
-
-    # Act
-    with pytest.raises(WsConnectionError) as exc_info:
-        await handler.start()
-
-    # Assert
-    assert exc_info.value.__cause__ is None
