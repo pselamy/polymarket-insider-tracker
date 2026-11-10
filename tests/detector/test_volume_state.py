@@ -10,6 +10,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
 
 from polymarket_insider_tracker.detector.volume_state import (
     VolumeState,
@@ -361,8 +363,68 @@ class TestNicheBasis:
     def test_numeric_below_the_threshold(self) -> None:
         assert self._basis(_stored_at("49999.99"), "politics", "metadata") == "numeric"
 
-    def test_available_at_or_above_the_threshold_is_not_niche_whatever_the_category(self) -> None:
-        assert self._basis(_stored_at("50000"), "science", "metadata") == "none"
+    def test_just_below_the_threshold_is_numeric_niche(self) -> None:
+        # Arrange
+        observation = _stored_at("49999.99999999999999999999")
+
+        # Act
+        basis = self._basis(observation, "politics", "metadata")
+
+        # Assert
+        assert basis == "numeric"
+
+    def test_exactly_the_threshold_is_not_niche(self) -> None:
+        # Arrange
+        observation = _stored_at("50000")
+
+        # Act
+        basis = self._basis(observation, "politics", "metadata")
+
+        # Assert
+        assert basis == "none"
+
+    def test_just_above_the_threshold_is_not_niche(self) -> None:
+        # Arrange
+        observation = _stored_at("50000.00000000000000000001")
+
+        # Act
+        basis = self._basis(observation, "politics", "metadata")
+
+        # Assert
+        assert basis == "none"
+
+    def test_available_at_the_threshold_is_not_niche_whatever_the_category(self) -> None:
+        # Arrange
+        observation = _stored_at("50000")
+
+        # Act
+        basis = self._basis(observation, "science", "metadata")
+
+        # Assert
+        assert basis == "none"
+
+    @settings(derandomize=True, max_examples=200, deadline=None)
+    @example(Decimal("50000"))
+    @given(
+        st.decimals(
+            min_value=Decimal("49999"),
+            max_value=Decimal("50001"),
+            places=20,
+            allow_nan=False,
+            allow_infinity=False,
+        )
+    )
+    def test_the_numeric_niche_is_exactly_the_strictly_below_the_threshold(
+        self, volume: Decimal
+    ) -> None:
+        # Arrange
+        observation = _stored_at(format(volume, "f"))
+
+        # Act
+        is_numeric = self._basis(observation, "politics", "metadata") == "numeric"
+
+        # Assert
+        assert is_numeric == (volume < Decimal("50000"))
 
     @pytest.mark.parametrize("category", ["science", "tech", "finance", "other"])
     def test_category_basis_when_no_value_was_observed(self, category: str) -> None:
