@@ -310,46 +310,91 @@ async def steady_state(fake_redis: FakeAsyncRedis) -> SteadyStateRun:
 async def test_slow_clob_steady_state_sample_is_available_every_cycle(
     steady_state: SteadyStateRun,
 ) -> None:
-    assert steady_state.positive_states == ["available"] * CYCLES
+    # Arrange
+    # Act
+    actual = steady_state.positive_states
+
+    # Assert
+    assert actual == ["available"] * CYCLES
 
 
 async def test_slow_clob_ages_each_sample_by_the_clob_crawl_duration(
     steady_state: SteadyStateRun,
 ) -> None:
-    assert steady_state.positive_ages == [str(CLOB_CRAWL_SECONDS)] * CYCLES
+    # Arrange
+    # Act
+    actual = steady_state.positive_ages
+
+    # Assert
+    assert actual == [str(CLOB_CRAWL_SECONDS)] * CYCLES
 
 
 async def test_slow_clob_steady_state_measures_the_impact_every_cycle(
     steady_state: SteadyStateRun,
 ) -> None:
-    assert steady_state.positive_measured == [True] * CYCLES
+    # Arrange
+    # Act
+    actual = steady_state.positive_measured
+
+    # Assert
+    assert actual == [True] * CYCLES
 
 
 async def test_slow_clob_is_crawled_once_per_cycle_and_once_degraded(
     steady_state: SteadyStateRun,
 ) -> None:
-    assert steady_state.clob_calls == CYCLES + 1
+    # Arrange
+    # Act
+    actual = steady_state.clob_calls
+
+    # Assert
+    assert actual == CYCLES + 1
 
 
 async def test_gamma_is_crawled_once_per_cycle_and_once_degraded(
     steady_state: SteadyStateRun,
 ) -> None:
-    assert steady_state.gamma_crawls == CYCLES + 1
+    # Arrange
+    # Act
+    actual = steady_state.gamma_crawls
+
+    # Assert
+    assert actual == CYCLES + 1
 
 
 async def test_degraded_gamma_leaves_the_volume_stale(steady_state: SteadyStateRun) -> None:
-    assert steady_state.negative_state == "stale"
+    # Arrange
+    # Act
+    actual = steady_state.negative_state
+
+    # Assert
+    assert actual == "stale"
 
 
 async def test_degraded_gamma_gives_the_older_than_600s_reason(
     steady_state: SteadyStateRun,
 ) -> None:
-    assert steady_state.negative_reason == "older_than_600s"
+    # Arrange
+    # Act
+    actual = steady_state.negative_reason
+
+    # Assert
+    assert actual == "older_than_600s"
 
 
 async def test_degraded_gamma_measures_no_volume_impact(steady_state: SteadyStateRun) -> None:
-    assert steady_state.negative_impact is None
+    # Arrange
+    # Act
+    actual = steady_state.negative_impact
+
+    # Assert
+    assert actual is None
 
 
 async def test_degraded_gamma_emits_no_signal(steady_state: SteadyStateRun) -> None:
-    assert steady_state.negative_signal_absent is True
+    # Arrange
+    # Act
+    actual = steady_state.negative_signal_absent
+
+    # Assert
+    assert actual is True

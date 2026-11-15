@@ -113,9 +113,19 @@ Named files, entry points, dependency order:
   *Layer 4 receipt (partial, stays unticked)*: (4) real-Redis TTL/expiry now runs in the services profile
   (`test_a_real_redis_volume_record_reads_available_then_stale_then_expires`, re-exported by
   `test_redis_contract.py`): product TTL 600 < ttl <= 1200, `available` at 30 s, `stale` at 601 s, then
-  `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock run of (1) is still not
-  written: the CLOB sync and Gamma refresh loops sleep on the event loop, not  *P6 receipt (corrected)*: `test_slow_clob_steady_state_*` and `test_degraded_gamma_*` in `tests/ingestor/test_gamma_volume_refresh.py` drive `refresh_once()` and `force_sync()` by hand on a `ManualClock`. Each sample is evaluated 204 s after its Gamma stamp (the CLOB crawl), so the 600 s rule is exercised. They do NOT run the real CLOB and Gamma loops, so the decoupling in item (1) remains open.
-itation is withdrawn.
+  `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock loop run of (1) is still
+  not written: the deterministic manual-clock suite in `tests/ingestor/test_gamma_volume_refresh.py`
+  (`test_slow_clob_steady_state_sample_is_available_every_cycle`,
+  `test_slow_clob_ages_each_sample_by_the_clob_crawl_duration`,
+  `test_slow_clob_steady_state_measures_the_impact_every_cycle`,
+  `test_slow_clob_is_crawled_once_per_cycle_and_once_degraded`,
+  `test_gamma_is_crawled_once_per_cycle_and_once_degraded`,
+  `test_degraded_gamma_leaves_the_volume_stale`,
+  `test_degraded_gamma_gives_the_older_than_600s_reason`,
+  `test_degraded_gamma_measures_no_volume_impact`,
+  `test_degraded_gamma_emits_no_signal`) drives `refresh_once()` and `force_sync()` by hand on a `ManualClock`. Each
+  sample is evaluated 204 s after its Gamma stamp (the CLOB crawl), so the 600 s rule is exercised with 0 flakes under
+  load, without running the real sleeping CLOB and Gamma loops; item (1) decoupling stays open.
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 

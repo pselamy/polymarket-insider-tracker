@@ -624,7 +624,12 @@ async def funding(
 async def test_each_funding_pipeline_delivers_one_alert(
     funding: FundingObservation, pipeline: int
 ) -> None:
-    assert funding.delivery_counts[pipeline] == 1
+    # Arrange
+    # Act
+    actual = funding.delivery_counts[pipeline]
+
+    # Assert
+    assert actual == 1
 
 
 @pytest.mark.parametrize("pipeline", [0, 1], ids=FUNDING_PIPELINE_IDS)
@@ -828,12 +833,18 @@ def test_alert_title_is_the_suspicious_activity_title() -> None:
 
 def test_no_public_surface_uses_a_prohibited_term() -> None:
     """Research-only wording: no prohibited term on any rendered surface (SC-007)."""
+    # Arrange
+    surfaces = _research_wording_surfaces()
+
+    # Act
     matches = [
         (term, index)
-        for index, surface in enumerate(_research_wording_surfaces())
+        for index, surface in enumerate(surfaces)
         for term in PROHIBITED_TERMS
         if term in surface.lower()
     ]
+
+    # Assert
     assert matches == []
 
 
@@ -877,5 +888,11 @@ def test_implementation_validation_pins_its_test_citation_count() -> None:
 
 
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:
-    missing = set(_implementation_validation_citations()) - _collected_test_nodes()
+    # Arrange
+    cited = set(_implementation_validation_citations())
+
+    # Act
+    missing = cited - _collected_test_nodes()
+
+    # Assert
     assert sorted(missing) == []
