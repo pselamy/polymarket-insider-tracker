@@ -150,10 +150,10 @@ migration); this packet is not reduced to a CI or planning-only goal.
 
 ### Automated Suite Results
 
-Recorded at code head `33a759a` (tree `b5ff52a`), after the M1 batch (README fence, niche boundary, tuple splits, F1 steady-state ordering, F5 named preconditions, control-flow asserts removed). This receipt commit is docs-only and follows that code head. The per-directory counts below are superseded by step 1.
+Recorded at code head `e41ff86` (tree `82a5b35`), after helper complexity extraction (`complexipy <= 5`), AAA markers, and T012d receipt cleanup on `pair/polymarket-p7-gap-register-004`. This receipt commit is docs-only and follows that code head. The per-directory counts below are superseded by step 1.
 
 1. **Full suite with coverage** (`uv run --locked --all-extras coverage run -m pytest tests --ignore=tests/tooling -q -p no:cacheprovider`):
-   - Result: **4,876 passed, 21 skipped**, exit `0`; coverage report at 100% (8,764 statements, 1,642 branches).
+   - Result: **4,880 passed, 17 skipped**, exit `0`; coverage report at 100% (8,764 statements, 1,642 branches).
 2. **Integration & Journey Suites** (`tests/integration/`), included in step 1; the end-to-end journeys were split into one-claim cases in this batch (33 tests in `tests/integration/test_end_to_end.py`).
    - Command: `uv run pytest tests/integration/test_end_to_end.py tests/integration/test_scoring_config_rows.py -q`
 3. **Spec 004 Evidence Verification Checks**:
