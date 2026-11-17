@@ -109,9 +109,10 @@ async def _poll_ready(
 async def _get_ready_until_200(
     session: aiohttp.ClientSession, port: int, *, timeout: float = 5.0
 ) -> dict[str, Any]:
-    """The final /ready body once it answers 200; the readiness precondition is asserted here."""
+    """The final /ready body once it answers 200; raises TimeoutError if readiness never reaches 200."""
     status, body = await _poll_ready(session, port, timeout)
-    assert status == 200, body
+    if status != 200:
+        raise TimeoutError(f"/ready status {status}: {body}")
     return body
 
 
@@ -120,7 +121,7 @@ UNREACHABLE_DATABASE_URL = "postgresql+psycopg://tracker@127.0.0.1:1/unreachable
 
 @dataclass(frozen=True)
 class DryRunObservation:
-    """What one dry-run journey exposes to its checks. The journey adds no check of its own; `_get_ready_until_200` asserts a readiness precondition (200) before it observes."""
+    """What one dry-run journey exposes to its checks. `_get_ready_until_200` enforces readiness (200) before observing."""
 
     trades_processed: int
     alerts_sent: int

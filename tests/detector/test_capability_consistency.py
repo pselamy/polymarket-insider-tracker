@@ -493,6 +493,13 @@ class FixedClockPipeline(WiredPipeline):
         self._clock = clock
 
 
+def _wired_clock_pipeline(pipeline: Pipeline) -> tuple[FixedClockPipeline, PipelineComponents]:
+    """Narrow pipeline and components without assert statements."""
+    if not isinstance(pipeline, FixedClockPipeline) or pipeline.components is None:
+        raise RuntimeError("expected FixedClockPipeline with installed components")
+    return pipeline, pipeline.components
+
+
 async def _run_funding_pipeline(
     tracer: FundingTracer,
     trade: TradeEvent,
@@ -503,7 +510,7 @@ async def _run_funding_pipeline(
     fixed_instant: datetime,
 ) -> tuple[Pipeline, list[FormattedAlert]]:
     settings = make_test_settings(alert_threshold=0.4)
-    pipeline = await wire_pipeline(
+    raw_pipeline = await wire_pipeline(
         settings,
         redis=redis,
         eth=FakeEth(transaction_count=0),
@@ -512,10 +519,9 @@ async def _run_funding_pipeline(
         channels=[channel],
         pipeline_type=FixedClockPipeline,
     )
-    assert isinstance(pipeline, FixedClockPipeline)
+    pipeline, components = _wired_clock_pipeline(raw_pipeline)
     pipeline.set_clock(lambda: fixed_instant)
-    assert pipeline.components is not None
-    pipeline.install_components(dataclasses.replace(pipeline.components, funding_tracer=tracer))
+    pipeline.install_components(dataclasses.replace(components, funding_tracer=tracer))
     await pipeline.process_trade(trade)
     return pipeline, list(channel.deliveries)
 
@@ -529,7 +535,7 @@ UNDELIVERED_ALERT = FormattedAlert(
 
 @dataclass(frozen=True)
 class FundingObservation:
-    """What the two funding pipelines produced. The record asserts nothing; the one-delivery precondition is the named fact `delivery_counts`. The only asserts reached are setup type narrowing in the pipeline wiring."""
+    """What the two funding pipelines produced. The record asserts nothing; the one-delivery precondition is the named fact `delivery_counts`."""
 
     errors: tuple[int, int]
     delivery_counts: tuple[int, int]

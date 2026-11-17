@@ -62,17 +62,17 @@ def _merge_case(defaults: dict[str, JsonValue], case: dict[str, JsonValue]) -> d
     return merged
 
 
-def _corpus() -> list[dict[str, JsonValue]]:
+def replay_corpus() -> list[dict[str, JsonValue]]:
     corpus = json.loads((EVIDENCE / "cases.json").read_text())
     return [_merge_case(corpus["defaults"], case) for case in corpus["cases"]]
 
 
-def _expected() -> dict[str, dict[str, str]]:
+def replay_expected() -> dict[str, dict[str, str]]:
     with (EVIDENCE / "results.csv").open() as handle:
         return {row["case_id"]: row for row in csv.DictReader(handle)}
 
 
-def _raw(spec: dict[str, JsonValue]) -> JsonValue:
+def replay_raw(spec: dict[str, JsonValue]) -> JsonValue:
     raw_spec = spec.get("raw_spec")
     if not isinstance(raw_spec, dict):
         return spec.get("raw")
@@ -80,7 +80,7 @@ def _raw(spec: dict[str, JsonValue]) -> JsonValue:
     return RAW_BUILDERS[kind](str(argument))
 
 
-def _stamp(age: JsonValue) -> str | None:
+def replay_stamp(age: JsonValue) -> str | None:
     if isinstance(age, str):
         return NAMED_STAMPS[age]
     assert isinstance(age, int | float) and not isinstance(age, bool)
@@ -88,7 +88,7 @@ def _stamp(age: JsonValue) -> str | None:
     return (EVALUATED_AT - timedelta(microseconds=microseconds)).isoformat()
 
 
-def _stored(observation: VolumeObservation) -> VolumeObservation:
+def replay_stored(observation: VolumeObservation) -> VolumeObservation:
     """The observation as the live path reads it: through the bounded Redis record."""
     restored = VolumeObservation.from_record(json.loads(json.dumps(observation.to_record())))
     assert restored is not None
@@ -104,11 +104,11 @@ def _classify_case(spec: dict[str, JsonValue]) -> tuple[VolumeVerdict, str]:
     observation = None
     if not unavailable:
         source = observed.get("source")
-        observation = _stored(
+        observation = replay_stored(
             VolumeObservation(
                 bool(observed.get("present", True)),
-                _raw(observed),
-                _stamp(observed.get("acquired_age_seconds")),
+                replay_raw(observed),
+                replay_stamp(observed.get("acquired_age_seconds")),
                 source if isinstance(source, str) else None,
             )
         )
@@ -123,17 +123,17 @@ def _classify_case(spec: dict[str, JsonValue]) -> tuple[VolumeVerdict, str]:
     return verdict, category_source
 
 
-CASES = _corpus()
+CASES = replay_corpus()
 
 
 def test_the_replay_corpus_is_the_whole_table() -> None:
-    assert len(CASES) == len(_expected()) == 65
-    assert {v.value for v in VolumeState} == {r["volume_state"] for r in _expected().values()}
+    assert len(CASES) == len(replay_expected()) == 65
+    assert {v.value for v in VolumeState} == {r["volume_state"] for r in replay_expected().values()}
 
 
 @pytest.mark.parametrize("spec", CASES, ids=[str(case["case_id"]) for case in CASES])
 def test_every_replay_case_classifies_as_the_evidence_expects(spec: dict[str, JsonValue]) -> None:
-    row = _expected()[str(spec["case_id"])]
+    row = replay_expected()[str(spec["case_id"])]
     verdict, category_source = _classify_case(spec)
 
     basis = niche_basis(verdict, str(spec["category"]), category_source)
@@ -338,8 +338,8 @@ class TestMagnitudeBound:
         assert verdict.daily_volume == Decimal("12345.678901234567")
 
     def test_a_truncated_numeric_string_is_out_of_range_but_text_is_not_a_number(self) -> None:
-        numeric = _stored(_stored_at("1" + "0" * 299))
-        text = _stored(_stored_at("x" * 300))
+        numeric = replay_stored(_stored_at("1" + "0" * 299))
+        text = replay_stored(_stored_at("x" * 300))
 
         assert _classify(numeric).reason == "out_of_range"
         assert _classify(text).reason == "not_a_finite_number"

@@ -91,13 +91,25 @@ async def ttl(fake_redis: FakeAsyncRedis) -> dict[str, object]:
 async def test_failed_crawl_keeps_prior_observation_available_until_600s_then_stale(
     staleness: dict[str, object], fact: str
 ) -> None:
+    # Arrange
     expected = dict(STALENESS_EXPECTED)[fact]
-    assert staleness[fact] == expected
+
+    # Act
+    actual = staleness[fact]
+
+    # Assert
+    assert actual == expected
 
 
 @pytest.mark.parametrize("fact", [name for name, _ in TTL_EXPECTED])
 async def test_a_failed_crawl_does_not_extend_the_record_ttl(
     ttl: dict[str, object], fact: str
 ) -> None:
+    # Arrange
     expected = dict(TTL_EXPECTED)[fact]
-    assert ttl[fact] == expected
+
+    # Act
+    actual = ttl[fact]
+
+    # Assert
+    assert actual == expected

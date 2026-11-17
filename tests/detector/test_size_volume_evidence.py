@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import csv
-import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 from fakeredis import FakeAsyncRedis
@@ -26,6 +23,13 @@ from polymarket_insider_tracker.ingestor.volume_observation import (
     VolumeObservation,
 )
 from tests.closeness import is_close
+from tests.detector.test_volume_state import (
+    replay_corpus,
+    replay_expected,
+    replay_raw,
+    replay_stamp,
+    replay_stored,
+)
 from tests.fakes.metadata import FakeMetadataSync
 
 NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
@@ -91,7 +95,8 @@ async def _signal(
     clock: CountingClock | None = None,
 ) -> SizeAnomalySignal:
     signal = await _detect(metadata, daily_volume=daily_volume, clock=clock)
-    assert signal is not None
+    if signal is None:
+        raise RuntimeError("expected size signal")
     return signal
 
 
@@ -174,76 +179,14 @@ async def test_the_clock_is_read_once_per_analyzed_trade() -> None:
     assert clock.reads == 1
 
 
-EVIDENCE = (
-    Path(__file__).resolve().parents[2]
-    / "specs"
-    / "004-truthful-detection-contract"
-    / "evidence"
-    / "replay-live"
-)
-NAMED_STAMPS: dict[str, str | None] = {
-    "absent": None,
-    "naive": "2026-10-19T11:59:30",
-    "unparseable": "yesterday",
-    "nonpositive_epoch": "1970-01-01T00:00:00+00:00",
-}
-RAW_BUILDERS: dict[str, Callable[[str], JsonValue]] = {
-    "float": float,
-    "nested_float": lambda text: [float(text)],
-    "repeat_string": lambda text: "x" * int(text),
-    "big_int_digits": lambda text: int("9" * int(text)),
-}
+REPLAY_CASES = replay_corpus()
+REPLAY_EXPECTED = replay_expected()
 
 
-def _merge_case(defaults: dict[str, JsonValue], case: dict[str, JsonValue]) -> dict[str, JsonValue]:
-    merged = {**defaults, **{k: v for k, v in case.items() if k != "observation"}}
-    observed = case.get("observation", {})
-    assert isinstance(observed, dict)
-    default_obs = defaults["observation"]
-    assert isinstance(default_obs, dict)
-    base = {} if observed.get("kind") == "unavailable" else default_obs
-    merged["observation"] = {**base, **observed}
-    return merged
-
-
-def _replay_corpus() -> list[dict[str, JsonValue]]:
-    data: dict[str, JsonValue] = json.loads((EVIDENCE / "cases.json").read_text())
-    defaults = data["defaults"]
-    assert isinstance(defaults, dict)
-    raw_cases = data["cases"]
-    assert isinstance(raw_cases, list)
-    return [_merge_case(defaults, c) for c in raw_cases if isinstance(c, dict)]
-
-
-def _replay_expected() -> dict[str, dict[str, str]]:
-    with (EVIDENCE / "results.csv").open() as handle:
-        return {row["case_id"]: row for row in csv.DictReader(handle)}
-
-
-def _case_raw(spec: dict[str, JsonValue]) -> JsonValue:
-    raw_spec = spec.get("raw_spec")
-    if not isinstance(raw_spec, dict):
-        return spec.get("raw")
-    ((kind, argument),) = raw_spec.items()
-    return RAW_BUILDERS[kind](str(argument))
-
-
-def _case_stamp(age: JsonValue) -> str | None:
-    if isinstance(age, str):
-        return NAMED_STAMPS[age]
-    assert isinstance(age, int | float) and not isinstance(age, bool)
-    microseconds = int(Decimal(str(age)) * 1_000_000)
-    return (NOW - timedelta(microseconds=microseconds)).isoformat()
-
-
-def _case_stored(observation: VolumeObservation) -> VolumeObservation:
-    restored = VolumeObservation.from_record(json.loads(json.dumps(observation.to_record())))
-    assert restored is not None
-    return restored
-
-
-REPLAY_CASES = _replay_corpus()
-REPLAY_EXPECTED = _replay_expected()
+def _obs_dict(value: JsonValue) -> dict[str, JsonValue]:
+    if not isinstance(value, dict):
+        raise TypeError("expected observation mapping")
+    return value
 
 
 def _build_replay_trade(case_id: str, notional: Decimal) -> TradeEvent:
@@ -265,11 +208,11 @@ def _build_replay_observation(observed: dict[str, JsonValue]) -> VolumeObservati
     if observed.get("kind") == "unavailable":
         return None
     source_name = observed.get("source")
-    return _case_stored(
+    return replay_stored(
         VolumeObservation(
             bool(observed.get("present", True)),
-            _case_raw(observed),
-            _case_stamp(observed.get("acquired_age_seconds")),
+            replay_raw(observed),
+            replay_stamp(observed.get("acquired_age_seconds")),
             source_name if isinstance(source_name, str) else None,
         )
     )
@@ -279,8 +222,7 @@ def _build_replay_source(spec: dict[str, JsonValue], market_id: str) -> FakeMeta
     source = FakeMetadataSync()
     if spec.get("category_source") == "minimal":
         return source
-    observed = spec["observation"]
-    assert isinstance(observed, dict)
+    observed = _obs_dict(spec["observation"])
     reason = observed.get("reason")
     source.markets[market_id] = MarketMetadata(
         condition_id=market_id,
@@ -324,7 +266,7 @@ def _expected_replay_fact(row: dict[str, str], fact: str) -> object:
 
 
 async def _replay_observed(spec: dict[str, JsonValue]) -> dict[str, object]:
-    """One evaluation of a replay case. The observation adds no asserts; its input guards (corpus shape in `_build_replay_source`, `_case_stamp`, `_case_stored`) are the only assertions reachable from it."""
+    """One evaluation of a replay case; shared corpus helpers validate loaded fixture shapes."""
     case_id = str(spec["case_id"])
     trade = _build_replay_trade(case_id, Decimal(str(spec["notional"])))
     source = _build_replay_source(spec, trade.market_id)
@@ -349,12 +291,26 @@ async def _replay_observed(spec: dict[str, JsonValue]) -> dict[str, object]:
 
 def test_the_replay_live_corpus_has_65_cases() -> None:
     """SC-001 guard: the parametrized suite is only the full 65-case proof while the corpus is 65."""
-    assert len(REPLAY_CASES) == 65
+    # Arrange
+    cases = REPLAY_CASES
+
+    # Act
+    count = len(cases)
+
+    # Assert
+    assert count == 65
 
 
 def test_the_replay_live_expectations_have_65_rows() -> None:
     """SC-001 guard: every corpus case has exactly one recorded expectation row."""
-    assert len(REPLAY_EXPECTED) == 65
+    # Arrange
+    rows = REPLAY_EXPECTED
+
+    # Act
+    count = len(rows)
+
+    # Assert
+    assert count == 65
 
 
 @pytest.mark.asyncio
@@ -454,7 +410,6 @@ async def _size_only_assessment(threshold: float) -> RiskAssessment:
     size_eval = await SizeAnomalyDetector(source, clock=lambda: NOW).evaluate(
         TRADE, evaluated_at=NOW
     )
-    assert size_eval.signal is not None
     return await RiskScorer(FakeAsyncRedis(), alert_threshold=threshold).assess(
         SignalBundle(TRADE, None, size_eval.signal, None)
     )
@@ -481,8 +436,11 @@ async def test_the_size_only_assessment_scores_0_45() -> None:
 async def test_risk_scorer_alert_threshold_boundary_override(
     threshold: float, expected_alert: bool
 ) -> None:
-    # Arrange and Act
-    assessment = await _size_only_assessment(threshold)
+    # Arrange
+    target_threshold = threshold
+
+    # Act
+    assessment = await _size_only_assessment(target_threshold)
 
     # Assert
     assert assessment.should_alert is expected_alert

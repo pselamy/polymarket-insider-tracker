@@ -505,5 +505,11 @@ async def test_restart_and_legacy_003_004_row_compatibility_preserve_version_sem
     compat: dict[str, object], fact: str
 ) -> None:
     """SOL-001: restart and legacy/003/004 row compatibility preserve version semantics."""
+    # Arrange
     expected = dict(COMPAT_EXPECTED)[fact]
-    assert compat[fact] == expected
+
+    # Act
+    actual = compat[fact]
+
+    # Assert
+    assert actual == expected
