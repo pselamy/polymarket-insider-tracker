@@ -472,29 +472,6 @@ class TestNicheBasis:
         # Assert
         assert basis == "none"
 
-    @settings(derandomize=True, max_examples=200, deadline=None)
-    @example(Decimal("50000"))
-    @given(
-        st.decimals(
-            min_value=Decimal("49999"),
-            max_value=Decimal("50001"),
-            places=20,
-            allow_nan=False,
-            allow_infinity=False,
-        )
-    )
-    def test_the_numeric_niche_is_exactly_the_strictly_below_the_threshold(
-        self, volume: Decimal
-    ) -> None:
-        # Arrange
-        observation = _stored_at(format(volume, "f"))
-
-        # Act
-        is_numeric = self._basis(observation, "politics", "metadata") == "numeric"
-
-        # Assert
-        assert is_numeric == (volume < Decimal("50000"))
-
     @pytest.mark.parametrize("category", ["science", "tech", "finance", "other"])
     def test_category_basis_when_no_value_was_observed(self, category: str) -> None:
         missing = VolumeObservation(True, None, None, GAMMA_SOURCE)
@@ -523,6 +500,30 @@ class TestNicheBasis:
         self, observation: VolumeObservation
     ) -> None:
         assert self._basis(observation, "science", "metadata") == "none"
+
+
+@settings(derandomize=True, max_examples=200, deadline=None)
+@example(Decimal("50000"))
+@given(
+    st.decimals(
+        min_value=Decimal("49999"),
+        max_value=Decimal("50001"),
+        places=20,
+        allow_nan=False,
+        allow_infinity=False,
+    )
+)
+def test_the_numeric_niche_is_exactly_the_strictly_below_the_threshold(
+    volume: Decimal,
+) -> None:
+    # Arrange
+    observation = _stored_at(format(volume, "f"))
+
+    # Act
+    is_numeric = niche_basis(_classify(observation), "politics", "metadata") == "numeric"
+
+    # Assert
+    assert is_numeric == (volume < Decimal("50000"))
 
 
 def test_a_non_finite_explicit_value_is_not_a_number() -> None:
