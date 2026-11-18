@@ -150,7 +150,7 @@ migration); this packet is not reduced to a CI or planning-only goal.
 
 ### Automated Suite Results
 
-Recorded at code head `e41ff86` (tree `82a5b35`), after helper complexity extraction (`complexipy <= 5`), AAA markers, and T012d receipt cleanup on `pair/polymarket-p7-gap-register-004`. This receipt commit is docs-only and follows that code head. The per-directory counts below are superseded by step 1.
+Recorded at code head `4243369` (tree `3f75d8d`), after making the volume-niche Hypothesis property executor-stateless for `mutmut` and adding its AST regression ratchet on `pair/polymarket-p7-gap-register-004`. This receipt commit is docs-only and follows that code head. The per-directory counts below are superseded by step 1.
 
 1. **Full suite with coverage** (`uv run --locked --all-extras coverage run -m pytest tests --ignore=tests/tooling -q -p no:cacheprovider`):
    - Result: **4,880 passed, 17 skipped**, exit `0`; coverage report at 100% (8,764 statements, 1,642 branches).
