@@ -11,10 +11,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from fakeredis import FakeAsyncRedis
 from markdown_it import MarkdownIt
 
 from polymarket_insider_tracker.alerter.formatter import AlertFormatter
 from polymarket_insider_tracker.detector.models import RiskAssessment, SizeAnomalySignal
+from polymarket_insider_tracker.detector.scorer import RiskScorer
 from polymarket_insider_tracker.detector.volume_state import (
     SizeVolumeEvidence,
     VolumeState,
@@ -80,6 +82,7 @@ def _fixture_assessment() -> RiskAssessment:
         volume_evidence=evidence,
         volume_impact_measured=Decimal("0.3250"),
     )
+    scorer = RiskScorer(FakeAsyncRedis(), alert_threshold=0.4)
     return RiskAssessment(
         trade_event=trade,
         wallet_address=trade.wallet_address,
@@ -89,6 +92,7 @@ def _fixture_assessment() -> RiskAssessment:
         signals_triggered=1,
         weighted_score=0.45,
         should_alert=True,
+        scoring_config=scorer.scoring_config,
     )
 
 

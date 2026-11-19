@@ -9,6 +9,10 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Literal
 
+from polymarket_insider_tracker.alerter._threshold_display import (
+    effective_threshold_text,
+    score_with_threshold,
+)
 from polymarket_insider_tracker.alerter._volume_comparison import (
     format_discord_volume_field,
     format_volume_comparison_line,
@@ -161,13 +165,13 @@ class AlertFormatter:
             return (
                 f"Wallet {wallet_short} made a {trade.side} trade "
                 f"({format_usdc(trade.notional_value)}) with risk score "
-                f"{assessment.weighted_score:.2f} ({risk_level})"
+                f"{score_with_threshold(assessment, risk_level)}"
             )
 
         # Detailed body
         lines = [
             f"Wallet: {wallet_short}",
-            f"Risk Score: {assessment.weighted_score:.2f} ({risk_level})",
+            f"Risk Score: {score_with_threshold(assessment, risk_level)}",
             f"Trade: {trade.side} {trade.outcome} @ ${trade.price:.3f}",
             f"Size: {format_usdc(trade.notional_value)}",
         ]
@@ -231,7 +235,7 @@ class AlertFormatter:
             },
             {
                 "name": "Risk Score",
-                "value": f"{assessment.weighted_score:.2f} ({risk_level})",
+                "value": score_with_threshold(assessment, risk_level),
                 "inline": True,
             },
             self._build_discord_market_field(trade, links),
@@ -297,6 +301,7 @@ class AlertFormatter:
             self._format_wallet_age_str(assessment.fresh_wallet_signal)
         )
         score_str = self._escape_telegram_markdown(f"{assessment.weighted_score:.2f}")
+        threshold_str = self._escape_telegram_markdown(effective_threshold_text(assessment))
         usdc_value = self._escape_telegram_markdown(format_usdc(trade.notional_value))
         price_str = self._escape_telegram_markdown(f"{trade.price:.3f}")
         side_escaped = self._escape_telegram_markdown(trade.side)
@@ -306,7 +311,7 @@ class AlertFormatter:
             "🚨 *Suspicious Activity Detected*",
             "",
             f"*Wallet:* `{wallet_short}`{wallet_suffix}",
-            f"*Risk Score:* {score_str} \\({risk_level}\\)",
+            f"*Risk Score:* {score_str} \\({risk_level}\\); alert threshold {threshold_str}",
             self._build_telegram_market_line(trade, links),
             f"*Trade:* {side_escaped} {outcome_escaped} @ \\${price_str} \\| {usdc_value}",
         ]
@@ -376,7 +381,7 @@ class AlertFormatter:
             "=" * 30,
             "",
             f"Wallet: {wallet_short}{age_str}",
-            f"Risk Score: {assessment.weighted_score:.2f} ({risk_level})",
+            f"Risk Score: {score_with_threshold(assessment, risk_level)}",
             f"Market: {market_title}",
             f"Trade: {trade.side} {trade.outcome} @ ${trade.price:.3f} | {format_usdc(trade.notional_value)}",
         ]

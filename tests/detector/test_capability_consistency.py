@@ -884,13 +884,13 @@ def _implementation_validation_citations() -> list[str]:
 
 
 def test_implementation_validation_pins_its_test_citation_count() -> None:
-    # Pinned to the 63 citations in implementation-validation.md; update with that document.
+    # Pinned to the 66 citations in implementation-validation.md; update with that document.
     # Arrange
     # Act
     actual = len(_implementation_validation_citations())
 
     # Assert
-    assert actual == 63
+    assert actual == 66
 
 
 def test_implementation_validation_cited_test_nodes_exist_in_pytest_collection() -> None:

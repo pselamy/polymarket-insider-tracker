@@ -203,7 +203,7 @@ SUSPICIOUS ACTIVITY DETECTED
 ==============================
 
 Wallet: 0x7a3c...f91d
-Risk Score: 0.45 (LOW)
+Risk Score: 0.45 (LOW); alert threshold 0.400
 Market: Will X announce Y by March 2026?
 Trade: BUY Yes @ $0.650 | $3,250.00
 Size vs 24h volume: 32.50% of $10,000
