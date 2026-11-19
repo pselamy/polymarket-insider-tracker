@@ -75,7 +75,8 @@ class WalletAnalyzer:
         Args:
             polygon_client: Chain reader (normally a PolygonClient) for blockchain queries.
             redis: Optional Redis client for caching profiles.
-            fresh_threshold: Maximum nonce to be considered fresh.
+            fresh_threshold: Exclusive nonce boundary: a wallet is fresh only when its nonce is
+                below this value (nonce >= fresh_threshold is not fresh).
             cache_ttl_seconds: How long to cache analysis results.
             usdc_address: USDC token contract address on Polygon.
         """
@@ -85,6 +86,11 @@ class WalletAnalyzer:
         self._cache_ttl = cache_ttl_seconds
         self._usdc_address = usdc_address
         self._cache_prefix = "wallet_profile:"
+
+    @property
+    def fresh_threshold(self) -> int:
+        """The exclusive nonce boundary: a wallet is fresh only when its nonce is below this value."""
+        return self._fresh_threshold
 
     def _cache_key(self, address: str) -> str:
         """Generate cache key for wallet profile."""

@@ -93,18 +93,27 @@ async def _await_readiness(
         await asyncio.sleep(0.01)
 
 
-async def _get_ready_until_200(
-    session: aiohttp.ClientSession, port: int, *, timeout: float = 5.0
-) -> dict[str, Any]:
-    """Poll GET /ready until it answers 200 (bounded), returning the final body."""
+async def _poll_ready(
+    session: aiohttp.ClientSession, port: int, timeout: float
+) -> tuple[int, dict[str, Any]]:
+    """Poll GET /ready until it answers 200 or the bound passes; return the last status and body."""
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         async with session.get(f"http://127.0.0.1:{port}/ready") as resp:
             body: dict[str, Any] = await resp.json()
             if resp.status == 200 or asyncio.get_running_loop().time() >= deadline:
-                assert resp.status == 200, body
-                return body
+                return resp.status, body
         await asyncio.sleep(0.01)
+
+
+async def _get_ready_until_200(
+    session: aiohttp.ClientSession, port: int, *, timeout: float = 5.0
+) -> dict[str, Any]:
+    """The final /ready body once it answers 200; raises TimeoutError if readiness never reaches 200."""
+    status, body = await _poll_ready(session, port, timeout)
+    if status != 200:
+        raise TimeoutError(f"/ready status {status}: {body}")
+    return body
 
 
 UNREACHABLE_DATABASE_URL = "postgresql+psycopg://tracker@127.0.0.1:1/unreachable"
@@ -112,7 +121,7 @@ UNREACHABLE_DATABASE_URL = "postgresql+psycopg://tracker@127.0.0.1:1/unreachable
 
 @dataclass(frozen=True)
 class DryRunObservation:
-    """What one dry-run journey exposes to its checks; the journey itself asserts nothing."""
+    """What one dry-run journey exposes to its checks. `_get_ready_until_200` enforces readiness (200) before observing."""
 
     trades_processed: int
     alerts_sent: int

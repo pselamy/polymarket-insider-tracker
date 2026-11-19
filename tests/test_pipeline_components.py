@@ -18,6 +18,7 @@ from polymarket_insider_tracker.pipeline_components import (
     build_components,
     ping_redis,
 )
+from polymarket_insider_tracker.profiler.analyzer import WalletAnalyzer
 from polymarket_insider_tracker.storage.database import DatabaseManager
 from tests.closeness import is_close
 from tests.fakes.pipeline import make_test_settings
@@ -269,3 +270,17 @@ async def test_ping_redis_awaits_an_awaitable_reply() -> None:
 async def test_ping_redis_rejects_a_reply_that_cannot_be_awaited() -> None:
     with pytest.raises(TypeError, match="not awaitable"):
         await ping_redis(_SyncPing())
+
+
+async def test_build_components_wires_the_wallet_analyzer_fresh_threshold(
+    wired_components: PipelineComponents,
+) -> None:
+    # Arrange
+    fresh_det = cast(FreshWalletDetector, wired_components.fresh_wallet_detector)
+
+    # Act
+    analyzer = cast(WalletAnalyzer, fresh_det.wallet_analyzer)
+    threshold = analyzer.fresh_threshold
+
+    # Assert
+    assert threshold == 7

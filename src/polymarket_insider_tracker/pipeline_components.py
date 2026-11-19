@@ -184,7 +184,11 @@ def _assemble(
     metadata_sync = MarketMetadataSync(redis=redis, clob_client=clob_client)
 
     logger.debug("Initializing wallet analyzer...")
-    wallet_analyzer = WalletAnalyzer(polygon_client, redis=redis)
+    wallet_analyzer = WalletAnalyzer(
+        polygon_client,
+        redis=redis,
+        fresh_threshold=settings.detector.fresh_transaction_boundary,
+    )
 
     logger.debug("Initializing funding tracer...")
     funding_tracer = FundingTracer(polygon_client)

@@ -10,6 +10,8 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from hypothesis import example, given, settings
+from hypothesis import strategies as st
 
 from polymarket_insider_tracker.detector.volume_state import (
     VolumeState,
@@ -60,17 +62,17 @@ def _merge_case(defaults: dict[str, JsonValue], case: dict[str, JsonValue]) -> d
     return merged
 
 
-def _corpus() -> list[dict[str, JsonValue]]:
+def replay_corpus() -> list[dict[str, JsonValue]]:
     corpus = json.loads((EVIDENCE / "cases.json").read_text())
     return [_merge_case(corpus["defaults"], case) for case in corpus["cases"]]
 
 
-def _expected() -> dict[str, dict[str, str]]:
+def replay_expected() -> dict[str, dict[str, str]]:
     with (EVIDENCE / "results.csv").open() as handle:
         return {row["case_id"]: row for row in csv.DictReader(handle)}
 
 
-def _raw(spec: dict[str, JsonValue]) -> JsonValue:
+def replay_raw(spec: dict[str, JsonValue]) -> JsonValue:
     raw_spec = spec.get("raw_spec")
     if not isinstance(raw_spec, dict):
         return spec.get("raw")
@@ -78,7 +80,7 @@ def _raw(spec: dict[str, JsonValue]) -> JsonValue:
     return RAW_BUILDERS[kind](str(argument))
 
 
-def _stamp(age: JsonValue) -> str | None:
+def replay_stamp(age: JsonValue) -> str | None:
     if isinstance(age, str):
         return NAMED_STAMPS[age]
     assert isinstance(age, int | float) and not isinstance(age, bool)
@@ -86,7 +88,7 @@ def _stamp(age: JsonValue) -> str | None:
     return (EVALUATED_AT - timedelta(microseconds=microseconds)).isoformat()
 
 
-def _stored(observation: VolumeObservation) -> VolumeObservation:
+def replay_stored(observation: VolumeObservation) -> VolumeObservation:
     """The observation as the live path reads it: through the bounded Redis record."""
     restored = VolumeObservation.from_record(json.loads(json.dumps(observation.to_record())))
     assert restored is not None
@@ -102,11 +104,11 @@ def _classify_case(spec: dict[str, JsonValue]) -> tuple[VolumeVerdict, str]:
     observation = None
     if not unavailable:
         source = observed.get("source")
-        observation = _stored(
+        observation = replay_stored(
             VolumeObservation(
                 bool(observed.get("present", True)),
-                _raw(observed),
-                _stamp(observed.get("acquired_age_seconds")),
+                replay_raw(observed),
+                replay_stamp(observed.get("acquired_age_seconds")),
                 source if isinstance(source, str) else None,
             )
         )
@@ -121,17 +123,17 @@ def _classify_case(spec: dict[str, JsonValue]) -> tuple[VolumeVerdict, str]:
     return verdict, category_source
 
 
-CASES = _corpus()
+CASES = replay_corpus()
 
 
 def test_the_replay_corpus_is_the_whole_table() -> None:
-    assert len(CASES) == len(_expected()) == 65
-    assert {v.value for v in VolumeState} == {r["volume_state"] for r in _expected().values()}
+    assert len(CASES) == len(replay_expected()) == 65
+    assert {v.value for v in VolumeState} == {r["volume_state"] for r in replay_expected().values()}
 
 
 @pytest.mark.parametrize("spec", CASES, ids=[str(case["case_id"]) for case in CASES])
 def test_every_replay_case_classifies_as_the_evidence_expects(spec: dict[str, JsonValue]) -> None:
-    row = _expected()[str(spec["case_id"])]
+    row = replay_expected()[str(spec["case_id"])]
     verdict, category_source = _classify_case(spec)
 
     basis = niche_basis(verdict, str(spec["category"]), category_source)
@@ -179,20 +181,69 @@ class TestFacts:
 
         assert _classify(observation).age_seconds == text
 
-    def test_a_future_stamp_keeps_its_timestamp_and_negative_age_in_every_state(self) -> None:
-        for raw in ("30000", None, "abc", 0):
-            verdict = _classify(_stored_at(raw, age=-5))
-            assert verdict.age_seconds == "-5"
-            assert verdict.acquired_at == "2026-10-19T12:00:05+00:00"
+    @pytest.mark.parametrize("raw", ["30000", None, "abc", 0])
+    def test_a_future_stamp_keeps_its_negative_age_in_every_state(self, raw: JsonValue) -> None:
+        # Arrange
+        observation = _stored_at(raw, age=-5)
 
-    def test_future_decides_the_state_only_for_a_usable_value(self) -> None:
-        assert _classify(_stored_at(age=-5)).state is VolumeState.INVALID_TIME
-        assert _classify(_stored_at(0, age=-5)).state is VolumeState.NONPOSITIVE
+        # Act
+        age = _classify(observation).age_seconds
 
-    def test_unusable_stamps_store_neither_time_nor_age(self) -> None:
-        for stamp in NAMED_STAMPS.values():
-            verdict = _classify(VolumeObservation(True, "30000", stamp, GAMMA_SOURCE))
-            assert (verdict.acquired_at, verdict.age_seconds) == (None, None)
+        # Assert
+        assert age == "-5"
+
+    @pytest.mark.parametrize("raw", ["30000", None, "abc", 0])
+    def test_a_future_stamp_keeps_its_timestamp_in_every_state(self, raw: JsonValue) -> None:
+        # Arrange
+        observation = _stored_at(raw, age=-5)
+
+        # Act
+        acquired_at = _classify(observation).acquired_at
+
+        # Assert
+        assert acquired_at == "2026-10-19T12:00:05+00:00"
+
+    def test_a_future_stamp_with_no_usable_value_is_invalid_time(self) -> None:
+        # Arrange
+        observation = _stored_at(age=-5)
+
+        # Act
+        state = _classify(observation).state
+
+        # Assert
+        assert state is VolumeState.INVALID_TIME
+
+    def test_a_future_stamp_with_a_nonpositive_value_is_nonpositive(self) -> None:
+        # Arrange
+        observation = _stored_at(0, age=-5)
+
+        # Act
+        state = _classify(observation).state
+
+        # Assert
+        assert state is VolumeState.NONPOSITIVE
+
+    @pytest.mark.parametrize("stamp_name", list(NAMED_STAMPS))
+    def test_an_unusable_stamp_stores_no_acquisition_time(self, stamp_name: str) -> None:
+        # Arrange
+        observation = VolumeObservation(True, "30000", NAMED_STAMPS[stamp_name], GAMMA_SOURCE)
+
+        # Act
+        verdict = _classify(observation)
+
+        # Assert
+        assert verdict.acquired_at is None
+
+    @pytest.mark.parametrize("stamp_name", list(NAMED_STAMPS))
+    def test_an_unusable_stamp_stores_no_age(self, stamp_name: str) -> None:
+        # Arrange
+        observation = VolumeObservation(True, "30000", NAMED_STAMPS[stamp_name], GAMMA_SOURCE)
+
+        # Act
+        verdict = _classify(observation)
+
+        # Assert
+        assert verdict.age_seconds is None
 
     def test_the_evaluation_instant_is_normalised_to_utc(self) -> None:
         zone = timezone(timedelta(hours=-5))
@@ -287,8 +338,8 @@ class TestMagnitudeBound:
         assert verdict.daily_volume == Decimal("12345.678901234567")
 
     def test_a_truncated_numeric_string_is_out_of_range_but_text_is_not_a_number(self) -> None:
-        numeric = _stored(_stored_at("1" + "0" * 299))
-        text = _stored(_stored_at("x" * 300))
+        numeric = replay_stored(_stored_at("1" + "0" * 299))
+        text = replay_stored(_stored_at("x" * 300))
 
         assert _classify(numeric).reason == "out_of_range"
         assert _classify(text).reason == "not_a_finite_number"
@@ -343,12 +394,32 @@ class TestImpact:
     def test_a_ratio_above_28_digits_does_not_raise(self) -> None:
         assert volume_ratio(Decimal(10) ** 30, Decimal("0.000001")) == Decimal(10) ** 36
 
-    def test_impact_is_measured_only_when_available(self) -> None:
-        notional = Decimal("3250")
+    def test_impact_is_measured_when_available(self) -> None:
+        # Arrange
+        verdict = _classify(_stored_at())
 
-        assert measured_impact(notional, _classify(_stored_at())) == Decimal("0.1083")
-        for observation in (None, _stored_at(age=9999), _stored_at(0), _stored_at("abc")):
-            assert measured_impact(notional, _classify(observation)) is None
+        # Act
+        impact = measured_impact(Decimal("3250"), verdict)
+
+        # Assert
+        assert impact == Decimal("0.1083")
+
+    @pytest.mark.parametrize(
+        "observation",
+        [None, _stored_at(age=9999), _stored_at(0), _stored_at("abc")],
+        ids=["absent", "stale", "nonpositive", "unparseable"],
+    )
+    def test_impact_is_not_measured_when_unavailable(
+        self, observation: VolumeObservation | None
+    ) -> None:
+        # Arrange
+        verdict = _classify(observation)
+
+        # Act
+        impact = measured_impact(Decimal("3250"), verdict)
+
+        # Assert
+        assert impact is None
 
 
 class TestNicheBasis:
@@ -361,8 +432,45 @@ class TestNicheBasis:
     def test_numeric_below_the_threshold(self) -> None:
         assert self._basis(_stored_at("49999.99"), "politics", "metadata") == "numeric"
 
-    def test_available_at_or_above_the_threshold_is_not_niche_whatever_the_category(self) -> None:
-        assert self._basis(_stored_at("50000"), "science", "metadata") == "none"
+    def test_just_below_the_threshold_is_numeric_niche(self) -> None:
+        # Arrange
+        observation = _stored_at("49999.99999999999999999999")
+
+        # Act
+        basis = self._basis(observation, "politics", "metadata")
+
+        # Assert
+        assert basis == "numeric"
+
+    def test_exactly_the_threshold_is_not_niche(self) -> None:
+        # Arrange
+        observation = _stored_at("50000")
+
+        # Act
+        basis = self._basis(observation, "politics", "metadata")
+
+        # Assert
+        assert basis == "none"
+
+    def test_just_above_the_threshold_is_not_niche(self) -> None:
+        # Arrange
+        observation = _stored_at("50000.00000000000000000001")
+
+        # Act
+        basis = self._basis(observation, "politics", "metadata")
+
+        # Assert
+        assert basis == "none"
+
+    def test_available_at_the_threshold_is_not_niche_whatever_the_category(self) -> None:
+        # Arrange
+        observation = _stored_at("50000")
+
+        # Act
+        basis = self._basis(observation, "science", "metadata")
+
+        # Assert
+        assert basis == "none"
 
     @pytest.mark.parametrize("category", ["science", "tech", "finance", "other"])
     def test_category_basis_when_no_value_was_observed(self, category: str) -> None:
@@ -392,6 +500,30 @@ class TestNicheBasis:
         self, observation: VolumeObservation
     ) -> None:
         assert self._basis(observation, "science", "metadata") == "none"
+
+
+@settings(derandomize=True, max_examples=200, deadline=None)
+@example(Decimal("50000"))
+@given(
+    st.decimals(
+        min_value=Decimal("49999"),
+        max_value=Decimal("50001"),
+        places=20,
+        allow_nan=False,
+        allow_infinity=False,
+    )
+)
+def test_the_numeric_niche_is_exactly_the_strictly_below_the_threshold(
+    volume: Decimal,
+) -> None:
+    # Arrange
+    observation = _stored_at(format(volume, "f"))
+
+    # Act
+    is_numeric = niche_basis(_classify(observation), "politics", "metadata") == "numeric"
+
+    # Assert
+    assert is_numeric == (volume < Decimal("50000"))
 
 
 def test_a_non_finite_explicit_value_is_not_a_number() -> None:

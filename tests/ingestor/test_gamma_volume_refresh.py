@@ -5,16 +5,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from fakeredis import FakeAsyncRedis
 from redis.typing import EncodableT, ExpiryT, KeyT
 
+from polymarket_insider_tracker.detector.size_anomaly import SizeAnomalyDetector
 from polymarket_insider_tracker.ingestor.gamma_client import GammaCrawl
 from polymarket_insider_tracker.ingestor.gamma_volume_refresh import GammaVolumeRefresh
 from polymarket_insider_tracker.ingestor.metadata_sync import MarketMetadataSync, MetadataSyncError
-from polymarket_insider_tracker.ingestor.models import Market
+from polymarket_insider_tracker.ingestor.models import Market, TradeEvent
 from polymarket_insider_tracker.ingestor.volume_store import VolumeStore
 from tests.fakes import FakeGammaClient
 from tests.ingestor.test_metadata_sync import FakeClobClient
@@ -153,3 +156,245 @@ async def test_stop_surfaces_the_failure_of_a_loop_that_died_before_it() -> None
 
     with pytest.raises(RuntimeError, match="clock boom"):
         await refresh.stop()
+
+
+class ManualClock:
+    """A clock the test moves explicitly; nothing in these tests reads wall time."""
+
+    def __init__(self, start: datetime) -> None:
+        self._now = start
+
+    def now(self) -> datetime:
+        return self._now
+
+    def advance(self, seconds: float) -> None:
+        self._now += timedelta(seconds=seconds)
+
+
+class ClockedSlowClob(FakeClobClient):
+    """A CLOB crawl that takes simulated time: each crawl advances the manual clock."""
+
+    def __init__(self, markets: list[Market], clock: ManualClock, seconds: float) -> None:
+        super().__init__(markets)
+        self.calls = 0
+        self._sim_clock = clock
+        self._seconds = seconds
+
+    def get_markets(self, active_only: bool = True) -> list[Market]:
+        self.calls += 1
+        self._sim_clock.advance(self._seconds)
+        return super().get_markets(active_only)
+
+
+class ClockedGamma(FakeGammaClient):
+    """A Gamma fake whose crawls are stamped from the manual clock and can be made to fail."""
+
+    def __init__(self, clock: ManualClock) -> None:
+        super().__init__({CID: volume_stats(acquired_at=clock.now())})
+        self._sim_clock = clock
+        self.crawls = 0
+        self._failing: Exception | None = None
+
+    def set_failing(self, err: Exception) -> None:
+        self._failing = err
+
+    async def crawl_active_markets(self) -> GammaCrawl:
+        self.crawls += 1
+        if self._failing is not None:
+            raise self._failing
+        now = self._sim_clock.now()
+        return GammaCrawl(
+            stats={CID: volume_stats(acquired_at=now)},
+            pages_ok=1,
+            pages_failed=0,
+            truncated=False,
+            started=now,
+            finished=now,
+        )
+
+
+def _sample_trade(instant: datetime) -> TradeEvent:
+    return TradeEvent(
+        market_id=CID,
+        trade_id="tx_steady_state",
+        wallet_address="0x1234567890abcdef1234567890abcdef12345678",
+        side="BUY",
+        outcome="Yes",
+        outcome_index=0,
+        price=Decimal("1"),
+        size=Decimal("1000"),
+        timestamp=instant,
+        asset_id="token_gamma",
+    )
+
+
+CYCLES = 4
+CLOB_CRAWL_SECONDS = 204
+
+
+@dataclass(frozen=True)
+class SteadyStateRun:
+    """What one driven run of the slow-CLOB scenario observed; the run itself asserts nothing."""
+
+    positive_states: list[str]
+    positive_measured: list[bool]
+    positive_ages: list[object]
+    clob_calls: int
+    gamma_crawls: int
+    negative_state: str
+    negative_reason: str
+    negative_impact: object
+    negative_signal_absent: bool
+
+
+async def _evaluate_sample(
+    detector: SizeAnomalyDetector, now: datetime
+) -> tuple[str, str, object, bool, object]:
+    size_eval = await detector.evaluate(_sample_trade(now), evaluated_at=now)
+    verdict = size_eval.volume.verdict
+    return (
+        verdict.state.value,
+        verdict.reason,
+        size_eval.volume.volume_impact_measured,
+        size_eval.signal is None,
+        verdict.age_seconds,
+    )
+
+
+async def _run_steady_state(fake_redis: FakeAsyncRedis) -> SteadyStateRun:
+    clock = ManualClock(datetime(2026, 10, 20, 12, 0, 0, tzinfo=UTC))
+    gamma = ClockedGamma(clock)
+    clob = ClockedSlowClob([MARKET], clock, seconds=CLOB_CRAWL_SECONDS)
+    sync = MarketMetadataSync(redis=fake_redis, clob_client=clob, gamma_client=gamma)
+    refresh = GammaVolumeRefresh(gamma, VolumeStore(fake_redis), clock=clock.now)
+    detector = SizeAnomalyDetector(sync, clock=clock.now)
+
+    positive_states: list[str] = []
+    positive_measured: list[bool] = []
+    positive_ages: list[object] = []
+    for _ in range(CYCLES):
+        # Gamma stamps the volume at the crawl instant; the slow CLOB then advances the clock,
+        # so the evaluation sees the volume aged by the CLOB crawl duration.
+        await refresh.refresh_once()
+        await sync.force_sync()
+        state, _, impact, _, age = await _evaluate_sample(detector, clock.now())
+        positive_states.append(state)
+        positive_measured.append(impact is not None)
+        positive_ages.append(age)
+
+    gamma.set_failing(RuntimeError("gamma degraded"))
+    clock.advance(601.0)
+    await refresh.refresh_once()
+    await sync.force_sync()
+    negative_state, negative_reason, negative_impact, signal_absent, _ = await _evaluate_sample(
+        detector, clock.now()
+    )
+    return SteadyStateRun(
+        positive_states=positive_states,
+        positive_measured=positive_measured,
+        positive_ages=positive_ages,
+        clob_calls=clob.calls,
+        gamma_crawls=gamma.crawls,
+        negative_state=negative_state,
+        negative_reason=negative_reason,
+        negative_impact=negative_impact,
+        negative_signal_absent=signal_absent,
+    )
+
+
+@pytest.fixture
+async def steady_state(fake_redis: FakeAsyncRedis) -> SteadyStateRun:
+    return await _run_steady_state(fake_redis)
+
+
+async def test_slow_clob_steady_state_sample_is_available_every_cycle(
+    steady_state: SteadyStateRun,
+) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.positive_states
+
+    # Assert
+    assert actual == ["available"] * CYCLES
+
+
+async def test_slow_clob_ages_each_sample_by_the_clob_crawl_duration(
+    steady_state: SteadyStateRun,
+) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.positive_ages
+
+    # Assert
+    assert actual == [str(CLOB_CRAWL_SECONDS)] * CYCLES
+
+
+async def test_slow_clob_steady_state_measures_the_impact_every_cycle(
+    steady_state: SteadyStateRun,
+) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.positive_measured
+
+    # Assert
+    assert actual == [True] * CYCLES
+
+
+async def test_slow_clob_is_crawled_once_per_cycle_and_once_degraded(
+    steady_state: SteadyStateRun,
+) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.clob_calls
+
+    # Assert
+    assert actual == CYCLES + 1
+
+
+async def test_gamma_is_crawled_once_per_cycle_and_once_degraded(
+    steady_state: SteadyStateRun,
+) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.gamma_crawls
+
+    # Assert
+    assert actual == CYCLES + 1
+
+
+async def test_degraded_gamma_leaves_the_volume_stale(steady_state: SteadyStateRun) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.negative_state
+
+    # Assert
+    assert actual == "stale"
+
+
+async def test_degraded_gamma_gives_the_older_than_600s_reason(
+    steady_state: SteadyStateRun,
+) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.negative_reason
+
+    # Assert
+    assert actual == "older_than_600s"
+
+
+async def test_degraded_gamma_measures_no_volume_impact(steady_state: SteadyStateRun) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.negative_impact
+
+    # Assert
+    assert actual is None
+
+
+async def test_degraded_gamma_emits_no_signal(steady_state: SteadyStateRun) -> None:
+    # Arrange
+    # Act
+    actual = steady_state.negative_signal_absent
+
+    # Assert
+    assert actual is True

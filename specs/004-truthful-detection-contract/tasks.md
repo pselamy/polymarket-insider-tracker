@@ -46,6 +46,7 @@ Named files, entry points, dependency order:
   nonce-9 override mismatch (FR-007c/008/010, SC-003/006, D2). Joint assertion, not separate
   label checks. **Gate split (round-4 N2)**: the pre-T027 half lands with the 004 implementation; the
   post-T027 half lands in the gate-opening change with T015b/T019b, after a T027 PASS receipt.
+  *P4 pre-T027 receipt (partial, stays unticked until T027)*: `pipeline_components.py` wires `fresh_threshold=settings.detector.fresh_transaction_boundary` into `WalletAnalyzer`; `FreshWalletDetector.evaluate` normalizes `profile.is_fresh` and `profile.fresh_threshold` to `fresh_transaction_boundary`; `tests/detector/test_freshness_closure.py` jointly asserts the pre-T027 unknown-age low-activity posture and the boundary-10 / nonce-9 override mismatch across classification, 004.1 envelope, `FreshWalletSignal.to_dict()`, persisted `WalletProfileDTO`, and `AlertFormatter`.
 - [ ] T009d [US1] Table-driven detector tests in `tests/detector/` (extend
   `test_fresh_wallet.py`, `test_size_anomaly.py`, `test_scorer.py`): default/override/equality
   boundary fixtures (nonce exactly `B`, age exactly 48h, score exactly 0.80, ratio exactly
@@ -59,6 +60,7 @@ Named files, entry points, dependency order:
   cases through the real size detector and scorer and compares them with the committed rows; their volume states
   are still classified by the replay script's precedence table, not by `detector/volume_state.py`, so the
   "all eight volume states through the detector" leg is not claimed by that test.
+  *P5 pre-T027 receipt (partial, stays unticked until T027)*: `tests/detector/test_size_volume_evidence.py` now runs all 65 `evidence/replay-live/cases.json` cases (all eight volume states and every reason) through `SizeAnomalyDetector.evaluate` (`detector/volume_state.py::size_volume_evidence`) and `RiskScorer.assess`, plus `size_volume_threshold` strict-`>` and `alert_threshold` inclusive-`>=` boundary overrides.
 - [x] T010 [US1] Deterministic pipeline test (extend 003 harness in
   `tests/integration/test_end_to_end.py`) proving the same source values + availability
   flags in analysis, scoring, persistence, and formatted dry-run output; per-participant
@@ -98,7 +100,7 @@ Named files, entry points, dependency order:
 - [x] T012c [US1] `ingestor/models.py::MarketMetadata.to_dict/from_dict`: nullable provenance fields,
   legacy records (value without provenance) read as `unqualified/no_provenance`; the generic
   `last_updated` is never a stamp source (FR-004b, F11).
-- [ ] T012d [US1] Freshness evidence tests: (1) a fake-clock steady-state test that runs the real loops for
+- [ ] T012d [US1] Freshness evidence tests: *Unticked: the deterministic test (0 flakes under load) does not exercise the loop's decoupling from a slow CLOB; item (1) stays open.* (1) a fake-clock steady-state test that runs the real loops for
   several cycles with a slow CLOB fake (D = 204 s) and asserts no `stale` volume while the Gamma loop is
   healthy; (2) the bound `S_g + 2g + w_g <= 600` asserted from measured fake durations; (3) cache-miss
   race: miss-path write after a sync write leaves the stamped record intact; (4) real-Redis TTL/expiry
@@ -111,17 +113,30 @@ Named files, entry points, dependency order:
   *Layer 4 receipt (partial, stays unticked)*: (4) real-Redis TTL/expiry now runs in the services profile
   (`test_a_real_redis_volume_record_reads_available_then_stale_then_expires`, re-exported by
   `test_redis_contract.py`): product TTL 600 < ttl <= 1200, `available` at 30 s, `stale` at 601 s, then
-  `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock run of (1) is still not
-  written: the CLOB sync and Gamma refresh loops sleep on the event loop, not an injectable clock.
+  `unavailable`/`no_volume_record` after real expiry. The slow-CLOB `D = 204 s` fake-clock loop run of (1) is still
+  not written: the deterministic manual-clock suite in `tests/ingestor/test_gamma_volume_refresh.py`
+  (`test_slow_clob_steady_state_sample_is_available_every_cycle`,
+  `test_slow_clob_ages_each_sample_by_the_clob_crawl_duration`,
+  `test_slow_clob_steady_state_measures_the_impact_every_cycle`,
+  `test_slow_clob_is_crawled_once_per_cycle_and_once_degraded`,
+  `test_gamma_is_crawled_once_per_cycle_and_once_degraded`,
+  `test_degraded_gamma_leaves_the_volume_stale`,
+  `test_degraded_gamma_gives_the_older_than_600s_reason`,
+  `test_degraded_gamma_measures_no_volume_impact`,
+  `test_degraded_gamma_emits_no_signal`) drives `refresh_once()` and `force_sync()` by hand on a `ManualClock`. Each
+  sample is evaluated 204 s after its Gamma stamp (the CLOB crawl), so the 600 s rule is exercised with 0 flakes under
+  load, without running the real sleeping CLOB and Gamma loops; item (1) decoupling stays open.
 
 ## Phase 4: US2 Operational vs research modules [US2] (future implementation)
 
-- [ ] T013 [US2] Capability-consistency tests (`tests/detector/test_sniper.py` scope +
+- [x] T013 [US2] Capability-consistency tests (`tests/detector/test_sniper.py` scope +
   scorer/formatter surfaces): operational core only (fresh/low-activity + size + niche
   modifier); sniper experimental; funding enrichment-only; no backtest claims (FR-001/006/012–014, FR-018, SC-004/007)
-- [ ] T014 [US2] Documentation/skill updates (README, CHANGELOG, sample alert, example env,
+  *P4 receipt*: `tests/detector/test_capability_consistency.py` verifies operational core only, book-depth non-operational, sniper module experimental and omitted from live pipeline, funding tracing best-effort enrichment only, and research-only alert wording with no executable backtest CLI options (FR-001/006/012–014, FR-018, SC-004/007).
+- [x] T014 [US2] Documentation/skill updates (README, CHANGELOG, sample alert, example env,
   architecture text, docstrings, tracked skill) distinguishing
   operational/enrichment/experimental/deferred (FR-017/018, SC-007). Depends on T013.
+  *P5 receipt*: `README.md`, `CHANGELOG.md`, `.env.example`, and module docstrings (`detector/__init__.py`, `profiler/__init__.py`, `profiler/funding.py`) updated distinguishing operational scoring, pre-T027 non-scoring observation, best-effort enrichment, and experimental library, including truthful sample alert and reachability disclosure (and noting that the obsolete tracked skill draft was previously removed in PR #119 / `specs/audit/docs-pruning.md`).
 
 ## Phase 5: US3 Coherent scoring contract [US3] (future implementation)
 
@@ -174,7 +189,10 @@ Named files, entry points, dependency order:
 - [ ] T019a Full pipeline/storage/output/failure/restart/integration evidence per
   `quickstart.md` journey scenarios 1–10 (SC-001–008) **in the pre-T027 posture**: the completion evidence of
   the 004 release, not gated by T027. Depends on T010, T015a, T016, T017 and the pre-T027 literals of
-  T021–T026.
+  T021–T026. **Unticked: the SC-005 display requirement is INCOMPLETE** (no alert surface renders the
+  effective threshold; see implementation-validation.md SC-005 and gap-register G-024). Reconstruction is
+  proven; display is not.
+  *P6 receipt (qualified)*: Pre-T027 journey evidence for quickstart.md scenarios 1–12 and SC-001–SC-009 is recorded in specs/004-truthful-detection-contract/evidence/implementation-validation.md. SC-005 display is open, so T019a is not complete.
 - [ ] T019b The same journeys **in the post-T027 posture** (`004.2` rows, scoring wallet group), run in the
   gate-opening change. Depends on a T027 PASS receipt, T015b and the post-T027 literals of T021–T026.
 - [ ] T020 Real PostgreSQL/Redis parity + migration downgrade exercise (disposable DB only)
@@ -316,7 +334,7 @@ posture** (the posture 004 ships in); the post-T027 values are given in parenthe
 asserted values only in the reviewed change that opens the gate after T027. The change must be made
 deliberately, not by loosening the assertion:
 
-- [x] T021 [US1] `tests/integration/_journey_harness.py` + `tests/integration/test_end_to_end.py::_market`:
+- [x] T021 [US1] `tests/integration/_journey_harness.py` + `tests/integration/test_end_to_end.py::TestEndToEndPipelineHarness::test_end_to_end_dry_run_pipeline` (uses the `niche_market` fixture):
   add a fixture builder for a market whose Gamma volume carries a fresh acquisition stamp
   (state `available`, e.g. $10,000 so a $3,250 trade has ratio 0.325, saturating the 3× cap:
   volume confidence 0.5 × niche 1.5 = 0.75, score pre-T027 `0.75·0.35 + 0.75·0.25 = 0.450`, one group,
