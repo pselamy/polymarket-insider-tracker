@@ -150,10 +150,10 @@ migration); this packet is not reduced to a CI or planning-only goal.
 
 ### Automated Suite Results
 
-Recorded at code head `bca1430` (tree `0c7aeda`), after merging Spec 004 P4-P7 stabilization (`82b6abb`) into SC-005 threshold display (`0482fa33`) on `pair/polymarket-sc005-restack`. This receipt commit is docs-only and follows that code head. The per-directory counts below are superseded by step 1.
+Recorded at code head `81e263f` (tree `82f2ca1`), restacked onto `main` (`49f8770c`, PR #242 squash merge) for SC-005 threshold display on `pair/polymarket-sc005-restack`. This receipt commit is docs-only and follows that code head. The per-directory counts below are superseded by step 1.
 
 1. **Full suite with coverage** (`uv run --locked --all-extras coverage run -m pytest tests --ignore=tests/tooling -q -p no:cacheprovider`):
-   - Result: **4,897 passed, 17 skipped**, exit `0`; coverage report at 100% (8,780 statements, 1,644 branches).
+   - Result: **4,937 passed, 17 skipped**, exit `0`; coverage report at 100% (8,780 statements, 1,644 branches).
 2. **Integration & Journey Suites** (`tests/integration/`), included in step 1; the end-to-end journeys were split into one-claim cases in this batch (33 tests in `tests/integration/test_end_to_end.py`).
    - Command: `uv run pytest tests/integration/test_end_to_end.py tests/integration/test_scoring_config_rows.py -q`
 3. **Spec 004 Evidence Verification Checks**:
